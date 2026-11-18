@@ -439,6 +439,12 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         const sideOne = await sideOf(j, dapp, 'primary');
         const baseOne = await captureBaseline(sideOne, [j.tokenFaucetId], ctx);
         await sessionWithin(dapp, view => sameAs(view.providerAddress, primary), 20_000, ctx);
+        const restoredOne = await expectNoPrompt(
+          dapp,
+          () => callDapp(dapp, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(restoredOne, 'restore the existing primary grant', ctx).address, primary)).toBe(true);
         const sentOne = await answerPrompt(
           dapp,
           () => callDapp(dapp, 'send', { ...toB, via: 'requestSend' }, ctx.deadline),
@@ -447,12 +453,33 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         );
         const txOne = unwrap(sentOne.result, "dApp one's send", ctx).txId;
 
+        // The other account's poll disconnected this adapter; restore its existing grant before reading its write.
+        await selectAccountIfNeeded(j.walletA, second);
+        await sessionWithin(two, view => sameAs(view.providerAddress, second), 20_000, ctx);
+        const readTwo = await expectNoPrompt(
+          two,
+          () => callDapp(two, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(readTwo, 'restore the second grant for its completion read', ctx).address, second)).toBe(
+          true
+        );
         const [writtenTwo] = await expectWritesToTheEnd(
           sideTwo,
           baseTwo,
           [{ txId: txTwo, outputNotes: [{ noteType: 'public' }], consumedNullifiers: [] }],
           { [j.tokenFaucetId]: -tst(2) },
           ctx
+        );
+        await selectAccountIfNeeded(j.walletA, primary);
+        await sessionWithin(dapp, view => sameAs(view.providerAddress, primary), 20_000, ctx);
+        const readOne = await expectNoPrompt(
+          dapp,
+          () => callDapp(dapp, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(readOne, 'restore the primary grant for its completion read', ctx).address, primary)).toBe(
+          true
         );
         const [writtenOne] = await expectWritesToTheEnd(
           sideOne,
@@ -476,6 +503,12 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         await callDapp(dapp, 'disconnect', {}, ctx.deadline);
         await j.walletA.selectAccount(second);
         await sessionWithin(two, view => sameAs(view.providerAddress, second), 20_000, ctx);
+        const restoredTwo = await expectNoPrompt(
+          two,
+          () => callDapp(two, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(restoredTwo, 'restore the existing second grant', ctx).address, second)).toBe(true);
         unwrap(
           await expectNoPrompt(two, () => callDapp(two, 'guardianInfo', {}, ctx.deadline), ctx),
           "dApp two's session survives dApp one's disconnect",

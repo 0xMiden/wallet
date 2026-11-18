@@ -23,6 +23,7 @@ import {
   randomFeeSalt
 } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { isExtension } from 'lib/platform';
 import { getAgglayerBridgeOut } from 'lib/remote-config/values';
@@ -54,7 +55,7 @@ export async function createB2AggNote(
 }
 
 export interface B2AggBridgeDeps {
-  /** `signTransaction` from `useMidenContext()` — used by the background processor (mobile/desktop). */
+  /** `signTransaction` from `useMidenContext()` - used by the background processor (mobile/desktop). */
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   /** Guardian provider from `lib/miden/front/guardian-sync`. */
   guardianProvider: GuardianAccountProvider;
@@ -114,7 +115,7 @@ export async function initiateB2AggBridge(args: {
   // Decided before the WASM hold: the bytes go to a Guardian proposal, inside its pending hold, or straight to the
   // node (#1081).
   const expirationDelta = expirationDeltaBlocks(await isGuardianAccount(senderPublicKey, guardianProvider));
-  const { requestBytes, faucetBech32, exitTxHash } = await withWasmClientLock(async hold => {
+  const { requestBytes, faucetBech32, exitTxHash, ownNoteId } = await withWasmClientLock(async hold => {
     const note = await createB2AggNote(
       amount,
       faucetId,
@@ -125,10 +126,10 @@ export async function initiateB2AggBridge(args: {
     );
     // The awaited note build parks (the lazy SDK load can be the long one), and
     // an eviction during it hands the mutex to a successor without stopping this
-    // callback — everything below is WASM work that would then run alongside the
+    // callback - everything below is WASM work that would then run alongside the
     // successor's, unmutexed. Everything in this hold is write PREP: the request
     // is only built and serialized here, submission happens later in the
-    // transaction pipeline, so aborting is always safe — and it must happen
+    // transaction pipeline, so aborting is always safe - and it must happen
     // BEFORE `initiateBridgedSendTransaction` queues a row, since a queued row
     // would hand the abandoned request to the processor as a fresh write.
     assertWasmHoldCurrent(hold, 'before the bridge request build');
@@ -147,6 +148,8 @@ export async function initiateB2AggBridge(args: {
       .withOwnOutputNotes(new NoteArray([note]))
       .withExpirationDelta(expirationDelta)
       .build();
+    // Signing may create only this note; a request that does not create exactly one queues no row.
+    const ownNoteId = soleOwnOutputNoteId(request);
     const serialisedReq = request.serialize();
     console.log('Got the serialised transaction request', serialisedReq);
     try {
@@ -159,7 +162,8 @@ export async function initiateB2AggBridge(args: {
     return {
       requestBytes: serialisedReq,
       faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(faucetId)),
-      exitTxHash
+      exitTxHash,
+      ownNoteId
     };
   });
 
@@ -172,6 +176,7 @@ export async function initiateB2AggBridge(args: {
     destinationAddress,
     evmNetworkId,
     'agglayer',
+    ownNoteId,
     requestBytes,
     true,
     undefined,

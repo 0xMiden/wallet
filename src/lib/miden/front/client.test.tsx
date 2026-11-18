@@ -229,7 +229,6 @@ const FullActionProbe: React.FC = () => {
     swallow(() => ctx.applyUserGuardianEndpoint?.('pk', 'https://mine'));
     swallow(() => ctx.revealMnemonic?.('pw'));
     swallow(() => ctx.updateSettings?.({ contacts: [] }));
-    swallow(() => ctx.signData?.('pk', 'payload'));
     swallow(() => ctx.signTransaction?.('pk', 'payload'));
     swallow(() => ctx.getAuthSecretKey?.('k'));
     swallow(() => ctx.getDAppPayload?.('id'));

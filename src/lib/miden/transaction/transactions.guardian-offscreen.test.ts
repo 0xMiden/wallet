@@ -81,6 +81,12 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // `advice_map.write_into(target)`, so the extended advice map holding the hot/cold/
 // guardian co-signatures survives serialize; verified end-to-end at the WASM level in
 // the flag-flip guardian E2E, structurally here).
+jest.mock('../sdk/test-guardian-authorization', () => ({
+  authorizeTestGuardianRequest: jest.fn(async () => undefined),
+  assertTestGuardianRequestAuthorization: jest.fn(async () => undefined)
+}));
+const mockGuardianAuthorization = jest.requireMock('../sdk/test-guardian-authorization');
+
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
 
 // What the mock `createRebasedCustomProposal` hands back as the request the proposal was
@@ -327,7 +333,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   cacheScope: () => 'fixture-rpc|testnet',
   captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
-  recordSyncedFeeFaucetId: jest.fn(async () => true)
+  recordSyncedFeeFaucetId: jest.fn(async () => true),
+  // An approved custom proposal reads the chain fee first; the read is the node's, not this suite's.
+  refreshVerificationBaseFee: jest.fn(async () => 2),
+  isVerificationBaseFeeKnownAbsent: () => false
 }));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
@@ -574,6 +583,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '3',
       requestBytes: new Uint8Array([6, 6]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } }
     },
     complete: mockComplete.bridged
@@ -586,6 +596,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '3',
       requestBytes: new Uint8Array([3, 3]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'agglayer' }
     },
     complete: mockComplete.bridged
@@ -598,6 +609,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '5',
       requestBytes: new Uint8Array([4, 4]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10 }
     },
     complete: mockComplete.earn
@@ -639,6 +651,8 @@ function arrange(id: string, extra: Record<string, unknown>, result = makeResult
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGuardianAuthorization.authorizeTestGuardianRequest.mockReset().mockResolvedValue(undefined);
+  mockGuardianAuthorization.assertTestGuardianRequestAuthorization.mockReset().mockResolvedValue(undefined);
   mockAssertCustomEffectsApproved.mockReset();
   mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
   txStore.length = 0;
@@ -661,6 +675,49 @@ afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   // The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
   clearGuardianAccountLocks();
+});
+
+describe('actual Guardian request authorization boundary', () => {
+  const nativeCases = [
+    ...valueMovingCases().filter(item => item.type !== 'execute'),
+    {
+      type: 'epoch',
+      row: {
+        type: 'bridged-send',
+        secondaryAccountId: 'r',
+        faucetId: 'f',
+        amount: '3',
+        requestBytes: new Uint8Array([3, 3]),
+        extraInputs: { provider: 'epoch', recallBlocks: 1000 }
+      }
+    }
+  ];
+  it.each(nativeCases.flatMap(item => [false, true].map(offscreen => ({ ...item, offscreen }))))(
+    '$type refuses execution or dispatch before actual signed-byte upload (offscreen=$offscreen)',
+    async ({ row, offscreen }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = String(offscreen);
+      const { inline } = arrange('native-signed-upload', row);
+      mockGuardianAuthorization.authorizeTestGuardianRequest.mockRejectedValue(
+        new Error('Actual request not uploaded')
+      );
+      await generateTransaction(buildTx('native-signed-upload', row) as never, signCallback, false, provider as never);
+      expect(inline.__executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      expect(txStore.find(item => item.id === 'native-signed-upload')?.status).toBe(ITransactionStatus.Failed);
+    }
+  );
+  it('checks the spent signed authority after asynchronous executing-stage bookkeeping', async () => {
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { inline } = arrange('native-signed-expiry', row);
+    mockGuardianAuthorization.authorizeTestGuardianRequest.mockResolvedValue('send');
+    mockGuardianAuthorization.assertTestGuardianRequestAuthorization.mockImplementation(async () => {
+      expect(txStore.find(item => item.id === 'native-signed-expiry')?.stage).toBe('executing');
+      throw new Error('Signed authority expired during stage bookkeeping');
+    });
+    await generateTransaction(buildTx('native-signed-expiry', row) as never, signCallback, false, provider as never);
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(txStore.find(item => item.id === 'native-signed-expiry')?.status).toBe(ITransactionStatus.Failed);
+  });
 });
 
 describe('guardian leaf routing — flag OFF (inline)', () => {
@@ -736,7 +793,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     await generateTransaction(buildTx('on-send-pre-submit', row) as never, signCallback, false, provider as never);
 
     const stored = txStore.find(r => r.id === 'on-send-pre-submit') as Record<string, unknown>;
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -759,7 +816,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
 
       const stored = txStore.find(r => r.id === id) as unknown as ITransaction;
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       expect(stored).toMatchObject({ status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR });
       expect(stored.mayHaveSubmitted).toBeUndefined();
       expect(stored.submitEvidence ?? []).not.toEqual(
@@ -837,7 +894,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     expect(stored.status).toBe(ITransactionStatus.Queued);
     expect(stored.processingStartedAt).toBeUndefined();
     // Provably before the submit, so the candidate is abandoned at once and the requeue never meets it (#1081).
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -2218,6 +2275,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       faucetId: 'f',
       amount: '5',
       requestBytes: new Uint8Array([4, 4]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10 }
     };
     arrange('on-earn-unauthorized', row);
@@ -2769,15 +2827,19 @@ describe('guardian custom proposals preserve the prepared request through signin
       provider as never
     );
 
+    // Both decodes are handed the scope of the fee read before the dry run.
     expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledWith(
       { accountId: 'guardian-acc', preparedBytes: enriched, hold: expect.anything() },
       approvedEffects,
-      spentAssetTotals
+      spentAssetTotals,
+      'fixture-rpc|testnet'
     );
     expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
       approvedEffects,
       { summaryBytes: proposalSummary },
-      spentAssetTotals
+      spentAssetTotals,
+      false,
+      'fixture-rpc|testnet'
     );
     expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
     expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
@@ -2851,7 +2913,9 @@ describe('guardian custom proposals preserve the prepared request through signin
     expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
       approvedEffects,
       { summaryBytes: 'proposal-summary' },
-      undefined
+      undefined,
+      false,
+      'fixture-rpc|testnet'
     );
     expect(service.abandonCandidate).toHaveBeenCalled();
     expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
@@ -3139,13 +3203,13 @@ describe('guardian bridged-send / earn-deposit byte-identity — flag ON result 
 
 // An Agglayer bridged-send and a USDCx burn can await the node's verdict, so a killed attempt keeps the candidate
 // (#1081); an earn deposit cannot, so it still abandons at once.
-type KillCase = Case & { abandons: number[][]; evidence: unknown };
+type KillCase = Case & { abandons: [number, string][]; evidence: unknown };
 const bridgeEarnKillCases = (): KillCase[] => [
   { ...bridgeEarnCase('agglayer'), abandons: [], evidence: KEPT_AT_7 },
   { ...bridgeEarnCase('usdcx'), abandons: [], evidence: KEPT_AT_7 },
   {
     ...bridgeEarnCase('earn-deposit'),
-    abandons: [[7]],
+    abandons: [[7, 'prop']],
     evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
   }
 ];
@@ -3329,7 +3393,7 @@ describe('guardian offscreen submit gate (#1644)', () => {
 
     const stored = txStore.find(r => r.id === id) as Record<string, unknown>;
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -3382,7 +3446,7 @@ describe('guardian offscreen submit gate (#1644)', () => {
     await generateTransaction(buildTx('gate-pending', consumeRow) as never, signCallback, false, provider as never);
 
     expect(await pending).toBe(false);
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
   });
 
   it('the gate refuses once the attempt has settled', async () => {
@@ -3578,6 +3642,28 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
     expect(finalRow.displayMessage).not.toBe('Sent');
+  });
+
+  it('swap: a round-tripped landed failure is Completed with its order id and order note', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    // As the proxy rebuilds the reply: the order id crossed as decimal text.
+    const applyErr = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      landed: { transactionId: '0xlanded', orderId: '42', orderNoteId }
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const swap = valueMovingCases().find(c => c.type === 'swap')!.row;
+    arrange('apply-swap-order', swap);
+
+    await generateTransaction(buildTx('apply-swap-order', swap) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === 'apply-swap-order')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.transactionId).toBe('0xlanded');
+    expect(finalRow.extraInputs).toMatchObject({ orderId: 42n, expiresAt: expect.any(Number) });
+    expect(finalRow.extraInputs).not.toHaveProperty('landedOrder');
+    expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
   });
 
   it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {
@@ -3913,7 +3999,7 @@ describe('structural guardian leaf kill-window (funds-safety) — an offscreen k
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
       // The SW submit-catch abandoned the guardian candidate (idempotent), exactly once.
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       // The row is terminally FAILED — NOT requeued, and carries no requeue cooldown stamp.
       const finalRow = txStore.find(r => r.id === `s-kill-${row.type}`)!;
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
@@ -4301,7 +4387,7 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
       expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       expect(mockProxyGetCommitState).not.toHaveBeenCalled();
       expect(statusAtAbandon).toBeDefined();
       expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
@@ -4327,7 +4413,7 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
 
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       expect(mockProxyGetCommitState).not.toHaveBeenCalled();
       expect(statusAtAbandon).toBeDefined();
       expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);

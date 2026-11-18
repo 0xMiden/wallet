@@ -1,13 +1,62 @@
 # Changelog
 
-## 1.17.12 (TBD)
+## 1.18.1 (TBD)
 
+- [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
+
+- [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.
+- [FIX][ci] Keep checking the same public faucet note after a commitment read transport error, within the existing deadline and without another grant.
+
+- [FIX][ci] Compare the USDCx burn activity fee with verification and sponsorship combined, and count each component once in Chrome and iOS live vault checks.
+
+- [FIX][ci] Read measured maximum fee rows in Chrome and iOS USDCx burn reviews, restore each dApp's existing account grant before completion reads, and retain scalar refusal-phase and screenshot-helper diagnostics without changing existing timing bounds.
+- [FIX][ci] Check signed 1Click execution economics against the shared nightly loss allowance when the direct NEAR endpoint has no configured application fees or explicit fee policy. Public wallet settings are unchanged.
+
+- [FIX][ci] Observe an early NEAR quote-response rejection while the nightly waits for Review, preserving the original error on await without changing requests, amounts, timeouts or authorization.
+
+- [FIX][all] A Fast bridge-in whose deposit landed in The Compact while Epoch refused its allocation now reads Deposit locked, and its Activity details let the depositing EVM wallet retry the bridge over the locked balance or withdraw the whole lock back after the lock's reset period; Settings > Advanced > Recover locked bridge funds scans The Compact for every Fast bridge-in address and the connected EVM wallet and offers the same withdraw, cancel and retry per lock; the Fast bridge-in flow lets the EVM wallet disable a forced withdrawal and continues with a fresh quote after confirmation (#2120).
+- [FIX][ci] Retain the first Epoch return solve-failure as a keyed fingerprint and finite SDK kind/HTTP status without exporting private errors or changing transaction, retry, timeout or authorization behavior.
+
+- [CHANGE][all] A basket token's page shows its composition, read from its vault: a bar split by each constituent's share of the vault's value and a list of the constituents with their shares. A basket token now has a 24h move, on its page and in every price list, and its page has a chart, both derived from the constituents' market prices weighted by that composition.
+- [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
+- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
+
+## 1.18.0 (2026-11-17)
+
+- [FIX][all] USDCx burn confirmation shows and records a source-bound native fee maximum. Both signing paths accept only the exact protocol sponsorship for the approved burn within that total cap, and receipts include its actual cost.
+
+- [FIX][ci] Validate the updated extension on its existing profile, keep dApp request accounts and required adapter checks aligned with SDK 0.18, and restore armed read faults before replacement offscreen clients start.
+
+- [CHANGE][all] Upgrade the Miden web, React and wallet adapter SDKs to 0.18.0 and the Rust client and CLI to 0.18.2, with matching native proving dependencies.
+- [FIX][ci] Recognize the next exactly pinned, independently audited unsigned NEAR nightly checkpoint for recovery-only no-spend reconciliation without replaying its expired quote or relaxing SDK upload and inventory checks.
+
+- [FIX][ci] Wait for the exact Epoch return note on the public chain before wallet import and retain sanitized return-readiness failures without exposing private logs or changing claim authorization.
+
+- [FIX][ci] Reconcile the independently audited, expired unsigned NEAR nightly quote only after exact original run/gate provenance, unchanged holdings and unused provider status with canonical hex faucet IDs and normalized tracing metadata, retaining signature and exact quote verification; keep reconciliation recovery-only and retain all SDK upload safeguards.
+
+- [FIX][all] Auto-consume measures a claim against its fee floor again after it removes the notes that another claim covers or that wait for a retry, so a small payment is no longer claimed alone at a loss (#2192).
+- [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.
+- [CHANGE][ci] A telemetry egress test no longer fails when a random Sentry id happens to contain one of its short hex needles.
+- [FIX][all] A bridged send (Agglayer, USDCx or Epoch) or an Earn deposit is checked against its reviewed token and amount and against the note the wallet built before it is signed, on Guardian and single-key accounts alike (#2147).
+- [FEATURE][chrome] Add optional passkey unlock for eligible password wallets in Chrome 140+, with side-panel setup, confirmation-window unlock, and unchanged password fallback (#846).
+
+- [CHANGE][ci] Add serialized solver swap, Epoch and NEAR round trips to the mainnet nightly, recycling existing principal under one $2 loss/fee cap with original-authority recovery, exact upload gates and loops-only qualification. Public NEAR configuration remains unchanged.
+- [CHANGE][all] Show distinct token names and an expandable full Faucet ID with copy feedback on token details.
+- [FEATURE][all] Home hides dust tokens, those worth less than a tenth of a cent, behind a Hide dust tokens switch in General Settings that is on by default; the native token always stays listed.
+- [FIX][all] Swap availability notices distinguish an empty pair registry from pending or failed external service checks.
+- [CHANGE][all] Guardian accounts use the 0.19.0-rc.2 Guardian clients for the Miden 0.18 protocol line.
+- [FIX][all] Show gray recovery states for unspent Epoch bridge notes, with claim guidance in transaction details (#2131).
+- [FIX][all] Use shared adaptive amount displays across wallet screens, retain exact approval values and number animations, and prevent long bridge amounts from overlapping the transfer arrow (#2114).
+- [FIX][all] Approval screens always show an internationalized site address with its ASCII (punycode) form, and the mobile and desktop apps lock after a chosen time in the background (10 minutes by default, set in Settings > General).
+- [FIX][all] Off mobile the recovery phrase stays hidden until Show is pressed and hides again when the window loses focus, the desktop window is kept out of screen captures while secret material is on screen, and new wallet and backup-file passwords need at least 12 characters (existing passwords still unlock).
+- [FIX][all] Off mobile a revealed private key or everyday key stays hidden until Show is pressed and hides again when the window loses focus.
 - [FIX][all] Cancel timed-out Guardian discovery reads so later recovery attempts can use shared permits (#2080).
 - [FIX][all] Keep a settled Guardian probe selectable when confirming chain read is unavailable (#2080).
 - [CHANGE][all] A dApp's consumable notes carry standardPayment, true only for a P2ID or P2IDE payment, so the dApp can leave other notes out.
 - [BREAKING][all] A dApp's signBytes(data, "word"), and signBytes(data, "signingInputs") with a Blind or Arbitrary payload, now signs a domain-separated commitment that cannot authorize a transaction: the commitment of SigningInputs.newArbitrary([tag, ...payload]), where the tag is Poseidon2 of "miden-wallet/sign-bytes/v1". A transaction summary is signed as before, and the approval sheet says such a signature cannot authorize a transaction. The response also carries the signed word as signedCommitment. Migration: verify with publicKey.verify(signedCommitment, signature), or compute the word with domainSeparatedSignCommitment(data, kind) from @miden-sdk/miden-sdk 0.17.10.
 - [FEATURE][all] The send review tags a recipient this account has never sent to, and that is not a saved contact or one of your accounts, as New recipient beside the full address, as a cue to check it before sending.
 - [FIX][all] dApp execute: the wallet proposes a custom transaction only when its simulated effects equal the approved ones. The approval needs a simulation that succeeds (a request that cannot be simulated is refused before any prompt, and no sheet shows the effects the site declares), the queued row records the approved effects, and generation simulates the prepared request again and fails the row before its proposal on any difference; the spending-limit charge is the generation-time value. The network fee is part of the approved-effects comparison.
+- [FIX][mobile] A recovery phrase or private key copied from the wallet leaves the clipboard after 60 seconds unless something else was copied since, and is marked sensitive: Android hides it from clipboard previews and iOS keeps it off your other devices.
 - [FIX][android] Keep parked dApp windows hidden and non-interactive through warmup and managed close.
 - [CHANGE][all] Distinguish cursor open from iteration failures and report closed eligibility request failure families without raw response details.
 - [FIX][ios] WalletConnect responses are matched to their requests by request id, so a lost, duplicate or late wallet answer can no longer resolve a different request; a request that expires or whose session ends is rejected with its own origin, which the failure reports read as Android's.
@@ -22,20 +71,39 @@
 - [CHANGE][mobile] Mobile dApp browser: native listeners attach frame identity; the Android JavaScript-interface fallback forwards page events without frame identity, so the wallet bridge refuses fallback wallet requests while generic app events still reach their listeners.
 - [CHANGE][mobile] Mobile dApp browser: answer a verified main-frame availability PING while the session origin trails the document; continue refusing other origin-mismatched messages.
 - [FIX][all] New Guardian accounts derive their account seed separately from the recovery key's seed, so the account's stored seed never carries key material.
-- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
+- [FIX][all] Send, swap and Earn deposit signing refuses effects beyond the persisted offered token and amount, including unexpected assets and NFTs (#2147).
+- [FIX][all] Max on Send and every bridge route fills the full spendable balance with all of the token's decimals, so it no longer leaves dust behind; only the Available label is rounded (#2157).
 - [FIX][all] Token logos come only from the verified token list by faucet id, so the Bridge in review shows the token's logo (POL) and the Miden logo on its To row, and a token can no longer borrow another token's logo by its symbol (#2093).
 - [FIX][all] The wallet refuses to sign a transaction whose executed effect moves assets the user did not approve: a claim may pay only its network fee, and a dApp's custom transaction may not move more than its approved preview, NFTs included (#2147). A dApp custom transaction that consumes a note it brings is charged against spending limits for what actually leaves the account.
 - [FIX][all] Single-key accounts now refuse to sign a claim or dApp transaction that moves more than was approved, the check Guardian accounts already had.
 - [FIX][all] Swap settlement automatically claims only genuine paybacks of the account's own orders; any other note presented as one is treated as an ordinary incoming transfer.
+- [FIX][all] Swap settlement claims a payback automatically only when the order's paybacks add up to the fill the order recorded; any other payback is claimed by hand from the claim list (on the extension it may also be claimed as an ordinary transfer).
+- [FIX][all] Automatic claims wait until the network fee is known, or the network is known to charge none, so the wallet never claims a note worth less than its fee while the fee is unknown; claiming by hand is unaffected.
 - [FIX][all] Show spinners while Earn data, balances, quotes, retries, and submissions load (#2095).
 - [FIX][mobile] The Home action bar's pill follows a swipe between Home pages, instead of moving only after the new page has settled.
+- [FIX][mobile] The claim list's first view, drawn from its cache before the live read, shows only payments to the account and notes of its own swap orders, on mobile and desktop.
+- [FIX][extension] The background service answers wallet requests only from the extension's own pages, and signs for its offscreen document only while a transaction or dry run it started is running; a content script can only forward dApp requests. The offscreen document answers only the extension's own pages and its service worker. Incoming-transfer and failure notifications now also appear while web pages are open; only the wallet's own open pages suppress them.
+- [CHANGE][extension] The dApp approval window receives the decoded preview of a custom transaction's dry run, not the executed transaction.
 - [CHANGE][all] Epoch: the collateral note of a Fast send or an Earn deposit is built only for the reviewed token, the reviewed amount and the allocator account that the configuration derivation reads.
 - [CHANGE][ci] Record memory and workspace-disk samples every 30 seconds during wallet coverage shards without changing the Jest command or coverage threshold (#2100).
+- [CHANGE][all] Value a verified basket token that no exchange lists at its net asset value, read from chain: when the token list gives it `basket.constituents`, the wallet reads one account proof for its supply and its balance of each constituent, without loading unrelated storage maps, and prices each constituent at its market price. No issuer endpoint is involved. Display only: no 24h move or chart, and spending limits are unchanged.
 - [FIX][ci] Remove a run-owned eligibility probe when privacy settings cannot be read, while requiring the exact identity and content checks (#1894).
 - [FIX][all] The bridge-in token drawer lists only Agglayer tokens with positive balances and scrolls long lists below a fixed header with vertical overscroll containment. Unreadable balances stay unavailable, and balances from a previous account or chain are cleared.
 - [FIX][all] Offer a retry when the Earn deposit balance cannot be loaded (#2095).
 - [FIX][all] Check saved badge awards first when My badges opens, then award missing badges from completed Mainnet history, including Guardian recovery, without waiting for SDK or balance checks.
 - [FIX][all] Badge credit stays on a completed Mainnet send, swap, claim, or bridge receipt. A recovered receipt counts only after a fresh canonical Guardian read, and a backup cannot supply that credit.
+- [FIX][all] A bridge deposit or claim that the MetaMask Smart Transactions relay refuses with a server error now tells the user to turn off Smart Transactions and try again, instead of showing the raw `{"status":500,...}` error (#2107).
+- [FIX][all] Restoring a Guardian account from its recovery phrase now checks the account data the guardian returns before restoring it: the recovery key must be the account's, a deployed account must match the Miden network, and an account not yet on the network must be the one this recovery phrase created. Otherwise nothing is restored.
+- [FIX][all] A dApp custom transaction's approval counts notes the account already held among what leaves it and names them on the sheet, signing allows only the notes that approval showed being created, and the chain fee is read fresh for every check.
+- [FIX][all] A dApp's request to sign a transaction summary shows what leaves the account's holdings, measured once after a fresh chain fee read, and is refused before any sheet when that cannot be measured or the fee is unknown.
+- [FIX][all] Before a transaction is submitted, a WebAssembly trap inside the wallet's WASM lock, while it tells the network fee note apart from its other notes or reads a dApp request's diagnostics or dry run, now retires the broken client instead of answering from it. After a transaction lands, a trap in a fee check is answered there instead of failing the transaction.
+- [FIX][all] A WebAssembly trap while the wallet prepares a dApp custom transaction's approval sheet, builds a Guardian proposal or a device-key replacement, checks a recovered Guardian account, removes the recovery phrase, checks a recovery seed, imports an everyday key, reads the scheme tag of an everyday-key scalar it is importing, or decodes or reads the scheme of a key it is pasting, importing, backing up or restoring now retires the broken client instead of being swallowed; the custom transaction is refused before any sheet. A summary whose chain fee is unknown at its decode, or whose cached fee is for a different endpoint than that fresh read, is refused before the sheet, and a fee read that throws does not fail a signature request that is not a summary.
+- [FIX][all] When a step fails after the network already accepted a transaction, the wallet records it as completed instead of failed, so Retry cannot send it a second time. A WebAssembly trap there, or while answering a dApp waiting for one, also retires the broken client, at most once per transaction.
+- [FIX][all] Retry on a Guardian send or swap, or a bridge send, that may already have gone through now asks you to check your balance first, as it does for other sends.
+- [FIX][all] Retry on a Guardian send with an expiration date, a Guardian swap or a bridge send that may already have gone through now checks the network before it asks you to check your balance: when it already went through, the wallet completes it instead of sending it again, and while the network cannot be checked it sends nothing. A swap that went through keeps its order when its completion is interrupted, so the order can still be cancelled or reclaimed, and its expiry counts from when the swap landed (#2147).
+- [FIX][all] A Guardian device key rotation or account-securing update that is already on chain is no longer recorded as failed when saving its result fails for a moment, since the wallet retries the save, and a Guardian switch that went through completes even when its transaction id cannot be read afterwards.
+- [FIX][all] The fee checks made while a transaction is signed treat a chain fee that was cleared, or read from a network endpoint that has since changed, as unknown, so the transaction fails or waits as a network problem with Retry instead of being checked against that fee or refused for good.
+- [FIX][all] A WebAssembly trap while the extension signs for its offscreen document no longer breaks another operation running at the same time: the broken client is retired once that operation lets go of it. A trap while the wallet checks a Guardian dApp transaction's proposal against what was approved, signs in to a site with a login key, or looks up the Guardian account of a pasted everyday key now retires the broken client too.
 
 ## 1.17.11 (2026-11-09)
 
@@ -54,6 +122,7 @@
 - [CHANGE][all] Require at least $1 of offered assets for Miden swaps, and block swaps when the USD price is unavailable.
 - [FIX][desktop] Lock `@tauri-apps/api` on the Tauri crate's 2.12 line so the release workflow builds the macOS and Windows apps again.
 - [CHANGE][all] Bundle the current testnet token list (USDCx, Game Coin) and Explore catalog (port0.sh, DeFi section) as first-run snapshots.
+
 ## 1.17.9 (2026-10-31)
 
 - [FIX][all] Agglayer withdrawal activity and details show the sent token symbol on both sides when no output symbol is saved.
@@ -166,6 +235,7 @@
 - [CHANGE][all] The Terms of Service, Privacy Policy and Sanctions Compliance Statement name the Miden Foundation as the operator of the network's sequencer, one validator and the USDCx contract, and 0D Labs Limited as the Miden swap solver and counterparty; Whiteharbor Technologies no longer appears.
 - [CHANGE][all] dApp developers get a published guide at https://0xmiden.github.io/wallet/developers/: connecting with the wallet adapter, permissions, networks, transactions, signing, Sign in with Bread, the mobile browser, fullscreen, the sign-in sheet, open links, Explore listing and testing. The fullscreen and sign-in sheet references are published beside it and linked from the README and the Support page (#1829).
 - [CHANGE][all] Failure reports include the node's closed consume verdict, the RPC endpoint for an unknown submit, the matching attempt's closed submit-crossing status, and, for an expired transaction, the prior failure's fixed identity, an expiry-relative proof-wait bucket and a queue-age bucket from the 30-minute TTL without sending raw failure text, timestamps, identifiers or exact counts (#1843).
+
 ### Features
 
 - [FEATURE][all] Require seed phrase backup verification before wallet actions on mainnet once the wallet reaches $150 USD, with a drawer that explains the requirement and cannot be dismissed.
@@ -183,11 +253,13 @@
 - [FIX][mobile] A failed native bridge session precheck names the failed condition and what the add-and-switch attempt did, in fixed values only, so a report that previously named only the session step can be told apart (Sentry BREAD-WALLET-1X, #1636). These values are part of the report title, so these failures start new crash-report issues; the privacy policy lists every value.
 
 - [CHANGE][all] Editing You Receive in Swap calculates You Pay using the directional solver quote, fees, token precision and slippage, while preserving the requested token amount. Before queueing and building a swap, the wallet checks the SDK vault balance and native fee reserve rather than relying only on display balances (#1749).
+
 ### Changes
 
 - [CHANGE][ci] Android Auth Tab acceptance runs against a pinned Chromium 158 (SHA-256 checked) as the Auth Tab provider on the Android 36 Play image, refuses a provider older than 137, installs every APK through a retried adb install, runs the instrumentation through am instrument, and has Firefox 158 trust the run's fixture CA and open the wallet callback without a prompt (#1814).
 - [CHANGE][all] Bridge in and icon polish: the Bridge in connect screen shows the route in one row with numbered steps and a sand test-wallet notice; new Receive, Earn, Explore, back and arrow icons; Guardian switch rows and details use the Guardian avatar, with the providers side by side; Activity subtitles use Nunito. Home adds Deposit and Withdraw tiles under the balance card, which shows its 24h change again; Bridge in gets a close button.
 - [CHANGE][all] Earn withdrawal polish: the review shows You Receive at the deposit review's sizes, its card is outlined and lists where and when the payout arrives and that gas is sponsored, and the Withdrawal Started receipt is outlined with Nunito semibold labels (#1765).
+
 ### Fixes
 
 - [FIX][mobile] Minimizing a dApp to its peek card and opening it again moves the live page on one native spring, at 120 Hz on ProMotion, interruptible mid-flight with its velocity kept, from every entry point including the Bread button over a fullscreen dApp (#1817).

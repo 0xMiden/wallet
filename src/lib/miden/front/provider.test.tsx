@@ -8,13 +8,29 @@ const _g = globalThis as any;
 _g.__providerTest = {
   isExtension: false,
   ready: true,
-  getMidenClientCalls: 0
+  getMidenClientCalls: 0,
+  backgroundLockRenders: 0,
+  backgroundLockMounted: false
 };
 
 // Read while the provider's imports load, which runs before the state above is assigned.
 jest.mock('lib/platform', () => ({
   isExtension: () => (globalThis as any).__providerTest?.isExtension ?? false,
-  isMobile: () => (globalThis as any).__providerTest?.isMobile ?? false
+  isMobile: () => (globalThis as any).__providerTest?.isMobile ?? false,
+  isDesktop: () => false
+}));
+
+jest.mock('lib/lock-up/BackgroundLockManager', () => ({
+  BackgroundLockManager: () => {
+    React.useEffect(() => {
+      (globalThis as any).__providerTest.backgroundLockMounted = true;
+      return () => {
+        (globalThis as any).__providerTest.backgroundLockMounted = false;
+      };
+    }, []);
+    (globalThis as any).__providerTest.backgroundLockRenders++;
+    return null;
+  }
 }));
 
 jest.mock('../sdk/miden-client', () => ({
@@ -86,6 +102,7 @@ beforeEach(() => {
   _g.__providerTest.isExtension = false;
   _g.__providerTest.ready = true;
   _g.__providerTest.getMidenClientCalls = 0;
+  _g.__providerTest.backgroundLockRenders = 0;
   mockPreloadStorage.mockClear();
 });
 
@@ -109,6 +126,45 @@ describe('MidenProvider', () => {
       </MidenProvider>
     );
     expect(await findByText('child-not-ready')).toBeDefined();
+  });
+
+  it('mounts the background lock manager only while the wallet is ready', async () => {
+    _g.__providerTest.ready = false;
+    const notReady = render(
+      <MidenProvider>
+        <div>locked-child</div>
+      </MidenProvider>
+    );
+    await notReady.findByText('locked-child');
+    expect(_g.__providerTest.backgroundLockRenders).toBe(0);
+    notReady.unmount();
+
+    _g.__providerTest.ready = true;
+    const ready = render(
+      <MidenProvider>
+        <div>ready-child</div>
+      </MidenProvider>
+    );
+    await ready.findByText('ready-child');
+    expect(_g.__providerTest.backgroundLockRenders).toBeGreaterThan(0);
+  });
+
+  it('unmounts the background lock manager when the wallet stops being ready', async () => {
+    const view = render(
+      <MidenProvider>
+        <div>flip-child</div>
+      </MidenProvider>
+    );
+    await view.findByText('flip-child');
+    expect(_g.__providerTest.backgroundLockMounted).toBe(true);
+
+    _g.__providerTest.ready = false;
+    view.rerender(
+      <MidenProvider>
+        <div>flip-child</div>
+      </MidenProvider>
+    );
+    await waitFor(() => expect(_g.__providerTest.backgroundLockMounted).toBe(false));
   });
 
   it('eagerly initializes the Miden client on non-extension', async () => {

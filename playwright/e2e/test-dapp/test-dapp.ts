@@ -178,8 +178,7 @@ function loginMessage(word: Word): Word {
 // Chain reads bypass the dApp's client store as well as the wallet: the chain's view of a write is checked on its own.
 const rpc = (): RpcClient => new RpcClient(new Endpoint(state.rpcUrl));
 
-// The adapter never subscribes to the provider's accountChange (K1), so the page listens on the provider itself to
-// record what the wallet actually emitted next to what the adapter reports.
+// Record provider events independently so cells can compare them with the adapter after a switch or revoke.
 function installProviderListener(): void {
   if (state.providerListening) return;
   provider().on('accountChange', (permission: unknown) =>

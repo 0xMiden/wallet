@@ -768,7 +768,7 @@ const requiredNameLiteralViolations = (file: string, text: string): Array<Litera
 const API_WRITER_ALLOWLIST = [
   {
     file: '.github/workflows/check-linked-web-sdk-pr.yml',
-    sha256: '6d473729f44a96453884085bdb26d0bfdf28ae5d7bb49200fa0bc42f53023c7d'
+    sha256: '0c799a091daf3cfbdfc36fa71051c9648dee174a0285cd5aa81e657e967cbc38'
   }
 ];
 
@@ -1409,6 +1409,20 @@ const linkedWith =
     return text.replace(from, () => to);
   };
 
+/** P7's text: `text` with a test reporter step after its one checkout step. */
+const withTestReporter = (text: string): string => {
+  const [step, ...others] = text.match(/^ {6}- uses: actions\/checkout@.*\n/gm) ?? [];
+  if (step === undefined || others.length > 0) {
+    throw new Error(
+      `${LINKED} changed: re-review it, then update API_WRITER_ALLOWLIST's sha256 and this case's anchor, its one checkout step`
+    );
+  }
+  return text.replace(
+    step,
+    () => `${step}\n      - uses: dorny/test-reporter@v1\n        with:\n          name: local-e2e (\${{ matrix.b }})\n`
+  );
+};
+
 /** Where the API rule must flag a case: at one of its lines, or at line 0 for the whole file. */
 type ApiArm = 'a line' | 'the whole file';
 type ApiCase = [...SourceCase, ApiArm];
@@ -1549,10 +1563,7 @@ const apiWriterCases: ApiCase[] = [
   [
     'P7: the pinned workflow adding a test reporter that names its check',
     LINKED,
-    linkedWith(
-      '      - uses: actions/checkout@v6\n',
-      `      - uses: actions/checkout@v6\n\n      - uses: dorny/test-reporter@v1\n        with:\n          name: local-e2e (\${{ matrix.b }})\n`
-    ),
+    () => withTestReporter(configSource(LINKED)),
     'the whole file'
   ],
   [...L1, 'a line'],
@@ -1887,6 +1898,16 @@ describe('no workflow can report a required E2E check name except through the co
     ]);
   });
 
+  it('P7 anchors on actions/checkout when its pin and tag comment change', () => {
+    const text = configSource(LINKED);
+    const step = /^ {6}- uses: actions\/checkout@.*$/gm;
+    expect(text.match(step)).toHaveLength(1);
+    const pin = '      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v6.1';
+    const bumped = withTestReporter(text.replace(step, () => pin));
+    expect(bumped).toContain(`${pin}\n\n      - uses: dorny/test-reporter@v1\n`);
+    expect(apiWriterViolations(LINKED, bumped).map(violation => violation.line)).toContain(0);
+  });
+
   it('ciSourceFiles() reaches every workflow, action and script CI can run, and skips docs, the lockfile and this file', () => {
     const files = ciSourceFiles();
     expect(files).toEqual(
@@ -2012,7 +2033,21 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
   it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {
     expect(onBlock('.github/workflows/pr-e2e-local.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
     expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe(
-      '  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch: {}'
+      [
+        '  pull_request:',
+        '  push:',
+        '    branches: [main]',
+        '  workflow_dispatch:',
+        '    inputs:',
+        '      guardian_image_tag:',
+        "        description: 'Guardian A image tag (empty: versions.env)'",
+        '        type: string',
+        "        default: ''",
+        '      guardian_b_image_tag:',
+        '        description: "Guardian B image tag (empty: Guardian A\'s tag)"',
+        '        type: string',
+        "        default: ''"
+      ].join('\n')
     );
     expect(onBlock('.github/workflows/pr-e2e-bridge-guardian.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
   });

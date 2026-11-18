@@ -18,7 +18,9 @@ import {
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
+import type { IUsdcxNetworkFeeBudget } from 'lib/miden/db/types';
 import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
+import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -33,6 +35,7 @@ import {
 } from './constant';
 import { readUsdcxDestinationSnapshot } from './destination-status';
 import { readWithOwnRpcClient } from './rpc-client';
+import { isCurrentUsdcxFeeBudget } from './sponsorship';
 import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 /**
@@ -75,13 +78,12 @@ export function buildUsdcxBurnRequest(
     NoteExecutionHint.always()
   ).toAttachment();
   const note = Note.withAttachments(new NoteAssets([asset]), metadata, recipient, [routing, withdrawal]);
-  // NoteArray takes ownership. Capture identity before transferring the note.
-  const burnNoteId = note.id().toString();
   const request = new TransactionRequestBuilder()
     .withOwnOutputNotes(new NoteArray([note]))
     .withFeeConversionSalt(randomFeeSalt())
     .build();
-  return { burnNoteId, requestBytes: request.serialize() };
+  // The burn is tracked by this id and signing may create only this note, so both read it from the request itself.
+  return { burnNoteId: soleOwnOutputNoteId(request), requestBytes: request.serialize() };
 }
 
 export async function initiateUsdcxBurn(args: {
@@ -90,13 +92,21 @@ export async function initiateUsdcxBurn(args: {
   amount: bigint;
   destinationAddress: string;
   destinationChainId: number;
+  networkFeeBudget: IUsdcxNetworkFeeBudget;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
 }): Promise<string> {
   const { senderPublicKey, faucetId, amount, destinationAddress, destinationChainId, spendingLimitAuthorization } =
     args;
+  const reviewed = args.networkFeeBudget;
+  const networkFeeBudget = reviewed && {
+    faucetId: reviewed.faucetId,
+    maxAmount: reviewed.maxAmount,
+    scope: reviewed.scope
+  };
   const destination = getUsdcxDestination(destinationChainId);
   // Resolve the native asset so the checks below read a known faucet id.
   await getNativeAssetId();
+  if (!isCurrentUsdcxFeeBudget(networkFeeBudget)) throw new UsdcxBurnError('usdcxBurnFeeUnavailable');
   validateUsdcxWithdrawal(faucetId, destinationChainId, amount, await readUsdcxMinimumBurn());
   const { domain } = destination;
   const built = {
@@ -110,6 +120,7 @@ export async function initiateUsdcxBurn(args: {
     undefined,
     destination.usdc
   );
+  if (!isCurrentUsdcxFeeBudget(networkFeeBudget)) throw new UsdcxBurnError('usdcxBurnFeeUnavailable');
   return initiateBridgedSendTransaction(
     senderPublicKey,
     amount,
@@ -117,6 +128,7 @@ export async function initiateUsdcxBurn(args: {
     destinationAddress,
     destinationChainId,
     'usdcx',
+    built.burnNoteId,
     built.requestBytes,
     true,
     undefined,
@@ -126,6 +138,7 @@ export async function initiateUsdcxBurn(args: {
       noteId: built.burnNoteId,
       destinationDomain: built.destinationDomain,
       phase: 'pending',
+      networkFeeBudget,
       destinationBalanceBefore,
       destinationUsdc: destination.usdc,
       payoutFeeAllowance: destination.payoutFeeAllowance.toString()

@@ -351,6 +351,31 @@ test.describe('dApp provider', () => {
     expect(sent.transactionId).toBe(sendRow.id);
   });
 
+  test('the connect prompt names an internationalized host by its ASCII form', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    test.setTimeout(540_000);
+
+    const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
+    const walletPage = await extensionContext.newPage();
+    await completeSeedImportOnboarding(walletPage, fullpageUrl);
+
+    // The browser hands the extension the ASCII serialization of the origin it navigated to.
+    const idnOrigin = `https://miden-d${String.fromCharCode(0x430)}pp-fixture.invalid`;
+    const dapp = await openFixtureDapp(extensionContext, 30_000, idnOrigin);
+
+    const connectPopupPromise = waitForConfirmPopup(extensionContext, 20_000);
+    const connectCall = dapp.evaluate(pageConnect);
+    const connectPopup = await waitForConfirmForm(await connectPopupPromise, CONFIRM_TESTID.connectApprove, 15_000);
+
+    await expect(connectPopup.getByTestId('connect-origin')).toHaveText('https://xn--miden-dpp-fixture-y4n.invalid');
+    await connectPopup.screenshot({ path: test.info().outputPath('posture-connect-idn.png') });
+
+    await clickConfirmAction(connectPopup, CONFIRM_TESTID.connectApprove, 15_000);
+    await connectCall;
+  });
+
   /**
    * Budget, itemised (same rule as above — the timeout must exceed the sum):
    *

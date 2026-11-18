@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Desbloqueio por senha de acesso",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Desbloquear com senha",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Use o provedor de senha do seu dispositivo para desbloquear esta carteira. A senha da sua carteira continuará funcionando.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "O desbloqueio por senha de acesso está habilitado para esta carteira.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "O desbloqueio por senha de acesso não está disponível neste navegador, sistema operacional ou carteira. Você ainda pode usar a senha da sua carteira.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Ativar desbloqueio por senha",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Substituir senha",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Remover o desbloqueio por senha",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "Remover o desbloqueio por senha aqui não revoga nem exclui a senha armazenada pelo seu provedor. Exclua-a também nas configurações do seu provedor, caso não precise mais dela.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Seu provedor informa que essa senha de acesso pode ser copiada para backup ou sincronizada. A disponibilidade em outros dispositivos depende do seu provedor.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Seu provedor informa que não é possível fazer backup desta chave de acesso.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Abra o painel lateral da carteira para ativar, substituir ou remover o desbloqueio por senha.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Não foi possível abrir o painel lateral. Abra-o a partir da barra de ferramentas da carteira e tente novamente.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "A solicitação da chave de acesso foi cancelada ou está indisponível. Você ainda pode usar a senha da sua carteira.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Não foi possível ativar o desbloqueio por senha. Verifique a senha da sua carteira e use um provedor que ofereça esse recurso.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Não foi possível remover o desbloqueio por senha. Tente novamente. A senha da sua carteira ainda funciona.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Não foi possível desbloquear com esta chave de acesso. Use a senha da sua carteira e verifique as configurações da chave de acesso.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Faça backup da sua frase-semente",
     "englishSource": "Back up your recovery phrase"
@@ -3223,6 +3291,14 @@
     "message": "Faça backup da sua carteira",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Frase de recuperação oculta",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "Chave privada oculta",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Mostrar",
     "englishSource": "Show"
@@ -3364,12 +3440,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 caracteres, 1 número",
-    "englishSource": "8 characters, 1 number"
+    "message": "Pelo menos 12 caracteres",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Mínimo de 8 caracteres, incluindo pelo menos 1 número",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Use pelo menos 12 caracteres. Números, símbolos e letras maiúsculas e minúsculas tornam a senha mais segura.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Anote essas 12 palavras e guarde-as em um local seguro.",
@@ -4393,6 +4469,18 @@
     "message": "Não foi possível encontrar um backup neste Guardian. Verifique a URL ou escolha outro Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Suas contas não puderam ser restauradas: o guardian devolveu dados da conta que não correspondem à sua frase de recuperação. Nada foi restaurado.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Suas contas não puderam ser restauradas: a cópia da conta do guardian ainda não está sincronizada com a rede Miden. Nada foi restaurado. Tente novamente em alguns minutos.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Não foi possível acessar a rede Miden para verificar suas contas. Sua frase de recuperação está correta. Verifique sua conexão e tente novamente.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "Este “guardian” opera em outra rede Miden, portanto não pode recuperar uma conta aqui.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4464,6 +4552,11 @@
   "unknown": {
     "message": "Desconhecido",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Includes notes you have not claimed yet",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Notes de entrada consumidos",
@@ -5538,6 +5631,10 @@
     "message": "Informações sobre o token",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Composição",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Descrição",
     "englishSource": "Description"
@@ -5856,6 +5953,10 @@
         "content": "$1"
       }
     }
+  },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "As Transações Inteligentes do MetaMask não conseguiram enviar esta transação. Desative as Transações Inteligentes nas configurações do MetaMask e tente novamente.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
   },
   "connectedWallet": {
     "message": "Carteira conectada",
@@ -7466,6 +7567,14 @@
     "message": "Ocultada da página inicial. Ela permanece na sua carteira e suas transferências ainda podem ser resgatadas.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Ocultar tokens de poeira",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Oculta tokens com valor inferior a US$ 0,001 da sua lista de ativos. O token nativo permanece sempre visível.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
+  },
   "hiddenAssets": {
     "message": "Ativos ocultos",
     "englishSource": "Hidden assets"
@@ -8678,5 +8787,345 @@
   "arcadePostingPolicy": {
     "message": "Cada jogo define suas próprias apostas, pagamentos e reembolsos. Consulte as regras antes de aprovar uma transação.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Bloqueio automático",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Bloqueia a carteira depois de permanecer inativa por tanto tempo.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "Aguardando retorno",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Pronto para resgatar",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Devolução de fundos",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Fundos devolvidos",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Seus fundos permanecem na Miden. Você pode resgatá-los após o bloco $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Reivindique seus fundos para devolvê-los à sua carteira.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Seus fundos estão sendo devolvidos à sua carteira.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Seus fundos voltaram para sua carteira.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Fundos enviados ao seu destino.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance.",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Não foi possível verificar o status dos fundos. Tente novamente.",
+    "englishSource": "Unable to check the funds status. Try again."
+  },
+  "epochDepositLocked": {
+    "message": "Depósito bloqueado",
+    "englishSource": "Deposit locked"
+  },
+  "epochDepositWithdrawn": {
+    "message": "Depósito retirado",
+    "englishSource": "Deposit withdrawn"
+  },
+  "epochDepositLockedTitle": {
+    "message": "Seu depósito está seguro",
+    "englishSource": "Your deposit is safe"
+  },
+  "epochDepositLockedBody": {
+    "message": "Seu depósito de $amount$ está no The Compact na $network$, mas a Epoch não iniciou a ponte. Tente novamente a ponte ou retire o depósito de volta para $address$.",
+    "englishSource": "Your $amount$ deposit is in The Compact on $network$, but Epoch did not start the bridge. Retry the bridge, or withdraw the deposit back to $address$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      },
+      "address": {
+        "content": "$3"
+      }
+    }
+  },
+  "epochDepositConnectSponsor": {
+    "message": "Conecte a carteira EVM $address$ para recuperar esse depósito.",
+    "englishSource": "Connect the EVM wallet $address$ to recover this deposit.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWrongWallet": {
+    "message": "A carteira conectada não realizou esse depósito. Conecte $address$ para recuperá-lo.",
+    "englishSource": "The connected wallet did not make this deposit. Connect $address$ to recover it.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositRetry": {
+    "message": "Tentar novamente a ponte",
+    "englishSource": "Retry bridge"
+  },
+  "epochDepositRetrying": {
+    "message": "Tentando novamente…",
+    "englishSource": "Retrying…"
+  },
+  "epochDepositWithdraw": {
+    "message": "Retirar depósito",
+    "englishSource": "Withdraw deposit"
+  },
+  "epochDepositWithdrawing": {
+    "message": "Retirando…",
+    "englishSource": "Withdrawing…"
+  },
+  "epochDepositWithdrawStarted": {
+    "message": "Retirada disponível em $time$.",
+    "englishSource": "Withdrawal available in $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWithdrawStartedUnknown": {
+    "message": "Solicitação de saque. Ele fica disponível cerca de uma hora após a solicitação.",
+    "englishSource": "Withdrawal requested. It becomes available about one hour after the request."
+  },
+  "epochDepositWithdrawReady": {
+    "message": "A retirada está disponível.",
+    "englishSource": "The withdrawal is available."
+  },
+  "epochDepositWithdrawnBody": {
+    "message": "O depósito foi devolvido para $address$.",
+    "englishSource": "The deposit went back to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotRecoverable": {
+    "message": "Este depósito não pode ser recuperado desta carteira.",
+    "englishSource": "This deposit cannot be recovered from this wallet."
+  },
+  "epochDepositErrorWrongChain": {
+    "message": "Mude sua carteira EVM para $network$ e tente novamente.",
+    "englishSource": "Switch your EVM wallet to $network$ and try again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotStarted": {
+    "message": "Inicie primeiro a retirada.",
+    "englishSource": "Start the withdrawal first."
+  },
+  "epochDepositErrorNotDue": {
+    "message": "A retirada ainda não está disponível.",
+    "englishSource": "The withdrawal is not available yet."
+  },
+  "epochDepositErrorMissing": {
+    "message": "O Compact não mantém mais esse depósito.",
+    "englishSource": "The Compact no longer holds this deposit."
+  },
+  "epochDepositErrorLockMismatch": {
+    "message": "A Epoch retornou um bloqueio diferente para este depósito. Retire o depósito em vez disso.",
+    "englishSource": "Epoch returned a different lock for this deposit. Withdraw the deposit instead."
+  },
+  "recoverLockedFunds": {
+    "message": "Recuperar fundos bloqueados na ponte",
+    "englishSource": "Recover locked bridge funds"
+  },
+  "recoverFundsOpenLock": {
+    "message": "Gerencie esse bloqueio em Configurações",
+    "englishSource": "Manage this lock in Settings"
+  },
+  "recoverFundsDescription": {
+    "message": "Uma ponte rápida de entrada pode deixar seu depósito no The Compact quando a Epoch não inicia a ponte. Esta página verifica no The Compact cada carteira EVM que fez a ponte a partir desta carteira, bem como a carteira conectada.",
+    "englishSource": "A Fast bridge-in can leave its deposit in The Compact when Epoch does not start the bridge. This page checks The Compact for each EVM wallet that bridged in from this wallet, and for the connected wallet."
+  },
+  "recoverFundsConnectedWallet": {
+    "message": "Carteira conectada",
+    "englishSource": "Connected wallet"
+  },
+  "recoverFundsNothingLocked": {
+    "message": "Nada fica bloqueado nesta carteira.",
+    "englishSource": "Nothing is locked for this wallet."
+  },
+  "recoverFundsCouldNotCheck": {
+    "message": "Não foi possível verificar $tokens$ na $network$. Tente novamente mais tarde.",
+    "englishSource": "Could not check $tokens$ on $network$. Try again later.",
+    "placeholders": {
+      "tokens": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "recoverFundsConnectAnother": {
+    "message": "Conecte outra carteira",
+    "englishSource": "Connect another wallet"
+  },
+  "recoverFundsNoAddressesTitle": {
+    "message": "Não há carteiras para verificar",
+    "englishSource": "No wallets to check"
+  },
+  "recoverFundsNoAddressesBody": {
+    "message": "Conecte a carteira EVM que efetuou o depósito para verificar se há fundos bloqueados.",
+    "englishSource": "Connect the EVM wallet that made the deposit to check it for locked funds."
+  },
+  "recoverFundsLockTitle": {
+    "message": "Fundos bloqueados",
+    "englishSource": "Locked funds"
+  },
+  "recoverFundsLockInvalidTitle": {
+    "message": "Este link não é válido",
+    "englishSource": "This link is not valid"
+  },
+  "recoverFundsLockInvalidBody": {
+    "message": "Desbloqueie novamente a conta na seção “Recuperar fundos bloqueados na ponte”.",
+    "englishSource": "Open the lock again from Recover locked bridge funds."
+  },
+  "recoverFundsLockEmpty": {
+    "message": "Nada fica bloqueado aqui",
+    "englishSource": "Nothing is locked here"
+  },
+  "recoverFundsChecking": {
+    "message": "Verificando…",
+    "englishSource": "Checking…"
+  },
+  "recoverFundsCouldNotCheckShort": {
+    "message": "Não foi possível verificar",
+    "englishSource": "Could not check"
+  },
+  "recoverFundsWallet": {
+    "message": "Carteira",
+    "englishSource": "Wallet"
+  },
+  "recoverFundsLocked": {
+    "message": "Bloqueado",
+    "englishSource": "Locked"
+  },
+  "recoverFundsWithdrawal": {
+    "message": "Retirada",
+    "englishSource": "Withdrawal"
+  },
+  "recoverFundsWithdrawOff": {
+    "message": "Não solicitado",
+    "englishSource": "Not requested"
+  },
+  "recoverFundsCancelWithdrawal": {
+    "message": "Desativar saque",
+    "englishSource": "Disable withdrawal"
+  },
+  "recoverFundsCancelling": {
+    "message": "Desativar…",
+    "englishSource": "Disabling…"
+  },
+  "recoverFundsWithdrawBlocksBridge": {
+    "message": "A retirada forçada bloqueia novas transferências rápidas (Fast bridge-ins) de $token$ a partir de $address$. Depois de recuperar seus fundos, desative a retirada para realizar novas transferências.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Verifique o acesso rápido à ponte",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "Verificando o status de retirada deste token e desta carteira.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "Não foi possível verificar o status da retirada. Tente novamente antes de usar a ponte Fast.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "A retirada forçada está ativa para $token$ na $network$. Depois de recuperar seus fundos, desative a retirada para fazer a ponte novamente.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "Desativar saque",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "Desativar…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "Isso desativa a retirada forçada para esse bloqueio. Os fundos já recuperados permanecem na sua carteira. Uma nova solicitação de recuperação inicia um novo período de espera. Essa transação exige uma taxa de rede.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "Abra sua carteira EVM conectada e aprove a transação na $network$. Aguarde aqui pela confirmação.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "Use “Circle” em vez disso",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "Use “Slow bridge” em vez disso",
+    "englishSource": "Use Slow bridge instead"
   }
 }

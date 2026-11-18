@@ -11,6 +11,7 @@ import {
   TEST_EARN_MARKET,
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { ITransaction } from 'lib/miden/db/types';
 import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -85,14 +86,11 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
   default: () => mockNativeAssetId
 }));
 
-// A spy, not a bare function: the rendered text alone cannot show WHICH decimals
-// each asset was scaled by, so a helper that formats every asset at the wrong
-// scale is invisible to every assertion on `textContent`.
-const mockFormatAmount = jest.fn((amount: bigint, _decimals?: number) => String(amount));
-
-jest.mock('lib/shared/format', () => ({
-  formatAmount: (amount: bigint, decimals?: number) => mockFormatAmount(amount, decimals)
-}));
+jest.mock('lib/i18n/amount-display', () => {
+  const actual = jest.requireActual<typeof import('lib/i18n/amount-display')>('lib/i18n/amount-display');
+  return { ...actual, formatAmountDisplay: jest.fn(actual.formatAmountDisplay) };
+});
+const mockFormatAmount = jest.mocked(formatAmountDisplay);
 
 const mockState = {
   assetsMetadata: {} as
@@ -289,7 +287,7 @@ describe('useTransactionSummaryBadgeContent', () => {
     const { container, root } = await renderProbe(
       baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1' })
     );
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000007 TST');
     // The accept wording SendSuccess shows for the same transaction, not "Consumed".
     expect(container.textContent).toContain('Accepted');
     expect(container.textContent).not.toContain('Consumed');
@@ -300,9 +298,7 @@ describe('useTransactionSummaryBadgeContent', () => {
     mockNativeAssetId = 'faucet-native';
     mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
     mockState.assetsMetadata = { 'faucet-native': { symbol: 'MIDEN', decimals: 6 } };
-    mockFormatAmount.mockImplementationOnce((amount, decimals) =>
-      jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals ?? 0)
-    );
+
     const { container, root } = await renderProbe(
       baseTransaction({ type: 'consume', amount: 100_000_000n, faucetId: 'faucet-native' })
     );
@@ -422,13 +418,11 @@ describe('useTransactionSummaryBadgeContent', () => {
     // NOT MIDEN: naming a foreign token after the native one misstates the asset.
     // And it gets NO number: with no decimals there is no honest scale, and the
     // unknown-token fallback's 6 would render an 18-decimal token 10^12 too large.
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('20 AAA, Unknown');
-    // The resolved asset is still scaled by ITS OWN decimals. The rendered text
-    // cannot show this — formatting at the wrong scale produces the same string
-    // under the mock while being wrong by orders of magnitude.
-    expect(mockFormatAmount).toHaveBeenCalledWith(20n, 2);
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.2 AAA, Unknown');
+    // The resolved asset uses its own scale.
+    expect(mockFormatAmount).toHaveBeenCalledWith(20n, expect.objectContaining({ decimals: 2 }));
     // The unresolved one is never formatted at all — the guessed scale is the bug.
-    expect(mockFormatAmount).not.toHaveBeenCalledWith(10n, 6);
+    expect(mockFormatAmount).not.toHaveBeenCalledWith(10n, expect.objectContaining({ decimals: 6 }));
     act(() => root.unmount());
   });
 
@@ -455,7 +449,7 @@ describe('useTransactionSummaryBadgeContent', () => {
     mockNativeAssetId = 'faucet-native';
 
     const warm = await renderProbe(claim);
-    expect(warm.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 MIDEN');
+    expect(warm.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000004 MIDEN');
     act(() => warm.root.unmount());
   });
 
@@ -475,7 +469,7 @@ describe('useTransactionSummaryBadgeContent', () => {
 
     // MIDEN keeps its amount (its decimals are known); the unresolved faucet
     // is named but not quantified.
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 MIDEN, Unknown');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000004 MIDEN, Unknown');
     act(() => root.unmount());
   });
 
@@ -486,7 +480,7 @@ describe('useTransactionSummaryBadgeContent', () => {
     const { container, root } = await renderProbe(
       baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1', assetTotals: [] })
     );
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000007 TST');
     act(() => root.unmount());
   });
 
@@ -508,7 +502,7 @@ describe('useTransactionSummaryBadgeContent', () => {
     const { container, root } = await renderProbe(
       baseTransaction({ amount: 5000000n, faucetId: 'faucet-1', secondaryAccountId: 'mtst1aprecipient_addr1234' })
     );
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5000000 TST');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 TST');
     expect(container.textContent).not.toContain('UNDEFINED');
     act(() => root.unmount());
   });
@@ -518,13 +512,13 @@ describe('useTransactionSummaryBadgeContent', () => {
     mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
 
     const claim = await renderProbe(baseTransaction({ type: 'consume', amount: 7n, faucetId: TEST_MIDEN_USDC_FAUCET }));
-    expect(claim.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 Test Epoch USDC');
+    expect(claim.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000007 Test Epoch USDC');
     act(() => claim.root.unmount());
 
     const send = await renderProbe(
       baseTransaction({ amount: 5n, faucetId: TEST_MIDEN_USDC_FAUCET, secondaryAccountId: 'mtst1aprecipient_addr1234' })
     );
-    expect(send.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 Test Epoch USDC');
+    expect(send.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000005 Test Epoch USDC');
     act(() => send.root.unmount());
   });
 
@@ -533,14 +527,14 @@ describe('useTransactionSummaryBadgeContent', () => {
     const { container, root } = await renderProbe(
       baseTransaction({ amount: 5n, faucetId: TEST_MIDEN_USDC_FAUCET, secondaryAccountId: 'mtst1aprecipient_addr1234' })
     );
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 USDC');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000005 USDC');
 
     act(() => {
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       publishMockBridgeSnapshot();
     });
 
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 Test Epoch USDC');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000005 Test Epoch USDC');
     act(() => root.unmount());
   });
 
@@ -583,7 +577,7 @@ describe('useTransactionSummaryBadgeContent', () => {
         extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
       })
     );
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 USDC');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.00075 USDC');
     act(() => root.unmount());
   });
 
@@ -618,7 +612,7 @@ describe('useTransactionSummaryBadgeContent', () => {
       })
     );
     // lhs = "{amount} {symbol}" with the USDC fallback symbol.
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 USDC');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.00075 USDC');
     // rhs = the lender family's display name derived from the marketUid lender key.
     expect(container.textContent).toContain('Dummy Lending');
     expect(container.textContent).not.toContain('UNDEFINED');
@@ -636,7 +630,7 @@ describe('useTransactionSummaryBadgeContent', () => {
       })
     );
 
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('125000 mUSDC');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('12.5 mUSDC');
     expect(container.textContent).toContain('NEW-LENDER');
     act(() => root.unmount());
   });
@@ -664,8 +658,8 @@ describe('useTransactionSummaryBadgeContent', () => {
         extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
       })
     );
-    expect(mockFormatAmount).toHaveBeenCalledWith(750n, 2);
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 tUSDC');
+    expect(mockFormatAmount).toHaveBeenCalledWith(750n, expect.objectContaining({ decimals: 2 }));
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7.5 tUSDC');
     act(() => root.unmount());
   });
 
@@ -685,9 +679,9 @@ describe('useTransactionSummaryBadgeContent', () => {
         extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
       })
     );
-    expect(mockFormatAmount).toHaveBeenCalledWith(750n, 2);
-    expect(mockFormatAmount).not.toHaveBeenCalledWith(750n, 6);
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 tUSDC');
+    expect(mockFormatAmount).toHaveBeenCalledWith(750n, expect.objectContaining({ decimals: 2 }));
+    expect(mockFormatAmount).not.toHaveBeenCalledWith(750n, expect.objectContaining({ decimals: 6 }));
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7.5 tUSDC');
     act(() => root.unmount());
   });
 
@@ -734,7 +728,7 @@ describe('useTransactionSummaryBadgeContent', () => {
     const { container, root } = await renderProbe(
       baseTransaction({ amount: 8n, faucetId: 'faucet-native', secondaryAccountId: 'mtst1aprecipient_addr1234' })
     );
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('8 MIDEN');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('0.000008 MIDEN');
     act(() => root.unmount());
   });
 });

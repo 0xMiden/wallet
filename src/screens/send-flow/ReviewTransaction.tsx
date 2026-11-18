@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { formatUnits, parseUnits } from 'viem';
+import { parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
@@ -24,6 +24,7 @@ import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { usePreset } from 'lib/animation';
@@ -32,11 +33,12 @@ import { bridgeEpochSend } from 'lib/epoch';
 import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
-import { IConsumedAssetTotal } from 'lib/miden/db/types';
+import { IConsumedAssetTotal, type IUsdcxNetworkFeeBudget } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
@@ -57,6 +59,8 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
 import { USDCX_DECIMALS } from 'lib/usdcx/constant';
+import { isCurrentUsdcxFeeBudget } from 'lib/usdcx/sponsorship';
+import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
 import { isUsdcxWithdrawalAvailable, UsdcxBurnError, usdcxMinimumBurnShortfall } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
@@ -167,9 +171,33 @@ export const ReviewTransaction: React.FC = () => {
   // Held, not left: the review stays on screen, unconfirmable, until the document says whether it is retired.
   const tokenHeld = isNewTransferTokenHeld(bridgeConfig, tokenId, nativeFaucetId);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
-  const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
+  const nativeMetadata = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId);
+  const nativeSymbol = nativeMetadata.symbol;
+  const nativeScaleKnown = hasKnownScale(nativeMetadata);
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
+  const burnFee = useBurnFeeReserve(
+    isUsdcxBurn && publicKey && bridgeNetworkObj
+      ? {
+          accountPublicKey: publicKey,
+          destinationChainId: bridgeNetworkObj.chainId
+        }
+      : undefined
+  );
+  const burnNetworkFeeBudget = useMemo<IUsdcxNetworkFeeBudget | undefined>(() => {
+    if (
+      !isUsdcxBurn ||
+      !nativeScaleKnown ||
+      burnFee.status !== 'measured' ||
+      burnFee.reserve === undefined ||
+      !burnFee.faucetId ||
+      !burnFee.scope
+    )
+      return undefined;
+    return { faucetId: burnFee.faucetId, maxAmount: burnFee.reserve.toString(), scope: burnFee.scope };
+  }, [isUsdcxBurn, nativeScaleKnown, burnFee]);
+  const burnFeeReady = burnNetworkFeeBudget !== undefined && isCurrentUsdcxFeeBudget(burnNetworkFeeBudget);
+  useUserVisibleError(isUsdcxBurn && burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : null, 'review');
   const burnMinimum = useBurnMinimum(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
 
   // A burn keeps its own 6-decimal refusal. Every other review refuses a finer amount
@@ -201,6 +229,27 @@ export const ReviewTransaction: React.FC = () => {
     enabled: isBridge && !isUsdcxBurn,
     destinationChainId: bridgeNetworkObj?.chainId
   });
+
+  const epochMinimumOutput = useMemo(() => {
+    if (
+      epochQuote.loading ||
+      epochQuote.error ||
+      epochQuote.amount === undefined ||
+      epochQuote.decimals === undefined ||
+      !Number.isSafeInteger(epochQuote.decimals) ||
+      epochQuote.decimals < 0 ||
+      epochQuote.decimals > 38 ||
+      amountExceedsTokenDecimals(epochQuote.amount, epochQuote.decimals)
+    )
+      return 0n;
+    try {
+      const minimum = parseUnits(epochQuote.amount, epochQuote.decimals);
+      return minimum > 0n ? minimum : 0n;
+    } catch {
+      return 0n;
+    }
+  }, [epochQuote.amount, epochQuote.decimals, epochQuote.loading, epochQuote.error]);
+  const epochQuoteUnavailable = isBridge && route !== 'agglayer' && route !== 'usdcx' && epochMinimumOutput === 0n;
 
   // Private by default. The user changes it under Advanced options (the "Transfer type" row
   // opens `TransferTypeDrawer`); the E2E hook below can also flip it.
@@ -457,7 +506,7 @@ export const ReviewTransaction: React.FC = () => {
 
   const runBridgeSend = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
-      if (!token || !publicKey || amountBaseUnits === undefined) return;
+      if (!token || !publicKey || amountBaseUnits === undefined || epochQuoteUnavailable) return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
@@ -477,12 +526,16 @@ export const ReviewTransaction: React.FC = () => {
           if (!bridgeNetworkObj || !isUsdcxWithdrawalAvailable(token.id)) {
             throw new UsdcxBurnError('usdcxUnsupportedFaucet');
           }
+          if (!burnNetworkFeeBudget || !isCurrentUsdcxFeeBudget(burnNetworkFeeBudget)) {
+            throw new UsdcxBurnError('usdcxBurnFeeUnavailable');
+          }
           const txId = await initiateUsdcxBurn({
             senderPublicKey: publicKey,
             faucetId: token.id,
             amount: amountBaseUnits,
             destinationAddress: to,
             destinationChainId: bridgeNetworkObj.chainId,
+            networkFeeBudget: burnNetworkFeeBudget,
             spendingLimitAuthorization: authorization
           });
           if (isExtension()) requestSWTransactionProcessing();
@@ -506,6 +559,7 @@ export const ReviewTransaction: React.FC = () => {
           goToGeneratingTransaction(txId);
         } else {
           await bridgeEpochSend({
+            minimumOutputBaseUnits: epochMinimumOutput,
             destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
@@ -554,6 +608,9 @@ export const ReviewTransaction: React.FC = () => {
     [
       amountBaseUnits,
       bridgeNetworkObj,
+      burnNetworkFeeBudget,
+      epochMinimumOutput,
+      epochQuoteUnavailable,
       goToGeneratingTransaction,
       openUnpricedChallenge,
       publicKey,
@@ -566,7 +623,7 @@ export const ReviewTransaction: React.FC = () => {
   );
 
   const onSubmit = useCallback(async () => {
-    if (bridgeBlocked || tokenHeld) return;
+    if (bridgeBlocked || tokenHeld || epochQuoteUnavailable) return;
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
@@ -614,6 +671,7 @@ export const ReviewTransaction: React.FC = () => {
   }, [
     bridgeBlocked,
     tokenHeld,
+    epochQuoteUnavailable,
     amountBaseUnits,
     assessSpendingLimit,
     isBridge,
@@ -762,10 +820,11 @@ export const ReviewTransaction: React.FC = () => {
               disabled={
                 bridgeBlocked ||
                 tokenHeld ||
+                epochQuoteUnavailable ||
                 isSubmitting ||
                 scaleIsUnknown ||
                 amountExceedsPrecision ||
-                (isUsdcxBurn && !!burnValidationError)
+                (isUsdcxBurn && (!!burnValidationError || !burnFeeReady))
               }
               data-testid="send-review-submit"
               className="w-full max-w-none"
@@ -789,7 +848,7 @@ export const ReviewTransaction: React.FC = () => {
           data-testid="review-amount"
           className="mt-3"
           visual={<TokenLogo faucetId={tokenId} size="2xl" />}
-          value={`${amount} ${tokenLabel}`}
+          value={<TokenAmount amount={amount} symbol={tokenLabel} formatting="exact" />}
           subtitle={
             token?.scaleIsKnown && (
               <TokenUsdValue amount={amount} decimals={token.decimals} faucetId={token.id} symbol={token.name} />
@@ -892,9 +951,22 @@ export const ReviewTransaction: React.FC = () => {
                       )
                     }
                   >
-                    {`${formatUnits(burnMinimum, USDCX_DECIMALS)} USDCx`}
+                    <TokenAmount amount={burnMinimum} decimals={USDCX_DECIMALS} symbol="USDCx" formatting="exact" />
                   </DetailRow>
-                  <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
+                  <DetailRow label={t('networkFeeMax')} sub={t('usdcxSponsorshipFee', { symbol: nativeSymbol })}>
+                    {burnFeeReady && burnNetworkFeeBudget ? (
+                      <TokenAmount
+                        amount={BigInt(burnNetworkFeeBudget.maxAmount)}
+                        decimals={nativeMetadata.decimals}
+                        symbol={nativeSymbol}
+                        formatting="exact"
+                      />
+                    ) : (
+                      <span role="status">
+                        {t(burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}
+                      </span>
+                    )}
+                  </DetailRow>
                   {bridgeNetworkObj && amountBaseUnits !== undefined && (
                     <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} />
                   )}

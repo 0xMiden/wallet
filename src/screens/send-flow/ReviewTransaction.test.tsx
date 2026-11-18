@@ -24,6 +24,7 @@ import { useFeatureAvailability } from 'lib/remote-config/use-feature-availabili
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
+import { useBurnFeeReserve, type BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
@@ -62,7 +63,14 @@ const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string; address?: string } = {
+let mockEpochQuote: {
+  amount?: string;
+  loading: boolean;
+  error: null;
+  symbol: string;
+  address?: string;
+  decimals?: number;
+} = {
   amount: undefined,
   loading: false,
   error: null,
@@ -71,6 +79,17 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: st
 let mockEpochQuoteArgs: { amount?: bigint } = {};
 let mockBurnMinimum = 5_000_000n;
 let mockUseRealBurnMinimum = false;
+const REVIEWED_BURN_FEE: BurnFeeReserve = {
+  status: 'measured',
+  reserve: 298n,
+  faucetId: 'mtst1usdcxnative',
+  scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+};
+let mockBurnFeeReserve: BurnFeeReserve = REVIEWED_BURN_FEE;
+let mockNativeVerified = true;
+jest.mock('lib/usdcx/use-burn-fee-reserve', () => ({
+  useBurnFeeReserve: jest.fn(() => mockBurnFeeReserve)
+}));
 // The native asset's chain metadata; null until a test discovers one, as before discovery.
 let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
 jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
@@ -350,7 +369,6 @@ jest.mock('lib/epoch', () => ({
 
 jest.mock('lib/i18n/numbers', () => ({
   formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
-  toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn(),
   // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
   // return, so the guard has to call the real helper.
@@ -389,6 +407,8 @@ const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
   getNativeAssetIdSync: () => 'mtst1usdcxnative',
+  getSdkSyncedNativeAssetIdSync: () => (mockNativeVerified ? 'mtst1usdcxnative' : null),
+  cacheScope: () => 'rpc-a|testnet',
   getNativeAssetMetadataSync: () => mockNativeMetadata
 }));
 
@@ -600,6 +620,9 @@ beforeEach(() => {
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
   mockEpochQuoteArgs = {};
   mockNativeMetadata = null;
+  mockNativeVerified = true;
+  mockBurnFeeReserve = { ...REVIEWED_BURN_FEE };
+  jest.mocked(useBurnFeeReserve).mockImplementation(() => mockBurnFeeReserve);
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -615,6 +638,7 @@ afterEach(() => {
 describe('USDCx burn review', () => {
   beforeEach(() => {
     mockDetectedChain = 'ethereum';
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
     mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
@@ -623,6 +647,9 @@ describe('USDCx burn review', () => {
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByText('usdcxWithdrawalNotice')).toBeInTheDocument();
+    expect(screen.getByText('networkFeeMax')).toBeInTheDocument();
+    expect(screen.getByText('0.000298 USDCX')).toBeInTheDocument();
+    expect(useBurnFeeReserve).toHaveBeenCalledWith({ accountPublicKey: 'pubkey-1', destinationChainId: 5042002 });
     expect(screen.getByText('usdcxPayoutFeeVaries')).toBeInTheDocument();
     expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('send-review-submit'));
@@ -632,12 +659,49 @@ describe('USDCx burn review', () => {
           amount: 5_000_001n,
           faucetId: USDCX_FAUCET_ID_BECH32,
           destinationChainId: 5042002,
-          destinationAddress: '0x1111111111111111111111111111111111111111'
+          destinationAddress: '0x1111111111111111111111111111111111111111',
+          networkFeeBudget: {
+            faucetId: USDCX_FAUCET_ID_BECH32,
+            maxAmount: '298',
+            scope: REVIEWED_BURN_FEE.scope
+          }
         })
       )
     );
     expect(bridgeEpochSend).not.toHaveBeenCalled();
     expect(initiateB2AggBridge).not.toHaveBeenCalled();
+  });
+
+  const unreviewable: [string, BurnFeeReserve][] = [
+    ['pending', { status: 'pending' }],
+    ['failed', { status: 'failed' }],
+    ['wrong faucet', { ...REVIEWED_BURN_FEE, faucetId: 'other' }],
+    [
+      'stale source',
+      { ...REVIEWED_BURN_FEE, scope: 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4' }
+    ]
+  ];
+  it.each(unreviewable)('does not confirm an unreviewable native fee quote %s', async (_label, estimate) => {
+    mockBurnFeeReserve = estimate;
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+  });
+
+  it('does not confirm a native fee whose scale is unknown', async () => {
+    mockNativeMetadata = null;
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+  });
+
+  it('does not confirm a fee identity the synchronized SDK has not corroborated', async () => {
+    mockNativeVerified = false;
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
   });
 
   it.each([
@@ -888,7 +952,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 ');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5');
 
     // onSubmit early-returns because there is no token: nothing fires.
     await act(async () => {
@@ -995,6 +1059,49 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
     expect(container.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+  });
+
+  it.each([
+    { amount: '4.8', decimals: 6, minimum: 4_800_000n },
+    { amount: '1.000000000000000001', decimals: 18, minimum: 1_000_000_000_000_000_001n }
+  ])(
+    'passes the reviewed output in exact $decimals-decimal base units to Epoch before signing',
+    async ({ amount, decimals, minimum }) => {
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount, decimals, loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('send-review-submit'));
+      });
+      await flush();
+      expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
+    }
+  );
+
+  it('cannot authorize an Epoch output whose token precision is unresolved', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', loading: false, error: null, symbol: 'USDC' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, '0'])('cannot submit Epoch without a positive reviewed quote: %s', async amount => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount, loading: false, error: null, symbol: 'USDC' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
   });
 
   // What arrives is the quote at most, so "you receive" rounds it down.
@@ -1619,6 +1726,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('reopens an Epoch bridge challenge when external preparation outlives authorization', async () => {
     mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     const firstAssessment = breachAssessment({
@@ -1668,6 +1776,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('cancels a bridge challenge before any external bridge work', async () => {
     mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
@@ -2285,6 +2394,7 @@ describe('ReviewTransaction user-visible errors', () => {
 
   const setBurnRoute = (amount = '5.000001') => {
     mockDetectedChain = 'ethereum';
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
     mockSearch = `amount=${amount}&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   };

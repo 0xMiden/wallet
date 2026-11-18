@@ -361,11 +361,21 @@ const REFUSAL_BLOCKS = 2;
 
 /** The positive control of spec section 5 for a refusal before enqueue: it answered within the blocks a sync spans. */
 async function withinRefusalBlocks<T>(host: SheetHost, start: () => Promise<T>, ctx: CellContext): Promise<T> {
+  const beforeStartedAt = Date.now();
   const before = (await callOn(host.channel, 'syncHeight', {}, ctx.deadline)).height;
+  const requestStartedAt = Date.now();
   const value = await start();
+  const afterStartedAt = Date.now();
   if (failedOutcome(value)) ctx.evidence.dappError = value.error;
   // Asked once: a repeat lands later and widens the difference.
   const after = (await callOn(host.channel, 'syncHeight', {}, ctx.deadline, { once: true })).height;
+  ctx.evidence.refusalTiming = {
+    beforeHeight: before,
+    afterHeight: after,
+    beforeSyncMs: requestStartedAt - beforeStartedAt,
+    requestMs: afterStartedAt - requestStartedAt,
+    afterSyncMs: Date.now() - afterStartedAt
+  };
   expect(after - before, 'blocks the dApp saw while a refusal before enqueue was pending').toBeLessThanOrEqual(
     REFUSAL_BLOCKS
   );

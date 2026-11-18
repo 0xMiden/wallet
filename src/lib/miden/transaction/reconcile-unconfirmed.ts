@@ -25,6 +25,7 @@ import {
   storedNoteIds,
   verifiedLandingRowFields
 } from './helper';
+import { orderFromSavedRequest, sameRequestBytes, swapOpensOrderFromRead } from './pinned-replay-check';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { submitApproach } from './submit-approach-diagnostics';
@@ -191,16 +192,38 @@ export const recordLandedDeliveryTarget = (
   return target;
 };
 
+interface SavedRequestOrder {
+  decodedBytes?: Uint8Array;
+  savedOrder?: Awaited<ReturnType<typeof orderFromSavedRequest>>;
+}
+
+const NO_SAVED_ORDER: SavedRequestOrder = {};
+
+/** A swap row that holds no order: the bytes its saved request had when decoded, and the order they name. */
+async function savedRequestOrder(rowId: string): Promise<SavedRequestOrder> {
+  const preview = await Repo.transactions.where({ id: rowId }).first();
+  if (preview === undefined || preview.type !== 'swap' || !swapOpensOrderFromRead(preview)) return NO_SAVED_ORDER;
+  return { decodedBytes: preview.requestBytes, savedOrder: await orderFromSavedRequest(preview.requestBytes) };
+}
+
 /**
  * The landed write: one rw transaction that re-reads every row of the account, the target's included. If any entry
  * differs from what the judgement read, or the deferral now holds the landing, it writes nothing and the next pass
  * judges again from the fresh rows. One that records a delivery target is a delivery write, counted once it commits,
  * so an idle sweep looks again.
  */
-async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: string): Promise<boolean> {
+async function writeLanding(
+  rowId: string,
+  judgement: RowJudgement,
+  accountKey: string,
+  saved: SavedRequestOrder
+): Promise<boolean> {
   const landing = judgement.landed;
   const landedEntry = judgement.judgedEntries.find(entry => entry.attemptId === landing?.attemptId);
   if (landing === undefined || landedEntry === undefined) return false;
+  // The saved request was decoded before the final network check, since the write cannot await the WASM lock. Its
+  // order is the `read` only while the fresh row still holds the bytes that were decoded.
+  const { decodedBytes, savedOrder } = saved;
   let landed: ITransaction | undefined;
   let addedTarget: string[] | undefined;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
@@ -213,11 +236,15 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
-    applyVerifiedLanding(fresh, {
-      ...verifiedLandingRowFields(fresh),
-      ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
-      completedAt: fresh.completedAt
-    });
+    applyVerifiedLanding(
+      fresh,
+      {
+        ...verifiedLandingRowFields(fresh),
+        ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
+        completedAt: fresh.completedAt
+      },
+      sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined
+    );
     const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);
     landed = fresh;
@@ -373,13 +400,16 @@ export async function judgeAndWrite(rowId: string, context: JudgeContext): Promi
   // A landing this call found but did not write still reads as one, so Retry refuses it rather than reach the
   // acknowledgeable refusal a plain send could pay twice through.
   const unsettled = judgement.landed !== undefined || judgement.landingHeld ? 'landing-pending' : 'pending';
+  // A swap landing that holds no order decodes its saved request here, before the network check that has to come
+  // right before the write: the decode can wait on the WASM lock.
+  const saved = judgement.landed === undefined ? NO_SAVED_ORDER : await savedRequestOrder(row.id);
   if (!(await networkStillMatches(context.node, decided))) {
     return { kind: unsettled, judgement, baseline: evidenceKey(judgement.judgedEntries) };
   }
   const baseline = evidenceKey(applyEntryWrites(judgement.judgedEntries, judgement));
 
   if (judgement.landed !== undefined) {
-    if (await writeLanding(row.id, judgement, accountKey)) return { kind: 'landed' };
+    if (await writeLanding(row.id, judgement, accountKey, saved)) return { kind: 'landed' };
     return { kind: 'landing-pending', judgement, baseline };
   }
   if (judgement.allDead && (await writeNeverCommitted(row.id, judgement, context.nowSec))) {
@@ -608,10 +638,11 @@ let runningPass: Promise<void> | undefined;
 
 /**
  * One reconciler pass in this realm (#1081), fired and forgotten after a successful sync; a second call joins the
- * running pass. Judging takes no WASM client lock: its reads go to the node. With a `release`, each kept Guardian
- * candidate of a row proven never committed adds a short WASM-lock read to build the cold service, a Guardian abandon
- * under the outgoing deadline, and at most 60 s of polling. Never rejects: each row is judged, and each candidate
- * released, in its own try.
+ * running pass. Its node reads take no WASM client lock. A swap landing that holds no order decodes its saved
+ * request in a short WASM-lock hold before the final network check, outside the Dexie transaction. With a `release`,
+ * each kept Guardian candidate of a row proven never committed adds a short WASM-lock read to build the cold service,
+ * a Guardian abandon under the outgoing deadline, and at most 60 s of polling. Never rejects: each row is judged, and
+ * each candidate released, in its own try.
  */
 export const reconcileUnconfirmedTransactions = (deps: ReconcileDeps = {}): Promise<void> => {
   runningPass ??= runPass(deps).finally(() => {

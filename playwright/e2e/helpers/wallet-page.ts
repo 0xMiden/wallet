@@ -27,12 +27,12 @@ import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
-// Must satisfy CreatePassword's real strength gate (CreatePasswordScreen:
-// isValidPassword requires >1 of {minChar, upper+lower, letter+digit,
-// specialChar, strongLength}). The recovery journey drives that real UI, so a
-// weak all-digit password (the old '123456') leaves the submit button disabled
-// forever. This value passes all five checks. The bypass paths accept any value.
-export const PASSWORD = 'Test1234!';
+// Must satisfy CreatePassword's real gate (CreatePasswordScreen): at least
+// MIN_PASSWORD_LENGTH characters AND more than one of {upper+lower,
+// letter+digit, specialChar, strongLength}. The recovery journey drives that
+// real UI, so a weak or short password (the old '123456') leaves the submit
+// button disabled forever. The bypass paths accept any value.
+export const PASSWORD = 'Test1234!Wallet';
 const SYNC_WAIT_MS = 3_500;
 // Short, so a successful create's wait resolves about as soon as the wallet is ready.
 const CREATED_WALLET_POLL_MS = 250;
@@ -397,7 +397,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * Reveal the current Guardian account's hot and EVM private keys through
    * Settings → Keys → Reveal private key, returning the hot:evm payload.
    * Extension builds authenticate with the
-   * onboarding password.
+   * onboarding password; off mobile the keys then stay masked until Show is pressed.
    */
   revealHotKey(password?: string): Promise<string>;
   /**
@@ -479,6 +479,11 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * `__TEST_GUARDIAN_OPERATOR_VIEW__` hook (#1233).
    */
   guardianOperatorView(accountPublicKey: string, endpoint: string): Promise<GuardianOperatorView>;
+  /**
+   * Push a 1-unit public send as a Guardian candidate, abandon it and poll the abandon to its end, through the
+   * E2E-only `__TEST_GUARDIAN_ABANDON_PROBE__` hook. `legacy` is whether the nonce-only request was the one sent.
+   */
+  guardianAbandonProbe(accountPublicKey: string, recipient: string, faucetId: string): Promise<GuardianAbandonProbe>;
   /** Create another HD account through the E2E-only frontend store hook. */
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
   /** Create a Guardian wallet through every current extension onboarding screen. */
@@ -633,6 +638,11 @@ export interface GuardianOperatorView {
   released?: boolean;
   error?: string;
 }
+
+/** The outcome of an abandon probe: how the abandon ended, or why the probe could not run. */
+export type GuardianAbandonProbe =
+  | { legacy: boolean; status: 'waiting' | 'abandoned' | 'landed' | 'retained' | 'unexpected'; error?: undefined }
+  | { error: string };
 
 /**
  * In the page: a create's home surface. The new home (Explore) has no stable "Send"/"Receive" text, so this signals on
@@ -1193,6 +1203,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     );
   }
 
+  async guardianAbandonProbe(
+    accountPublicKey: string,
+    recipient: string,
+    faucetId: string
+  ): Promise<GuardianAbandonProbe> {
+    return this.page.evaluate(
+      async ({ pk, to, faucet }: { pk: string; to: string; faucet: string }) => {
+        const fn = (
+          globalThis as unknown as {
+            __TEST_GUARDIAN_ABANDON_PROBE__?: (pk: string, to: string, faucet: string) => Promise<GuardianAbandonProbe>;
+          }
+        ).__TEST_GUARDIAN_ABANDON_PROBE__;
+        if (!fn) return { error: '__TEST_GUARDIAN_ABANDON_PROBE__ unavailable (needs MIDEN_E2E_TEST build)' };
+        return await fn(pk, to, faucet);
+      },
+      { pk: accountPublicKey, to: recipient, faucet: faucetId }
+    );
+  }
+
   // ── Guardian switch / recovery ───────────────────────────────────────────────
 
   /**
@@ -1391,6 +1420,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await passwordField.fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
+    // Off mobile the keys stay masked, with the QR unmounted, until Show is pressed.
+    await this.page.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
     await this.page.getByRole('img', { name: 'Private keys QR code' }).waitFor({ timeout: 30_000 });
     await this.page.getByRole('button', { name: 'Show keys as text' }).click();
     const hot = await this.page.getByLabel('Miden everyday private key').inputValue();

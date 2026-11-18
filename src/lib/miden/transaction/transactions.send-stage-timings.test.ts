@@ -165,7 +165,8 @@ jest.mock('lib/platform', () => ({
 // A checked write decides the chain fee before it runs.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getVerificationBaseFee: jest.fn(async () => 0)
+  getVerificationBaseFee: jest.fn(async () => 0),
+  refreshVerificationBaseFee: jest.fn(async () => 0)
 }));
 
 jest.mock('shared/logger', () => ({
@@ -255,7 +256,15 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
     const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
-    expect(sentSign).toBe(signCallback);
+    expect(typeof sentSign).toBe('function');
+    expect(sentSign).not.toBe(signCallback);
+    signCallback.mockClear();
+    const signed =
+      typeof sentSign === 'function'
+        ? Promise.resolve(Reflect.apply(sentSign, undefined, ['pk', 'aa']))
+        : Promise.reject(new Error('expected a signer'));
+    await expect(signed).rejects.toThrow();
+    expect(signCallback).not.toHaveBeenCalled();
     expect(typeof onStage).toBe('function');
     // The callback is row-bound: every stamp it makes is keyed by this tx's id.
     expect(await driveStages()).toEqual([
@@ -279,7 +288,15 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     expect(mockProxySendTransaction.mock.calls[0]!).toHaveLength(3);
     const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
-    expect(sentSign).toBe(signCallback);
+    expect(typeof sentSign).toBe('function');
+    expect(sentSign).not.toBe(signCallback);
+    signCallback.mockClear();
+    const signed =
+      typeof sentSign === 'function'
+        ? Promise.resolve(Reflect.apply(sentSign, undefined, ['pk', 'aa']))
+        : Promise.reject(new Error('expected a signer'));
+    await expect(signed).rejects.toThrow();
+    expect(signCallback).not.toHaveBeenCalled();
     // The load-bearing assertion: a third argument EXISTS flag-ON. Without it the
     // per-step timings vanish on Chrome, silently.
     expect(typeof onStage).toBe('function');
@@ -442,14 +459,26 @@ describe('which dispatches carry a stamp (#1081)', () => {
     ['a dApp execute', { id: 'e', type: 'execute', requestBytes: new Uint8Array([1]) }, 'newTransaction', 4, true],
     [
       'an Agglayer bridge',
-      { id: 'b', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'agglayer' } },
+      {
+        id: 'b',
+        type: 'bridged-send',
+        requestBytes: new Uint8Array([1]),
+        approvedOutputNoteIds: ['note:recorded'],
+        extraInputs: { provider: 'agglayer' }
+      },
       'newTransaction',
       4,
       true
     ],
     [
       'an Epoch bridge',
-      { id: 'p', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'epoch' } },
+      {
+        id: 'p',
+        type: 'bridged-send',
+        requestBytes: new Uint8Array([1]),
+        approvedOutputNoteIds: ['note:recorded'],
+        extraInputs: { provider: 'epoch' }
+      },
       'newTransaction',
       4,
       false

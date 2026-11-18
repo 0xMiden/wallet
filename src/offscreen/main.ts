@@ -39,6 +39,7 @@
 
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
+import { isExtensionPageSender, isExtensionServiceWorkerSender } from 'lib/intercom/sender';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
   clearConnectivityIssue,
@@ -98,6 +99,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
+  retireWasmClientForCaughtTrap,
   tryWithWasmClientLock,
   withWasmClientLock,
   yieldWasmClientLock
@@ -135,6 +137,7 @@ import {
 
 import { ProveWorkerClient } from './prove-worker-client';
 import { proveThreadCount } from './prove-worker-protocol';
+import { assertTestGuardianRequestAuthorization } from '../lib/miden/sdk/test-guardian-authorization';
 
 const TAG = '[offscreen-prover]';
 
@@ -287,6 +290,10 @@ installLocalProveTransport(proveWorker);
 let initPromise: Promise<void> | null = null;
 
 async function init() {
+  if (process.env.MIDEN_E2E_TEST === 'true') {
+    const { restoreOffscreenFetchFaults } = await import('./e2e-fetch-faults');
+    await restoreOffscreenFetchFaults();
+  }
   // Force WASM init (lazy entry doesn't auto-load) so the wasm-bindgen `wasm`
   // namespace is populated and `initThreadPool` can call into it.
   // getWasmOrThrow → ensureWasm → loadWasm → import('Cargo-*.js') + __wbg_init
@@ -1018,7 +1025,8 @@ const DISPATCH: Record<string, DispatchFn> = {
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
     let execution = unobservedTransactionExecution('guardian_signed_request');
     try {
-      const [accountId, trBytes, delegateTransaction, , oneClickDeadline, oneClickRequired] = args;
+      const [accountId, trBytes, delegateTransaction, , oneClickDeadline, oneClickRequired, testAuthorizationKind] =
+        args;
       // This op's own id and lock hold, threaded in by `handleCall` before any
       // await so both are provably ours (issue #775). The hold is what keeps a pause from
       // silencing the watchdog of whichever holder took the lock after an
@@ -1043,6 +1051,8 @@ const DISPATCH: Record<string, DispatchFn> = {
             assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
           );
           assertWasmHoldCurrent(hold, 'in the guardian pipeline before executing at the tip');
+          await assertTestGuardianRequestAuthorization(accountId, tr, testAuthorizationKind ?? undefined);
+          assertWasmHoldCurrent(hold, 'after exact Guardian authorization verification');
           recordProveTiming('guardianPipeline calling executeRequest at current tip');
           execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
           const executedTx = await client.client.transactions.executeRequest(accountId, tr);
@@ -1190,6 +1200,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         result: attempt.txResult,
         readLocalAccount: accountId => client.client.accounts.get(accountId),
         holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+        retireTrap: cause => retireWasmClientForCaughtTrap(hold, cause),
         onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
       });
       recordProveTiming('guardianPipeline apply returned');
@@ -1731,8 +1742,16 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
   }
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target !== 'offscreen') return false;
+  // Only this extension's own pages and its service worker. A content script carries the page url and a tab, and
+  // another extension carries a foreign id. Both predicates declining leaves the message unanswered.
+  if (
+    !isExtensionPageSender(sender, chrome.runtime.id, chrome.runtime.getURL('')) &&
+    !isExtensionServiceWorkerSender(sender, chrome.runtime.id)
+  ) {
+    return false;
+  }
 
   if (msg?.type === 'OFFSCREEN_PROVE') {
     (async () => {
