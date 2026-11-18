@@ -19,6 +19,11 @@
 - [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
 - [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.
+- [FIX][ci] Keep checking the same public faucet note after a commitment read transport error, within the existing deadline and without another grant.
+
+- [FIX][ci] Compare the USDCx burn activity fee with verification and sponsorship combined, and count each component once in Chrome and iOS live vault checks.
+
 - [FIX][ci] Read measured maximum fee rows in Chrome and iOS USDCx burn reviews, restore each dApp's existing account grant before completion reads, and retain scalar refusal-phase and screenshot-helper diagnostics without changing existing timing bounds.
 - [FIX][ci] Check signed 1Click execution economics against the shared nightly loss allowance when the direct NEAR endpoint has no configured application fees or explicit fee policy. Public wallet settings are unchanged.
 
