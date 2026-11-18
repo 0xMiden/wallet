@@ -12,6 +12,7 @@ import { formatUnits, parseUnits } from 'viem';
 
 import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { readCompactLockBalance, strandedDepositAmount } from './bridge-in-lock';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -47,6 +48,15 @@ export function assertEpochReviewedOutput(output: EpochReviewedOutput | undefine
       (output.validity.kind !== 'time' ||
         !Number.isFinite(output.validity.expiresAt) ||
         output.validity.expiresAt <= Date.now()))
+  )
+    throw new EpochReviewChangedError();
+}
+
+export function assertCompactEpochScope(output: EpochReviewedOutput | undefined): void {
+  if (
+    !output?.walletScope ||
+    output.walletScope.network !== getEffectiveNetworkName() ||
+    output.walletScope.rpcUrl !== getEffectiveRpcUrl()
   )
     throw new EpochReviewChangedError();
 }

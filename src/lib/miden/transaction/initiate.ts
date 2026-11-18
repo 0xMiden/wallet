@@ -4,7 +4,7 @@ import {
   prepareBridgeOperation,
   type BridgeOperationInput
 } from 'lib/bridge/operation';
-import { assertEpochReviewedOutput } from 'lib/epoch/bridge';
+import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
@@ -1208,8 +1208,10 @@ export const initiateBridgedSendTransaction = async (
               walletScope
             );
           }
-          if (epochReviewedOutput !== undefined)
+          if (epochReviewedOutput !== undefined) {
             assertEpochReviewedOutput(dbTransaction.extraInputs.epochReviewedOutput);
+            if (!operation) assertCompactEpochScope(dbTransaction.extraInputs.epochReviewedOutput);
+          }
         }
       );
     } else {

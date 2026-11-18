@@ -814,6 +814,22 @@ it.each(['losing-note', 'winning-note'])(
   }
 );
 
+it('persists the original network and RPC with a newly reviewed Compact Epoch output', async () => {
+  delete input.operation;
+  input.reviewedQuote = {
+    outputTokenAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+    outputTokenDecimals: 18,
+    validity: { kind: 'time', expiresAt: now + 60000 }
+  };
+  const result = await bridgeEpochSend(input);
+  const row = await Repo.transactions.get(result.txId!);
+  expect(row?.extraInputs.epochReviewedOutput).toEqual(
+    expect.objectContaining({
+      walletScope: { network: MIDEN_NETWORK_NAME.TESTNET, rpcUrl: 'https://wallet-rpc.example/private' }
+    })
+  );
+});
+
 it('rechecks compact reviewed validity inside the real native admission after waiting for storage', async () => {
   delete input.operation;
   input.reviewedQuote = {

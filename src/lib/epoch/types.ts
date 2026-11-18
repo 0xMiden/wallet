@@ -1,6 +1,7 @@
 import type { CompactResponse } from '@epoch-protocol/epoch-intents-sdk';
 
 import type { QuoteValidity } from 'lib/bridge/core/quote';
+import type { AccountScope } from 'lib/miden-chain/account-scope';
 
 export interface EpochReviewedQuote {
   validity: QuoteValidity;
@@ -10,6 +11,8 @@ export interface EpochReviewedQuote {
 
 export interface EpochReviewedOutput extends EpochReviewedQuote {
   minimumOutputBaseUnits: string;
+  /** Compact's original wallet endpoint; owned Command rows already carry this in bridgeOperation. */
+  walletScope?: Pick<AccountScope, 'network' | 'rpcUrl'>;
 }
 
 export interface MidenAccount {

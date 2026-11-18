@@ -347,7 +347,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
             allocatorUrl,
             deps: args.deps,
             operation: args.operation,
-            reviewedOutput,
+            reviewedOutput: reviewedOutput && !args.operation ? { ...reviewedOutput, walletScope: originalScope } : reviewedOutput,
             expectedWalletScope: originalScope,
             checks: args.checks,
             onRowCreated: txId => {

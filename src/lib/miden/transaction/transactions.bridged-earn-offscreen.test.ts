@@ -30,6 +30,7 @@
 
 import { now } from 'lib/bridge/testing/fixtures';
 import { ownedNativeBridgeRow } from 'lib/bridge/testing/operation-fixtures';
+import type { EpochReviewedOutput } from 'lib/epoch/types';
 import { getMessage } from 'lib/i18n/core';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { NoteTypeEnum } from 'lib/miden/types';
@@ -420,12 +421,15 @@ describe('reviewed compact Epoch source on the existing single-key pipeline', ()
       { recipientId: 'mtst1qallocator', noteType: NoteTypeEnum.Public, recallBlocks: 10, reclaimNoteId: 'note:epoch' }
     );
     tx.approvedOutputNoteIds = ['note:epoch'];
-    tx.extraInputs.epochReviewedOutput = {
+    const output: EpochReviewedOutput = {
       minimumOutputBaseUnits: '250',
       outputTokenAddress: '0x2222222222222222222222222222222222222222',
       outputTokenDecimals: 6,
       validity: { kind: 'time', expiresAt: now + 60000 }
     };
+    tx.extraInputs.epochReviewedOutput = Object.assign(output, {
+      walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
+    });
     return tx;
   }
   beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(now));
@@ -436,6 +440,37 @@ describe('reviewed compact Epoch source on the existing single-key pipeline', ()
     txStore.push({ ...tx });
     await generateTransaction(tx, signCallback, false, compactProvider);
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a queued Compact Epoch source after a same-network RPC change before recovery authorization', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: true }));
+    await generateTransaction(tx, signCallback, false, { ...compactProvider, prepareRecoveryTransaction }).catch(
+      () => undefined
+    );
+    expect(prepareRecoveryTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a changed Compact Epoch RPC at the awaited native submit gate after proof', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    const sourceSubmit = jest.fn();
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('changed-after-proof');
+      const gate = args[5];
+      if (typeof gate === 'function') {
+        const allowed: unknown = await Reflect.apply(gate, undefined, []);
+        if (allowed !== true) throw new Error('Native source gate refused');
+      }
+      sourceSubmit();
+      return makeResult();
+    });
+    await generateTransaction(tx, signCallback, false, compactProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(sourceSubmit).not.toHaveBeenCalled();
   });
 
   it('does not start expired compact collateral', async () => {

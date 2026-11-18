@@ -9,7 +9,7 @@ import { v4 as uuid } from 'uuid';
 
 import { configKey } from 'lib/bridge/core/routes';
 import { assertBridgeOperationCurrent, bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
-import { assertEpochReviewedOutput } from 'lib/epoch/bridge';
+import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import { getMessage } from 'lib/i18n/core';
 import {
   clearGuardianServiceFor,
@@ -1768,6 +1768,7 @@ async function assertOwnedNativeBridgeSource(transaction: ITransaction, stored?:
     assertEpochReviewedOutput(row?.extraInputs.epochReviewedOutput);
     if (configKey(transaction.extraInputs.epochReviewedOutput) !== configKey(row?.extraInputs.epochReviewedOutput))
       throw new Error('Epoch reviewed output changed');
+    if (!isOwnedNativeBridge(transaction)) assertCompactEpochScope(transaction.extraInputs.epochReviewedOutput);
   }
   if (!isOwnedNativeBridge(transaction)) return;
   const expected = bridgeOperationOf(transaction);
