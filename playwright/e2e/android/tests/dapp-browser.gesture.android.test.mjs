@@ -87,3 +87,66 @@ test('classifies host swipe failures only after settlement, with confirmation ta
     assert.deepEqual(marks, ['swipe-handoff', stage], scenario);
   }
 });
+
+test('classifies the first swipe rejection at settlement without replacing its error', async () => {
+  const code = stripTypeScriptTypes(`let commandId = 0; ${parser}\ninput({ op: 'swipe' }, undefined, rejection)`);
+  for (const [scenario, kind] of [
+    ['wrong command reply', 'framing-protocol'],
+    ['socket error', 'socket-error-or-close'],
+    ['close without a result', 'socket-error-or-close'],
+    ['inactivity callback', 'socket-inactivity'],
+    ['done before close', undefined]
+  ]) {
+    const rejection = {};
+    let onInactivity;
+    let destroyError;
+    const socket = Object.assign(new EventEmitter(), {
+      setTimeout(ms, callback) {
+        assert.equal(ms, 30_000);
+        onInactivity = callback;
+      },
+      end() {},
+      destroy(error) {
+        // Deliver the error separately: destroy itself does not settle the swipe.
+        destroyError = error;
+      }
+    });
+    const pending = runInNewContext(code, { createConnection: () => socket, rejection });
+    const send = frame => socket.emit('data', JSON.stringify(frame) + '\n');
+    send({ id: 1, phase: 'started' });
+    assert.equal(rejection.kind, undefined, scenario);
+
+    if (scenario === 'done before close') {
+      send({ id: 1, phase: 'done' });
+      await pending;
+      socket.emit('error', new Error('synthetic late socket error'));
+    } else if (scenario === 'close without a result') {
+      socket.emit('close');
+      await assert.rejects(pending, { message: 'Native gesture input closed without a result' }, scenario);
+    } else {
+      let original;
+      if (scenario === 'socket error') {
+        // Identical text to the inactivity error is still a socket error.
+        original = new Error('Native gesture input timed out');
+      } else {
+        if (scenario === 'inactivity callback') onInactivity();
+        else send({ id: 2, phase: 'injected' });
+        original = destroyError;
+        assert.equal(
+          original?.message,
+          scenario === 'inactivity callback'
+            ? 'Native gesture input timed out'
+            : 'Native gesture command identity mismatch',
+          scenario
+        );
+        assert.equal(rejection.kind, undefined, `${scenario}: destroy must not classify before settlement`);
+      }
+      socket.emit('error', original);
+      await assert.rejects(pending, error => error === original, scenario);
+    }
+
+    assert.equal(rejection.kind, kind, `${scenario}: first settlement`);
+    socket.emit('close');
+    assert.equal(rejection.kind, kind, `${scenario}: later close must not replace first settlement`);
+  }
+});

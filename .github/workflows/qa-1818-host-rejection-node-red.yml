@@ -1,0 +1,28 @@
+name: QA 1818 host rejection Node RED
+
+on:
+  push:
+    branches: [qa/1818-host-rejection-node-red]
+
+permissions:
+  contents: read
+
+jobs:
+  host-rejection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - name: Assert exact sources and run device-free test
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = d98e5bef87b99234fe8370968068e83ec97b07b4
+          test "$(git hash-object --no-filters -- playwright/e2e/android/tests/dapp-browser.gesture.android.test.mjs)" = 50ec729ab0a15f9cb02ec9dcf307870e49384ff2
+          test "$(git hash-object --no-filters -- playwright/e2e/android/tests/dapp-browser.gesture.android.spec.ts)" = 139dd669a434feee7687cf5558ab8d6b18f49853
+          node --test playwright/e2e/android/tests/dapp-browser.gesture.android.test.mjs
