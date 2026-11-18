@@ -17,7 +17,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
     get: async (keys: string[]) => Object.fromEntries(keys.map(key => [key, mockStorage.get(key)]))
   })
 }));
-jest.mock('./miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('./miden-client-proxy', () => ({ midenClientProxy: { getAccount: () => mockClient.accounts.get() } }));
 jest.mock('./store', () => ({
   withUnlocked: (run: (session: typeof mockSession) => Promise<unknown>) => run(mockSession),
   store: { getState: () => mockSession }
@@ -34,6 +34,11 @@ jest.mock('../repo', () => ({
   deserializeRecoveryTransfers: jest.fn(),
   restoreRecoveryTransfers: jest.fn(),
   serializeRecoveryTransfer: jest.fn(),
+  transactions: {
+    orderBy: () => ({ reverse: () => ({ limit: () => ({ toArray: async () => [] }) }) }),
+    where: () => ({ aboveOrEqual: () => ({ filter: () => mockSpendingHistory }) })
+  },
+  spendingLimits: { toArray: async () => [] },
   readWalletStoreGeneration: jest.fn(),
   writeWalletStoreGeneration: jest.fn()
 }));
@@ -71,21 +76,27 @@ const mockClient = {
 
 const noteRecord = { free: jest.fn() };
 const accountKey = { toString: () => accountId };
+const mockSpendingHistory = {
+  limit: () => mockSpendingHistory,
+  toArray: jest.fn<Promise<ITransaction[]>, []>()
+};
 const accountState = {
   id: () => accountKey,
+  serialize: () => accountBytes,
   to_commitment: () => ({ toHex: () => '0xabc' }),
   free: jest.fn()
 };
 const noteFile = { noteType: () => 'NoteWithProof', noteId: () => 'file-note-id', free: jest.fn() };
 const noteDetailsFile = { noteType: () => 'NoteDetails', noteId: () => undefined, free: jest.fn() };
 
+let captureWalletAccounts: typeof import('./storage-recovery').captureWalletAccounts;
 let rebuildWalletStorage: typeof import('./storage-recovery').rebuildWalletStorage;
 let storageHealth: typeof import('../storage-health');
 
 beforeAll(() => {
   // Jest's setup imports the real repo and storage health before this suite installs its storage mocks.
   jest.isolateModules(() => {
-    ({ rebuildWalletStorage } = require('./storage-recovery'));
+    ({ captureWalletAccounts, rebuildWalletStorage } = require('./storage-recovery'));
     storageHealth = require('../storage-health');
   });
 });
@@ -168,6 +179,34 @@ it('rebuilds after verifying a retained wallet whose IndexedDB generation change
 
   await expect(rebuildWalletStorage()).resolves.toMatchObject({ verifiedAccounts: 1, verifiedNotes: 2 });
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
+});
+
+it('retains all 257 compact recent spending records during a healthy wallet capture', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const spending = Array.from({ length: 257 }, (_, index): ITransaction => ({
+    id: `spend-${index}`,
+    type: 'send',
+    accountId,
+    initiatedAt: now - index,
+    status: ITransactionStatus.Completed,
+    displayIcon: 'SEND',
+    spentUsd: BigInt(index + 1)
+  }));
+  mockSpendingHistory.toArray.mockResolvedValue(spending);
+  jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
+  jest.mocked(Repo.serializeRecoveryTransfer).mockImplementation(row => String(row.spentUsd));
+  const save = mockJournal.retain.mockImplementation(async change => change({ ...retained, notes: [] }));
+
+  await expect(
+    captureWalletAccounts(
+      mockSession.vault as unknown as Parameters<typeof captureWalletAccounts>[0],
+      mockSession.accounts as Parameters<typeof captureWalletAccounts>[1],
+      () => {}
+    )
+  ).resolves.toBeUndefined();
+
+  const saved = await save.mock.results[0].value;
+  expect(Object.values(saved.transfers)).toEqual(spending.map(row => String(row.spentUsd)));
 });
 
 it('stays paused if the note import leaves no readable record', async () => {
