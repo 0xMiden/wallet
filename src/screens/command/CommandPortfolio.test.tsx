@@ -33,6 +33,7 @@ const rows = [
   }
 ];
 let mockAssets: typeof rows = rows;
+let mockAllocation: { tokenId: string; value: number; percentage: number }[] | null = null;
 let resolvePreference: (() => void) | undefined;
 let mockCanRecord = false;
 let mockMarketMove: { absolute: number; percentage: number } | null = null;
@@ -59,7 +60,8 @@ const actualObservations = jest.requireActual<typeof import('lib/miden/portfolio
 const realRecord = actualObservations.recordPortfolioObservation;
 jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span aria-hidden="true" /> }));
 jest.mock('lib/miden/swap/tokens', () => ({
-  tokenQuote: (_prices: unknown, id: string) => (id === 'priced' ? { price: 3, observedAt: Date.now() } : undefined)
+  tokenQuote: (_prices: unknown, id: string) =>
+    id === 'priced' || id === 'beta' ? { price: id === 'priced' ? 3 : 2, observedAt: Date.now() } : undefined
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
@@ -84,6 +86,7 @@ jest.mock('lib/miden/front/storage', () => ({
 jest.mock('./useCommandPortfolio', () => ({
   useCommandPortfolio: () => ({
     assets: mockAssets,
+    allocation: mockAllocation,
     tokenPrices: {},
     value: mockCurrent ? mockValue : null,
     priceMovement24h: mockMarketMove,
@@ -97,6 +100,7 @@ jest.mock('./useCommandPortfolio', () => ({
 
 beforeEach(async () => {
   mockAssets = rows;
+  mockAllocation = null;
   store.hidden = true;
   store.pending = false;
   mockCanRecord = false;
@@ -413,6 +417,47 @@ it('keeps a searched holding masked while the privacy preference hides quantitie
   expect(within(holdings).queryByText('Ethereum')).not.toBeInTheDocument();
   expect(within(holdings).getAllByText('commandMaskedBalance').length).toBeGreaterThan(0);
   expect(within(holdings).queryByText('4.00 OTHER')).not.toBeInTheDocument();
+});
+
+it('shows priced-subset allocation independent of holdings search and masks all allocation geometry', () => {
+  store.hidden = false;
+  mockValue = '8';
+  mockAssets = [
+    rows[0]!,
+    {
+      tokenId: 'beta',
+      tokenSlug: 'BET',
+      balance: 1,
+      balanceBaseUnits: '1000000',
+      fiatPrice: 2,
+      metadata: { name: 'Beta', symbol: 'BET', decimals: 6 }
+    },
+    rows[1]!
+  ];
+  mockAllocation = [
+    { tokenId: 'priced', value: 6, percentage: 75 },
+    { tokenId: 'beta', value: 2, percentage: 25 }
+  ];
+  render(<CommandPortfolio scope={scope} />);
+  const allocation = screen.getByRole('region', { name: 'commandAllocation' });
+  expect(within(allocation).getByText('Ethereum')).toBeInTheDocument();
+  expect(within(allocation).getByText('Beta')).toBeInTheDocument();
+  expect(within(allocation).queryByText('Voucher')).not.toBeInTheDocument();
+  expect(within(allocation).getByText('75%')).toBeInTheDocument();
+  expect(within(allocation).getByText('25%')).toBeInTheDocument();
+  expect(within(allocation).getByText('commandPartialCoverage')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'searchAssets' }), { target: { value: 'no match' } });
+  expect(screen.getByText('exploreNoResultsTitle')).toBeInTheDocument();
+  expect(within(allocation).getByText('75%')).toBeInTheDocument();
+  expect(within(allocation).getByText('25%')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'commandHideBalances' }));
+  expect(screen.queryByText('6.00 USD')).not.toBeInTheDocument();
+  expect(screen.queryByText('2.00 USD')).not.toBeInTheDocument();
+  expect(screen.queryByText('75%')).not.toBeInTheDocument();
+  expect(screen.queryByText('25%')).not.toBeInTheDocument();
+  const maskedMarkup = screen.queryByRole('region', { name: 'commandAllocation' })?.outerHTML ?? '';
+  expect(maskedMarkup).not.toMatch(/(?:75|25)%|(?:6|2)\.00/);
 });
 
 it('keeps balances usable when the optional history write fails, and refuses an old account scope', async () => {

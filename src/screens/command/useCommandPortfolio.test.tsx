@@ -50,7 +50,8 @@ function Probe({ requested = scope }: { requested?: typeof scope }) {
         coverage: portfolio.coverage,
         coverageKey: portfolio.coverageKey,
         assets: portfolio.assets.map(asset => asset.tokenId),
-        canRecord: portfolio.canRecord
+        canRecord: portfolio.canRecord,
+        allocation: 'allocation' in portfolio ? portfolio.allocation : undefined
       })}
     </output>
   );
@@ -160,6 +161,56 @@ it('requires a successful current RPC read and a ready quote before publishing a
   expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
   expect(screen.getByRole('status').textContent).toContain('"value":null');
   expect(screen.getByRole('status').textContent).toContain('"assets":[]');
+});
+
+it('allocates only current, proven priced wallet holdings from the valued subtotal', () => {
+  rows = [
+    row('alpha', 3),
+    row('beta', 1),
+    row('unpriced', 4),
+    row('hidden', 5),
+    row('unknown', 6, true),
+    row('nominal', 2)
+  ];
+  hidden = true;
+  useWalletStore.setState({
+    balances: { 'account-a': rows },
+    tokenPrices: {
+      alpha: quote,
+      beta: quote,
+      hidden: quote,
+      unknown: quote,
+      nominal: { ...quote, price: 1 }
+    },
+    tokenPricesStatus: 'ready'
+  });
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  const view = render(<Probe />);
+  const output = screen.getByRole('status');
+  expect(output.textContent).toContain('"value":"8"');
+  expect(JSON.parse(output.textContent ?? '{}')).toEqual(
+    expect.objectContaining({
+      allocation: [
+        expect.objectContaining({ tokenId: 'alpha', value: 6, percentage: 75 }),
+        expect.objectContaining({ tokenId: 'beta', value: 2, percentage: 25 })
+      ]
+    })
+  );
+  view.rerender(<Probe requested={{ ...scope, rpcUrl: 'https://node-b' }} />);
+  expect(output.textContent).not.toContain('"percentage":');
+  act(() => useWalletStore.setState({ tokenPricesStatus: 'loading' }));
+  view.rerender(<Probe />);
+  expect(output.textContent).not.toContain('"percentage":');
 });
 
 it('does not reveal assets or a subtotal until the hidden-token choice is loaded', () => {
