@@ -171,6 +171,10 @@ jobs:
         with:
           node-version: 22
 
+      - name: Check Android gesture reply classifier
+        timeout-minutes: 1
+        run: node --test playwright/e2e/android/tests/dapp-browser.gesture.android.test.mjs
+
       # comment=false (default): translations is the designated
       # comment-poster - see its `Inject` step for rationale. Other
       # jobs just need the package.json mutation, not the comment.

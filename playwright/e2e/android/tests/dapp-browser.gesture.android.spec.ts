@@ -29,6 +29,8 @@ type GestureStage =
   | 'dapp-ready'
   | 'playwright'
   | 'swipe-handoff'
+  | 'swipe-reply-no-started'
+  | 'swipe-reply-started-no-injected'
   | 'fixture-cleanup';
 
 async function markStage(path: string, stage: GestureStage) {
@@ -250,6 +252,7 @@ test.describe('API36 managed presentation gestures', () => {
         // A started reply precedes injection and does not confirm it.
         if (stagePath) await markStage(stagePath, 'swipe-handoff');
         let inputConfirmed = false;
+        let rejectedReply: { started: boolean; injected: boolean } | undefined;
         try {
           let started = false;
           let injecting = false;
@@ -278,7 +281,13 @@ test.describe('API36 managed presentation gestures', () => {
               if (!finished && injecting) samples.push({ file: shot, pixels, captureStartMs, captureEndMs });
             }
           } finally {
-            nativeResult = await gesture;
+            try {
+              nativeResult = await gesture;
+            } catch (error) {
+              // On rejection, only a matching injected reply can have confirmed input.
+              rejectedReply = { started, injected: inputConfirmed };
+              throw error;
+            }
             inputConfirmed = true;
             expect(nativeResult.executed).toBe(bounds.executed + 1);
           }
@@ -354,6 +363,10 @@ test.describe('API36 managed presentation gestures', () => {
           );
         } catch (error) {
           if (stagePath && inputConfirmed) await markStage(stagePath, name);
+          else if (stagePath && rejectedReply && !rejectedReply.injected) {
+            const replyStage = rejectedReply.started ? 'swipe-reply-started-no-injected' : 'swipe-reply-no-started';
+            await markStage(stagePath, replyStage);
+          }
           throw error;
         }
       });

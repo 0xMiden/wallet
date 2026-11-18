@@ -298,6 +298,10 @@ describe('the mobile legs of the dApp E2E workflow', () => {
         { marker: 'device-webview-select\nunexpected-marker-data', status: 43, verdict: 'FAIL (unknown)' },
         { marker: 'swipe-handoff', status: 47, verdict: 'FAIL (swipe-handoff)' },
         { marker: 'swipe-handoff\nunexpected-marker-data', status: 53, verdict: 'FAIL (unknown)' },
+        { marker: 'swipe-reply-no-started', status: 61, verdict: 'FAIL (swipe-reply-no-started)' },
+        { marker: 'swipe-reply-no-started\nunexpected-marker-data', status: 67, verdict: 'FAIL (unknown)' },
+        { marker: 'swipe-reply-started-no-injected', status: 71, verdict: 'FAIL (swipe-reply-started-no-injected)' },
+        { marker: 'swipe-reply-started-no-injected ', status: 73, verdict: 'FAIL (unknown)' },
         { marker: '', status: 59, verdict: 'FAIL (unknown)' }
       ]) {
         const result = spawnSync('/bin/sh', ['-c', script], {
