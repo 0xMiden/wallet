@@ -1746,6 +1746,37 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       }
     });
 
+    it('does not start registration when the cold read retires its sync pass', async () => {
+      useAccount('acct-overwritten-retired');
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
+      mockBuildColdMultisigService.mockImplementation(async () => {
+        retireGuardianSyncPasses();
+        throw authError;
+      });
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('does not start registration when the Guardian endpoint changes during the cold read', async () => {
+      useAccount('acct-overwritten-endpoint-changed');
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
+      mockBuildColdMultisigService.mockImplementation(async () => {
+        storeState.accounts = storeState.accounts.map(account => ({
+          ...account,
+          guardianEndpoint: 'https://replacement.guardian.test'
+        }));
+        throw authError;
+      });
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
     it('keeps the cold re-register when the 401 comes from its own push', async () => {
       useAccount('acct-overwritten-push');
       mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
