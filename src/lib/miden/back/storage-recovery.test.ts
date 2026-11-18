@@ -145,7 +145,9 @@ beforeEach(() => {
     .mockReturnValueOnce(noteFile as unknown as NoteFile)
     .mockReturnValueOnce(noteDetailsFile as unknown as NoteFile);
   jest.mocked(Repo.deserializeRecoveryTransfers).mockReturnValue([]);
-  jest.mocked(Repo.restoreRecoveryTransfers).mockResolvedValue(retained.limits);
+  jest
+    .mocked(Repo.restoreRecoveryTransfers)
+    .mockImplementation(async transfers => ({ limits: retained.limits, transfers: [...transfers] }));
   mockClient.accounts.get.mockResolvedValue(accountState);
   mockClient.notes.import.mockResolvedValueOnce('file-note-id').mockResolvedValueOnce('note-details-commitment');
   mockClient.notes.list.mockResolvedValue([noteRecord]);
@@ -179,7 +181,7 @@ it('resumes the same account only after reading back the retained files and pers
       observed: undefined,
       verified: retained.walletStoreGeneration,
       spendingSince: expect.any(Number),
-      verifiedTransfers: new Set()
+      verifiedTransfers: new Map()
     }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
@@ -211,7 +213,7 @@ it('rebuilds retained private notes without importing an old ID-only pointer', a
 
 it('rebuilds after verifying a retained wallet whose IndexedDB generation changed', async () => {
   const acceptedLimit = { accountId, limit: '20', revision: 'accepted-limit', createdAt: 1, updatedAt: 1 };
-  jest.mocked(Repo.restoreRecoveryTransfers).mockResolvedValue([acceptedLimit]);
+  jest.mocked(Repo.restoreRecoveryTransfers).mockResolvedValue({ limits: [acceptedLimit], transfers: [] });
   jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue('different-active-generation');
   jest.mocked(Repo.writeWalletStoreGeneration).mockRejectedValue(new Error('Wallet storage generation changed'));
 
@@ -225,7 +227,7 @@ it('rebuilds after verifying a retained wallet whose IndexedDB generation change
       observed: 'different-active-generation',
       verified: retained.walletStoreGeneration,
       spendingSince: expect.any(Number),
-      verifiedTransfers: new Set()
+      verifiedTransfers: new Map()
     }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
@@ -457,33 +459,31 @@ it('carries only freshly verified transfer outcomes into the live store before c
   const oldHistory = { ...transfer, id: 'old-history', status: ITransactionStatus.Completed };
   jest.mocked(Repo.deserializeRecoveryTransfers).mockReturnValue([transfer, oldHistory]);
   jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
+  const landed = { attemptId: transfer.attemptId!, proof: { kind: 'note', noteId: 'note-proof' } } as const;
   jest.mocked(judgeSubmitEvidence).mockResolvedValue({
     rowId: transfer.id,
     judgedEntries: [],
     entries: [],
-    landed: { attemptId: transfer.attemptId!, proof: { kind: 'commitment' }, boundTransactionId: 'confirmed-id' },
+    landed,
     allDead: false,
     landingHeld: false
   });
-  jest.mocked(Repo.restoreRecoveryTransfers).mockImplementationOnce(async () => {
+  jest.mocked(Repo.restoreRecoveryTransfers).mockImplementationOnce(async transfers => {
     expect(await storageHealth.getWalletStorageFailure()).toBe(failureEpoch);
-    return retained.limits;
+    return { limits: retained.limits, transfers: [...transfers] };
   });
 
   await rebuildWalletStorage();
 
   expect(Repo.restoreRecoveryTransfers).toHaveBeenCalledWith(
-    [
-      expect.objectContaining({ ...transfer, status: ITransactionStatus.Completed, transactionId: 'confirmed-id' }),
-      oldHistory
-    ],
+    [expect.objectContaining({ ...transfer, status: ITransactionStatus.Completed }), oldHistory],
     retained.limits,
     expect.any(Function),
     expect.any(Function),
     expect.objectContaining({
       observed: retained.walletStoreGeneration,
       verified: retained.walletStoreGeneration,
-      verifiedTransfers: new Set([transfer.id])
+      verifiedTransfers: new Map([[transfer.id, landed]])
     })
   );
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
@@ -555,7 +555,7 @@ it('stays paused if the verified rebuild cannot be written to the recovery journ
       observed: undefined,
       verified: retained.walletStoreGeneration,
       spendingSince: expect.any(Number),
-      verifiedTransfers: new Set()
+      verifiedTransfers: new Map()
     }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();

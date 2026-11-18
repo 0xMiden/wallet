@@ -19,6 +19,8 @@ import {
 import { ITransaction, ITransactionStatus, type ITransactionType } from './db/types';
 import type { PersistedSpendingLimit } from './spending-limits/types';
 import { observeWalletStorageError, WalletStorageUnavailableError } from './storage-health';
+import type { RowJudgement } from './transaction/reconcile-judge';
+import { evidenceKey } from './transaction/verdict-rules';
 
 export enum Table {
   Transactions = 'transactions',
@@ -978,7 +980,7 @@ function conflictsWithRecovery(
     hasDifferentRecoveryIdentity(current, retained) ||
     (pending &&
       (retained.mayHaveSubmitted !== true ||
-        JSON.stringify(current.submitEvidence) !== JSON.stringify(retained.submitEvidence)))
+        evidenceKey(current.submitEvidence) !== evidenceKey(retained.submitEvidence)))
   );
 }
 
@@ -1036,14 +1038,18 @@ export async function restoreRecoveryTransfers(
   limits: readonly PersistedSpendingLimit[],
   canRestore: (accountId: string) => boolean,
   assertCurrent: () => void,
-  generation: RecoveryStoreGeneration & { verifiedTransfers?: ReadonlySet<string> }
-): Promise<PersistedSpendingLimit[]> {
+  generation: RecoveryStoreGeneration & { verifiedTransfers?: ReadonlyMap<string, RowJudgement['landed']> }
+): Promise<{ limits: PersistedSpendingLimit[]; transfers: ITransaction[] }> {
   const rows = transfers.map(row => {
     const trusted = row.restoredFromBackup !== true || row.retainedRecoverySpend === true;
     return { ...neutralizeUnfinishedTransaction(row), retainedRecoverySpend: trusted && row.spentUsd !== undefined };
   });
   const validateLimit = await recoveryLimitValidator(limits, canRestore);
-  return db.transaction('rw', transactions, spendingLimits, recovery, async () => {
+  const [{ applyVerifiedLanding, countNoteDeliveryWrite, verifiedLandingRowFields }, { recordLandedDeliveryTarget }] =
+    await Promise.all([import('./transaction/helper'), import('./transaction/reconcile-unconfirmed')]);
+  const retainedTransfers = [...transfers];
+  let deliveryChanged = false;
+  const acceptedLimits = await db.transaction('rw', transactions, spendingLimits, recovery, async () => {
     const limitsByAccount = await readRecoveryStoreLimits(
       transfers,
       canRestore,
@@ -1053,30 +1059,43 @@ export async function restoreRecoveryTransfers(
     );
     const replacingGeneration = generation.observed !== generation.verified;
 
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
       assertCurrent();
       const current = await transactions.get(row.id);
       if (current && current.accountId !== row.accountId) throw new WalletStorageUnavailableError();
       if (current?.status === ITransactionStatus.Completed) continue;
-      if (current && generation.verifiedTransfers?.has(row.id)) {
+      if (generation.verifiedTransfers?.has(row.id)) {
+        const evidence = row.submitEvidence ?? [];
+        const observed = current?.submitEvidence ?? [];
         if (
-          hasDifferentRecoveryIdentity(current, row) ||
-          current.attemptId !== row.attemptId ||
-          current.submitEvidence?.some(
-            entry => !row.submitEvidence?.some(saved => JSON.stringify(saved) === JSON.stringify(entry))
-          )
+          current &&
+          (hasDifferentRecoveryIdentity(current, row) ||
+            current.attemptId !== row.attemptId ||
+            observed.some(entry => !evidence.some(saved => evidenceKey([saved]) === evidenceKey([entry]))))
         ) {
           throw new WalletStorageUnavailableError();
         }
+        const target = current ?? row;
+        target.completedAt = row.completedAt;
+        target.mayHaveSubmitted = row.mayHaveSubmitted;
+        target.neverCommittedAt = row.neverCommittedAt;
+        target.submitEvidence = evidence.map(
+          entry => observed.find(live => live.attemptId === entry.attemptId) ?? entry
+        );
+        const landing = generation.verifiedTransfers.get(row.id);
+        if (landing) {
+          applyVerifiedLanding(target, {
+            ...verifiedLandingRowFields(target),
+            transactionId: landing.boundTransactionId ?? target.transactionId
+          });
+          recordLandedDeliveryTarget(target, landing);
+          deliveryChanged ||= target.noteDelivery !== undefined;
+        } else {
+          target.status = row.status;
+        }
         assertCurrent();
-        await transactions.update(row.id, {
-          status: row.status,
-          completedAt: row.completedAt,
-          transactionId: row.transactionId ?? current.transactionId,
-          neverCommittedAt: row.neverCommittedAt,
-          mayHaveSubmitted: row.mayHaveSubmitted,
-          submitEvidence: row.submitEvidence
-        });
+        await transactions.put(target);
+        retainedTransfers[index] = target;
       } else if (!current || replacingGeneration) {
         assertCurrent();
         await transactions.put(row);
@@ -1095,6 +1114,8 @@ export async function restoreRecoveryTransfers(
     assertCurrent();
     return [...limitsByAccount.values()];
   });
+  if (deliveryChanged) countNoteDeliveryWrite();
+  return { limits: acceptedLimits, transfers: retainedTransfers };
 }
 
 export async function exportDb(): Promise<string> {
