@@ -514,6 +514,25 @@ jest.mock('./RecallCalendarDrawer', () => ({
       >
         recall-date
       </button>
+      <button
+        type="button"
+        data-testid="recall-pick-calendar"
+        onClick={() => {
+          const date = new Date();
+          date.setDate(date.getDate() + 2);
+          date.setHours(0, 0, 0, 0);
+          const picker = jest.requireActual<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer');
+          const conversion = jest.requireMock<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer');
+          props.onRecallDateChange(date);
+          props.onRecallTimeChange('14:00');
+          props.onRecallBlocksChange(
+            String(conversion.dateTimeToRecallBlocks(picker.combineDateAndTime(date, '14:00')))
+          );
+          props.onOpenChange(false);
+        }}
+      >
+        pick-calendar-target
+      </button>
     </div>
   )
 }));
@@ -836,6 +855,7 @@ describe('Command Send review controller', () => {
         </button>
         <button onClick={() => setOpen(false)}>Leave review</button>
         <output data-testid="saved-review-input">{JSON.stringify(drafts.readDraft('send'))}</output>
+        <output data-testid="saved-send-admission">{JSON.stringify(drafts.readSendAdmission())}</output>
         {open && <ReviewTransaction />}
       </>
     );
@@ -1144,6 +1164,75 @@ describe('Command Send review controller', () => {
     await waitFor(() =>
       expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 42, false)
     );
+  });
+
+  it('reprojects a user-picked calendar instant at the original queue edge after reopening', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 1, 12));
+      openSession();
+      dateTimeToRecallBlocksMock.mockClear().mockReturnValueOnce(42).mockReturnValue(20);
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-open', 'true');
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-open', 'false');
+      expect(dateTimeToRecallBlocksMock).toHaveBeenLastCalledWith(new Date(2030, 0, 3, 14));
+      const pickedRecall = JSON.parse(screen.getByTestId('saved-review-input').textContent ?? '{}').recall;
+      expect(pickedRecall).toBeDefined();
+      const reviewedExpiration = screen.getByTestId('review-row-expiration').textContent;
+
+      fireEvent.click(screen.getByRole('button', { name: 'Leave review' }));
+      jest.setSystemTime(new Date(2030, 0, 2, 12));
+      fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+      expect(JSON.parse(screen.getByTestId('saved-review-input').textContent ?? '{}').recall).toEqual(pickedRecall);
+      await openAdvancedOptions();
+      const reopenedExpiration = screen.getByTestId('review-row-expiration').textContent;
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+      expect(initiateMock).toHaveBeenLastCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 20, false);
+      expect(dateTimeToRecallBlocksMock).toHaveBeenLastCalledWith(new Date(2030, 0, 3, 14));
+      expect(reopenedExpiration).toBe(reviewedExpiration);
+      expect(reopenedExpiration).toMatch(/2030/);
+      expect(reopenedExpiration).toMatch(/14:00|2:00/);
+      expect(reopenedExpiration).toMatch(/estim/i);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refuses a calendar instant expired during spending assessment before admission and permits a fresh choice', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 1, 12));
+      const assessment = deferred<undefined>();
+      mockWalletStoreState.assessSpendingLimit.mockReturnValueOnce(assessment.promise);
+      openSession();
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      jest.setSystemTime(new Date(2030, 0, 4, 12));
+      await act(async () => assessment.resolve(undefined));
+      await waitFor(() => {
+        if (!screen.queryByTestId('review-error') && initiateMock.mock.calls.length === 0)
+          throw new Error('Assessment has not reached a terminal outcome');
+      });
+      expect(initiateMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('saved-send-admission')).toBeEmptyDOMElement();
+      expect(screen.getByTestId('review-error')).toHaveTextContent('recallTimeInPast');
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it.each([
