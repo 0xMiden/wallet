@@ -7,7 +7,7 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount, WalletStorageRecoveryResult } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { midenClientProxy } from './miden-client-proxy';
+import { midenClientProxy, reloadOffscreenEndpointOverrides } from './miden-client-proxy';
 import { withUnlocked, store } from './store';
 import type { Vault } from './vault';
 import { ITransactionStatus, type ITransaction, type SubmitEvidenceFields } from '../db/types';
@@ -18,7 +18,7 @@ import { readAccountChainStates, type AccountChainState } from '../guardian/reco
 import { WalletSigner } from '../guardian/signer';
 import * as Repo from '../repo';
 import { canonicalWalletAccountId } from '../sdk/helpers';
-import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, getMidenClient, resetMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmTrap, readWasmHandle } from '../sdk/wasm-handle';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/policy';
 import {
@@ -399,6 +399,12 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
         assertCurrent,
         targetGeneration
       );
+      // An open SDK client can retain its genesis commitment after the stored genesis disappears.
+      assertCurrent();
+      await resetMidenClient();
+      assertCurrent();
+      await reloadOffscreenEndpointOverrides();
+      assertCurrent();
       const chain = await readAccountChainStates(expected);
       const states: string[] = [];
       for (const [index, account] of accounts.entries()) {
