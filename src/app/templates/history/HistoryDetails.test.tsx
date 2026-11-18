@@ -79,6 +79,7 @@ let mockNativeChainMetadata: { symbol: string; decimals: number } | null = { sym
 let mockMaxNetworkFee: string | undefined;
 let mockRow: Tx | undefined;
 let mockRowLoaded = true;
+let mockRowReadFailed = false;
 let mockCommandPrivacyHidden = false;
 const mockRowSubscriptionStart = jest.fn();
 let mockSettlementNotes: {
@@ -238,7 +239,7 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
     React.useEffect(() => {
       mockRowSubscriptionStart(id);
     }, [id]);
-    return { row: mockRow, loaded: mockRowLoaded };
+    return { row: mockRow, loaded: mockRowLoaded, readFailed: mockRowReadFailed };
   }
 }));
 jest.mock('screens/command/useCommandPrivacy', () => ({
@@ -548,6 +549,7 @@ beforeEach(() => {
 
   mockRow = undefined;
   mockRowLoaded = true;
+  mockRowReadFailed = false;
   mockCommandPrivacyHidden = false;
   mockPaybackState = null;
   setMockSettlementNotes(settlementNotes([]));
@@ -1510,6 +1512,25 @@ describe('HistoryDetails', () => {
       mockGetTokenMetadata.mockRejectedValue('a plain string');
       await renderAndLoad();
       expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    });
+
+    it('hides stale Retry on a failed row read and restores the same receipt after recovery', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_FAILED, error: 'previous failure' });
+      const view = await renderAndLoad();
+      expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
+
+      mockRowReadFailed = true;
+      view.rerender(<HistoryDetails transactionId="tx-1" />);
+      await flush();
+      expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+      expect(screen.queryByTestId('history-retry-button')).not.toBeInTheDocument();
+      expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+
+      mockRowReadFailed = false;
+      view.rerender(<HistoryDetails transactionId="tx-1" />);
+      await flush();
+      expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
+      expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
     });
 
     it('shows the not-found error when the row subscription settles empty', async () => {

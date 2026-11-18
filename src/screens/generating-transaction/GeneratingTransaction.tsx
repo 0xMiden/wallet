@@ -6,6 +6,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianHoldUntil } from 'app/hooks/useGuardianHoldUntil';
+import { IconName } from 'app/icons/v2';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
@@ -13,6 +14,7 @@ import { FlowLayout } from 'components/flow/FlowLayout';
 import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
+import { EmptyState } from 'components/ui/EmptyState';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { outlineSurfaceClassName } from 'components/ui/surfaces';
 import {
@@ -132,7 +134,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // Single source of truth: the tracked row, watched by id. It advances
   // Queued → GeneratingTransaction → Completed | Failed and never disappears,
   // so status alone drives the whole screen — no queue-guessing, no shadow copy.
-  const { row: active, loaded } = useTransactionRow(txId);
+  const { row: active, loaded, readFailed } = useTransactionRow(txId);
   // What the row says about its hold is read at render, so this also turns the page when the hold ends.
   const guardianHoldUntil = useGuardianHoldUntil(active);
 
@@ -180,6 +182,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }
   useUserVisibleError(
     loaded &&
+      !readFailed &&
       active?.id === txId &&
       status === ITransactionStatus.Failed &&
       firstLoadedRow.current?.txId === txId &&
@@ -207,7 +210,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
   // it while the row waits for a verdict, a Failed one included (#2060); its judging takes no WASM lock (#1081).
-  const verdictPending = status === ITransactionStatus.Unconfirmed || (active !== undefined && awaitingVerdict(active));
+  const verdictPending =
+    !readFailed && (status === ITransactionStatus.Unconfirmed || (active !== undefined && awaitingVerdict(active)));
   useEffect(() => {
     if (isExtension() || !verdictPending) return;
     void reconcileUnconfirmedInApp();
@@ -247,11 +251,12 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // drop `restoredFromBackup` and re-offer Retry on an imported row. The one field
   // added on top is `bridgeProvider`: a bare row does not carry it (it lives on the
   // UI history entry), so without it the Epoch (Fast) guard never fires.
-  const canRetry = !!active && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
+  const canRetry =
+    !!active && !readFailed && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
 
   const handleRetry = useCallback(
     async (acknowledged?: { attemptId: string | null }) => {
-      if (!active) return;
+      if (!active || readFailed) return;
       setIsRetrying(true);
       setRetryError(null);
       setAcknowledgement(null);
@@ -290,7 +295,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         setIsRetrying(false);
       }
     },
-    [active, t]
+    [active, readFailed, t]
   );
 
   const onRetry = useCallback(() => handleRetry(), [handleRetry]);
@@ -319,10 +324,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
   // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
-    if (status === ITransactionStatus.Completed && active?.transactionId) {
+    if (!readFailed && status === ITransactionStatus.Completed && active?.transactionId) {
       useWalletStore.getState().setLastCompletedTxHash(active.transactionId);
     }
-  }, [status, active?.transactionId]);
+  }, [readFailed, status, active?.transactionId]);
 
   // No auto-close: once the tx reaches a terminal state the receipt stays up
   // until the user dismisses it via Done/Hide.
@@ -341,6 +346,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     if (!explorerUrl) return;
     openExternalUrl({ url: explorerUrl, title: EXPLORER_TITLE });
   }, [explorerUrl]);
+
+  if (readFailed) {
+    return <EmptyState icon={IconName.Warning} title={t('historyDetailsLoadError')} role="status" />;
+  }
 
   if (active?.awaitingRecoverySeed && active.status === ITransactionStatus.Queued) {
     return <RecoverySeedPrompt transaction={active} onClose={onClose} />;

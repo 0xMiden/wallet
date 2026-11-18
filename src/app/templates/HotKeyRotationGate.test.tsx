@@ -441,6 +441,28 @@ describe('HotKeyRotationGate', () => {
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 
+  it('withholds stale failed-rotation Retry until the tracked row read recovers', async () => {
+    let readFailed = false;
+    const row = { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key', error: 'guardian unreachable' };
+    mockUseTransactionRow.mockImplementation(() => ({ row, loaded: true, readFailed }));
+    mockTable = [rotationRow('tx-new', { status: ITransactionStatus.Failed, error: 'guardian unreachable' })];
+
+    const view = render(<HotKeyRotationGate />);
+    await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('hot-key-rotation-retry')).toBeInTheDocument();
+
+    readFailed = true;
+    view.rerender(<HotKeyRotationGate />);
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByTestId('hot-key-rotation-retry')).not.toBeInTheDocument();
+    expect(mockInitiate).toHaveBeenCalledTimes(1);
+
+    readFailed = false;
+    view.rerender(<HotKeyRotationGate />);
+    expect(screen.getByTestId('hot-key-rotation-retry')).toBeInTheDocument();
+    expect(mockInitiate).toHaveBeenCalledTimes(1);
+  });
+
   it('puts an unclassified failure behind a short message and retries with a fresh transaction', async () => {
     mockUseTransactionRow.mockReturnValue({
       row: { id: 'tx-new', status: ITransactionStatus.Failed, type: 'replace-hot-key', error: 'guardian unreachable' },

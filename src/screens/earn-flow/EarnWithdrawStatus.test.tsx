@@ -16,7 +16,7 @@ import type { TransactionSuccessLayoutProps } from 'screens/generating-transacti
 
 import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 
-let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
+let mockRowState: { row?: ITransaction; loaded: boolean; readFailed?: true } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
 let mockRealSuccess = false;
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
@@ -241,6 +241,22 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByRole('button', { name: 'hide' })).toBeInTheDocument();
     expect(screen.queryByText('historyDetailsLoadError')).not.toBeInTheDocument();
     expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('withholds a stale submitted receipt during a failed row read and restores it after recovery', () => {
+    const row = makeRow(makeInputs({ withdrawIntentNonce: 'owner:1' }));
+    mockRowState = { row, loaded: true };
+    const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('withdrawalStarted')).toBeInTheDocument();
+
+    mockRowState = { row, loaded: true, readFailed: true };
+    view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByText('withdrawalStarted')).not.toBeInTheDocument();
+
+    mockRowState = { row, loaded: true };
+    view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('withdrawalStarted')).toBeInTheDocument();
   });
 
   it('shows the processing state before the intent is submitted', () => {

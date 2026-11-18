@@ -51,7 +51,7 @@ interface EarnWithdrawStatusProps {
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
   const command = useFlowPresentation() === 'command';
-  const { row, loaded } = useTransactionRow(txId);
+  const { row, loaded, readFailed } = useTransactionRow(txId);
   const { trigger, state } = useLocation();
   const mountedByReturn = usePageMountedByReturn();
   const revealedByLayer = usePageRevealedByLayer();
@@ -63,7 +63,10 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
     firstLoadedFailed.current = row.extraInputs.phase === 'failed';
   }
   useUserVisibleError(
-    loaded && row?.extraInputs.phase === 'failed' && (firstLoadedFailed.current === false || newSubmission)
+    loaded &&
+      !readFailed &&
+      row?.extraInputs.phase === 'failed' &&
+      (firstLoadedFailed.current === false || newSubmission)
       ? 'raw_earn_withdraw_failed'
       : null,
     'status_screen'
@@ -74,14 +77,14 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
   const nativeFaucetId = useMidenFaucetId();
   const onDone = () => navigate('/');
 
-  if (!loaded || (!row && !command))
+  if (!readFailed && (!loaded || (!row && !command)))
     return (
       <div className="flex h-8 justify-center pt-5">
         <Spinner />
       </div>
     );
 
-  if (!row)
+  if (readFailed || !row)
     return (
       <EmptyState
         icon={IconName.Earn}

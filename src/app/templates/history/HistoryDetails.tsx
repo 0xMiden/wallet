@@ -341,11 +341,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const earnCollateral = selectMidenUsdc(bridgeConfig);
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
-  const { row, loaded } = useTransactionRow(transactionId);
+  const { row, loaded, readFailed } = useTransactionRow(transactionId);
   const guardianHoldUntil = useGuardianHoldUntil(row);
   const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
   // Live on its own: the payout claims are other rows, which the swap row's subscription never sees.
-  const paybackState = usePaybackClaimState(row);
+  const paybackState = usePaybackClaimState(readFailed ? undefined : row);
   // Labelled at render, so the page follows a config publish without deriving the row again.
   const entry = useMemo(
     () =>
@@ -359,7 +359,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   );
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
-  const usdcxDestinationTxHash = useUsdcxDestinationTransaction(transaction);
+  const usdcxDestinationTxHash = useUsdcxDestinationTransaction(readFailed ? undefined : transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
   const [deriveErrorId, setDeriveErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
@@ -398,6 +398,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
       return;
     }
+
+    if (readFailed) return;
 
     const tx = row;
     let cancelled = false;
@@ -598,16 +600,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       cancelled = true;
     };
     // The entry's copy names the hold, which ends with no write to the row.
-  }, [getCachedTokenMetadata, guardianHoldUntil, loaded, row, t, transactionId]);
+  }, [getCachedTokenMetadata, guardianHoldUntil, loaded, readFailed, row, t, transactionId]);
 
-  const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
+  const loadError = readFailed
+    ? t('historyDetailsLoadError')
+    : (deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null));
 
   // Cancel, Retry and the swap-order cancel, with their in-flight flags and error
   // strings. Shared with `SwapDetail`, which renders the swap branch of this same
   // page - see `useTransactionActions`.
-  const actions = useTransactionActions(transactionId, entry, transaction, guardianHoldUntil);
+  const actions = useTransactionActions(
+    transactionId,
+    readFailed ? null : entry,
+    readFailed ? undefined : transaction,
+    guardianHoldUntil
+  );
   const epochReturn = useEpochReturnState(
-    entry,
+    readFailed ? null : entry,
     transaction?.accountId ?? account?.publicKey ?? '',
     transaction?.restoredFromBackup === true
   );
@@ -616,7 +625,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // Swap lineage polling lives at the app root. This screen consumes the latest
   // store value and asks a parked order to refresh when opened.
-  const orderKey = orderId == null ? undefined : String(orderId);
+  const orderKey = readFailed || orderId == null ? undefined : String(orderId);
   const trackingEntry = useSwapOrderTrackingStore(state =>
     orderKey === undefined ? undefined : state.entries[orderKey]
   );
@@ -630,7 +639,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
   // bounded interval and updates the receipt whenever a consume row changes.
-  const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
+  const settlementNotes = useSwapSettlementNotes(
+    !readFailed && transaction?.type === 'swap' ? transaction.id : undefined
+  );
 
   // A closed recovered order reads no entry: one closed outside the poll keeps its last open one (#1487). Every other
   // row, a file-restored order included, reads its entry.

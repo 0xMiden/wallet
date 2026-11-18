@@ -76,10 +76,18 @@ describe.each([false, true])('real subscriptions with initial read failure = %s'
   it('observes the transaction without a remount or another write', async () => {
     const saved = row();
     await transactions.add(saved);
-    failuresRemaining = Number(failInitially);
+    if (failInitially) {
+      jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
+        failedReads += 1;
+        throw readError;
+      });
+    }
     const { result } = renderHook(() => useTransactionRow(saved.id));
     expect(result.current).toEqual({ row: undefined, loaded: false });
     await waitFor(() => expect(failedReads).toBe(Number(failInitially)));
+    if (failInitially) {
+      await waitFor(() => expect(result.current).toEqual({ row: undefined, loaded: false, readFailed: true }));
+    }
     await waitFor(() => expect(result.current).toEqual({ row: saved, loaded: true }), { timeout: 2500 });
     expect(failedReads).toBe(Number(failInitially));
   });
@@ -124,8 +132,10 @@ it('retains a loaded transaction through a later failed read', async () => {
   await waitFor(() =>
     expect(console.error).toHaveBeenCalledWith('[useTransactionRow] Failed to read transaction:', readError)
   );
-  expect(result.current).toEqual({ row: saved, loaded: true });
-  await waitFor(() => expect(result.current.row?.displayMessage).toBe('updated'), { timeout: 2500 });
+  expect(result.current).toEqual({ row: saved, loaded: true, readFailed: true });
+  await waitFor(() => expect(result.current).toEqual({ row: { ...saved, displayMessage: 'updated' }, loaded: true }), {
+    timeout: 2500
+  });
 });
 
 it('retains settlement notes through a later failed read', async () => {
