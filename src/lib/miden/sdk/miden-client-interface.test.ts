@@ -4503,7 +4503,7 @@ describe('MidenClientInterface', () => {
       markConnectivityIssue: jest.fn(),
       clearConnectivityIssue: jest.fn()
     }));
-    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { MidenClientInterface, useSdkRecoveryStore } = await import('./miden-client-interface');
     const { bumpWasmClientGeneration } = await import('./wasm-client-poison');
     const makeClient = (
       getSyncHeight: jest.Mock = jest.fn(async () => 10),
@@ -4513,7 +4513,7 @@ describe('MidenClientInterface', () => {
         buildFakeMidenClient({ getSyncHeight, ...overrides }),
         'testnet'
       ]);
-    return { makeClient, bumpWasmClientGeneration, clock, log: logSpy, warn };
+    return { makeClient, bumpWasmClientGeneration, useSdkRecoveryStore, clock, log: logSpy, warn };
   }
   const emptyReader = () => ({ getConsumableNotes: jest.fn(async () => []) });
   // Miden 0.17 P2IDE storage: [reclaimer.suffix, reclaimer.prefix, target.suffix, target.prefix, reclaim, timelock].
@@ -4607,6 +4607,26 @@ describe('MidenClientInterface', () => {
       undefined,
       '0xfee'
     );
+  });
+
+  it('rebuilds the reader on the recovery store without terminating the old reader', async () => {
+    let storeName: string | undefined = 'MidenClientDB_mcst';
+    const pinSdkRecoveryStore = jest.fn(() => {
+      storeName = undefined;
+    });
+    readerDoMock('./store-name', () => ({ sdkStoreNameFor: async () => storeName, pinSdkRecoveryStore }));
+    const original = { ...emptyReader(), terminate: jest.fn() };
+    const createClient = jest.fn(async (..._args: unknown[]) => emptyReader()).mockResolvedValueOnce(original);
+    const { makeClient, useSdkRecoveryStore } = await importWithReader(createClient);
+    await makeClient().getConsumableNotes('mtst1account');
+
+    useSdkRecoveryStore('https://rpc.example', false);
+    await makeClient().getConsumableNotes('mtst1account');
+
+    expect(pinSdkRecoveryStore).toHaveBeenCalledWith('https://rpc.example', false);
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(createClient.mock.calls.map(args => args[3])).toEqual(['MidenClientDB_mcst', undefined]);
+    expect(original.terminate).not.toHaveBeenCalled();
   });
 
   // The SDK's static P2IDE check reads an absent reclaim height as 0 and answers the reclaimer (usually the sender)

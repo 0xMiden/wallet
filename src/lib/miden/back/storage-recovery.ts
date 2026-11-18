@@ -19,6 +19,7 @@ import { WalletSigner } from '../guardian/signer';
 import * as Repo from '../repo';
 import { canonicalWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, resetMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { chooseSdkRecoveryStore } from '../sdk/store-name';
 import { isWasmTrap, readWasmHandle } from '../sdk/wasm-handle';
 import { MAX_WINDOW_SECONDS } from '../spending-limits/policy';
 import {
@@ -399,11 +400,13 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
         assertCurrent,
         targetGeneration
       );
-      // An open SDK client can retain its genesis commitment after the stored genesis disappears.
+      // A warm realm can still remember an erased store name and genesis commitment.
+      const usesCedarStore = await chooseSdkRecoveryStore(rpc);
+      const recoveryStore = { rpcUrl: rpc, usesCedarStore };
       assertCurrent();
-      await resetMidenClient();
+      await resetMidenClient(recoveryStore);
       assertCurrent();
-      await reloadOffscreenEndpointOverrides();
+      await reloadOffscreenEndpointOverrides(recoveryStore);
       assertCurrent();
       const chain = await readAccountChainStates(expected);
       const states: string[] = [];

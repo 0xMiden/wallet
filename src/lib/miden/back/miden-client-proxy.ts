@@ -54,7 +54,7 @@ import {
 } from 'lib/miden/sdk/wasm-client-poison';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
-import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveRpcUrl, getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 import {
   annotateOffscreenDeadline,
@@ -109,6 +109,8 @@ import {
   GuardianHistoryFeeUnavailableError
 } from '../guardian/history-errors';
 import { guardianSummarySchema } from '../sdk/guardian-history';
+import type { SdkRecoveryStore } from '../sdk/store-name';
+import { WalletStorageUnavailableError } from '../storage-health';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 
 /**
@@ -911,26 +913,30 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
  * its first call, so this never creates one (contrast `dispatchOp`, which always
  * `ensureOffscreenDocument()`s first).
  *
- * Resolves true only on an explicit ack. A rejected `sendMessage` — the document
- * was reaped between the check and the send — resolves false rather than throwing:
- * that realm is gone and its replacement gets the state with its first call, so
- * there is nothing for the caller to recover from.
+ * An ordinary endpoint reload reports whether it got an ack. Recovery requires the
+ * existing realm to acknowledge the selected store, or to have gone away.
  */
-export async function reloadOffscreenEndpointOverrides(): Promise<boolean> {
+export async function reloadOffscreenEndpointOverrides(recoveryStore?: SdkRecoveryStore): Promise<boolean> {
   if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) return false;
   if (!(await hasOffscreenDocument())) return false;
   await whenEndpointOverridesLoaded();
+  if (recoveryStore && recoveryStore.rpcUrl !== getEffectiveRpcUrl()) throw new WalletStorageUnavailableError();
   const envelope: OffscreenReloadEndpointsRequest = {
     target: OFFSCREEN_TARGET,
     type: OFFSCREEN_RELOAD_ENDPOINTS,
-    endpoints: getEndpointState()
+    endpoints: getEndpointState(),
+    ...(recoveryStore ? { recoveryUsesCedarStore: recoveryStore.usesCedarStore } : {})
   };
   try {
     const resp = (await chrome.runtime.sendMessage(envelope)) as OffscreenReloadEndpointsResponse | undefined;
-    return resp?.ok === true;
+    if (resp?.ok === true) return true;
   } catch {
-    return false;
+    // Chrome can reap the document between the existence check and the message.
   }
+  if (recoveryStore && (await hasOffscreenDocument())) {
+    throw new Error('Offscreen SDK did not adopt the wallet recovery store');
+  }
+  return false;
 }
 
 /**

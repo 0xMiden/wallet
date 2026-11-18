@@ -2,7 +2,9 @@ import { MIDEN_NETWORK_ENDPOINTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/net
 
 import {
   CEDAR_MAINNET_STORE_NAME,
+  chooseSdkRecoveryStore,
   MAINNET_DEFAULT_STORE_NAME,
+  pinSdkRecoveryStore,
   resetSdkStoreNameForTest,
   sdkStoreNameFor
 } from './store-name';
@@ -152,5 +154,20 @@ describe('sdkStoreNameFor', () => {
     await Promise.all([sdkStoreNameFor(MAINNET_RPC), sdkStoreNameFor(MAINNET_RPC)]);
     await sdkStoreNameFor(MAINNET_RPC);
     expect(databases).toHaveBeenCalledTimes(1);
+  });
+
+  it('reselects erased Cedar storage and pins the service worker choice in the warm realm', async () => {
+    await createStore(CEDAR_MAINNET_STORE_NAME, ['0xaccount']);
+    await expect(sdkStoreNameFor(MAINNET_RPC)).resolves.toBe(CEDAR_MAINNET_STORE_NAME);
+    await expect(chooseSdkRecoveryStore(MAINNET_RPC)).resolves.toBe(true);
+
+    await deleteStore(CEDAR_MAINNET_STORE_NAME);
+    const usesCedarStore = await chooseSdkRecoveryStore(MAINNET_RPC);
+    expect(usesCedarStore).toBe(false);
+    await createStore(MAINNET_DEFAULT_STORE_NAME, ['0xaccount']);
+    await expect(sdkStoreNameFor(MAINNET_RPC)).resolves.toBe(CEDAR_MAINNET_STORE_NAME);
+
+    pinSdkRecoveryStore(MAINNET_RPC, usesCedarStore);
+    await expect(sdkStoreNameFor(MAINNET_RPC)).resolves.toBeUndefined();
   });
 });

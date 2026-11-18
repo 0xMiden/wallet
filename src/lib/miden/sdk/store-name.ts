@@ -7,10 +7,12 @@ import { MIDEN_NETWORK_ENDPOINTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/net
  */
 export const CEDAR_MAINNET_STORE_NAME = 'MidenClientDB_mcst';
 export const MAINNET_DEFAULT_STORE_NAME = 'MidenClientDB_mm';
+export type SdkRecoveryStore = Readonly<{ rpcUrl: string; usesCedarStore: boolean }>;
 // The SDK table keyed by account id (`&id`): one row per account the store holds.
 const ACCOUNT_HEADERS_TABLE = 'latestAccountHeaders';
 // The SDK's own bound on the same listing: WebKit can leave the first `databases()` call pending.
 const LISTING_TIMEOUT_MS = 1_000;
+const MAINNET_RPC_URL = MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET);
 
 let resolved: Promise<string | undefined> | undefined;
 
@@ -81,7 +83,7 @@ async function chooseMainnetStore(): Promise<string | undefined> {
  * transient IndexedDB error cannot pin a realm to the empty store.
  */
 export function sdkStoreNameFor(rpcUrl: string): Promise<string | undefined> {
-  if (rpcUrl !== MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET)) return Promise.resolve(undefined);
+  if (rpcUrl !== MAINNET_RPC_URL) return Promise.resolve(undefined);
   if (!resolved) {
     const attempt: Promise<string | undefined> = chooseMainnetStore().catch(error => {
       console.warn('[store-name] could not inspect the mainnet stores; opening the SDK default', error);
@@ -91,6 +93,16 @@ export function sdkStoreNameFor(rpcUrl: string): Promise<string | undefined> {
     resolved = attempt;
   }
   return resolved;
+}
+
+export async function chooseSdkRecoveryStore(rpcUrl: string): Promise<boolean> {
+  return rpcUrl === MAINNET_RPC_URL && (await chooseMainnetStore()) === CEDAR_MAINNET_STORE_NAME;
+}
+
+export function pinSdkRecoveryStore(rpcUrl: string, usesCedarStore: boolean): void {
+  if (rpcUrl === MAINNET_RPC_URL) {
+    resolved = Promise.resolve(usesCedarStore ? CEDAR_MAINNET_STORE_NAME : undefined);
+  }
 }
 
 export function resetSdkStoreNameForTest(): void {

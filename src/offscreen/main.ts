@@ -104,7 +104,12 @@ import {
   withWasmClientLock,
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
-import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
+import {
+  MidenClientInterface,
+  remoteProver,
+  useSdkRecoveryStore,
+  withDelegatedProveTimeout
+} from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { readChainTip } from 'lib/miden/sdk/pswap-order-note';
 import {
@@ -124,7 +129,12 @@ import {
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
 import { assertSwapFeeContextMatches, readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/balance';
-import { adoptEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
+import {
+  adoptEndpointState,
+  getEffectiveRpcUrl,
+  sameEndpointState,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { assertOneClickDeadline } from 'lib/one-click/deadline';
@@ -1818,6 +1828,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         adoptEndpoints(request.endpoints);
+        if (typeof request.recoveryUsesCedarStore === 'boolean') {
+          useSdkRecoveryStore(getEffectiveRpcUrl(), request.recoveryUsesCedarStore);
+        }
         // Dropped even when the state did not change: seed removal sends this only to discard the client.
         clientPromise = null;
         const response: OffscreenReloadEndpointsResponse = { ok: true };
