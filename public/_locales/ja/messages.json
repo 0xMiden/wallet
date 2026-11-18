@@ -9196,7 +9196,7 @@
     "englishSource": "Receiving"
   },
   "confirmTxNoteFromFaucet": {
-    "message": "Noteからの注記（faucet）",
+    "message": "faucetからのNote",
     "englishSource": "Note from faucet"
   },
   "confirmTxYouTag": {
@@ -9208,7 +9208,7 @@
     "englishSource": "You pay"
   },
   "confirmTxYouGet": {
-    "message": "つまり、",
+    "message": "受け取り",
     "englishSource": "You get"
   },
   "confirmTxLeavesAccount": {

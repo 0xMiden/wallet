@@ -240,3 +240,58 @@ describe('dApp connect fact: standing private-data access', () => {
     }
   });
 });
+
+/**
+ * Labels the extension's approval and connect windows added in the redesign, as each locale ships them. Machine
+ * translation took the short English labels out of context: "You get" over an incoming amount came back as "you
+ * understand", "Note from faucet" repeated its protected term, and "Send you transaction requests" came back as the
+ * user's own requests. Each locale's text is read from both bundles, the flat one the app loads and messages.json.
+ */
+describe('dApp approval labels keep their meaning', () => {
+  const shipped = (locale: string, key: string): string[] => {
+    const read = (file: string): Record<string, unknown> =>
+      JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, locale, file), 'utf8'));
+    const entry = read('messages.json')[key];
+    const flat = read(`${locale}.json`)[key];
+    return [
+      typeof entry === 'object' && entry !== null && 'message' in entry ? String(entry.message) : '',
+      typeof flat === 'string' ? flat : ''
+    ];
+  };
+
+  // "You get": the incoming row's title names receiving, never understanding.
+  const RECEIVES: Record<string, RegExp> = {
+    es: /recib/i,
+    pt: /receb/i,
+    ja: /受け取/,
+    ko: /받/,
+    zh_CN: /收到/,
+    zh_TW: /收到/,
+    tr: /al[ıi]rs[ıi]n[ıi]z/i
+  };
+  const UNDERSTANDS = /entiend|entende|つまり|이해|明白|會$|anlad/i;
+
+  it.each(Object.keys(RECEIVES))('names receiving in %s confirmTxYouGet', locale => {
+    for (const label of shipped(locale, 'confirmTxYouGet')) {
+      expect(label).toMatch(RECEIVES[locale]!);
+      expect(label).not.toMatch(UNDERSTANDS);
+    }
+  });
+
+  it.each(['ja', 'ko', 'zh_CN'])('names one Note from a faucet in %s confirmTxNoteFromFaucet', locale => {
+    for (const label of shipped(locale, 'confirmTxNoteFromFaucet')) {
+      expect(label.match(/Note/g)).toHaveLength(1);
+      // The Note comes from the faucet: in each of these word orders the faucet is named first.
+      expect(label.indexOf('faucet')).toBeGreaterThanOrEqual(0);
+      expect(label.indexOf('faucet')).toBeLessThan(label.indexOf('Note'));
+    }
+  });
+
+  // "Send you transaction requests": the site asks the user, it does not send the user's own requests.
+  const YOUR_REQUESTS: Record<string, RegExp> = { fr: /vos demandes/i, pt: /suas solicita/i, tr: /taleplerinizi/i };
+  it.each(Object.keys(YOUR_REQUESTS))('says the site sends requests to the user in %s', locale => {
+    for (const label of shipped(locale, 'connectFactTxRequestsTitle')) {
+      expect(label).not.toMatch(YOUR_REQUESTS[locale]!);
+    }
+  });
+});

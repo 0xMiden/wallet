@@ -9196,7 +9196,7 @@
     "englishSource": "Receiving"
   },
   "confirmTxNoteFromFaucet": {
-    "message": "faucet의 Note 관련 Note",
+    "message": "faucet의 Note",
     "englishSource": "Note from faucet"
   },
   "confirmTxYouTag": {
@@ -9208,7 +9208,7 @@
     "englishSource": "You pay"
   },
   "confirmTxYouGet": {
-    "message": "이해하셨다면",
+    "message": "받는 금액",
     "englishSource": "You get"
   },
   "confirmTxLeavesAccount": {

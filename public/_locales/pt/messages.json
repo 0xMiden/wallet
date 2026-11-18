@@ -9159,7 +9159,7 @@
     "englishSource": "Ask before reading private data"
   },
   "connectFactTxRequestsTitle": {
-    "message": "Envie suas solicitações de transação",
+    "message": "Enviar solicitações de transação para você",
     "englishSource": "Send you transaction requests"
   },
   "connectFactTxRequestsDescription": {
@@ -9215,7 +9215,7 @@
     "englishSource": "You pay"
   },
   "confirmTxYouGet": {
-    "message": "Você entende",
+    "message": "Você recebe",
     "englishSource": "You get"
   },
   "confirmTxLeavesAccount": {

@@ -9154,7 +9154,7 @@
     "englishSource": "Ask before reading private data"
   },
   "connectFactTxRequestsTitle": {
-    "message": "İşlem taleplerinizi gönderin",
+    "message": "Size işlem talepleri göndermek",
     "englishSource": "Send you transaction requests"
   },
   "connectFactTxRequestsDescription": {
@@ -9210,7 +9210,7 @@
     "englishSource": "You pay"
   },
   "confirmTxYouGet": {
-    "message": "Anladınız mı?",
+    "message": "Alırsınız",
     "englishSource": "You get"
   },
   "confirmTxLeavesAccount": {
