@@ -341,10 +341,14 @@ async function verifyRetainedTransfers(
     const verdict = await judgeSubmitEvidence(row, { node, accountRows: rows, nowSec, cadenceMs: observedCadenceMs() });
     const { landed } = verdict;
     if (!landed && !verdict.allDead) throw new WalletStorageUnavailableError();
-    const savedOrder =
-      landed && landed.attemptId === row.attemptId && swapOpensOrderFromRead(row)
-        ? await orderFromSavedRequest(row.requestBytes)
-        : undefined;
+    let savedOrder = landed && swapOpensOrderFromRead(row) ? await orderFromSavedRequest(row.requestBytes) : undefined;
+    if (landed && savedOrder) {
+      const entry = verdict.judgedEntries.find(entry => entry.attemptId === landed.attemptId);
+      const noteIds = [...(entry?.outputNoteIds ?? [])];
+      if (landed.proof.kind === 'note') noteIds.push(landed.proof.noteId);
+      const noteId = savedOrder.orderNoteId;
+      if (noteIds.length && (!noteId || !noteIds.some(id => sameCommitment(id, noteId)))) savedOrder = undefined;
+    }
     assertCurrent();
     for (const entry of verdict.judgedEntries) {
       if (entry.preSubmitEnd === true || entry.refBlock === undefined) continue;
