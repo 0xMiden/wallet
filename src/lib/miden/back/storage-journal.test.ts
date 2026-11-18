@@ -73,7 +73,7 @@ it('acknowledges 257 compact retained notes while the snapshot fits the byte bud
 
 it('does not acknowledge an oversized journal or evict the previous notes', async () => {
   await journal.retain(data => ({ ...data, notes: ['first'] }), noop);
-  const notes = Array.from({ length: 257 }, (_, index) => String(index));
+  const notes = ['x'.repeat(2 * 1024 * 1024)];
 
   await expect(journal.retain(data => ({ ...data, notes }), noop)).rejects.toThrow('Wallet storage unavailable');
 

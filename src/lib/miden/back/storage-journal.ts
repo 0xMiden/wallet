@@ -8,7 +8,6 @@ import { markWalletStorageUnavailable, WalletStorageUnavailableError } from '../
 
 const TURN = 'miden_recovery_v1';
 const MAX_BYTES = 2 * 1024 * 1024;
-const MAX_NOTES = 256;
 
 export interface RecoveryAccount {
   id: string;
@@ -38,7 +37,6 @@ function validate(snapshot: Snapshot): Snapshot {
     !Array.isArray(snapshot.accounts) ||
     snapshot.accounts.some(account => typeof account?.id !== 'string' || typeof account?.state !== 'string') ||
     !Array.isArray(snapshot.notes) ||
-    snapshot.notes.length > MAX_NOTES ||
     snapshot.notes.some(note => typeof note !== 'string') ||
     typeof snapshot.transfers !== 'object' ||
     snapshot.transfers === null ||
