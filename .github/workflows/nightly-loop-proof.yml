@@ -1,0 +1,69 @@
+name: Independent Swap custody audit (read only)
+on:
+  push:
+    branches: [wiktor/green03-swap-custody-audit-once]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  custody:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Bind exact audit source and original producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/wiktor/green03-swap-custody-audit-once
+          base=cccee6fb4001f4d3debf36c73329563fbb996d6f
+          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/green03-swap-custody.spec.ts)"
+          gh run view 44201522315 --json headSha,attempt,conclusion,event | jq -e '.headSha=="88f65e0d395ecacec4172052f16b7ca88bc62937" and .attempt==1 and .conclusion=="failure" and .event=="workflow_dispatch"' >/dev/null
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 44201522315
+          github-token: ${{ github.token }}
+          name: mainnet-swap-final-44201522315
+          path: test-results/producer
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 44201522315
+          github-token: ${{ github.token }}
+          name: mainnet-nightly-44201522315
+          path: test-results/summary
+      - name: Verify original receipt bytes and audit types
+        run: |
+          echo 'e8a1e91786bf56dd1f8c4a828de74325279fa7e0e0c6b4a4c7e7777bf67a3735  test-results/summary/mainnet-swap-forward-claim.json' | sha256sum -c
+          yarn tsc --noEmit -p playwright.mainnet.tsconfig.json
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - run: yarn test:e2e:blockchain:build
+      - name: Observe original on-chain forward proof and private held vault without authority
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+        run: |
+          umask 077
+          if ! E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/custody-private" xvfb-run -a yarn playwright test green03-swap-custody.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/custody-private.log" 2>&1; then
+            echo 'Read-only custody audit did not pass; no private logs retained.'; exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: green03-custody
+          path: test-results/green03-custody.json
+          if-no-files-found: error
