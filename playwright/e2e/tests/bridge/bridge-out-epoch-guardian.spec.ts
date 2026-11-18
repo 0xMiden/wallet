@@ -132,6 +132,13 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
     const workbench = shell.getByTestId('command-workbench');
     const bridge = workbench.getByTestId('command-bridge');
     await expect(bridge).toBeVisible();
+    await bridge.getByRole('radio', { name: 'Bridge in', exact: true }).click();
+    await expect(
+      bridge.getByText(
+        'Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in.'
+      )
+    ).toBeVisible();
+    await expect(workbench.getByTestId('command-footer').getByRole('button', { name: 'Review Details' })).toBeDisabled();
     await bridge.getByRole('radio', { name: 'Bridge out', exact: true }).click();
     await bridge.getByRole('radio', { name: new RegExp(`${TOKEN_SYMBOL} to USDC`) }).click();
     const amount = bridge.getByRole('textbox', { name: 'Amount', exact: true });
@@ -249,5 +256,13 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
       true
     );
     expect(note.isP2id, 'collateral note is NOT a plain P2ID').toBe(false);
+
+    // A fullpage reload opens the original row, not a fresh source action. This fake has
+    // acknowledged the Miden note but has never reported a Sepolia payout.
+    await walletA.navigateTo(`/history-details/${admitted.id}`);
+    const receipt = walletA.page.getByTestId('command-shell').getByTestId('command-workbench');
+    await expect(receipt.getByTestId('history-status-pill')).toHaveText('Pending', { timeout: 30_000 });
+    expect((await readBridgedSendRows(walletA.page)).map(item => item.id)).toEqual([admitted.id]);
+    await expect(receipt.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0);
   });
 });

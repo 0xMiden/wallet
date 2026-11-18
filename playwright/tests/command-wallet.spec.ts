@@ -67,7 +67,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await command.keyboard.press('Control+k');
   const search = command.getByRole('combobox', { name: 'Search wallet actions' });
   await expect(search).toBeFocused();
-  await search.press('Escape');
+  await command.getByRole('dialog', { name: 'Search wallet actions' }).getByRole('button', { name: 'Close' }).click();
   await expect(search).toHaveCount(0);
 
   await command.getByRole('navigation', { name: 'Wallet actions' }).getByRole('button', { name: 'Send' }).click();
@@ -88,9 +88,9 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(workbench.getByTestId('command-earn')).toBeVisible();
   await captureCommand(command, info, 'command-earn-1440x1000');
 
+  // This mock profile has no Swap eligibility; the local Swap workflow exercises that composition.
   for (const { action, surface } of [
     { action: 'Receive', surface: 'command-receive' },
-    { action: 'Swap', surface: 'command-swap-composer' },
     { action: 'Bridge', surface: 'command-bridge' }
   ]) {
     await actions.getByRole('button', { name: action, exact: true }).click();
@@ -104,4 +104,18 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(command.locator('html')).toHaveClass(/dark/);
   await expect(workbench.getByTestId('command-bridge')).toBeVisible();
   await captureCommand(command, info, 'command-bridge-dark-reduced-motion-1440x1000');
+
+  const sidebar = await extensionContext.newPage();
+  await sidebar.setViewportSize({ width: 360, height: 800 });
+  await sidebar.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
+  await sidebar.goto(`chrome-extension://${extensionId}/sidepanel.html#/`, { waitUntil: 'domcontentloaded' });
+  await expect(sidebar.getByRole('button', { name: 'Open fullscreen' })).toBeVisible({ timeout: 30_000 });
+  await expect(sidebar.locator('html')).toHaveClass(/dark/);
+  await captureCommand(sidebar, info, 'command-sidebar-dark-reduced-motion-360x800');
+  await sidebar.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
+  await sidebar.evaluate(() => localStorage.setItem('theme_setting', 'light'));
+  await sidebar.reload({ waitUntil: 'domcontentloaded' });
+  await expect(sidebar.locator('html')).not.toHaveClass(/dark/);
+  await expect(sidebar.getByRole('button', { name: 'Open fullscreen' })).toBeVisible();
+  await captureCommand(sidebar, info, 'command-sidebar-light-reduced-motion-360x800');
 });
