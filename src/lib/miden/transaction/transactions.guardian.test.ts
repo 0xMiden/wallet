@@ -110,6 +110,8 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+jest.mock('../back/storage-recovery', () => ({ retainWalletTransfer: jest.fn(async () => {}) }));
+
 jest.mock('lib/miden/swap/balance', () => ({
   assertSwapVaultBalance: jest.fn(async () => {}),
   readSwapFeeContext: jest.fn(async () => ({})),

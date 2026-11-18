@@ -46,6 +46,8 @@ import { queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { NoteTypeEnum } from '../types';
 // Import after mocks are set up
+jest.mock('../back/storage-recovery', () => ({ retainWalletTransfer: jest.fn(async () => {}) }));
+
 jest.mock('lib/miden/swap/balance', () => ({
   assertSwapVaultBalance: jest.fn(async () => {}),
   readSwapFeeContext: jest.fn(async () => ({})),

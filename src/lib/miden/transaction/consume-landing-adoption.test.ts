@@ -27,6 +27,8 @@ const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
     throw error;
   }
 };
+jest.mock('../back/storage-recovery', () => ({ retainWalletTransfer: jest.fn(async () => {}) }));
+
 jest.mock('../back/miden-client-proxy', () => ({
   dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a),
   midenClientProxy: {

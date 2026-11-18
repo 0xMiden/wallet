@@ -131,6 +131,8 @@ const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   syncState: async () => {}
 }));
 
+jest.mock('../back/storage-recovery', () => ({ retainWalletTransfer: jest.fn(async () => {}) }));
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   TransactionProver: { newLocalProver: () => ({}) },
