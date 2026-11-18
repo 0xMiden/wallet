@@ -65,7 +65,7 @@ function probe({ mode, dbName }) {
       };
       tx.onabort = () => {
         db.close();
-        resolve({ committed: false, error: tx.error?.name });
+        resolve({ committed: false, error: tx.error?.name, message: tx.error?.message });
       };
       if (mode === 'seed') records.put('known-good', 'prior');
       if (mode === 'pressure') {
