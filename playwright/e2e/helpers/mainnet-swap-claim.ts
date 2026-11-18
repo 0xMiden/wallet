@@ -23,7 +23,7 @@ import {
 import { inspectTestMainnetSwapRequest, type TestMainnetSwapScope } from '../../../src/lib/miden/sdk/test-send-request';
 import { withRpcTimeout } from '../../../src/lib/miden-chain/rpc-timeout';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
-import type { MainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
+import { minimumFirstSwapRecoveryReturn, type MainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { realizedSwapLoss, SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE } from './mainnet-swap-plan';
 import { isRecord } from '../../../src/lib/update/guards';
 
@@ -91,7 +91,8 @@ export function authorizeMainnetSwapRecoveryReturn(
   evidence: MainnetSwapPaybackEvidence,
   balances: MainnetSwapBalances,
   runId: string,
-  authorizedAt: string
+  authorizedAt: string,
+  reviewedMinimum = BigInt(state.reverseMinimum)
 ): MainnetSwapCheckpoint {
   const original = state.forwardRequestAuthority;
   // A pre-submission failure can retain the unsigned plan without retaining a return authority.
@@ -106,6 +107,7 @@ export function authorizeMainnetSwapRecoveryReturn(
     (state.phase !== 'forward-authorized' && state.phase !== 'forward-settled') ||
     !original ||
     state.recoveryReturnAuthorizedAt !== undefined ||
+    state.recoveryReturnMinimum !== undefined ||
     state.reverseRequestAuthority !== undefined ||
     state.reverseOrderId !== undefined ||
     (!retainedUnsignedPlan && (state.returnAmount !== undefined || state.returnBaseline !== undefined))
@@ -153,12 +155,16 @@ export function authorizeMainnetSwapRecoveryReturn(
     throw new Error('Original recovery cost or remaining native fee reserve is unsafe');
   const unit = 10n ** BigInt(state.native.decimals);
   const price = BigInt(state.native.usdMicros);
-  const loss = BigInt(state.principal) - BigInt(state.reverseMinimum);
+  const originalMinimum = BigInt(state.reverseMinimum);
+  const recoveryMinimum = reviewedMinimum < originalMinimum ? reviewedMinimum : originalMinimum;
+  if (recoveryMinimum < minimumFirstSwapRecoveryReturn(state))
+    throw new Error('Recovery return quote exceeds the allowed shortfall');
+  const loss = BigInt(state.principal) - recoveryMinimum;
   const projected =
     ((loss > 0n ? loss : 0n) * price + unit - 1n) / unit + (BigInt(state.feeBudget) * price + unit - 1n) / unit;
   if (
     projected > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP) ||
-    (BigInt(state.reverseMinimum) * price) / unit < 1_000_000n
+    (recoveryMinimum * price) / unit < 1_000_000n
   )
     throw new Error('Original recovery price envelope exceeds the loss budget or wallet minimum');
   return {
@@ -167,6 +173,7 @@ export function authorizeMainnetSwapRecoveryReturn(
     authorizationRunId: runId,
     recoveredRunId: runId,
     recoveryReturnAuthorizedAt: authorizedAt,
+    ...(recoveryMinimum < originalMinimum ? { recoveryReturnMinimum: recoveryMinimum.toString() } : {}),
     updatedAt: authorizedAt,
     forwardOrderId: evidence.orderId,
     forwardRequestAuthority: { ...original, orderId: evidence.orderId },
@@ -236,6 +243,7 @@ export function authorizeMainnetSwapReturnReplacement(
       reverseRequestAuthority: undefined,
       reverseOrderId: undefined,
       recoveryReturnAuthorizedAt: undefined,
+      recoveryReturnMinimum: undefined,
       returnAmount: undefined,
       returnBaseline: undefined
     },
