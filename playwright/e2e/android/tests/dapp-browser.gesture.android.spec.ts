@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { promisify } from 'node:util';
 
@@ -18,6 +18,18 @@ const SERIAL = process.env.ANDROID_SERIAL ?? 'emulator-5554';
 const PACKAGE = 'com.miden.wallet';
 const OUTPUT = 'test-results-presentation-gesture';
 let commandId = 0;
+
+type GestureStage = 'emulator-checks' | 'onboarding' | 'dapp-ready' | `${'capsule' | 'predictive'}-${'cancel' | 'commit'}`;
+
+async function markStage(stage: GestureStage) {
+  const path = process.env.PRESENTATION_GESTURE_STAGE_FILE;
+  if (!path) return;
+  try {
+    await writeFile(path, `${stage}\n`, { mode: 0o600 });
+  } catch {
+    await rm(path, { force: true }).catch(() => {});
+  }
+}
 
 interface Point {
   x: number;
@@ -114,6 +126,7 @@ test.describe('API36 managed presentation gestures', () => {
   let pid: string;
 
   test.beforeAll(async () => {
+    await markStage('emulator-checks');
     await mkdir(OUTPUT, { recursive: true });
     expect(await adb('shell', 'getprop', 'ro.build.version.sdk')).toBe('36');
     expect(await adb('shell', 'settings', 'get', 'secure', 'navigation_mode')).toBe('2');
@@ -129,7 +142,9 @@ test.describe('API36 managed presentation gestures', () => {
     expect(await adb('shell', 'pidof', PACKAGE)).toBe(pid);
     host = await CdpBridge.connect({ serial: SERIAL, packageName: PACKAGE, hostPort: 9230 });
     wallet = new AndroidWalletPage({ cdp: host, emulator, serial: SERIAL, packageName: PACKAGE });
+    await markStage('onboarding');
     await wallet.createGuardianWallet();
+    await markStage('dapp-ready');
     fixture = await startDappFixtureServer({ deviceHost: '10.0.2.2', fullscreen: true });
     driver = new DappBrowserDriver({ target: wallet, server: fixture, artifactDir: OUTPUT, label: 'api36' });
     await driver.gotoBrowserTab();
@@ -189,6 +204,7 @@ test.describe('API36 managed presentation gestures', () => {
   for (const family of ['capsule', 'predictive'] as const) {
     for (const commit of [false, true]) {
       test(`${family} ${commit ? 'commit' : 'cancel'}`, async ({}, testInfo) => {
+        await markStage(`${family}-${commit ? 'commit' : 'cancel'}`);
         if ((await driver.state()).foregroundId === null) await driver.restoreViaPeekCard('alpha');
         await driver.waitForForeground('alpha');
         await driver.waitForMotionIdle();
