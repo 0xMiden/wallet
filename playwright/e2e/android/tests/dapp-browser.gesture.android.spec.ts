@@ -25,6 +25,10 @@ type GestureStage =
   | 'dapp-ready'
   | `${'capsule' | 'predictive'}-${'cancel' | 'commit'}`
   | 'capsule-cancel-input'
+  | 'capsule-cancel-input-reply'
+  | 'capsule-cancel-input-count'
+  | 'capsule-cancel-input-start'
+  | 'capsule-cancel-input-sampling'
   | 'capsule-cancel-tracking'
   | 'capsule-cancel-outcome'
   | 'fixture-cleanup';
@@ -261,8 +265,10 @@ test.describe('API36 managed presentation gestures', () => {
         let observedTracking = false;
         const samples = [];
         let nativeResult: BridgeReply | undefined;
+        let inputFailureStage: GestureStage | undefined = 'capsule-cancel-input-start';
         try {
           await expect.poll(() => started, { timeout: 5_000 }).toBe(true);
+          inputFailureStage = 'capsule-cancel-input-sampling';
           for (let index = 0; !finished && injecting && index < 12; index += 1) {
             const state = await driver.state();
             observedTracking ||= state.motion?.tracking === true;
@@ -273,9 +279,18 @@ test.describe('API36 managed presentation gestures', () => {
             const pixels = await footprint(shot);
             if (!finished && injecting) samples.push({ file: shot, pixels, captureStartMs, captureEndMs });
           }
+          inputFailureStage = undefined;
         } finally {
-          nativeResult = await gesture;
-          expect(nativeResult.executed).toBe(bounds.executed + 1);
+          let replyFailureStage: GestureStage = 'capsule-cancel-input-reply';
+          try {
+            nativeResult = await gesture;
+            replyFailureStage = 'capsule-cancel-input-count';
+            expect(nativeResult.executed).toBe(bounds.executed + 1);
+          } catch (error) {
+            if (name === 'capsule-cancel') await markStage(replyFailureStage);
+            throw error;
+          }
+          if (name === 'capsule-cancel' && inputFailureStage) await markStage(inputFailureStage);
         }
         if (name === 'capsule-cancel') await markStage('capsule-cancel-tracking');
         expect(observedTracking, 'real input must enter native interactive tracking').toBe(true);
