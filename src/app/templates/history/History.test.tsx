@@ -3168,6 +3168,14 @@ describe('History USDCx entry plumbing', () => {
       review: {},
       sourceAttempt: { phase: 'stopped-before-source' }
     };
+    const approval = {
+      chainId: 11155111,
+      account: `0x${'1'.repeat(40)}`,
+      token: `0x${'2'.repeat(40)}`,
+      spender: `0x${'3'.repeat(40)}`,
+      amount: '1000000',
+      hash: `0x${'4'.repeat(64)}`
+    };
     mockGetCompletedTransactions.mockResolvedValue([
       {
         id: 'ORIGINAL-STOP',
@@ -3187,17 +3195,33 @@ describe('History USDCx entry plumbing', () => {
         completedAt: 2000,
         restoredFromBackup: true,
         extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      },
+      {
+        id: 'APPROVED-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 1000,
+        extraInputs: {
+          provider: 'agglayer',
+          phase: 'submitting',
+          bridgeOperation: { ...stopped, approvals: [approval] }
+        }
       }
     ]);
     mockGetUncompletedTransactions.mockResolvedValue([]);
     await renderHistory();
-    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
     const entries = mockHistoryViewProps.entries;
     expect(
       entries.find((entry: { key: string }) => entry.key === 'completed-ORIGINAL-STOP')?.bridgeInStoppedBeforeSource
     ).toBe(true);
     expect(
       entries.find((entry: { key: string }) => entry.key === 'completed-RESTORED-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(false);
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-APPROVED-STOP')?.bridgeInStoppedBeforeSource
     ).toBe(false);
   });
 });

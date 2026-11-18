@@ -300,6 +300,14 @@ it('preserves an approval prompt fact instead of marking that claim stopped befo
   expect(await Repo.transactions.get(id)).toEqual(before);
 });
 
+it('retains a late original approval fact even after a pre-source stop was recorded', async () => {
+  const { id, operation, approval } = await claimedApprovalFixture();
+  expect(await recordBridgePreSourceStop(id, operation)).toBe(true);
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
+  expect((await snapshot(id)).approvals).toEqual([approval]);
+  expect((await snapshot(id)).sourceAttempt).toEqual({ phase: 'stopped-before-source' });
+});
+
 it('enriches a saved approval hash with its verified own call, preserving facts on omitted repeats', async () => {
   const { id, operation, approval, transaction } = await claimedApprovalFixture();
   expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);

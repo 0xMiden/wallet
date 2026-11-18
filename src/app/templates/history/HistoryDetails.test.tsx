@@ -3926,28 +3926,45 @@ describe('HistoryDetails', () => {
       extraInputs: bridgedReceiveInputs
     };
 
-    it('shows a pre-source stop on the original Command receipt without claiming delivery failed', async () => {
-      setMockRow({
-        ...bridgedReceiveTx,
-        extraInputs: {
-          ...bridgedReceiveInputs,
-          provider: 'agglayer',
-          phase: 'submitting',
-          evmTxHash: undefined,
-          bridgeOperation: {
-            version: 1,
-            owner: 'wallet',
-            operationId: 'bridge-in',
-            revision: 'claim',
-            review: {},
-            sourceAttempt: { phase: 'stopped-before-source' }
+    it.each([false, true])(
+      'shows a pre-source stop on the original Command receipt only while no approval fact exists (late approval=%s)',
+      async lateApproval => {
+        setMockRow({
+          ...bridgedReceiveTx,
+          extraInputs: {
+            ...bridgedReceiveInputs,
+            provider: 'agglayer',
+            phase: 'submitting',
+            evmTxHash: undefined,
+            bridgeOperation: {
+              version: 1,
+              owner: 'wallet',
+              operationId: 'bridge-in',
+              revision: 'claim',
+              review: {},
+              sourceAttempt: { phase: 'stopped-before-source' },
+              ...(lateApproval && {
+                approvals: [
+                  {
+                    chainId: 11155111,
+                    account: `0x${'1'.repeat(40)}`,
+                    token: `0x${'2'.repeat(40)}`,
+                    spender: `0x${'3'.repeat(40)}`,
+                    amount: '1000000',
+                    hash: `0x${'4'.repeat(64)}`
+                  }
+                ]
+              })
+            }
           }
-        }
-      });
-      await renderAndLoad({ transactionId: 'bridge-in' });
-      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('bridgeStoppedBeforeSending');
-      expect(screen.queryByText('bridgeReviewChanged')).not.toBeInTheDocument();
-    });
+        });
+        await renderAndLoad({ transactionId: 'bridge-in' });
+        expect(screen.getByTestId('history-status-pill')).toHaveTextContent(
+          lateApproval ? 'pending' : 'bridgeStoppedBeforeSending'
+        );
+        expect(screen.queryByText('bridgeReviewChanged')).not.toBeInTheDocument();
+      }
+    );
 
     it('passes the RPC transfer hash to the confirmed USDCx withdrawal details', async () => {
       const hash = `0x${'a'.repeat(64)}`;

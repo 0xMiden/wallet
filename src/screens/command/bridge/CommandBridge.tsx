@@ -50,6 +50,7 @@ export function CommandBridge(): React.ReactElement {
     row.extraInputs.phase === 'submitting' &&
     !row.extraInputs.evmTxHash &&
     !row.extraInputs.intentNonce &&
+    !row.extraInputs.bridgeOperation?.approvals?.length &&
     row.extraInputs.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source';
   const footer = bridge.operationId ? (
     <Button

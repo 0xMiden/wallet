@@ -549,6 +549,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             !tx.recovered &&
             !bridgeReceive?.evmTxHash &&
             !bridgeReceive?.intentNonce &&
+            !bridgeReceive?.bridgeOperation?.approvals?.length &&
             bridgeReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
           bridgeInLockedDeposit: bridgeReceive?.epochLockedDeposit,
           bridgeInCctp: bridgeReceive?.cctp,

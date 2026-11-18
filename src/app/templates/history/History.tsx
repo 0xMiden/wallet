@@ -829,6 +829,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
       !tx.recovered &&
       !bridgedReceive?.evmTxHash &&
       !bridgedReceive?.intentNonce &&
+      !bridgedReceive?.bridgeOperation?.approvals?.length &&
       bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
     bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
@@ -1084,6 +1085,7 @@ async function fetchTransactionsAsHistoryEntries(
         !tx.recovered &&
         !bridgedReceive?.evmTxHash &&
         !bridgedReceive?.intentNonce &&
+        !bridgedReceive?.bridgeOperation?.approvals?.length &&
         bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
       bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
       bridgeInCctp: bridgedReceive?.cctp,
