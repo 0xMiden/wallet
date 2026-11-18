@@ -290,6 +290,10 @@ export type DirectSwitchTrigger = 'unreachable' | 'cannot co-sign for this accou
  * The first match gives the recorded reason, so a released account (a 409 with its
  * code) keeps the more specific reason.
  *
+ * A marked error (`markNewGuardianAnswer`) is the new Guardian's answer to its key fetch. It has
+ * no trigger unless it is unreachable (a 5xx or a network failure), so any other marked error
+ * fails the row with its own error.
+ *
  * Three callers apply this before any chain submit: the service load and proposal
  * push, the cold co-sign and the final co-sign. The reconcile in
  * `reconcileStructuralApplyFailure` applies it AFTER the submit succeeded, and only
@@ -297,6 +301,7 @@ export type DirectSwitchTrigger = 'unreachable' | 'cannot co-sign for this accou
  */
 export const directSwitchTriggerFor = (err: unknown): DirectSwitchTrigger | undefined => {
   if (isGuardianUnreachableError(err)) return 'unreachable';
+  if (isNewGuardianAnswer(err)) return undefined;
   if (isGuardianAccountUnusable(err)) return 'cannot co-sign for this account';
   if (isGuardianRefusal(err)) return 'refused the request';
   return undefined;

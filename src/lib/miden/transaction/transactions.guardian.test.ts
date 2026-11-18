@@ -16641,6 +16641,40 @@ describe('generateTransaction - direct switch audit marker', () => {
     expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
   });
 
+  // The same holds for a marked answer with a code the outgoing Guardian's classifier knows, and for a marked
+  // bare 409, which the conflict retry must not wait on as a pending delta of the outgoing Guardian.
+  it.each([
+    ['a marked 404 data_unavailable', { status: 404, code: 'data_unavailable' }],
+    ['a marked bare 409', { status: 409 }]
+  ])('fails the row at once when the new guardian key fetch answers with %s', async (label, shape) => {
+    jest.useFakeTimers();
+    try {
+      const txId = `switch-guardian-marker-new-guardian-answer-${label}`;
+      const provider = setup(txId);
+      const newGuardianAnswer = Object.assign(new Error('new guardian answer'), shape);
+      markNewGuardianAnswer(newGuardianAnswer);
+      const createSwitchGuardianProposal = jest.fn(async () => {
+        throw newGuardianAnswer;
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSwitchGuardianProposal,
+        abandonCandidate: jest.fn(async () => {})
+      });
+
+      const pending = run(txId, provider).catch(() => {});
+      // Exhaust withGuardianConflictRetry's backoff sleeps, if it waits at all.
+      await jest.runAllTimersAsync();
+      await pending;
+
+      expect(markerExtraInputs(txId).switchedDirectly).toBeUndefined();
+      expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Failed);
+      expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
+      expect(createSwitchGuardianProposal).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('escapes an outgoing guardian that refuses the cold co-sign', async () => {
     const txId = 'switch-guardian-marker-cold-cosign-refused';
     const provider = setup(txId);

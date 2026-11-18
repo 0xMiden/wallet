@@ -124,9 +124,13 @@ export function clearGuardianAccountLocks(): void {
  * With no recognized code — an older or mocked error carrying only `status` and
  * a body — the previous text heuristic still applies, widened to cover the
  * spelling of the released case.
+ *
+ * A marked error is the new Guardian's answer (`markNewGuardianAnswer`) and is never a pending delta of the
+ * outgoing Guardian.
  */
 export function isGuardianPendingConflict(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
+  if (isNewGuardianAnswer(err)) return false;
   if ((err as { status?: unknown }).status !== 409) return false;
   const code = (err as { code?: unknown }).code;
   if (typeof code === 'string' && code.length > 0) {

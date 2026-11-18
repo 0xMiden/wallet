@@ -503,6 +503,24 @@ describe('directSwitchTriggerFor', () => {
     expect(directSwitchTriggerFor(error)).toBeUndefined();
   });
 
+  // A marked error is the new Guardian's answer. Its account-scoped code must not read as the outgoing
+  // Guardian being unable to co-sign, so only a marked unreachable error has a trigger.
+  it.each([
+    ['a marked 404 data_unavailable', { status: 404, code: 'data_unavailable' }],
+    ['a marked 404 account_not_found', { status: 404, code: 'account_not_found' }],
+    ['a marked 409 account_released', { status: 409, code: 'account_released' }]
+  ])('does not start the direct switch on %s from the new Guardian', (_label, shape) => {
+    const error = Object.assign(new Error('new guardian answer'), shape);
+    markNewGuardianAnswer(error);
+    expect(directSwitchTriggerFor(error)).toBeUndefined();
+  });
+
+  it('keeps the unreachable verdict for a marked network failure', () => {
+    const error = new Error('Failed to fetch');
+    markNewGuardianAnswer(error);
+    expect(directSwitchTriggerFor(error)).toBe('unreachable');
+  });
+
   it('keeps the unreachable verdict for a marked 503 and the refusal for an unmarked 403', () => {
     const marked = Object.assign(new Error('Service Unavailable'), { status: 503 });
     markNewGuardianAnswer(marked);
