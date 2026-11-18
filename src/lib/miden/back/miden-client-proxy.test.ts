@@ -4627,6 +4627,21 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
   });
 
+  it('passes the exact SDK store selected by recovery even when it is the default', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockResolvedValue({ ok: true });
+
+    await expect(reloadOffscreenEndpointOverrides(false)).resolves.toBe(true);
+
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override: null, feeFaucetId: undefined },
+      recoveryUsesCedarStore: false
+    });
+  });
+
   it('resolves false instead of throwing when the doc is reaped between the check and the send', async () => {
     docExists = true;
     const { reloadOffscreenEndpointOverrides } = await loadProxy(true);

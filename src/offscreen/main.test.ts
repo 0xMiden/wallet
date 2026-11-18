@@ -321,6 +321,7 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
         return g.__off.getMidenClient(opts);
       }
     },
+    useSdkRecoveryStore: (...args: unknown[]) => g.__off.useSdkRecoveryStore(...args),
     remoteProver: (...a: any[]) => g.__off.remoteProver(...a),
     // Pass-through: the wrapper's own timeout behaviour is covered in
     // miden-client-interface.test.ts. What matters here is only that the pipeline
@@ -5670,10 +5671,15 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
     await flush();
     return reply.mock.calls[0]?.[0];
   };
-  const reload = async (endpoints?: unknown) => {
+  const reload = async (endpoints?: unknown, recoveryUsesCedarStore?: boolean) => {
     const ack = jest.fn();
     const ret = capturedListener!(
-      { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', ...(endpoints ? { endpoints } : {}) },
+      {
+        target: 'offscreen',
+        type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+        ...(endpoints ? { endpoints } : {}),
+        ...(recoveryUsesCedarStore === undefined ? {} : { recoveryUsesCedarStore })
+      },
       {},
       ack
     );
@@ -5689,6 +5695,18 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
     expect(G.__off.createEndpoints).toEqual([MAINNET_BUILD]);
     expect(realm().getEffectiveNetworkName()).toBe('mainnet');
     expect(G.__off.storageCalls).toBe(0);
+  });
+
+  it('adopts the verified recovery store before its next same-endpoint client build', async () => {
+    await loadModule();
+    G.__off.useSdkRecoveryStore = jest.fn();
+    expect((await call(mainnet())).ok).toBe(true);
+    expect(G.__off.createOptions).toHaveLength(1);
+
+    expect(await reload(mainnet(), false)).toEqual({ ok: true });
+    expect(G.__off.useSdkRecoveryStore).toHaveBeenCalledWith(MAINNET_BUILD.rpcUrl, false);
+    expect((await call(mainnet())).ok).toBe(true);
+    expect(G.__off.createOptions).toHaveLength(2);
   });
 
   it('refuses a call that carries no network state, and builds no client', async () => {
