@@ -5,7 +5,10 @@ import type { SendDraft } from 'screens/send-flow/send-draft';
 
 import type { CommandAction } from './command-routes';
 
-export type CommandSendRecall = { kind: 'never' } | { kind: 'scheduled'; date?: string; time: string; blocks?: string };
+export type CommandSendRecall =
+  | { kind: 'never' }
+  | { kind: 'scheduled'; date?: string; time: string; blocks?: string }
+  | { kind: 'calendar'; target: string };
 
 export interface CommandDrafts {
   send: SendDraft & { privacy?: 'public' | 'private'; recall?: CommandSendRecall; reviewId?: string };

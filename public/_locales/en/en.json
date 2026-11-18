@@ -546,6 +546,8 @@
   "swapSuccessSourcingLiquidity": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds.",
   "swapSuccessTrackProgress": "You can track its progress in Activities.",
   "expirationDate": "Expiration Date",
+  "recallEstimated": "Estimated",
+  "recallReviewChanged": "The reviewed expiration changed. Review it again before sending.",
   "recallReturnsNote": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
   "recallTimeInPast": "This time has already passed — pick a future time",
   "expiresInSeconds": "In $seconds$ seconds",

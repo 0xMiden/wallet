@@ -34,6 +34,7 @@ import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { assertEpochReviewedOutput, reviewedEpochMinimum } from 'lib/epoch/bridge';
 import { EpochReviewChangedError } from 'lib/epoch/review-error';
+import { getDateFnsLocale } from 'lib/i18n';
 import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
@@ -41,6 +42,7 @@ import { IConsumedAssetTotal, type IUsdcxNetworkFeeBudget } from 'lib/miden/db/t
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { MAX_RECALL_BLOCKS } from 'lib/miden/helpers';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
@@ -104,6 +106,12 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
     </p>
   );
 };
+
+function parseCalendarRecallTarget(target: string | undefined): Date | undefined {
+  if (!target) return undefined;
+  const date = new Date(target);
+  return Number.isFinite(date.getTime()) && date.toISOString() === target ? date : undefined;
+}
 
 /**
  * Full-screen send review page (`/send/review?amount=…&to=…&tokenId=…`).
@@ -324,13 +332,23 @@ export const ReviewTransaction: React.FC = () => {
     };
   }, []);
 
-  const [recallDate, setRecallDate] = useState<Date | undefined>(() =>
-    restoredDraft?.recall?.kind === 'scheduled' && restoredDraft.recall.date
-      ? new Date(restoredDraft.recall.date)
-      : undefined
+  const [calendarTarget, setCalendarTarget] = useState<string | undefined>(
+    restoredDraft?.recall?.kind === 'calendar' ? (restoredDraft.recall.target ?? '') : undefined
+  );
+  const restoredCalendarDate = parseCalendarRecallTarget(calendarTarget);
+  const [recallDate, setRecallDate] = useState<Date | undefined>(
+    () =>
+      restoredCalendarDate ??
+      (restoredDraft?.recall?.kind === 'scheduled' && restoredDraft.recall.date
+        ? new Date(restoredDraft.recall.date)
+        : undefined)
   );
   const [recallTime, setRecallTime] = useState(
-    restoredDraft?.recall?.kind === 'scheduled' ? restoredDraft.recall.time : '12:00'
+    restoredCalendarDate
+      ? format(restoredCalendarDate, 'HH:mm')
+      : restoredDraft?.recall?.kind === 'scheduled'
+        ? restoredDraft.recall.time
+        : '12:00'
   );
   const [recallBlocks, setRecallBlocks] = useState<string | undefined>(
     restoredDraft?.recall?.kind === 'scheduled' ? restoredDraft.recall.blocks : undefined
@@ -357,10 +375,22 @@ export const ReviewTransaction: React.FC = () => {
       recall: recallTouchedRef.current
         ? recallNever
           ? { kind: 'never' }
-          : { kind: 'scheduled', date: recallDate?.toISOString(), time: recallTime, blocks: recallBlocks }
+          : calendarTarget !== undefined
+            ? { kind: 'calendar', target: calendarTarget }
+            : { kind: 'scheduled', date: recallDate?.toISOString(), time: recallTime, blocks: recallBlocks }
         : current.recall
     });
-  }, [command, writeCommandDraft, readCommandDraft, sharePrivately, recallNever, recallDate, recallTime, recallBlocks]);
+  }, [
+    command,
+    writeCommandDraft,
+    readCommandDraft,
+    sharePrivately,
+    recallNever,
+    recallDate,
+    recallTime,
+    recallBlocks,
+    calendarTarget
+  ]);
 
   // E2E-only hook: the shortest window RecallCalendarDrawer offers is 30 minutes,
   // so no click path produces a recall a test can wait out — and without one, the
@@ -384,6 +414,7 @@ export const ReviewTransaction: React.FC = () => {
       setRecallNever(true);
       setRecallDate(undefined);
       setRecallBlocks(undefined);
+      setCalendarTarget(undefined);
       return;
     }
     const date = addSeconds(new Date(), armed * SECONDS_PER_BLOCK);
@@ -391,6 +422,7 @@ export const ReviewTransaction: React.FC = () => {
     setRecallDate(date);
     setRecallTime(format(date, 'HH:mm'));
     setRecallBlocks(String(armed));
+    setCalendarTarget(undefined);
   }, [isBridge]);
 
   // Default every same-chain send to a 7-day reclaim (expiration) offset. The
@@ -428,8 +460,9 @@ export const ReviewTransaction: React.FC = () => {
       if (isSubmitting) return;
       recallTouchedRef.current = true;
       setRecallBlocks(blocks);
+      if (!showCalendar) setCalendarTarget(undefined);
     },
-    [isSubmitting]
+    [isSubmitting, showCalendar]
   );
   const handleRecallTimeChange = useCallback(
     (time: string) => {
@@ -438,13 +471,36 @@ export const ReviewTransaction: React.FC = () => {
     },
     [isSubmitting]
   );
+  const handleCalendarTargetChange = useCallback(
+    (date: Date, time: string) => {
+      if (!command || isSubmitting || !showCalendar) return;
+      const target = combineDateAndTime(date, time);
+      recallTouchedRef.current = true;
+      setCalendarTarget(
+        /^\d{2}:\d{2}$/.test(time) &&
+          Number.isFinite(target.getTime()) &&
+          target.getHours() === Number(time.slice(0, 2)) &&
+          target.getMinutes() === Number(time.slice(3, 5))
+          ? target.toISOString()
+          : ''
+      );
+      setSubmitError(undefined);
+      setSubmitErrorId(undefined);
+    },
+    [command, isSubmitting, showCalendar]
+  );
   const handleRecallNever = useCallback(() => {
     if (isSubmitting) return;
     recallTouchedRef.current = true;
     setRecallNever(true);
     setRecallDate(undefined);
     setRecallBlocks(undefined);
-  }, [isSubmitting]);
+    setCalendarTarget(undefined);
+    if (command) {
+      setSubmitError(undefined);
+      setSubmitErrorId(undefined);
+    }
+  }, [isSubmitting, command]);
 
   // Leaving review without submitting ends the `send` flow the form began.
   // Without this the handle would stay open past the send flow entirely and the
@@ -464,8 +520,9 @@ export const ReviewTransaction: React.FC = () => {
 
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId>();
-  const [spendingLimitChallenge, setSpendingLimitChallenge] =
-    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
+  const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
+    Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { reviewedCalendarTarget?: string }
+  >();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   // The account's spending-limit revision never crosses the intercom port - `serializeInternalError`
@@ -478,11 +535,12 @@ export const ReviewTransaction: React.FC = () => {
       const configuration = await readSpendingLimit(publicKey);
       if (configuration === undefined || !isCurrentSubmission()) return false;
       setSpendingLimitChallenge({
-        unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision }
+        unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision },
+        reviewedCalendarTarget: calendarTarget
       });
       return true;
     },
-    [publicKey, readSpendingLimit, isCurrentSubmission]
+    [publicKey, readSpendingLimit, isCurrentSubmission, calendarTarget]
   );
   // `token` is undefined until balances load; an absent token is handled by the
   // deep-link guard below, so only a LOADED token with an unreadable scale
@@ -518,11 +576,64 @@ export const ReviewTransaction: React.FC = () => {
   );
 
   const runSameChainSend = useCallback(
-    async (authorization?: SpendingLimitAuthorization) => {
+    async (authorization?: SpendingLimitAuthorization, reviewedCalendarTarget?: string) => {
       if (!token || !publicKey || amountBaseUnits === undefined || !isCurrentSubmission()) return;
+      const approvedCalendarTarget = authorization === undefined ? calendarTarget : reviewedCalendarTarget;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
+      }
+      const currentDraft = commandDrafts?.readDraft('send');
+      const currentIntent =
+        currentDraft &&
+        JSON.stringify([
+          currentDraft.reviewId ?? null,
+          currentDraft.amount,
+          currentDraft.recipientAddress,
+          currentDraft.tokenId,
+          currentDraft.bridgeNetwork,
+          currentDraft.bridgeRoute
+        ]);
+      if (
+        command &&
+        (approvedCalendarTarget !== calendarTarget ||
+          (approvedCalendarTarget !== undefined &&
+            (commandDrafts?.readSendDraftRevision() !== reviewRevision ||
+              currentIntent !== sendIntent ||
+              currentDraft?.recall?.kind !== 'calendar' ||
+              currentDraft.recall.target !== approvedCalendarTarget)))
+      ) {
+        setSubmitError(t('recallReviewChanged'));
+        setSubmitErrorId('raw_send_submit_failed');
+        setIsSubmitting(false);
+        return;
+      }
+      let queueRecallBlocks = recallBlocks ? parseInt(recallBlocks) : undefined;
+      if (command && approvedCalendarTarget !== undefined) {
+        const target = parseCalendarRecallTarget(approvedCalendarTarget);
+        if (!target || target <= new Date()) {
+          setSubmitError(t('recallTimeInPast'));
+          setSubmitErrorId('recallTimeInPast');
+          setIsSubmitting(false);
+          return;
+        }
+        queueRecallBlocks = dateTimeToRecallBlocks(target);
+        if (target <= new Date()) {
+          setSubmitError(t('recallTimeInPast'));
+          setSubmitErrorId('recallTimeInPast');
+          setIsSubmitting(false);
+          return;
+        }
+        if (
+          !Number.isSafeInteger(queueRecallBlocks) ||
+          queueRecallBlocks < 1 ||
+          queueRecallBlocks > MAX_RECALL_BLOCKS
+        ) {
+          setSubmitError(t('recallReviewChanged'));
+          setSubmitErrorId('raw_send_submit_failed');
+          setIsSubmitting(false);
+          return;
+        }
       }
       if (command && commandDrafts && !commandDrafts.beginSendAdmission(sendIntent)) return;
       setIsSubmitting(true);
@@ -542,7 +653,7 @@ export const ReviewTransaction: React.FC = () => {
           token.id,
           sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
           amountBaseUnits,
-          recallBlocks ? parseInt(recallBlocks) : undefined,
+          queueRecallBlocks,
           isDelegateProofEnabled()
         ] as const;
         txId =
@@ -565,7 +676,7 @@ export const ReviewTransaction: React.FC = () => {
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          setSpendingLimitChallenge({ assessment, spends });
+          setSpendingLimitChallenge({ assessment, spends, reviewedCalendarTarget: approvedCalendarTarget });
           setIsSubmitting(false);
           return;
         }
@@ -590,17 +701,20 @@ export const ReviewTransaction: React.FC = () => {
     },
     [
       amountBaseUnits,
+      calendarTarget,
       command,
       commandDrafts,
       goToGeneratingTransaction,
       openUnpricedChallenge,
       publicKey,
       recallBlocks,
+      reviewRevision,
       sharePrivately,
       to,
       token,
       sendIntent,
-      isCurrentSubmission
+      isCurrentSubmission,
+      t
     ]
   );
 
@@ -740,17 +854,24 @@ export const ReviewTransaction: React.FC = () => {
     ]
   );
 
+  const selectedCalendarDate = parseCalendarRecallTarget(calendarTarget);
   const recallInvalid =
     command &&
-    !!restoredDraft?.recall &&
     !isBridge &&
     !recallNever &&
-    (!recallDate ||
-      !Number.isFinite(recallDate.getTime()) ||
-      !/^\d{2}:\d{2}$/.test(recallTime) ||
-      combineDateAndTime(recallDate, recallTime) <= new Date() ||
-      !recallBlocks ||
-      !/^[1-9]\d*$/.test(recallBlocks));
+    (calendarTarget !== undefined
+      ? !selectedCalendarDate ||
+        selectedCalendarDate <= new Date() ||
+        !recallDate ||
+        !/^\d{2}:\d{2}$/.test(recallTime) ||
+        combineDateAndTime(recallDate, recallTime).getTime() !== selectedCalendarDate.getTime()
+      : restoredDraft?.recall?.kind === 'scheduled' &&
+        (!recallDate ||
+          !Number.isFinite(recallDate.getTime()) ||
+          !/^\d{2}:\d{2}$/.test(recallTime) ||
+          combineDateAndTime(recallDate, recallTime) <= new Date() ||
+          !recallBlocks ||
+          !/^[1-9]\d*$/.test(recallBlocks)));
   const submittingRef = useRef(false);
   const onSubmit = useCallback(async () => {
     if (
@@ -780,7 +901,7 @@ export const ReviewTransaction: React.FC = () => {
         return;
       }
       if (assessment !== undefined && assessment.breach !== undefined) {
-        setSpendingLimitChallenge({ assessment, spends });
+        setSpendingLimitChallenge({ assessment, spends, reviewedCalendarTarget: calendarTarget });
         setIsSubmitting(false);
         return;
       }
@@ -818,6 +939,7 @@ export const ReviewTransaction: React.FC = () => {
     tokenHeld,
     epochQuoteUnavailable,
     recallInvalid,
+    calendarTarget,
     command,
     sendAdmission,
     amountBaseUnits,
@@ -840,11 +962,11 @@ export const ReviewTransaction: React.FC = () => {
         if (isBridge) {
           void runBridgeSend(authorization);
         } else {
-          void runSameChainSend(authorization);
+          void runSameChainSend(authorization, spendingLimitChallenge?.reviewedCalendarTarget);
         }
       }
     },
-    [isBridge, runBridgeSend, runSameChainSend]
+    [isBridge, runBridgeSend, runSameChainSend, spendingLimitChallenge]
   );
 
   // The account is the only identity both the `assessment` and `unpriced` challenge shapes carry
@@ -931,15 +1053,13 @@ export const ReviewTransaction: React.FC = () => {
       return <Redirect to="/send" />;
     }
 
-    // Label is derived from recallBlocks — the single source of truth for the send:
-    //   undefined → plain P2ID (no recall) → "None" (or "Never" if explicitly chosen)
-    //   set        → P2IDE, recallable ~(recallBlocks * SECONDS_PER_BLOCK) after SUBMIT
-    // The offset is RELATIVE and gets converted to an absolute height at send time, so
-    // reading the window off the offset (not the picked absolute instant) keeps the
-    // displayed value matching what's actually broadcast no matter how long the user
-    // lingers here. Near windows render precisely (< 3 min in seconds, < 30 min in
-    // minutes), longer ones as a coarse relative phrase.
+    // Only an explicitly authored Command calendar choice has a stable estimated instant.
+    // Default, manual/E2E relative choices and Never retain their original offset labels.
     const expirationLabel = (() => {
+      if (command && calendarTarget !== undefined)
+        return selectedCalendarDate
+          ? `${t('recallEstimated')} ${format(selectedCalendarDate, 'dd MMM yyyy, HH:mm', { locale: getDateFnsLocale() })}`
+          : t('recallTimeInPast');
       if (!recallBlocks) return recallNever ? t('never') : t('none');
       const secs = parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
       if (secs < 180) return t('expiresInSeconds', { seconds: String(Math.max(1, secs)) });
@@ -1245,7 +1365,7 @@ export const ReviewTransaction: React.FC = () => {
           )}
           {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
-          {!isBridge && recallBlocks ? (
+          {!isBridge && (recallBlocks || (command && calendarTarget !== undefined)) ? (
             <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="review-recall-note">
               {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
             </p>
@@ -1272,6 +1392,8 @@ export const ReviewTransaction: React.FC = () => {
             onRecallBlocksChange={handleRecallBlocksChange}
             onRecallDateChange={handleRecallDateChange}
             onRecallTimeChange={handleRecallTimeChange}
+            onCalendarTargetChange={handleCalendarTargetChange}
+            skipUnchangedConfirm={command}
             onRecallNever={handleRecallNever}
           />
         )}

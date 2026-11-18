@@ -528,10 +528,29 @@ jest.mock('./RecallCalendarDrawer', () => ({
           props.onRecallBlocksChange(
             String(conversion.dateTimeToRecallBlocks(picker.combineDateAndTime(date, '14:00')))
           );
+          props.onCalendarTargetChange(date, '14:00');
           props.onOpenChange(false);
         }}
       >
         pick-calendar-target
+      </button>
+      <button
+        type="button"
+        data-testid="recall-pick-same-preset"
+        onClick={() => {
+          const date = props.recallDate;
+          if (!date) throw new Error('Expected seeded default date');
+          const time = props.recallTime;
+          const picker = jest.requireActual<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer');
+          const conversion = jest.requireMock<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer');
+          props.onRecallDateChange(date);
+          props.onRecallTimeChange(time);
+          props.onRecallBlocksChange(String(conversion.dateTimeToRecallBlocks(picker.combineDateAndTime(date, time))));
+          props.onCalendarTargetChange(date, time);
+          props.onOpenChange(false);
+        }}
+      >
+        pick-same-preset
       </button>
     </div>
   )
@@ -1230,6 +1249,45 @@ describe('Command Send review controller', () => {
       expect(screen.getByTestId('send-review-submit')).toBeEnabled();
       fireEvent.click(screen.getByTestId('send-review-submit'));
       await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('treats an explicit same-minute seven-day preset as calendar, not a new relative offset', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 1, 12));
+      openSession();
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-recall-time', '12:00');
+      fireEvent.click(screen.getByTestId('recall-pick-same-preset'));
+      expect(screen.getByTestId('saved-review-input')).toHaveTextContent('"kind":"calendar"');
+      expect(screen.getByTestId('review-row-expiration')).toHaveTextContent('recallEstimated');
+      expect(initiateMock).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refuses a calendar instant expired while the spending-limit authorization is open', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 1, 12));
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      openSession();
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument());
+      expect(initiateMock).not.toHaveBeenCalled();
+      jest.setSystemTime(new Date(2030, 0, 4, 12));
+      fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      await waitFor(() => expect(screen.getByTestId('review-error')).toHaveTextContent('recallTimeInPast'));
+      expect(initiateMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('saved-send-admission')).toBeEmptyDOMElement();
     } finally {
       jest.useRealTimers();
     }
