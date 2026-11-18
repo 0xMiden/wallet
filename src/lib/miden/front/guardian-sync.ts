@@ -2665,7 +2665,6 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
             // has its own budget and guards: this device's key is the account's hot signer, the operator
             // serves the Guardian key the account names, and the chain holds this device's state.
             attempt.settle('refunded');
-            if (!(await passMayRecord(generation, account.publicKey, endpoint))) continue;
             if (await attemptMissingRegistrationSelfHeal(account, healFuseKey, 'signers-rejected')) break;
           } else {
             attempt.settle(
