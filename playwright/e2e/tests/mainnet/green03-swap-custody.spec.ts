@@ -5,7 +5,7 @@ import { test } from '../../fixtures/two-wallets';
 import { canonicalMainnetLoopFaucet } from '../../helpers/mainnet-loop-config';
 import { vaultBalanceByFaucetId } from '../../helpers/balance-truth';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
-import { loadMainnetSwapCheckpoint } from '../../helpers/mainnet-swap-checkpoint';
+import { loadMainnetSwapCheckpoint, type MainnetSwapClaimAuthority } from '../../helpers/mainnet-swap-checkpoint';
 import { readMainnetSwapPayback } from '../../helpers/mainnet-swap-claim';
 import { tokenValueUsdMicro } from '../../helpers/mainnet-one-click-plan';
 
@@ -28,7 +28,9 @@ test('independently reconcile completed original Swap custody and costs', async 
   for (const leg of ['forward', 'reverse'] as const) {
     const forward = leg === 'forward';
     const authority = forward ? state.forwardRequestAuthority : state.reverseRequestAuthority;
-    const claim = forward ? state.forwardClaimAuthority : state.reverseClaimAuthority;
+    const claim: MainnetSwapClaimAuthority | undefined = forward
+      ? state.forwardClaimAuthority
+      : state.reverseClaimAuthority;
     const amount = forward ? state.principal : state.returnAmount;
     assert.ok(authority && claim && amount);
     const receipt = JSON.parse(readFileSync(`test-results/${leg}/mainnet-swap-${leg}-claim.json`, 'utf8'));
