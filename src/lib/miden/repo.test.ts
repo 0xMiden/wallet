@@ -2477,6 +2477,12 @@ describe('verified wallet storage generation', () => {
   const config = (limit: string) => ({ accountId, limit, revision: `limit-${limit}`, createdAt: 10, updatedAt: 10 });
   const currentGeneration = 'active-generation';
   const savedGeneration = 'saved-generation';
+  const sent = {
+    attemptId: 'submitted-attempt',
+    transactionId: 'submitted-transaction',
+    source: 'stage',
+    capturedAt: 10
+  } as const;
 
   beforeEach(async () => {
     await db.table(Table.Recovery).clear();
@@ -2528,6 +2534,59 @@ describe('verified wallet storage generation', () => {
     await expect(spendingLimits.get(accountId)).resolves.toBeUndefined();
     await expect(readWalletStoreGeneration()).resolves.toBe(currentGeneration);
   });
+
+  it.each([ITransactionStatus.Completed, ITransactionStatus.Failed])(
+    'applies freshly verified transfer status %s when its live attempt survived in the same generation',
+    async status => {
+      const live = { ...row, status: ITransactionStatus.Unconfirmed, attemptId: 'submitted-attempt' };
+      const covered = {
+        ...live,
+        status,
+        completedAt: 20,
+        mayHaveSubmitted: true,
+        submitEvidence: [sent],
+        ...(status === ITransactionStatus.Completed ? { transactionId: sent.transactionId } : { neverCommittedAt: 20 })
+      };
+      const unverified = { ...covered, id: 'snapshot-only-history' };
+      const generation = {
+        observed: currentGeneration,
+        verified: currentGeneration,
+        spendingSince: 0,
+        verifiedTransfers: new Set([row.id])
+      };
+      await transactions.bulkAdd([live, { ...live, id: unverified.id }]);
+
+      await restoreRecoveryTransfers([covered, unverified], [], sameAccount, assertCurrent, generation);
+
+      await expect(transactions.get(row.id)).resolves.toMatchObject(covered);
+      await expect(transactions.get(unverified.id)).resolves.toMatchObject({ status: ITransactionStatus.Unconfirmed });
+    }
+  );
+
+  it.each([{ attemptId: 'later-attempt' }, { submitEvidence: [{ ...sent, transactionId: 'different-transaction' }] }])(
+    'refuses a rebuilt outcome if the live attempt or submit evidence has diverged',
+    async changed => {
+      const live = { ...row, status: ITransactionStatus.Unconfirmed, attemptId: 'submitted-attempt', ...changed };
+      const verified = {
+        ...row,
+        attemptId: 'submitted-attempt',
+        mayHaveSubmitted: true,
+        submitEvidence: [sent]
+      };
+      const generation = {
+        observed: currentGeneration,
+        verified: currentGeneration,
+        spendingSince: 0,
+        verifiedTransfers: new Set([row.id])
+      };
+      await transactions.add(live);
+
+      await expect(restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation)).rejects.toThrow(
+        WalletStorageUnavailableError
+      );
+      await expect(transactions.get(row.id)).resolves.toMatchObject(live);
+    }
+  );
 
   it('keeps the prior generation and policy if a live spending row conflicts with the journal', async () => {
     await transactions.add({ ...row, spentUsd: 30n });

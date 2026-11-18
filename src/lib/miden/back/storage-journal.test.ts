@@ -2,10 +2,11 @@ import { webcrypto } from 'node:crypto';
 
 import { StorageJournal } from './storage-journal';
 import { importVaultKey } from '../passworder';
-import { markWalletStorageUnavailable } from '../storage-health';
+import { markWalletStorageUnavailable, WalletStorageUnavailableError } from '../storage-health';
 
 const mockValues: Record<string, unknown> = {};
 const mockSet = jest.fn(async (entries: Record<string, unknown>) => Object.assign(mockValues, entries));
+let mockNetwork = 'mainnet';
 
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
@@ -14,7 +15,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
     set: (entries: Record<string, unknown>) => mockSet(entries)
   })
 }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'mainnet' }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork }));
 jest.mock('../storage-health', () => ({
   ...jest.requireActual('../storage-health'),
   markWalletStorageUnavailable: jest.fn(async () => {})
@@ -35,6 +36,7 @@ afterAll(() => {
 
 beforeEach(async () => {
   for (const key of Object.keys(mockValues)) delete mockValues[key];
+  mockNetwork = 'mainnet';
   jest.clearAllMocks();
   journal = new StorageJournal(await importVaultKey(new Uint8Array(32)));
 });
@@ -61,6 +63,31 @@ it('refuses a failed save and preserves the last verified generation', async () 
 
   expect(await journal.read()).toMatchObject({ generation: 1, notes: ['first'] });
   expect(markWalletStorageUnavailable).toHaveBeenCalledTimes(1);
+});
+
+it.each(['wallet lock', 'RPC change'])('keeps healthy storage on %s during head readback', async transition => {
+  await journal.retain(data => ({ ...data, notes: ['first'] }), noop);
+  const staleSession = new WalletStorageUnavailableError();
+  let unlocked = true;
+  mockSet.mockImplementationOnce(async entries => Object.assign(mockValues, entries));
+  mockSet.mockImplementationOnce(async entries => {
+    if (transition === 'wallet lock') unlocked = false;
+    else mockNetwork = 'testnet';
+    return Object.assign(mockValues, entries);
+  });
+
+  await expect(
+    journal.retain(
+      data => ({ ...data, notes: ['second'] }),
+      () => {
+        if (!unlocked || mockNetwork !== 'mainnet') throw staleSession;
+      }
+    )
+  ).rejects.toBe(staleSession);
+
+  mockNetwork = 'mainnet';
+  await expect(journal.read()).resolves.toMatchObject({ generation: 2, notes: ['second'] });
+  expect(markWalletStorageUnavailable).not.toHaveBeenCalled();
 });
 
 it('acknowledges 257 compact retained notes while the snapshot fits the byte budget', async () => {
