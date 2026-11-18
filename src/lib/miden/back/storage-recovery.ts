@@ -73,7 +73,7 @@ async function readExistingNoteFiles(
   const consumed = new Map<string, string>();
   if (!notes.listPage) return { files, consumed };
   let after: string | undefined;
-  for (let page = 0; page < 64; page++) {
+  for (;;) {
     assertCurrent();
     const records = await notes.listPage({ after, limit: 64 });
     try {
@@ -95,13 +95,12 @@ async function readExistingNoteFiles(
       }
       if (records.length < 64) return { files, consumed };
       const next = records.at(-1)!.detailsCommitment();
-      if (next === after) throw new WalletStorageUnavailableError();
+      if (after !== undefined && next <= after) throw new WalletStorageUnavailableError();
       after = next;
     } finally {
       records.forEach(record => record.free());
     }
   }
-  throw new WalletStorageUnavailableError();
 }
 
 async function confirmConsumedNotes(candidates: ReadonlyMap<string, string>): Promise<Set<string>> {
