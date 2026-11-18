@@ -248,7 +248,8 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
       await midenCli.init();
 
       await walletA.navigateTo('/earn');
-      const positionCard = walletA.page.locator('[data-testid^="earn-position-card-"]').first();
+      const workbench = walletA.page.getByTestId('command-shell').getByTestId('command-workbench');
+      const positionCard = workbench.locator('[data-testid^="command-earn-withdraw-"]').first();
       await expect(positionCard).toBeVisible({ timeout: 30_000 });
       await positionCard.click();
       await expect(walletA.page.getByTestId('earn-position-detail-page')).toBeVisible({ timeout: 30_000 });
@@ -258,12 +259,12 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
       const amountStep = walletA.page.getByTestId('earn-withdraw-amount-page');
       await expect(amountStep).toBeVisible({ timeout: 30_000 });
       await amountStep.getByRole('button', { name: 'Max', exact: true }).click();
-      await amountStep.getByRole('button', { name: 'Review', exact: true }).click();
-      await expect(walletA.page.getByTestId('earn-withdraw-review-page')).toBeVisible({ timeout: 30_000 });
+      await workbench.getByTestId('command-footer').getByRole('button', { name: 'Review', exact: true }).click();
+      await expect(workbench.getByTestId('earn-withdraw-review-page')).toBeVisible({ timeout: 30_000 });
       expect(new URL(walletA.page.url()).hash, 'Max reviews the whole position').toMatch(
         new RegExp(`/withdraw/review\\?amount=${WITHDRAW_AMOUNT}$`)
       );
-      const confirm = walletA.page.getByTestId('earn-withdraw-review-confirm');
+      const confirm = workbench.getByTestId('command-footer').getByTestId('earn-withdraw-review-confirm');
       await expect(confirm).toBeEnabled({ timeout: 30_000 });
       const nonceRequests = () => allocator.requests.filter(request => request.path.startsWith('/suggested-nonce/'));
       expect(nonceRequests(), 'the review quotes once before Confirm').toHaveLength(1);

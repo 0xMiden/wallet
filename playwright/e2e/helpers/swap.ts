@@ -260,7 +260,9 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
   const before = new Set(await readSwapOrderIds(page));
 
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`);
-  await expect(page.getByTestId('swap-flow')).toBeVisible({ timeout: 30_000 });
+  const workbench = page.getByTestId('command-shell').getByTestId('command-workbench');
+  await expect(workbench.getByTestId('swap-flow').getByTestId('command-swap-composer')).toBeVisible({ timeout: 30_000 });
+  await expect(workbench.getByTestId('command-footer').getByTestId('swap-review-submit')).toBeVisible();
 
   await page.getByTestId('send-token-selector').first().click();
   await page.getByTestId(`swap-token-${opts.offerSymbol}`).click();

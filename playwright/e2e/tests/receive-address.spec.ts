@@ -67,7 +67,8 @@ test.describe('Receive address surface', () => {
       // of them holds OS focus.
       await installClipboardRecorder(walletA.page);
       await walletA.navigateTo('/receive');
-      await expect(walletA.page.getByTestId('command-receive')).toBeVisible({ timeout: 30_000 });
+      const workbench = walletA.page.getByTestId('command-shell').getByTestId('command-workbench');
+      await expect(workbench.getByTestId('command-receive')).toBeVisible({ timeout: 30_000 });
     });
 
     await steps.step(

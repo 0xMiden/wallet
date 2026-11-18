@@ -52,6 +52,9 @@ function wallet(payLoading = false) {
   });
   const selector = {
     click: async () => {},
+    getByTestId() {
+      return this;
+    },
     first() {
       return this;
     },

@@ -38,7 +38,12 @@ function makePage(): Page {
  */
 function makeSendPage(
   tokenIds: string[],
-  opts: { appearOnWait?: string[]; waitForError?: string; countError?: string } = {}
+  opts: {
+    appearOnWait?: string[];
+    waitForError?: string;
+    countError?: string;
+    requestedSymbol?: { symbol: string; tokenId: string };
+  } = {}
 ): { page: Page; clickedTokenIds: string[] } {
   const appearOnWait = opts.appearOnWait ?? [];
   const present = new Set(tokenIds);
@@ -63,7 +68,15 @@ function makeSendPage(
     waitForFunction: jest.fn(async () => undefined),
     waitForURL: jest.fn(async () => undefined),
     evaluate: jest.fn(async () => undefined),
-    getByTestId: jest.fn(() => noopLocator),
+    getByTestId: jest.fn((id: string) =>
+      id === `send-token-${opts.requestedSymbol?.symbol}`
+        ? {
+            ...noopLocator,
+            count: jest.fn(async () => 1),
+            click: jest.fn(async () => clickedTokenIds.push(opts.requestedSymbol!.tokenId))
+          }
+        : noopLocator
+    ),
     locator: jest.fn((selector: string) => {
       if (selector === 'body') return noopLocator;
       const match = selector.match(/^\[data-token-id=(.+)\]$/);
@@ -471,6 +484,16 @@ describe('ChromeWalletPage exact token selection', () => {
     await expect(
       wallet.sendTokens({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenId: 'faucet-a' })
     ).rejects.toThrow(destroyed);
+  });
+
+  it('selects the requested symbol when its row is available', async () => {
+    const { page, clickedTokenIds } = makeSendPage(['faucet-b'], {
+      requestedSymbol: { symbol: 'TST', tokenId: 'faucet-b' }
+    });
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await wallet.prepareSendReview({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenSymbol: 'TST' });
+    expect(clickedTokenIds).toEqual(['faucet-b']);
   });
 
   it('refuses a missing requested symbol rather than selecting a different funded token', async () => {

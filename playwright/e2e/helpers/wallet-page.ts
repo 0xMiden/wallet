@@ -3119,14 +3119,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         .first()
         .waitFor({ state: 'attached', timeout: 10_000 })
         .catch(() => {});
-      const symbolRowCount = await tokenRow.count().catch(() => 0);
-      if (symbolRowCount > 0) {
-        await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
-      } else {
-        // No row for the requested symbol - fall back to the first non-USDCX row
-        // (USDCX can sit at zero balance above the funded token).
-        await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
+      const symbolRowCount = await tokenRow.count();
+      if (symbolRowCount === 0) {
+        throw new Error(`WalletPage.sendTokens: requested token symbol "${params.tokenSymbol}" is unavailable`);
       }
+      await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
     } else {
       await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
     }
