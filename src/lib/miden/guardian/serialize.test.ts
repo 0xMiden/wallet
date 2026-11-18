@@ -13,6 +13,7 @@ import {
   isGuardianRateLimited,
   isGuardianRequestTimeout,
   isGuardianStateNotOnChain,
+  markNewGuardianAnswer,
   recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry,
@@ -117,6 +118,15 @@ describe('isGuardianPendingConflict', () => {
     expect(isGuardianPendingConflict({ status: 409, code: '', body: 'ConflictPendingDelta' })).toBe(true);
     expect(isGuardianPendingConflict({ status: 409, code: undefined, body: 'account was released' })).toBe(false);
   });
+
+  // The new Guardian's key fetch is marked. Its bare 409 is that Guardian's answer, never the outgoing
+  // Guardian's pending delta, so nothing waits on it.
+  it('does not match a bare 409 that the new Guardian answered', () => {
+    const marked = { status: 409 };
+    markNewGuardianAnswer(marked);
+    expect(isGuardianPendingConflict(marked)).toBe(false);
+    expect(isGuardianPendingConflict({ status: 409 })).toBe(true);
+  });
 });
 
 // The Guardian's refusal of a push built on a superseded commitment: keyed on the code alone, whatever the status.
@@ -207,6 +217,16 @@ describe('withGuardianConflictRetry', () => {
       status: 409
     });
     expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry a bare 409 that the new Guardian answered', async () => {
+    const marked = guardianErr(409);
+    markNewGuardianAnswer(marked);
+    const fn = jest.fn(async () => {
+      throw marked;
+    });
+    await expect(withGuardianConflictRetry(fn, { maxAttempts: 3, sleepFn: instantSleep })).rejects.toBe(marked);
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });
 

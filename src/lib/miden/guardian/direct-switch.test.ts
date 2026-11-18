@@ -7,7 +7,9 @@ import type { WalletAccount } from 'lib/shared/types';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  directSwitchTriggerFor,
   finalizeDirectGuardianSwitch,
+  isGuardianRefusal,
   isGuardianKeyMismatchRefusal,
   isGuardianRegistrationPreflightError,
   isGuardianStateOffChainRefusal,
@@ -19,7 +21,12 @@ import {
   STATE_ON_CHAIN_WAIT_MS,
   waitForStateOnChain
 } from './direct-switch';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, isGuardianStateNotOnChain, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import {
+  GUARDIAN_RETRY_MAX_ATTEMPTS,
+  isGuardianStateNotOnChain,
+  markNewGuardianAnswer,
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
+} from './serialize';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 
 // ---------------------------------------------------------------------------
@@ -457,6 +464,74 @@ describe('isGuardianUnreachableError', () => {
     const interstitial = new SyntaxError('Unexpected token \'<\', "<html><body>502 Bad Gateway" is not valid JSON');
     expect(mockedMultisigClient.isLikelyNetworkError(interstitial)).toBe(false);
     expect(isGuardianUnreachableError(interstitial)).toBe(true);
+  });
+});
+
+describe('directSwitchTriggerFor', () => {
+  it.each([
+    ['a 401 auth rejection', Object.assign(new Error('Unauthorized'), { status: 401 })],
+    ['a 403', Object.assign(new Error('Forbidden'), { status: 403 })],
+    ['a 409 pending conflict', Object.assign(new Error('ConflictPendingDelta'), { status: 409 })],
+    ['a 429', Object.assign(new Error('Too Many Requests'), { status: 429 })]
+  ])('starts the direct switch on %s, as a refusal', (_label, error) => {
+    expect(isGuardianRefusal(error)).toBe(true);
+    expect(directSwitchTriggerFor(error)).toBe('refused the request');
+  });
+
+  it('keeps the more specific reason for a released account and for an unreachable operator', () => {
+    const released = Object.assign(new Error('released'), { status: 409, code: 'account_released' });
+    expect(directSwitchTriggerFor(released)).toBe('cannot co-sign for this account');
+    expect(directSwitchTriggerFor(Object.assign(new Error('Bad Gateway'), { status: 502 }))).toBe('unreachable');
+  });
+
+  it.each([
+    ['an error with no status', new Error('proposal refused')],
+    ['a rejected signature prompt', new Error('User rejected the request')],
+    ['a success status', Object.assign(new Error('odd'), { status: 200 })],
+    ['a redirect status', Object.assign(new Error('odd'), { status: 302 })]
+  ])('does not start the direct switch on %s', (_label, error) => {
+    expect(isGuardianRefusal(error)).toBe(false);
+    expect(directSwitchTriggerFor(error)).toBeUndefined();
+  });
+
+  it.each([
+    ['a marked 403', Object.assign(new Error('Forbidden'), { status: 403 })],
+    ['a marked 429', Object.assign(new Error('Too Many Requests'), { status: 429 })]
+  ])('does not start the direct switch on %s from the new Guardian', (_label, error) => {
+    markNewGuardianAnswer(error);
+    expect(isGuardianRefusal(error)).toBe(false);
+    expect(directSwitchTriggerFor(error)).toBeUndefined();
+  });
+
+  // A marked error is the new Guardian's answer. Its account-scoped code must not read as the outgoing
+  // Guardian being unable to co-sign, so only a marked unreachable error has a trigger.
+  it.each([
+    ['a marked 404 data_unavailable', { status: 404, code: 'data_unavailable' }],
+    ['a marked 404 account_not_found', { status: 404, code: 'account_not_found' }],
+    ['a marked 409 account_released', { status: 409, code: 'account_released' }]
+  ])('does not start the direct switch on %s from the new Guardian', (_label, shape) => {
+    const error = Object.assign(new Error('new guardian answer'), shape);
+    markNewGuardianAnswer(error);
+    expect(directSwitchTriggerFor(error)).toBeUndefined();
+  });
+
+  it('keeps the unreachable verdict for a marked network failure', () => {
+    const error = new Error('Failed to fetch');
+    markNewGuardianAnswer(error);
+    expect(directSwitchTriggerFor(error)).toBe('unreachable');
+  });
+
+  it('keeps the unreachable verdict for a marked 503 and the refusal for an unmarked 403', () => {
+    const marked = Object.assign(new Error('Service Unavailable'), { status: 503 });
+    markNewGuardianAnswer(marked);
+    expect(directSwitchTriggerFor(marked)).toBe('unreachable');
+    expect(directSwitchTriggerFor(Object.assign(new Error('Forbidden'), { status: 403 }))).toBe('refused the request');
+  });
+
+  it('does not read a local kill that carries a status as a refusal', () => {
+    const poison = Object.assign(new WasmClientPoisonedError('watchdog'), { status: 401 });
+    expect(isGuardianRefusal(poison)).toBe(false);
+    expect(directSwitchTriggerFor(poison)).toBeUndefined();
   });
 });
 
