@@ -197,8 +197,10 @@ export async function captureWalletAccounts(
   accounts: readonly WalletAccount[],
   assertCurrent: () => void
 ): Promise<void> {
+  assertCurrent();
   const retained = await vault.storageJournal.read();
   const storedGeneration = await Repo.readWalletStoreGeneration();
+  assertCurrent();
   if (retained?.walletStoreGeneration && retained.walletStoreGeneration !== storedGeneration) {
     await markWalletStorageUnavailable();
     return;
@@ -224,6 +226,7 @@ export async function captureWalletAccounts(
     });
     return { accounts: entries, notes };
   });
+  assertCurrent();
   if (!states) {
     await markWalletStorageUnavailable();
     return;
@@ -317,7 +320,7 @@ async function fetchCurrentAccountState(account: WalletAccount, vault: Vault, as
   return response.stateJson.data;
 }
 
-async function verifyRetainedTransfers(rows: ITransaction[], assertCurrent: () => void): Promise<void> {
+async function verifyRetainedTransfers(rows: ITransaction[], assertCurrent: () => void): Promise<Set<string>> {
   const pending = rows.filter(
     row =>
       row.restoredFromBackup !== true &&
@@ -325,7 +328,7 @@ async function verifyRetainedTransfers(rows: ITransaction[], assertCurrent: () =
       row.status !== ITransactionStatus.Completed &&
       row.neverCommittedAt === undefined
   );
-  if (!pending.length) return;
+  if (!pending.length) return new Set();
   const node = await createNodeReads();
   const nowSec = Math.floor(Date.now() / 1000);
   for (const row of pending) {
@@ -348,17 +351,19 @@ async function verifyRetainedTransfers(rows: ITransaction[], assertCurrent: () =
       row.neverCommittedAt = nowSec;
     }
   }
+  return new Set(pending.map(row => row.id));
 }
 
 export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResult> {
   return inStorageTurn('miden-wallet-storage-rebuild', () =>
     withUnlocked(async ({ vault, accounts }) => {
-      const failure = await getWalletStorageFailure();
-      if (!failure) throw new WalletStorageUnavailableError();
       const rpc = getEffectiveRpcUrl();
       const assertCurrent = () => {
         if (store.getState().vault !== vault || getEffectiveRpcUrl() !== rpc) throw new WalletStorageUnavailableError();
       };
+      const failure = await getWalletStorageFailure();
+      assertCurrent();
+      if (!failure) throw new WalletStorageUnavailableError();
       const observedGeneration = await Repo.readWalletStoreGeneration();
       const retained = await vault.storageJournal.read();
       if (!retained) throw new WalletStorageUnavailableError();
@@ -404,7 +409,7 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
         }
       }
 
-      await verifyRetainedTransfers(transfers, assertCurrent);
+      const verifiedTransfers = await verifyRetainedTransfers(transfers, assertCurrent);
       let verifiedNotes = 0;
       await withWasmClientLock(async hold => {
         const { client } = await getMidenClient();
@@ -458,7 +463,7 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
         retained.limits,
         canRestore,
         assertCurrent,
-        targetGeneration
+        { ...targetGeneration, verifiedTransfers }
       );
       await vault.storageJournal.retain(
         data => ({

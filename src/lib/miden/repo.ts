@@ -947,6 +947,13 @@ export function deserializeRecoveryTransfers(
 
 type RecoveryStoreGeneration = { observed: string | undefined; verified: string; spendingSince: number };
 
+const hasDifferentRecoveryIdentity = (current: ITransaction, retained: ITransaction): boolean =>
+  current.accountId !== retained.accountId ||
+  current.type !== retained.type ||
+  current.initiatedAt !== retained.initiatedAt ||
+  current.amount !== retained.amount ||
+  current.spentUsd !== retained.spentUsd;
+
 function conflictsWithRecovery(
   current: ITransaction,
   retained: ITransaction | undefined,
@@ -968,11 +975,7 @@ function conflictsWithRecovery(
     );
   }
   return (
-    current.accountId !== retained.accountId ||
-    current.type !== retained.type ||
-    current.initiatedAt !== retained.initiatedAt ||
-    current.amount !== retained.amount ||
-    current.spentUsd !== retained.spentUsd ||
+    hasDifferentRecoveryIdentity(current, retained) ||
     (pending &&
       (retained.mayHaveSubmitted !== true ||
         JSON.stringify(current.submitEvidence) !== JSON.stringify(retained.submitEvidence)))
@@ -1033,7 +1036,7 @@ export async function restoreRecoveryTransfers(
   limits: readonly PersistedSpendingLimit[],
   canRestore: (accountId: string) => boolean,
   assertCurrent: () => void,
-  generation: RecoveryStoreGeneration
+  generation: RecoveryStoreGeneration & { verifiedTransfers?: ReadonlySet<string> }
 ): Promise<PersistedSpendingLimit[]> {
   const rows = transfers.map(row => {
     const trusted = row.restoredFromBackup !== true || row.retainedRecoverySpend === true;
@@ -1054,7 +1057,27 @@ export async function restoreRecoveryTransfers(
       assertCurrent();
       const current = await transactions.get(row.id);
       if (current && current.accountId !== row.accountId) throw new WalletStorageUnavailableError();
-      if (!current || (replacingGeneration && current.status !== ITransactionStatus.Completed)) {
+      if (current?.status === ITransactionStatus.Completed) continue;
+      if (current && generation.verifiedTransfers?.has(row.id)) {
+        if (
+          hasDifferentRecoveryIdentity(current, row) ||
+          current.attemptId !== row.attemptId ||
+          current.submitEvidence?.some(
+            entry => !row.submitEvidence?.some(saved => JSON.stringify(saved) === JSON.stringify(entry))
+          )
+        ) {
+          throw new WalletStorageUnavailableError();
+        }
+        assertCurrent();
+        await transactions.update(row.id, {
+          status: row.status,
+          completedAt: row.completedAt,
+          transactionId: row.transactionId ?? current.transactionId,
+          neverCommittedAt: row.neverCommittedAt,
+          mayHaveSubmitted: row.mayHaveSubmitted,
+          submitEvidence: row.submitEvidence
+        });
+      } else if (!current || replacingGeneration) {
         assertCurrent();
         await transactions.put(row);
       }

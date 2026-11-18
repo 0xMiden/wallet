@@ -79,16 +79,28 @@ export class StorageJournal {
     change: (old: RecoveryData) => RecoveryData | Promise<RecoveryData>,
     assertCurrent: () => void
   ): Promise<void> {
+    let sessionChanged = false;
     try {
       await inStorageTurn(TURN, async () => {
-        assertCurrent();
         const network = getEffectiveNetworkName();
+        const assertSession = () => {
+          try {
+            assertCurrent();
+            if (getEffectiveNetworkName() !== network) throw new WalletStorageUnavailableError();
+          } catch (error) {
+            sessionChanged = true;
+            throw error;
+          }
+        };
+        assertSession();
         const head = headFor(network);
         const slots = slotsFor(network);
         const previous = await this.current(network, head, slots);
         const empty: RecoveryData = { accounts: [], notes: [], transfers: {}, limits: [] };
+        const data = await change(previous ?? empty);
+        assertSession();
         const snapshot = validate({
-          ...(await change(previous ?? empty)),
+          ...data,
           version: 1,
           network,
           generation: (previous?.generation ?? 0) + 1
@@ -106,19 +118,18 @@ export class StorageJournal {
         const slot = slots[snapshot.generation % slots.length]!;
         const value = await encryptJson(snapshot, this.key);
         const storage = getStorageProvider();
-        assertCurrent();
-        if (getEffectiveNetworkName() !== network) throw new WalletStorageUnavailableError();
+        assertSession();
         if (!previous) await storage.set({ [head]: 0 });
         await storage.set({ [slot]: value });
         const written = (await storage.get([slot]))[slot];
         if (written?.dt !== value.dt || written?.iv !== value.iv) throw new WalletStorageUnavailableError();
-        assertCurrent();
+        assertSession();
         await storage.set({ [head]: snapshot.generation });
         if ((await storage.get([head]))[head] !== snapshot.generation) throw new WalletStorageUnavailableError();
-        assertCurrent();
+        assertSession();
       });
     } catch (error) {
-      await markWalletStorageUnavailable();
+      if (!sessionChanged) await markWalletStorageUnavailable();
       throw error;
     }
   }

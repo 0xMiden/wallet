@@ -175,7 +175,12 @@ it('resumes the same account only after reading back the retained files and pers
     retained.limits,
     expect.any(Function),
     expect.any(Function),
-    { observed: undefined, verified: retained.walletStoreGeneration, spendingSince: expect.any(Number) }
+    {
+      observed: undefined,
+      verified: retained.walletStoreGeneration,
+      spendingSince: expect.any(Number),
+      verifiedTransfers: new Set()
+    }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
   expect(mockWriteStorage).toHaveBeenCalledWith(storageHealth.WALLET_STORAGE_FAILURE_KEY, null);
@@ -219,7 +224,8 @@ it('rebuilds after verifying a retained wallet whose IndexedDB generation change
     {
       observed: 'different-active-generation',
       verified: retained.walletStoreGeneration,
-      spendingSince: expect.any(Number)
+      spendingSince: expect.any(Number),
+      verifiedTransfers: new Set()
     }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
@@ -437,6 +443,52 @@ it('keeps a potentially submitted transfer paused until the node can determine i
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBe(failureEpoch);
 });
 
+it('carries only freshly verified transfer outcomes into the live store before clearing recovery', async () => {
+  const transfer: ITransaction = {
+    id: 'verified-transfer',
+    type: 'send',
+    accountId,
+    displayIcon: 'SEND',
+    initiatedAt: 1,
+    status: ITransactionStatus.Unconfirmed,
+    mayHaveSubmitted: true,
+    attemptId: 'active-attempt'
+  };
+  const oldHistory = { ...transfer, id: 'old-history', status: ITransactionStatus.Completed };
+  jest.mocked(Repo.deserializeRecoveryTransfers).mockReturnValue([transfer, oldHistory]);
+  jest.mocked(Repo.readWalletStoreGeneration).mockResolvedValue(retained.walletStoreGeneration);
+  jest.mocked(judgeSubmitEvidence).mockResolvedValue({
+    rowId: transfer.id,
+    judgedEntries: [],
+    entries: [],
+    landed: { attemptId: transfer.attemptId!, proof: { kind: 'commitment' }, boundTransactionId: 'confirmed-id' },
+    allDead: false,
+    landingHeld: false
+  });
+  jest.mocked(Repo.restoreRecoveryTransfers).mockImplementationOnce(async () => {
+    expect(await storageHealth.getWalletStorageFailure()).toBe(failureEpoch);
+    return retained.limits;
+  });
+
+  await rebuildWalletStorage();
+
+  expect(Repo.restoreRecoveryTransfers).toHaveBeenCalledWith(
+    [
+      expect.objectContaining({ ...transfer, status: ITransactionStatus.Completed, transactionId: 'confirmed-id' }),
+      oldHistory
+    ],
+    retained.limits,
+    expect.any(Function),
+    expect.any(Function),
+    expect.objectContaining({
+      observed: retained.walletStoreGeneration,
+      verified: retained.walletStoreGeneration,
+      verifiedTransfers: new Set([transfer.id])
+    })
+  );
+  await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
+});
+
 it('keeps a recovery-only submit pending through capture and requires its chain verdict on rebuild', async () => {
   const live: ITransaction = {
     id: 'recovery-only-submit',
@@ -499,7 +551,12 @@ it('stays paused if the verified rebuild cannot be written to the recovery journ
     retained.limits,
     expect.any(Function),
     expect.any(Function),
-    { observed: undefined, verified: retained.walletStoreGeneration, spendingSince: expect.any(Number) }
+    {
+      observed: undefined,
+      verified: retained.walletStoreGeneration,
+      spendingSince: expect.any(Number),
+      verifiedTransfers: new Set()
+    }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBe(failureEpoch);
