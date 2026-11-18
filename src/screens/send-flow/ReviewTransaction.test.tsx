@@ -66,6 +66,7 @@ let mockSearch = '';
 let mockReviewNetwork = 'devnet';
 let mockReviewRpcUrl = 'https://rpc.review.example';
 let mockFullPage = false;
+let mockHistoryPosition = 1;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
 const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
@@ -463,11 +464,17 @@ jest.mock('lib/store', () => ({
   )
 }));
 
-jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
+jest.mock('app/hooks/useBackWithFallback', () => ({
+  useBackWithFallback:
+    jest.requireActual<typeof import('app/hooks/useBackWithFallback')>('app/hooks/useBackWithFallback')
+      .useBackWithFallback
+}));
 jest.mock('screens/command/CommandDock', () => ({ CommandDock: () => null }));
 jest.mock('screens/command/CommandHeader', () => ({ CommandHeader: () => null }));
 jest.mock('screens/command/CommandPalette', () => ({ CommandPalette: () => null }));
 jest.mock('lib/woozie', () => ({
+  createLocationState: () => ({ href: `/#/send/review?${mockSearch}`, historyPosition: mockHistoryPosition }),
+  listen: () => () => undefined,
   goBack: jest.fn(),
   navigate: jest.fn(),
   HistoryAction: { Push: 'pushstate', Replace: 'replacestate' },
@@ -643,6 +650,7 @@ beforeEach(() => {
   mockReviewNetwork = 'devnet';
   mockReviewRpcUrl = 'https://rpc.review.example';
   mockFullPage = false;
+  mockHistoryPosition = 1;
   mockPublicKey = 'pubkey-1';
   mockIsNewRecipient = undefined;
   mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
@@ -679,6 +687,43 @@ describe('Command Send review controller', () => {
         </FlowPresentationProvider>
       </CommandDraftProvider>
     );
+
+  it('routes a cold Command review Back to Send once instead of traversing wallet history', () => {
+    setValidRoute();
+    mockHistoryPosition = 0;
+    render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <ReviewTransaction />
+      </CommandShell>
+    );
+    const back = screen.getByRole('button', { name: 'back' });
+    fireEvent.click(back);
+    fireEvent.click(back);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith('/send', 'replacestate');
+    expect(goBackMock).not.toHaveBeenCalled();
+  });
+
+  it('traverses only once to the existing composer when Command review has history', () => {
+    setValidRoute();
+    mockHistoryPosition = 2;
+    render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <ReviewTransaction />
+      </CommandShell>
+    );
+    const back = screen.getByRole('button', { name: 'back' });
+    fireEvent.click(back);
+    fireEvent.click(back);
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
 
   it('pins the real controller submit inside the one Command footer without a second button', () => {
     setValidRoute();

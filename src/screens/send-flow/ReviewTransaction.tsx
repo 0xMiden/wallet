@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
@@ -117,6 +118,7 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
   const command = useFlowPresentation() === 'command';
+  const backToComposer = useBackWithFallback('/send');
   const formId = useId();
   const commandDrafts = useOptionalCommandDrafts();
   const [restoredDraft] = useState(() => (command ? commandDrafts?.readDraft('send') : undefined));
@@ -979,7 +981,7 @@ export const ReviewTransaction: React.FC = () => {
       <NetworkModeBanner />
       <ReviewLayout
         title={t('reviewDetails')}
-        onBack={() => goBack()}
+        onBack={command ? backToComposer : goBack}
         formId={command ? formId : undefined}
         onFormSubmit={() => {
           if (!submitDisabled) void onSubmit();

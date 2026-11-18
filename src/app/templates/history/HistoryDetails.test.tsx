@@ -4449,7 +4449,8 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('history-status-pill')).toHaveTextContent('notConfirmed');
     });
 
-    it('hands the bridge section the stamped reclaim height and note id of an unconfirmed bridge-out (#1250)', async () => {
+    it('hands the bridge section the original reclaim account, stamped height and note id (#1250)', async () => {
+      mockAccount = { publicKey: 'acct-B', name: 'Other' };
       setMockRow({
         ...bridgedSendTx,
         status: 3,
@@ -4465,6 +4466,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad({ transactionId: 'bridge-out' });
 
       expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
+        address: 'acct-A',
         isUnconfirmed: true,
         bridgeReclaimHeight: 3016,
         bridgeReclaimNoteId: 'note-stamped'
