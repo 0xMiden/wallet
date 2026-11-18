@@ -289,7 +289,9 @@ describe('the mobile legs of the dApp E2E workflow', () => {
       for (const { marker, status, verdict } of [
         { marker: 'result-checks', status: 0, verdict: 'PASS' },
         { marker: 'capsule-commit', status: 23, verdict: 'FAIL (capsule-commit)' },
-        { marker: 'capsule-commit\nunexpected-marker-data', status: 37, verdict: 'FAIL (unknown)' }
+        { marker: 'capsule-commit\nunexpected-marker-data', status: 37, verdict: 'FAIL (unknown)' },
+        { marker: 'device-webview-select', status: 41, verdict: 'FAIL (device-webview-select)' },
+        { marker: 'device-webview-select\nunexpected-marker-data', status: 43, verdict: 'FAIL (unknown)' }
       ]) {
         const result = spawnSync('/bin/sh', ['-c', script], {
           cwd,

@@ -51,23 +51,29 @@ NODE
 }
 trap cleanup EXIT
 
+mark_stage device-identity
 [[ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" == 36 ]]
 [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
 build_type=$(adb shell getprop ro.build.type | tr -d '\r')
 [[ "$build_type" == userdebug || "$build_type" == eng ]]
 printf 'build_type=%s\n' "$build_type" > "$results_dir/webview-device.txt"
+mark_stage device-root
 timeout 30s adb root >> "$results_dir/webview-device.txt" 2>&1
 timeout 60s adb wait-for-device
 [[ "$(adb shell id -u | tr -d '\r')" == 0 ]]
+mark_stage device-webview-install
 echo "$PRESENTATION_WEBVIEW_SHA256  $PRESENTATION_WEBVIEW_APK" | sha256sum --check
 timeout 240s adb install -r -t --no-streaming "$PRESENTATION_WEBVIEW_APK"
+mark_stage device-webview-select
 timeout 30s adb shell cmd webviewupdate set-webview-implementation com.android.webview > "$results_dir/webview-selection.txt"
 adb shell dumpsys webviewupdate > "$results_dir/webview-selected-provider.txt"
 grep -qF 'Current WebView package (name, version): (com.android.webview, 158.0.8121.0)' "$results_dir/webview-selected-provider.txt"
+mark_stage device-navigation
 adb shell cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.gestural
 adb shell cmd overlay list --user 0 > "$results_dir/navigation-overlays.txt"
 grep -E '\[x\].*com.android.internal.systemui.navbar.gestural$' "$results_dir/navigation-overlays.txt"
 [[ "$(adb shell settings get secure navigation_mode | tr -d '\r')" == 2 ]]
+mark_stage device-display
 for key in window_animation_scale transition_animation_scale animator_duration_scale; do
   adb shell settings put global "$key" 1
 done
@@ -78,11 +84,13 @@ adb shell wm dismiss-keyguard
 timeout 15s adb shell settings put secure immersive_mode_confirmations confirmed
 timeout 15s adb shell settings get secure immersive_mode_confirmations > "$results_dir/immersive-confirmation.txt"
 grep -qxF confirmed <(tr -d '\r' < "$results_dir/immersive-confirmation.txt")
+mark_stage device-apks
 adb shell getprop ro.build.fingerprint > "$results_dir/emulator-fingerprint.txt"
 sha256sum android/app/build/outputs/apk/debug/app-debug.apk \
   android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk > "$results_dir/apk-sha256.txt"
 timeout 240s adb install -r -t --no-streaming android/app/build/outputs/apk/debug/app-debug.apk
 timeout 240s adb install -r -t --no-streaming android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+mark_stage device-app-state
 # Clear only before instrumentation takes ownership; the spec never resets the running target.
 adb shell pm clear com.miden.wallet >/dev/null
 adb shell pm grant com.miden.wallet android.permission.POST_NOTIFICATIONS
