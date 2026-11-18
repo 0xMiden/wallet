@@ -1726,6 +1726,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     it('fuses registration after repeated watchdog evictions following a cold rejection', async () => {
       const publicKey = 'acct-overwritten-fused';
       useAccount(publicKey);
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
       mockBuildColdMultisigService.mockRejectedValue(authError);
       mockFinalizeDirectGuardianSwitch.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
       const clock = useFakeClocks(9_000_000);
@@ -1735,6 +1736,9 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
           clock.advance(MISSING_REGISTRATION_BACKOFF_MS + 1_000);
         }
 
+        expect(mockFinalizeDirectGuardianSwitch.mock.calls.length).toBeGreaterThanOrEqual(
+          MAX_CONSECUTIVE_WATCHDOG_EVICTIONS
+        );
         expect(isSyncFused(guardianSelfHealFuseKey(publicKey, endpoint))).toBe(true);
         expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
       } finally {
