@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { Filesystem } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
+import { Share, type ShareResult } from '@capacitor/share';
 import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
@@ -1094,8 +1094,8 @@ describe('Receive - Address', () => {
         const originalAccount = mockPublicKey;
         mockIsMobile.mockReturnValue(mobile);
         let finishOlderShare: () => void = () => {};
-        const olderShare = new Promise<void>(resolve => {
-          finishOlderShare = resolve;
+        const olderShare = new Promise<ShareResult>(resolve => {
+          finishOlderShare = () => resolve({ activityType: 'test-share' });
         });
         const shareAction = mobile ? jest.mocked(Share.share) : share;
         shareAction

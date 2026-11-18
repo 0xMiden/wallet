@@ -236,7 +236,7 @@ it('records a proven pre-source stop only on the original running claim and neve
   expect(await claimBridgeSourceAttempt(claimed.operationId, claimed.revision)).toBe('already-running');
   expect(await recordBridgeSourceAttempt(claimed.operationId, claimed.revision, { phase: 'uncertain' })).toBe(false);
   expect((await snapshot(id)).sourceAttempt).toEqual({ phase: 'stopped-before-source' });
-  const lateHash = `0x${'1'.repeat(64)}`;
+  const lateHash: Hash = `0x${'1'.repeat(64)}`;
   expect(await recordBridgeSourceAttempt(claimed.operationId, claimed.revision, { hash: lateHash })).toBe(true);
   expect((await snapshot(id)).sourceAttempt).toMatchObject({ phase: 'known', hash: lateHash });
 });

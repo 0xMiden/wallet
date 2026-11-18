@@ -34,9 +34,10 @@ beforeEach(() => {
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
-  mockState.balances[accounts.midenAccount] = [];
+  const rows: TokenBalanceData[] = [];
+  mockState.balances[accounts.midenAccount] = rows;
   tagBalanceSnapshot(
-    mockState.balances[accounts.midenAccount],
+    rows,
     {
       network: 'testnet',
       effectiveNetwork: 'testnet',
@@ -71,9 +72,11 @@ it.each([
   { label: 'unproven rows', change: () => (mockState.balances[accounts.midenAccount] = []) },
   {
     label: 'another wallet account',
-    change: () =>
+    change: () => {
+      const rows = mockState.balances[accounts.midenAccount];
+      if (!rows) throw new Error('Missing original wallet balance fixture');
       tagBalanceSnapshot(
-        mockState.balances[accounts.midenAccount],
+        rows,
         {
           network: 'testnet',
           effectiveNetwork: 'testnet',
@@ -82,7 +85,8 @@ it.each([
           capturedAt: now
         },
         'other-account'
-      )
+      );
+    }
   },
   { label: 'a same-network RPC switch', change: () => jest.mocked(getEffectiveRpcUrl).mockReturnValue('other-rpc') },
   {

@@ -299,9 +299,12 @@ it('drops an old account read after dashboard A to B to A and starts a new scope
   mockAccount.publicKey = 'account-a';
   view.rerender(dashboard('account-a'));
   expect(mockStorageGet).toHaveBeenCalledTimes(3);
-  act(() => replies[0]({ miden_sync_data: { accountPublicKey: 'account-a', notes: [pendingNote], syncedAt: 1 } }));
+  const oldReply = replies[0];
+  const currentReply = replies[2];
+  if (!oldReply || !currentReply) throw new Error('Missing scoped storage replies');
+  act(() => oldReply({ miden_sync_data: { accountPublicKey: 'account-a', notes: [pendingNote], syncedAt: 1 } }));
   expect(mockWalletState.setExtensionClaimableNotes).not.toHaveBeenCalled();
-  act(() => replies[2]({ miden_sync_data: { accountPublicKey: 'account-a', notes: [], syncedAt: 2 } }));
+  act(() => currentReply({ miden_sync_data: { accountPublicKey: 'account-a', notes: [], syncedAt: 2 } }));
   expect(mockWalletState.setExtensionClaimableNotes).toHaveBeenCalledTimes(1);
   expect(screen.getByTestId('manual-notes')).toHaveTextContent('0');
   expect(screen.queryByText('note-a')).not.toBeInTheDocument();

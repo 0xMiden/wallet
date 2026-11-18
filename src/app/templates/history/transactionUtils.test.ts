@@ -719,11 +719,12 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
   });
 
   it('does not turn a restored, unresolved, or failed receive into a proven pre-source stop', () => {
-    for (const overrides of [
+    const cases: Partial<IHistoryEntry>[] = [
       { restoredFromBackup: true, bridgeInPhase: 'submitting' },
       { bridgeInPhase: 'delivering' },
       { bridgeInPhase: 'failed' }
-    ]) {
+    ];
+    for (const overrides of cases) {
       const entry = Object.assign(deposit(overrides), { bridgeInStoppedBeforeSource: true });
       expect(bridgeBadgeStatusOf(entry)).toBe(overrides.bridgeInPhase === 'failed' ? 'failed' : 'pending');
     }

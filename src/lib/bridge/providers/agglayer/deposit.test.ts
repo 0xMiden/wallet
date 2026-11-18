@@ -28,6 +28,7 @@ import { applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from 'lib/miden/a
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
 import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiate';
@@ -52,9 +53,10 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }))
 jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: async (fn: () => unknown) => fn() }));
 jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
+const mockInitialBalanceRows: TokenBalanceData[] = [];
 const mockWalletState = {
   currentAccount: { publicKey: accounts.midenAccount },
-  balances: { [accounts.midenAccount]: [] },
+  balances: { [accounts.midenAccount]: mockInitialBalanceRows },
   balancesLoading: {},
   balanceReadFailed: {},
   tokenPricesStatus: 'ready',
@@ -273,9 +275,10 @@ beforeEach(async () => {
   await Repo.transactions.clear();
   mockNative = false;
   mockWalletState.currentAccount.publicKey = accounts.midenAccount;
-  mockWalletState.balances[accounts.midenAccount] = [];
+  const rows: TokenBalanceData[] = [];
+  mockWalletState.balances[accounts.midenAccount] = rows;
   tagBalanceSnapshot(
-    mockWalletState.balances[accounts.midenAccount],
+    rows,
     {
       network: 'testnet',
       effectiveNetwork: 'testnet',
