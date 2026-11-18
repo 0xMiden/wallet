@@ -26,11 +26,10 @@ import {
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  directSwitchTriggerFor,
   GuardianWriteDiscardedError,
   isHotKeyRotatedOutError,
-  isGuardianAccountUnusable,
   isGuardianSwitchDiscardedError,
-  isGuardianUnreachableError,
   readChainAccountCommitment,
   readLastSyncedVerdict
 } from 'lib/miden/guardian/direct-switch';
@@ -1442,7 +1441,10 @@ async function reconcileStructuralApplyFailure(
       // with. Completion handles the undefined service by registering on the new
       // guardian directly, which is exactly what a released operator leaves us
       // needing.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
+      //
+      // A refusal (any HTTP 4xx, a 401 included) is the same condition here: the
+      // old operator cannot help, and the switch is already submitted.
+      if (directSwitchTriggerFor(error) === undefined) throw error;
       console.warn('[Guardian] old guardian unusable during switch reconcile - finalizing directly', error);
     }
   }
@@ -4098,7 +4100,6 @@ const generateGuardianTransaction = async (
         // When the guardian side is unreachable (down operator, DNS, proxy 5xx),
         // fall back to the direct on-chain switch - the whole point of
         // switch-guardian as a recovery path is escaping a dead guardian.
-        // Reachable-guardian errors (401/409/…) keep the normal handling.
         //
         // "It answered, and it cannot co-sign for this account" is the second
         // condition that has to route here, and leaving it out closed the escape
@@ -4118,20 +4119,22 @@ const generateGuardianTransaction = async (
         // AWAY both are exactly as unusable as one that is down, and the direct
         // path needs nothing from either: it signs locally with hot + cold and
         // submits on chain.
-        const directSwitchTrigger = isGuardianUnreachableError(error)
-          ? `${unreachableSubject} unreachable`
-          : isGuardianAccountUnusable(error)
-            ? // Attributed by PHASE, not hardcoded. Only the service load is
-              // account-scoped to the outgoing operator alone; once it has
-              // succeeded the new endpoint is in play too, and a user-typed URL
-              // answering its non-account-scoped `/pubkey` with
-              // `404 {"code":"data_unavailable"}` reaches this same branch. This
-              // reason string is the row's only record of which operator a
-              // verdict was about, so it widens rather than guessing - the same
-              // rule the block above states for unreachability.
-              `${unreachableSubject} cannot co-sign for this account`
-            : undefined;
-        if (directSwitchTrigger === undefined) throw error;
+        //
+        // A refusal (any HTTP 4xx: a 401, a 403, a 409 that did not clear, a 429)
+        // is the third condition. The user asked to leave this operator, so its
+        // refusal of the proposal must not block the switch. An error that is not
+        // a Guardian answer (a local failure, a rejected signature prompt) has no
+        // trigger and fails the row.
+        const trigger = directSwitchTriggerFor(error);
+        if (trigger === undefined) throw error;
+        // Attributed by PHASE, not hardcoded. Only the service load is
+        // account-scoped to the outgoing operator alone; once it has succeeded the
+        // new endpoint is in play too, and a user-typed URL answering its
+        // non-account-scoped `/pubkey` with `404 {"code":"data_unavailable"}`
+        // reaches this same branch. This reason string is the row's only record of
+        // which operator a verdict was about, so it widens rather than guessing -
+        // the same rule the block above states for unreachability.
+        const directSwitchTrigger = `${unreachableSubject} ${trigger}`;
         console.warn(`[Guardian] ${directSwitchTrigger} - switching directly on-chain:`, error);
         await generateDirectSwitchGuardianTransaction(
           sgTx,
@@ -4580,7 +4583,10 @@ const generateGuardianTransaction = async (
       // verdict's timing changes what it means for the direct path, which asks the
       // outgoing operator for nothing; the pushed delta is retracted best-effort
       // just below, exactly as it is for an unreachable operator.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
+      //
+      // A refusal of the cold co-sign (any HTTP 4xx) goes to the direct path too.
+      const coldCoSignTrigger = directSwitchTriggerFor(error);
+      if (coldCoSignTrigger === undefined) throw error;
       console.warn('[Guardian] outgoing guardian unusable at cold co-sign - switching directly on-chain:', error);
       // Try to retract the pushed delta first, best-effort and swallowed - the
       // same idiom the submission failure path below uses. It will usually fail
@@ -4621,9 +4627,7 @@ const generateGuardianTransaction = async (
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian ${
-          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
-        } at cold co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${coldCoSignTrigger} at cold co-sign, after the proposal was pushed: ${describeError(error)}`
       );
       return;
     }
@@ -4974,18 +4978,19 @@ const generateGuardianTransaction = async (
     //
     // The poison case above is deliberately excluded and still rethrows - an
     // evicted pipeline is abandoned rather than stopped, and may yet submit.
-    if (
-      transaction.type === 'switch-guardian' &&
-      !guardianCoSignReturned &&
-      (isGuardianUnreachableError(error) || isGuardianAccountUnusable(error))
-    ) {
+    //
+    // A refusal of the final co-sign (any HTTP 4xx) goes to the direct path too,
+    // under the same `guardianCoSignReturned` condition.
+    const finalCoSignTrigger =
+      transaction.type === 'switch-guardian' && !guardianCoSignReturned ? directSwitchTriggerFor(error) : undefined;
+    if (finalCoSignTrigger !== undefined) {
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian ${
-          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
-        } at the final co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${finalCoSignTrigger} at the final co-sign, after the proposal was pushed: ${describeError(
+          error
+        )}`
       );
       return;
     }

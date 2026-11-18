@@ -197,9 +197,10 @@ export const isGuardianAccountUnusable = (err: unknown): boolean =>
 /**
  * Is this error the outgoing guardian being UNREACHABLE (connection refused,
  * DNS, timeout, TLS, or a proxy 5xx with no guardian body) — as opposed to a
- * semantic guardian rejection? Only unreachability triggers the direct-switch
- * fallback: a reachable guardian that answers with a real error (401, 409, …)
- * keeps the normal proposal flow's error handling.
+ * semantic guardian rejection? A reachable guardian that answers with a real
+ * error (401, 409, …) is not unreachable. The sync loop and the requeue rules
+ * read this difference; the switch pipeline does not, because a refusal also
+ * starts the direct switch (`directSwitchTriggerFor`).
  */
 export const isGuardianUnreachableError = (err: unknown): boolean => {
   // A local realm KILL is not evidence about the guardian, and it must never
@@ -253,6 +254,46 @@ export const isGuardianUnreachableError = (err: unknown): boolean => {
   // No status: a transport failure that never reached an HTTP response, which is
   // the only case where the message is the sole evidence available.
   return isLikelyNetworkError(err);
+};
+
+/**
+ * The Guardian answered and refused the request: an HTTP 4xx (a 401 for a signer it
+ * does not accept, a 403, a 409 conflict that did not clear, a 429).
+ *
+ * Only the numeric `status` is read, never the message, for the same reason as in
+ * `isGuardianUnreachableError`. An error without a status (a local failure, a
+ * rejected signature prompt, a node error) is not a Guardian answer and is not a
+ * refusal. A local kill is not a Guardian answer either.
+ */
+export const isGuardianRefusal = (err: unknown): boolean => {
+  if (isKilledPipeline(err)) return false;
+  if (typeof err !== 'object' || err === null) return false;
+  return 'status' in err && typeof err.status === 'number' && err.status >= 400 && err.status <= 499;
+};
+
+export type DirectSwitchTrigger = 'unreachable' | 'cannot co-sign for this account' | 'refused the request';
+
+/**
+ * Why a failed outgoing-Guardian step of a `switch-guardian` row starts the direct
+ * on-chain switch, or `undefined` when the failure must not start it.
+ *
+ * The user asked to leave this Guardian, and `update_guardian` needs only the hot
+ * and cold signatures. Thus no answer from the outgoing Guardian can block the
+ * switch: an operator that is down, one that holds no state for the account, and
+ * one that refuses the request for any reason all go to the direct path. Before
+ * this rule a persistent 401 had no exit, because the service load failed and the
+ * row has no requeue and no Retry.
+ *
+ * The first match gives the recorded reason, so a released account (a 409 with its
+ * code) keeps the more specific reason.
+ *
+ * Callers apply this only to a failure that is before any chain submit.
+ */
+export const directSwitchTriggerFor = (err: unknown): DirectSwitchTrigger | undefined => {
+  if (isGuardianUnreachableError(err)) return 'unreachable';
+  if (isGuardianAccountUnusable(err)) return 'cannot co-sign for this account';
+  if (isGuardianRefusal(err)) return 'refused the request';
+  return undefined;
 };
 
 const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex);

@@ -7,7 +7,9 @@ import type { WalletAccount } from 'lib/shared/types';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  directSwitchTriggerFor,
   finalizeDirectGuardianSwitch,
+  isGuardianRefusal,
   isGuardianKeyMismatchRefusal,
   isGuardianRegistrationPreflightError,
   isGuardianStateOffChainRefusal,
@@ -457,6 +459,40 @@ describe('isGuardianUnreachableError', () => {
     const interstitial = new SyntaxError('Unexpected token \'<\', "<html><body>502 Bad Gateway" is not valid JSON');
     expect(mockedMultisigClient.isLikelyNetworkError(interstitial)).toBe(false);
     expect(isGuardianUnreachableError(interstitial)).toBe(true);
+  });
+});
+
+describe('directSwitchTriggerFor', () => {
+  it.each([
+    ['a 401 auth rejection', Object.assign(new Error('Unauthorized'), { status: 401 })],
+    ['a 403', Object.assign(new Error('Forbidden'), { status: 403 })],
+    ['a 409 pending conflict', Object.assign(new Error('ConflictPendingDelta'), { status: 409 })],
+    ['a 429', Object.assign(new Error('Too Many Requests'), { status: 429 })]
+  ])('starts the direct switch on %s, as a refusal', (_label, error) => {
+    expect(isGuardianRefusal(error)).toBe(true);
+    expect(directSwitchTriggerFor(error)).toBe('refused the request');
+  });
+
+  it('keeps the more specific reason for a released account and for an unreachable operator', () => {
+    const released = Object.assign(new Error('released'), { status: 409, code: 'account_released' });
+    expect(directSwitchTriggerFor(released)).toBe('cannot co-sign for this account');
+    expect(directSwitchTriggerFor(Object.assign(new Error('Bad Gateway'), { status: 502 }))).toBe('unreachable');
+  });
+
+  it.each([
+    ['an error with no status', new Error('proposal refused')],
+    ['a rejected signature prompt', new Error('User rejected the request')],
+    ['a success status', Object.assign(new Error('odd'), { status: 200 })],
+    ['a redirect status', Object.assign(new Error('odd'), { status: 302 })]
+  ])('does not start the direct switch on %s', (_label, error) => {
+    expect(isGuardianRefusal(error)).toBe(false);
+    expect(directSwitchTriggerFor(error)).toBeUndefined();
+  });
+
+  it('does not read a local kill that carries a status as a refusal', () => {
+    const poison = Object.assign(new WasmClientPoisonedError('watchdog'), { status: 401 });
+    expect(isGuardianRefusal(poison)).toBe(false);
+    expect(directSwitchTriggerFor(poison)).toBeUndefined();
   });
 });
 
