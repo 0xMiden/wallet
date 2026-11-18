@@ -1,7 +1,3 @@
-import { getStorageProvider } from 'lib/platform/storage-adapter';
-
-import { inStorageTurn, putToStorage } from './front/storage';
-
 export const WALLET_STORAGE_FAILURE_KEY = 'miden_wallet_storage_failure_v1';
 
 let pendingFailure: string | undefined;
@@ -18,6 +14,7 @@ function notifyWalletStorageChanged() {
 
 export async function getWalletStorageFailure(): Promise<string | undefined> {
   if (pendingFailure) return pendingFailure;
+  const { getStorageProvider } = await import('lib/platform/storage-adapter');
   const stored: unknown = (await getStorageProvider().get([WALLET_STORAGE_FAILURE_KEY]))[WALLET_STORAGE_FAILURE_KEY];
   if (pendingFailure) return pendingFailure;
   if (stored !== undefined && stored !== null && typeof stored !== 'string') throw new WalletStorageUnavailableError();
@@ -29,6 +26,7 @@ export async function markWalletStorageUnavailable(): Promise<void> {
   pendingFailure = failure;
   notifyWalletStorageChanged();
   try {
+    const { inStorageTurn, putToStorage } = await import('./front/storage');
     await inStorageTurn(WALLET_STORAGE_FAILURE_KEY, async () => {
       if (pendingFailure !== failure) return;
       await putToStorage(WALLET_STORAGE_FAILURE_KEY, failure);
@@ -76,6 +74,7 @@ export function observeWalletStorageError(error: unknown): void {
 }
 
 export async function clearVerifiedStorageFailure(expected: string): Promise<void> {
+  const { inStorageTurn, putToStorage } = await import('./front/storage');
   await inStorageTurn(WALLET_STORAGE_FAILURE_KEY, async () => {
     if ((await getWalletStorageFailure()) !== expected) throw new WalletStorageUnavailableError();
     await putToStorage(WALLET_STORAGE_FAILURE_KEY, null);

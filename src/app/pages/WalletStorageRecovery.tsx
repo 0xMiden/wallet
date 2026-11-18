@@ -38,36 +38,38 @@ const WalletStorageRecovery: React.FC<{
   };
 
   return (
-    <FullScreenPage entrance="fade">
-      <SubPageLayout
-        title={t(verified ? 'storageRecoveryVerified' : 'storageRecoveryTitle')}
-        focusTitleOnMount
-        footer={
-          <Button
-            className="max-w-none"
-            disabled={working}
-            isLoading={working}
-            onClick={verified ? onContinue : handleRebuild}
-          >
-            {t(verified ? 'continue' : 'storageRecoveryRebuild')}
-          </Button>
-        }
-        footerNavbarCushion={false}
-      >
-        <SubPageSection description={verified ? undefined : t('storageRecoveryDescription')}>
-          <div role="status" aria-atomic="true" className="px-1 text-body-sm text-muted">
-            {working && t('storageRecoveryWorking')}
-            {state === 'failed' && t('storageRecoveryFailed')}
-            {typeof state === 'object' && t('storageRecoveryProgress', { ...state })}
-          </div>
-          {state === 'failed' && (
-            <Button variant={ButtonVariant.Secondary} onClick={() => void requestLock().catch(() => {})}>
-              {t('storageRecoveryUnlockOptions')}
+    <main className="mx-auto h-full w-full max-w-[600px]">
+      <FullScreenPage entrance="fade">
+        <SubPageLayout
+          title={t(verified ? 'storageRecoveryVerified' : 'storageRecoveryTitle')}
+          focusTitleOnMount
+          footer={
+            <Button
+              className="max-w-none"
+              disabled={working}
+              isLoading={working}
+              onClick={verified ? onContinue : handleRebuild}
+            >
+              {t(verified ? 'continue' : 'storageRecoveryRebuild')}
             </Button>
-          )}
-        </SubPageSection>
-      </SubPageLayout>
-    </FullScreenPage>
+          }
+          footerNavbarCushion={false}
+        >
+          <SubPageSection description={verified ? undefined : t('storageRecoveryDescription')}>
+            <div role="status" aria-atomic="true" className="px-1 text-body-sm text-muted">
+              {working && t('storageRecoveryWorking')}
+              {state === 'failed' && t('storageRecoveryFailed')}
+              {typeof state === 'object' && t('storageRecoveryProgress', { ...state })}
+            </div>
+            {state === 'failed' && (
+              <Button variant={ButtonVariant.Secondary} onClick={() => void requestLock().catch(() => {})}>
+                {t('storageRecoveryUnlockOptions')}
+              </Button>
+            )}
+          </SubPageSection>
+        </SubPageLayout>
+      </FullScreenPage>
+    </main>
   );
 };
 

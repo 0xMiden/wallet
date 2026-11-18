@@ -193,7 +193,6 @@ export const reconcileUnconfirmedInWorker = (): Promise<void> =>
  * (#907). navigator.locks in safeGenerateTransactionsLoop guards the loop itself.
  */
 export async function startTransactionProcessing(): Promise<void> {
-  if (await getWalletStorageFailure()) return;
   if (isProcessing) {
     processingRequested = true;
     return;
@@ -202,6 +201,7 @@ export async function startTransactionProcessing(): Promise<void> {
 
   let browser: BrowserPolyfill | null = null;
   try {
+    if (await getWalletStorageFailure()) return;
     // In the Vite SW build, the activity module's re-export of lib/miden/transaction
     // doesn't await the async transaction module init (Rolldown treats
     // `export * from '../transaction'` as synchronous). Wait up to 60s for the

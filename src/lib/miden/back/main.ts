@@ -42,15 +42,15 @@ import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-m
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
+import { OFFSCREEN_RETAIN_RECOVERY_NOTES, OFFSCREEN_STORAGE_FAILURE } from 'lib/miden/sdk/storage-recovery-bridge';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { handleTestAuthorizationStorage } from 'lib/miden/sdk/test-authorization-storage';
-import { OFFSCREEN_RETAIN_RECOVERY_NOTES, OFFSCREEN_STORAGE_FAILURE } from 'lib/miden/sdk/storage-recovery-bridge';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   assertWalletStorageAvailable,
   markWalletStorageUnavailable,
   onWalletStorageChanged
 } from 'lib/miden/storage-health';
-import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import {
