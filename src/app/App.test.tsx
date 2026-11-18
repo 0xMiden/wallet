@@ -144,10 +144,17 @@ jest.mock('lib/woozie', () => ({
   Provider: ({ children }: { children?: React.ReactNode }) => <>{children}</>
 }));
 
+const mockMidenContext = { ready: true, hydrated: true, locked: false, storageUnavailable: false };
 jest.mock('lib/miden/front', () => ({
   MidenProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  useMidenContext: () => ({ ready: true })
+  useMidenContext: () => mockMidenContext
 }));
+
+jest.mock(
+  'app/pages/WalletStorageRecovery',
+  () => ({ WalletStorageRecovery: () => <div data-testid="wallet-storage-recovery" /> }),
+  { virtual: true }
+);
 
 jest.mock('app/a11y/AwaitFonts', () => ({
   __esModule: true,
@@ -283,6 +290,7 @@ describe('app/App', () => {
 
   beforeEach(() => {
     mockBackupRequired = false;
+    mockMidenContext.storageUnavailable = false;
     // Silence the diagnostic `[AppProvider] Rendering ...` log.
     jest.spyOn(console, 'log').mockImplementation(() => {});
     // Reset to the "extension, not mobile, not desktop" baseline; each test
@@ -300,6 +308,17 @@ describe('app/App', () => {
     // A pending cover marks every other body child inert, so it must not leak into the next test.
     act(() => backgroundLockPending.set(false));
     jest.clearAllMocks();
+  });
+
+  it('gives wallet storage recovery priority over backup and confirmation screens', async () => {
+    mockMidenContext.storageUnavailable = true;
+    mockBackupRequired = true;
+    const view = await renderApp({ windowType: WindowType.FullPage, confirmWindow: true });
+
+    expect(view.getByTestId('wallet-storage-recovery')).toBeInTheDocument();
+    expect(view.queryByTestId('required-backup')).not.toBeInTheDocument();
+    expect(view.queryByTestId('confirm-page')).not.toBeInTheDocument();
+    expect(view.queryByTestId('dialogs')).not.toBeInTheDocument();
   });
 
   it.each(['extension', 'mobile', 'desktop', 'confirmation'])(
