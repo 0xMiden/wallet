@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
+
 - [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.
 - [FIX][ci] Keep checking the same public faucet note after a commitment read transport error, within the existing deadline and without another grant.
 
