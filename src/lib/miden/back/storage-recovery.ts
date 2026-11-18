@@ -330,6 +330,20 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
       if (!retained) throw new WalletStorageUnavailableError();
       const generation = retained.walletStoreGeneration ?? observedGeneration ?? crypto.randomUUID();
       const expected = accounts.map(account => canonicalWalletAccountId(account.publicKey));
+      const canRestore = (id: string) => expected.includes(canonicalWalletAccountId(id));
+      const targetGeneration = {
+        observed: observedGeneration,
+        verified: generation,
+        spendingSince: Math.floor(Date.now() / 1000) - MAX_WINDOW_SECONDS
+      };
+      const transfers = Repo.deserializeRecoveryTransfers(retained.transfers, canRestore);
+      await Repo.checkRecoveryStoreCompatibility(
+        transfers,
+        retained.limits,
+        canRestore,
+        assertCurrent,
+        targetGeneration
+      );
       const chain = await readAccountChainStates(expected);
       const states: string[] = [];
       for (const [index, account] of accounts.entries()) {
@@ -356,9 +370,6 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
         }
       }
 
-      const transfers = Repo.deserializeRecoveryTransfers(retained.transfers, id =>
-        expected.includes(canonicalWalletAccountId(id))
-      );
       await verifyRetainedTransfers(transfers, assertCurrent);
       let verifiedNotes = 0;
       await withWasmClientLock(async hold => {
@@ -411,9 +422,9 @@ export async function rebuildWalletStorage(): Promise<WalletStorageRecoveryResul
       const acceptedLimits = await Repo.restoreRecoveryTransfers(
         transfers,
         retained.limits,
-        id => expected.includes(canonicalWalletAccountId(id)),
+        canRestore,
         assertCurrent,
-        { observed: observedGeneration, verified: generation }
+        targetGeneration
       );
       await vault.storageJournal.retain(
         data => ({

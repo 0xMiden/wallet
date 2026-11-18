@@ -943,7 +943,13 @@ export function deserializeRecoveryTransfers(
   });
 }
 
-function conflictsWithRecovery(current: ITransaction, retained: ITransaction | undefined): boolean {
+type RecoveryStoreGeneration = { observed: string | undefined; verified: string; spendingSince: number };
+
+function conflictsWithRecovery(
+  current: ITransaction,
+  retained: ITransaction | undefined,
+  spendingSince: number
+): boolean {
   const pending =
     current.mayHaveSubmitted === true &&
     current.status !== ITransactionStatus.Completed &&
@@ -953,7 +959,10 @@ function conflictsWithRecovery(current: ITransaction, retained: ITransaction | u
       pending ||
       current.status === ITransactionStatus.Queued ||
       current.status === ITransactionStatus.GeneratingTransaction ||
-      current.status === ITransactionStatus.Unconfirmed
+      current.status === ITransactionStatus.Unconfirmed ||
+      (current.spentUsd !== undefined &&
+        current.initiatedAt >= spendingSince &&
+        (current.restoredFromBackup !== true || current.retainedRecoverySpend === true))
     );
   }
   return (
@@ -968,30 +977,76 @@ function conflictsWithRecovery(current: ITransaction, retained: ITransaction | u
   );
 }
 
+async function recoveryLimitValidator(limits: readonly PersistedSpendingLimit[], canRestore: (id: string) => boolean) {
+  const { parsePersistedSpendingLimit } = await import('./spending-limits/types');
+  for (const limit of limits) {
+    if (!canRestore(limit.accountId)) throw new WalletStorageUnavailableError();
+    parsePersistedSpendingLimit(limit);
+  }
+  return parsePersistedSpendingLimit;
+}
+
+async function readRecoveryStoreLimits(
+  transfers: readonly ITransaction[],
+  canRestore: (id: string) => boolean,
+  assertCurrent: () => void,
+  generation: RecoveryStoreGeneration,
+  validateLimit: (limit: PersistedSpendingLimit) => unknown
+): Promise<Map<string, PersistedSpendingLimit>> {
+  assertCurrent();
+  if ((await readWalletStoreGeneration()) !== generation.observed) throw new WalletStorageUnavailableError();
+  const replacingGeneration = generation.observed !== generation.verified;
+  if (replacingGeneration) {
+    const retained = new Map(transfers.map(row => [row.id, row]));
+    const conflict = await transactions
+      .filter(
+        row =>
+          (retained.has(row.id) || canRestore(row.accountId)) &&
+          conflictsWithRecovery(row, retained.get(row.id), generation.spendingSince)
+      )
+      .first();
+    if (conflict) throw new WalletStorageUnavailableError();
+  }
+  const limits = (await spendingLimits.toArray()).filter(limit => canRestore(limit.accountId));
+  if (replacingGeneration) limits.forEach(validateLimit);
+  assertCurrent();
+  return new Map(limits.map(limit => [limit.accountId, limit]));
+}
+
+export async function checkRecoveryStoreCompatibility(
+  transfers: readonly ITransaction[],
+  limits: readonly PersistedSpendingLimit[],
+  canRestore: (id: string) => boolean,
+  assertCurrent: () => void,
+  generation: RecoveryStoreGeneration
+): Promise<void> {
+  const validateLimit = await recoveryLimitValidator(limits, canRestore);
+  await db.transaction('r', transactions, spendingLimits, recovery, () =>
+    readRecoveryStoreLimits(transfers, canRestore, assertCurrent, generation, validateLimit)
+  );
+}
+
 export async function restoreRecoveryTransfers(
   transfers: readonly ITransaction[],
   limits: readonly PersistedSpendingLimit[],
   canRestore: (accountId: string) => boolean,
   assertCurrent: () => void,
-  generation: { observed: string | undefined; verified: string }
+  generation: RecoveryStoreGeneration
 ): Promise<PersistedSpendingLimit[]> {
   const rows = transfers.map(row => {
     const trusted = row.restoredFromBackup !== true || row.retainedRecoverySpend === true;
     return { ...neutralizeUnfinishedTransaction(row), retainedRecoverySpend: trusted && row.spentUsd !== undefined };
   });
-  const { parsePersistedSpendingLimit } = await import('./spending-limits/types');
-  for (const limit of limits) parsePersistedSpendingLimit(limit);
+  const validateLimit = await recoveryLimitValidator(limits, canRestore);
   return db.transaction('rw', transactions, spendingLimits, recovery, async () => {
-    assertCurrent();
-    if ((await readWalletStoreGeneration()) !== generation.observed) throw new WalletStorageUnavailableError();
+    const limitsByAccount = await readRecoveryStoreLimits(
+      transfers,
+      canRestore,
+      assertCurrent,
+      generation,
+      validateLimit
+    );
     const replacingGeneration = generation.observed !== generation.verified;
-    if (replacingGeneration) {
-      const retained = new Map(transfers.map(row => [row.id, row]));
-      const conflict = await transactions
-        .filter(row => canRestore(row.accountId) && conflictsWithRecovery(row, retained.get(row.id)))
-        .first();
-      if (conflict) throw new WalletStorageUnavailableError();
-    }
 
     for (const row of rows) {
       assertCurrent();
@@ -1002,12 +1057,8 @@ export async function restoreRecoveryTransfers(
         await transactions.put(row);
       }
     }
-    const acceptedLimits = (await spendingLimits.toArray()).filter(limit => canRestore(limit.accountId));
-    if (replacingGeneration) acceptedLimits.forEach(parsePersistedSpendingLimit);
-    const limitsByAccount = new Map(acceptedLimits.map(limit => [limit.accountId, limit]));
     for (const limit of limits) {
       assertCurrent();
-      if (!canRestore(limit.accountId)) throw new WalletStorageUnavailableError();
       const current = limitsByAccount.get(limit.accountId);
       if (!current || (replacingGeneration && BigInt(limit.limit) < BigInt(current.limit))) {
         await spendingLimits.put(limit);

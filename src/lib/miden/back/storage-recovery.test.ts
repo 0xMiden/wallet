@@ -35,6 +35,7 @@ jest.mock('../guardian/native-http', () => ({}));
 jest.mock('../guardian/recovery-verification', () => ({ readAccountChainStates: jest.fn() }));
 jest.mock('../sdk/helpers', () => ({ canonicalWalletAccountId: (id: string) => id }));
 jest.mock('../repo', () => ({
+  checkRecoveryStoreCompatibility: jest.fn(),
   deserializeRecoveryTransfers: jest.fn(),
   restoreRecoveryTransfers: jest.fn(),
   serializeRecoveryTransfer: jest.fn(),
@@ -165,7 +166,7 @@ it('resumes the same account only after reading back the retained files and pers
     retained.limits,
     expect.any(Function),
     expect.any(Function),
-    { observed: undefined, verified: retained.walletStoreGeneration }
+    { observed: undefined, verified: retained.walletStoreGeneration, spendingSince: expect.any(Number) }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
   expect(mockWriteStorage).toHaveBeenCalledWith(storageHealth.WALLET_STORAGE_FAILURE_KEY, null);
@@ -206,11 +207,27 @@ it('rebuilds after verifying a retained wallet whose IndexedDB generation change
     retained.limits,
     expect.any(Function),
     expect.any(Function),
-    { observed: 'different-active-generation', verified: retained.walletStoreGeneration }
+    {
+      observed: 'different-active-generation',
+      verified: retained.walletStoreGeneration,
+      spendingSince: expect.any(Number)
+    }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
   expect((await mockJournal.retain.mock.results[0]!.value).limits).toEqual([acceptedLimit]);
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
+});
+
+it('performs compatibility checks before fetching or inserting any recovery state', async () => {
+  jest
+    .mocked(Repo.checkRecoveryStoreCompatibility)
+    .mockRejectedValueOnce(new storageHealth.WalletStorageUnavailableError());
+
+  await expect(rebuildWalletStorage()).rejects.toThrow(storageHealth.WalletStorageUnavailableError);
+  expect(readAccountChainStates).not.toHaveBeenCalled();
+  expect(mockClient.accounts.insert).not.toHaveBeenCalled();
+  expect(Repo.restoreRecoveryTransfers).not.toHaveBeenCalled();
+  await expect(storageHealth.getWalletStorageFailure()).resolves.toBe(failureEpoch);
 });
 
 it('leaves the failure in place if the recovery transaction refuses a changed generation', async () => {
@@ -366,7 +383,7 @@ it('stays paused if the verified rebuild cannot be written to the recovery journ
     retained.limits,
     expect.any(Function),
     expect.any(Function),
-    { observed: undefined, verified: retained.walletStoreGeneration }
+    { observed: undefined, verified: retained.walletStoreGeneration, spendingSince: expect.any(Number) }
   );
   expect(Repo.writeWalletStoreGeneration).not.toHaveBeenCalled();
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBe(failureEpoch);

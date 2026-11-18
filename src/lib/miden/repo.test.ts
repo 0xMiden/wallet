@@ -15,6 +15,7 @@ import { compareAccountIds } from './activity/utils';
 import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
   BADGE_EVIDENCE_ROW_TYPES,
+  checkRecoveryStoreCompatibility,
   createSchemaFor,
   db,
   exportDb,
@@ -2399,7 +2400,8 @@ describe('verified wallet storage generation', () => {
     await expect(
       restoreRecoveryTransfers([row], [config(saved)], sameAccount, assertCurrent, {
         observed: currentGeneration,
-        verified: savedGeneration
+        verified: savedGeneration,
+        spendingSince: 0
       })
     ).resolves.toEqual([config('25')]);
     await expect(readWalletStoreGeneration()).resolves.toBe(savedGeneration);
@@ -2416,7 +2418,8 @@ describe('verified wallet storage generation', () => {
     await expect(
       restoreRecoveryTransfers([row], [config('25')], sameAccount, assertCurrent, {
         observed: undefined,
-        verified: savedGeneration
+        verified: savedGeneration,
+        spendingSince: 0
       })
     ).rejects.toThrow(WalletStorageUnavailableError);
 
@@ -2432,11 +2435,27 @@ describe('verified wallet storage generation', () => {
     await expect(
       restoreRecoveryTransfers([row], [config('15')], sameAccount, assertCurrent, {
         observed: currentGeneration,
-        verified: savedGeneration
+        verified: savedGeneration,
+        spendingSince: 0
       })
     ).rejects.toThrow(WalletStorageUnavailableError);
     await expect(readWalletStoreGeneration()).resolves.toBe(currentGeneration);
     await expect(transactions.get(row.id)).resolves.toMatchObject({ spentUsd: 30n });
     await expect(spendingLimits.get(accountId)).resolves.toEqual(config('25'));
+  });
+  it('keeps the previous generation when the live database contains unmatched trusted spend', async () => {
+    const unrecorded = { ...row, id: 'unrecorded-live-spend' };
+    const generation = { observed: currentGeneration, verified: savedGeneration, spendingSince: row.initiatedAt };
+    await transactions.add(unrecorded);
+
+    await expect(checkRecoveryStoreCompatibility([row], [], sameAccount, assertCurrent, generation)).rejects.toThrow(
+      WalletStorageUnavailableError
+    );
+    await expect(restoreRecoveryTransfers([row], [], sameAccount, assertCurrent, generation)).rejects.toThrow(
+      WalletStorageUnavailableError
+    );
+    await expect(readWalletStoreGeneration()).resolves.toBe(currentGeneration);
+    await expect(transactions.get(row.id)).resolves.toBeUndefined();
+    await expect(transactions.get(unrecorded.id)).resolves.toMatchObject({ spentUsd: row.spentUsd });
   });
 });
