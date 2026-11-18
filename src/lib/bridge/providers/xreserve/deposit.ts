@@ -18,7 +18,11 @@ import { quoteAmounts } from 'lib/bridge/core/quote';
 import { assertReviewedBridge } from 'lib/bridge/core/review';
 import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { ensureTokenApproval, type TokenApprovalClient } from 'lib/bridge/evm/token-approval';
-import { recordBridgeSourceAttempt, type BridgeOperationSnapshot } from 'lib/bridge/operation';
+import {
+  recordBridgePreSourceStop,
+  recordBridgeSourceAttempt,
+  type BridgeOperationSnapshot
+} from 'lib/bridge/operation';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { validateCctpBurnQuote } from 'lib/usdcx/cctp';
 import { getUsdcxSourceChain } from 'lib/usdcx/constant';
@@ -89,6 +93,7 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
     await assertUsdcxDepositCurrent(owned);
     assertReviewedBridge(operation.review, await checks.readCurrent(), checks.now());
   };
+  let walletWriteStarted = false;
   const send = async (to: Address, data: Hex, burnArgs?: DepositForBurnWithHookAndFeesArgs): Promise<Hash> => {
     await client.call({ account, to, data, value: 0n });
     const gas = ((await client.estimateGas({ account, to, data, value: 0n })) * 120n) / 100n;
@@ -103,6 +108,7 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
         : undefined;
     await assertWallet();
     if (deadline !== undefined && performance.now() >= deadline) throw new Error('Circle quote expires before signing');
+    walletWriteStarted = true;
     const hash: unknown = await provider.request({
       method: 'eth_sendTransaction',
       params: [{ from: account, chainId: toHex(chain.chainId), to, data, value: '0x0', gas: toHex(gas) }]
@@ -220,7 +226,8 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
     }
   } catch {
     try {
-      await recordBridgeSourceAttempt(operation.operationId, operation.revision, { phase: 'uncertain' });
+      if (walletWriteStarted || !(await recordBridgePreSourceStop(rowId, operation)))
+        await recordBridgeSourceAttempt(operation.operationId, operation.revision, { phase: 'uncertain' });
     } finally {
       throw new UsdcxBurnError('bridgeReviewChanged');
     }

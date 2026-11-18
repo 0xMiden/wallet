@@ -24,6 +24,7 @@ import type { SourceTransactionClient } from 'lib/bridge/evm/source-transaction'
 import {
   assertBridgeOperationCurrent,
   bridgeOperationOf,
+  recordBridgePreSourceStop,
   recordBridgeSourceAttempt,
   type BridgeOperationSnapshot
 } from 'lib/bridge/operation';
@@ -108,12 +109,14 @@ export async function submitAgglayerDeposit(request: AgglayerDepositRequest): Pr
     await assertCurrent();
     assertReviewedBridge(review, await checks.readCurrent(), checks.now());
   };
+  let walletWriteStarted = false;
   const send = async (to: Address, data: Hex, value: bigint): Promise<Hash> => {
     const gas = ((await client.estimateGas({ account, to, data, value })) * 120n) / 100n;
     const gasPrice = await client.getGasPrice();
     if ((await client.getBalance({ address: account })) < value + gas * gasPrice)
       throw new Error('Insufficient Agglayer native balance for gas');
     await assertWallet();
+    walletWriteStarted = true;
     const result: unknown = await provider.request({
       method: 'eth_sendTransaction',
       params: [{ from: account, chainId: toHex(recovery.chainId), to, data, value: toHex(value), gas: toHex(gas) }]
@@ -160,6 +163,7 @@ export async function submitAgglayerDeposit(request: AgglayerDepositRequest): Pr
     if (!(await recordBridgeSourceAttempt(operation.operationId, operation.revision, { hash })))
       throw new Error('Agglayer source identity could not be recorded');
   } catch (error) {
+    if (!walletWriteStarted && (await recordBridgePreSourceStop(rowId, operation))) throw error;
     await recordBridgeSourceAttempt(operation.operationId, operation.revision, { phase: 'uncertain' });
     throw error;
   }

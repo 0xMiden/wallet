@@ -167,6 +167,7 @@
   "earnCollateralMismatch": "This review was prepared for a different deposit token. Go back and enter the amount again.",
   "epochCollateralNoteMismatch": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again.",
   "bridgeReviewChanged": "The bridge terms changed. Check Activity before continuing.",
+  "bridgeStoppedBeforeSending": "Stopped before sending",
   "earnTotalEarnedRewards": "Total earned",
   "earnEarningBlendedApy": "Earning $apy$ blended APY",
   "earnTotalDeposited": "Total Deposited",

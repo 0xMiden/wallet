@@ -13,10 +13,12 @@ import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { TextField } from 'components/ui/TextField';
 import { TokenAmount } from 'components/ui/TokenAmount';
 import { quoteAmounts } from 'lib/bridge/core/quote';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
+import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
 import { useCommandBridge } from './useCommandBridge';
 
@@ -35,16 +37,30 @@ export function CommandBridge(): React.ReactElement {
   const quote = bridge.review?.quote ?? bridge.quote;
   const amounts = route && quote ? quoteAmounts(route, quote) : undefined;
   const locked = bridge.isSubmitting || Boolean(bridge.operationId);
+  const { row, loaded, readFailed } = useTransactionRow(bridge.operationId ?? '');
+  const stoppedBeforeSource =
+    loaded &&
+    !readFailed &&
+    bridge.operationId !== undefined &&
+    row?.id === bridge.operationId &&
+    row.type === 'bridged-receive' &&
+    row.status === ITransactionStatus.Completed &&
+    !row.restoredFromBackup &&
+    !row.recovered &&
+    row.extraInputs.phase === 'submitting' &&
+    !row.extraInputs.evmTxHash &&
+    !row.extraInputs.intentNonce &&
+    row.extraInputs.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source';
   const footer = bridge.operationId ? (
     <Button
       type="button"
       className="w-full max-w-none"
       onClick={() => {
         hapticLight();
-        navigate(`/history-details/${bridge.operationId}`);
+        navigate(stoppedBeforeSource ? '/history' : `/history-details/${bridge.operationId}`);
       }}
     >
-      {t('commandBridgeViewStatus')}
+      {t(stoppedBeforeSource ? 'activity' : 'commandBridgeViewStatus')}
     </Button>
   ) : (
     <Button
@@ -223,8 +239,12 @@ export function CommandBridge(): React.ReactElement {
         {route?.mode === 'receive' && bridge.cap.status !== 'allowed' && (
           <Notice>{t('commandBridgeBalanceCap')}</Notice>
         )}
-        {bridge.operationId && <Notice>{t('commandBridgeAdmitted')}</Notice>}
-        <ErrorLine errorId="bridgeReviewChanged">{bridge.error ? t('bridgeReviewChanged') : undefined}</ErrorLine>
+        {bridge.operationId && (
+          <Notice>{t(stoppedBeforeSource ? 'bridgeStoppedBeforeSending' : 'commandBridgeAdmitted')}</Notice>
+        )}
+        <ErrorLine errorId="bridgeReviewChanged">
+          {bridge.error && !stoppedBeforeSource ? t('bridgeReviewChanged') : undefined}
+        </ErrorLine>
       </form>
       {outlets}
     </div>

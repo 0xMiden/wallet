@@ -3926,6 +3926,29 @@ describe('HistoryDetails', () => {
       extraInputs: bridgedReceiveInputs
     };
 
+    it('shows a pre-source stop on the original Command receipt without claiming delivery failed', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          ...bridgedReceiveInputs,
+          provider: 'agglayer',
+          phase: 'submitting',
+          evmTxHash: undefined,
+          bridgeOperation: {
+            version: 1,
+            owner: 'wallet',
+            operationId: 'bridge-in',
+            revision: 'claim',
+            review: {},
+            sourceAttempt: { phase: 'stopped-before-source' }
+          }
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('bridgeStoppedBeforeSending');
+      expect(screen.queryByText('bridgeReviewChanged')).not.toBeInTheDocument();
+    });
+
     it('passes the RPC transfer hash to the confirmed USDCx withdrawal details', async () => {
       const hash = `0x${'a'.repeat(64)}`;
       jest.mocked(findUsdcxDestinationTransaction).mockResolvedValueOnce(hash);

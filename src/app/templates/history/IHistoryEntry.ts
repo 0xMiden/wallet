@@ -217,6 +217,7 @@ export interface IHistoryEntry {
   bridgeInSourceToken?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
+  bridgeInStoppedBeforeSource?: boolean;
   /** epoch: a deposit in The Compact that has no allocation, which Activity lets the sponsor recover (#2120). */
   bridgeInLockedDeposit?: IEpochLockedDeposit;
   /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */

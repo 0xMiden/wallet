@@ -23,7 +23,7 @@ export interface BridgeOperationInput {
   review: ReviewedTransfer;
 }
 export interface BridgeSourceAttempt {
-  phase: 'running' | 'known' | 'uncertain';
+  phase: 'running' | 'known' | 'uncertain' | 'stopped-before-source';
   hash?: Hash;
   intentNonce?: string;
   transaction?: SourceTransaction;
@@ -312,6 +312,46 @@ export async function claimBridgeSourceAttempt(
   }
 }
 
+export async function recordBridgePreSourceStop(rowId: string, expected: BridgeOperationSnapshot): Promise<boolean> {
+  return Repo.db.transaction('rw', Repo.transactions, async () => {
+    const row = await Repo.transactions.get(rowId);
+    const matches = await operationRows(expected.operationId);
+    const operation = row && bridgeOperationOf(row);
+    const inputs: IBridgedReceiveExtraInputs | undefined =
+      row?.type === 'bridged-receive' ? row.extraInputs : undefined;
+    if (matches.length !== 1 || matches[0]?.id !== rowId) return false;
+    if (
+      !row ||
+      !operation ||
+      !inputs ||
+      !localBridgeRow(row) ||
+      !operation.walletScope ||
+      !expected.walletScope ||
+      operation.operationId !== expected.operationId ||
+      operation.revision !== expected.revision ||
+      reviewKey(operation.review) !== reviewKey(expected.review) ||
+      configKey(operation.walletScope) !== configKey(expected.walletScope) ||
+      operation.review.route.mode !== 'receive' ||
+      (operation.review.route.provider !== 'agglayer' && operation.review.route.provider !== 'xreserve') ||
+      inputs.provider !== walletBridgeProvider(operation.review.route.provider) ||
+      inputs.phase !== 'submitting' ||
+      inputs.evmTxHash ||
+      inputs.intentNonce ||
+      operation.approvals?.length ||
+      operation.sourceAttempt?.phase !== 'running' ||
+      operation.sourceAttempt.hash ||
+      operation.sourceAttempt.intentNonce ||
+      operation.sourceAttempt.transaction
+    )
+      return false;
+    assertRowBinding(row, operation.review);
+    await Repo.transactions.update(rowId, {
+      'extraInputs.bridgeOperation': { ...operation, sourceAttempt: { phase: 'stopped-before-source' } }
+    });
+    return true;
+  });
+}
+
 export async function recordBridgeSourceAttempt(
   operationId: string,
   revision: string,
@@ -338,6 +378,7 @@ export async function recordBridgeSourceAttempt(
     assertRowBinding(row, operation.review);
     const previous = operation.sourceAttempt;
     if (
+      (previous.phase === 'stopped-before-source' && !known.hash && !known.intentNonce) ||
       (previous.hash && known.hash && previous.hash.toLowerCase() !== known.hash.toLowerCase()) ||
       (previous.intentNonce && known.intentNonce && previous.intentNonce !== known.intentNonce)
     )

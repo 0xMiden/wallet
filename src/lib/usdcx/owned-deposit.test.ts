@@ -367,7 +367,7 @@ it('refuses an unregistered executor target before source approval or burn even 
     );
   });
   await waitFor(async () =>
-    expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain')
+    expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('stopped-before-source')
   );
   expect(targetReadContract.mock.calls.some(([args]) => args.functionName === 'isRemoteDomainRegistered')).toBe(true);
   expect(adapterRpc.readContract.mock.calls.some(([args]) => args.functionName === 'isRemoteDomainRegistered')).toBe(
@@ -447,9 +447,7 @@ it.each([false, true])(
       );
     });
     await waitFor(async () =>
-      expect(['known', 'uncertain']).toContain(
-        bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase
-      )
+      expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('stopped-before-source')
     );
     expect(signed).toHaveLength(0);
   }
@@ -576,9 +574,7 @@ it.each(['failed', 'zero'])('refuses a %s transmitter getter before any new sour
     });
   });
   await waitFor(async () =>
-    expect(['known', 'uncertain']).toContain(
-      bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase
-    )
+    expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('stopped-before-source')
   );
   expect(signed).toHaveLength(0);
 });
@@ -876,8 +872,9 @@ it('keeps provider RPC and request-byte errors out of the submission observer', 
     adapterRpc.estimateGas.mockRejectedValueOnce(new Error(privateData));
   });
   await waitFor(async () =>
-    expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain')
+    expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('stopped-before-source')
   );
+  expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('submitting');
   const visible = jest
     .mocked(console.error)
     .mock.calls.flatMap(call => call.map(String))
@@ -913,7 +910,7 @@ it('refuses the Circle source prompt when live consent changes during the final 
   try {
     const id = await driveAdapter(true);
     await waitFor(async () =>
-      expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain')
+      expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('stopped-before-source')
     );
     expect(adapterRpc.estimateGas).toHaveBeenCalled();
     expect(signed).toHaveLength(0);

@@ -824,6 +824,12 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeReclaimNoteId: bridge?.reclaimNoteId,
     bridgeSubmitClaimed: bridge?.submitClaimed,
     bridgeInPhase: bridgedReceive?.phase,
+    bridgeInStoppedBeforeSource:
+      !tx.restoredFromBackup &&
+      !tx.recovered &&
+      !bridgedReceive?.evmTxHash &&
+      !bridgedReceive?.intentNonce &&
+      bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
     bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
     earnWithdrawPhase: earnWithdraw?.phase,
@@ -1073,6 +1079,12 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInSourceToken: bridgedReceive?.agglayerDelivery?.originToken ?? bridgeIn?.sourceToken,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
+      bridgeInStoppedBeforeSource:
+        !tx.restoredFromBackup &&
+        !tx.recovered &&
+        !bridgedReceive?.evmTxHash &&
+        !bridgedReceive?.intentNonce &&
+        bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
       bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,

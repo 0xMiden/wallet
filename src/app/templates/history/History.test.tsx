@@ -3158,6 +3158,48 @@ describe('History USDCx entry plumbing', () => {
       bridgeInPhase: 'received'
     });
   });
+
+  it('projects only a local original pre-source stop into the Activity list, not a restored copy', async () => {
+    const stopped = {
+      version: 1,
+      owner: 'wallet',
+      operationId: 'original',
+      revision: 'claim',
+      review: {},
+      sourceAttempt: { phase: 'stopped-before-source' }
+    };
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'ORIGINAL-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 3000,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      },
+      {
+        id: 'RESTORED-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 2000,
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    const entries = mockHistoryViewProps.entries;
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-ORIGINAL-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(true);
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-RESTORED-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(false);
+  });
 });
 
 // A batch claim's secondary assets are rendered on the row, so they have to

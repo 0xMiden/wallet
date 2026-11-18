@@ -544,6 +544,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInSourceToken: bridgeReceive?.agglayerDelivery?.originToken ?? consumedBridge?.sourceToken,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
           bridgeInPhase: bridgeReceive?.phase,
+          bridgeInStoppedBeforeSource:
+            !tx.restoredFromBackup &&
+            !tx.recovered &&
+            !bridgeReceive?.evmTxHash &&
+            !bridgeReceive?.intentNonce &&
+            bridgeReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
           bridgeInLockedDeposit: bridgeReceive?.epochLockedDeposit,
           bridgeInCctp: bridgeReceive?.cctp,
           bridgeInOutputAmount: bridgeReceive?.outputAmount,

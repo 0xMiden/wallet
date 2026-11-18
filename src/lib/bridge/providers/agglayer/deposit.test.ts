@@ -26,6 +26,7 @@ import { reviewedErc20Transfer } from 'lib/bridge/testing/operation-fixtures';
 import { submitReviewedBridge } from 'lib/bridge/wallet-submit';
 import { applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from 'lib/miden/activity/bridge-in';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
+import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
@@ -272,6 +273,18 @@ beforeEach(async () => {
   await Repo.transactions.clear();
   mockNative = false;
   mockWalletState.currentAccount.publicKey = accounts.midenAccount;
+  mockWalletState.balances[accounts.midenAccount] = [];
+  tagBalanceSnapshot(
+    mockWalletState.balances[accounts.midenAccount],
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: 'https://wallet-rpc.example/private',
+      accountNonce: '7',
+      capturedAt: now
+    },
+    accounts.midenAccount
+  );
   mockWalletState.tokenPricesStatus = 'ready';
   jest.mocked(NativeReown.getState).mockResolvedValue({
     configured: true,
@@ -445,7 +458,9 @@ it('explicit minimize before a later prompt refuses fresh spending and reopen do
   unmount();
   release({ data: '0x' });
   await waitFor(async () =>
-    expect((await Repo.transactions.get(row.id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain')
+    expect((await Repo.transactions.get(row.id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe(
+      'stopped-before-source'
+    )
   );
   expect(signed).toHaveLength(0);
   const reopened = await renderReceive();
@@ -474,10 +489,24 @@ it.each(['cap', 'miden-account'])(
     else mockWalletState.currentAccount.publicKey = '0x287149ae66116cf114eebd60bb7381';
     release({ data: '0x' });
     await waitFor(async () =>
-      expect((await Repo.transactions.get(row.id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain')
+      expect((await Repo.transactions.get(row.id))?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe(
+        'stopped-before-source'
+      )
     );
     expect(signed).toHaveLength(0);
     expect(await Repo.transactions.count()).toBe(1);
+    const visibleStop =
+      change === 'cap'
+        ? await screen.findByText('bridgeStoppedBeforeSending')
+        : screen.queryByText('bridgeStoppedBeforeSending');
+    expect(Boolean(visibleStop)).toBe(change === 'cap');
+    expect(change === 'cap' ? screen.queryByText('bridgeReviewChanged') : null).toBeNull();
+    const activity = screen.queryByRole('button', { name: 'activity' });
+    expect(Boolean(activity)).toBe(change === 'cap');
+    if (activity) fireEvent.click(activity);
+    expect(jest.mocked(navigate).mock.calls.filter(([path]) => path === '/history')).toHaveLength(
+      change === 'cap' ? 1 : 0
+    );
   }
 );
 
@@ -487,7 +516,9 @@ it('the original receive driver never discloses raw external wallet failures fro
   const { form } = await renderReceive();
   fireEvent.submit(form);
   await waitFor(async () =>
-    expect((await Repo.transactions.toArray())[0]?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain')
+    expect((await Repo.transactions.toArray())[0]?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe(
+      'stopped-before-source'
+    )
   );
   await waitFor(() => expect(log).toHaveBeenCalled());
   const diagnostics = log.mock.calls.flat().map(value => (value instanceof Error ? value.message : String(value)));
@@ -998,7 +1029,18 @@ it.each(['native', 'token'])('reserves native gas before a %s wallet prompt', as
   const { error, row } = await drive(kind === 'native' ? nativeReview() : reviewedErc20Transfer('agglayer'));
   expect(signed).toHaveLength(0);
   expect(error).toBeInstanceOf(Error);
+  expect(row?.extraInputs.phase).toBe('submitting');
+  expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('stopped-before-source');
+});
+
+it('keeps an invalid result from a real wallet-write prompt uncertain rather than claiming it stopped', async () => {
+  allowance = 10n ** 25n;
+  const send = wallet.getMockImplementation()!;
+  wallet.mockImplementation(async args => (args.method === 'eth_sendTransaction' ? 'not-a-hash' : send(args)));
+  const { error, row } = await drive();
+  expect(error).toBeInstanceOf(Error);
   expect(row?.extraInputs.bridgeOperation?.sourceAttempt?.phase).toBe('uncertain');
+  expect(row?.extraInputs.evmTxHash).toBeUndefined();
 });
 
 it('refuses a changed contract decimal scale before ERC20 approval', async () => {

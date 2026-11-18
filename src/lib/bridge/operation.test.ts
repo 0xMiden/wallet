@@ -13,6 +13,7 @@ import {
   assertBridgeOperationCurrent,
   claimBridgeSourceAttempt,
   recordBridgeApproval,
+  recordBridgePreSourceStop,
   recordBridgeSourceAttempt,
   type BridgeOperationSnapshot
 } from './operation';
@@ -221,6 +222,82 @@ it('hands the real non-Epoch CAS winner its captured rotated revision without a 
   expect(handed?.review).toEqual(original.review);
   expect(handed?.walletScope).toEqual(original.walletScope);
   expect(await claimBridgeSourceAttempt(original.operationId, original.revision)).toBe('already-running');
+});
+
+it('records a proven pre-source stop only on the original running claim and never re-arms it', async () => {
+  const id = await seed();
+  const original = await snapshot(id);
+  expect(await claimBridgeSourceAttempt(original.operationId, original.revision)).toBe('claimed');
+  const claimed = await snapshot(id);
+  expect(await recordBridgePreSourceStop(id, claimed)).toBe(true);
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.phase).toBe('submitting');
+  expect((await snapshot(id)).sourceAttempt).toEqual({ phase: 'stopped-before-source' });
+  expect(await claimBridgeSourceAttempt(claimed.operationId, claimed.revision)).toBe('already-running');
+  expect(await recordBridgeSourceAttempt(claimed.operationId, claimed.revision, { phase: 'uncertain' })).toBe(false);
+  expect((await snapshot(id)).sourceAttempt).toEqual({ phase: 'stopped-before-source' });
+  const lateHash = `0x${'1'.repeat(64)}`;
+  expect(await recordBridgeSourceAttempt(claimed.operationId, claimed.revision, { hash: lateHash })).toBe(true);
+  expect((await snapshot(id)).sourceAttempt).toMatchObject({ phase: 'known', hash: lateHash });
+});
+
+it.each([
+  'stale revision',
+  'other row',
+  'review',
+  'scope',
+  'wrong provider',
+  'delivery phase',
+  'saved source hash',
+  'restored',
+  'recovered',
+  'known source'
+])('refuses a pre-source stop on a %s original claim without rewriting its facts', async reason => {
+  const id = await seed();
+  const admitted = await snapshot(id);
+  expect(await claimBridgeSourceAttempt(admitted.operationId, admitted.revision)).toBe('claimed');
+  const claimed = await snapshot(id);
+  let rowId = id;
+  let expected = claimed;
+  if (reason === 'stale revision') expected = admitted;
+  if (reason === 'other row') rowId = await admit('other-operation');
+  if (reason === 'review') expected = { ...claimed, review: { ...claimed.review, amount: '2' } };
+  if (reason === 'scope') expected = { ...claimed, walletScope: { network: 'testnet', rpcUrl: 'other-rpc' } };
+  if (reason === 'wrong provider') await Repo.transactions.update(id, { 'extraInputs.provider': 'epoch' });
+  if (reason === 'delivery phase') await Repo.transactions.update(id, { 'extraInputs.phase': 'delivering' });
+  if (reason === 'saved source hash')
+    await Repo.transactions.update(id, { 'extraInputs.evmTxHash': `0x${'1'.repeat(64)}` });
+  if (reason === 'restored') await Repo.transactions.update(id, { restoredFromBackup: true });
+  if (reason === 'recovered') await Repo.transactions.update(id, { recovered: true });
+  const knownSource =
+    reason === 'known source'
+      ? await recordBridgeSourceAttempt(claimed.operationId, claimed.revision, { hash: `0x${'1'.repeat(64)}` })
+      : undefined;
+  expect(knownSource).toBe(reason === 'known source' ? true : undefined);
+  const before = await Repo.transactions.get(id);
+  expect(await recordBridgePreSourceStop(rowId, expected)).toBe(false);
+  expect(await Repo.transactions.get(id)).toEqual(before);
+});
+
+it('does not mark a claim stopped if another row acquired its operation identity', async () => {
+  const id = await seed();
+  const admitted = await snapshot(id);
+  expect(await claimBridgeSourceAttempt(admitted.operationId, admitted.revision)).toBe('claimed');
+  const claimed = await snapshot(id);
+  const second = await admit('operation-2');
+  expect(second).not.toBe(id);
+  await Repo.transactions.update(second, { 'extraInputs.bridgeOperation': claimed });
+  const before = await Repo.transactions.get(id);
+  expect(await recordBridgePreSourceStop(id, claimed)).toBe(false);
+  expect(await Repo.transactions.get(id)).toEqual(before);
+});
+
+it('preserves an approval prompt fact instead of marking that claim stopped before source', async () => {
+  const { id, operation, approval } = await claimedApprovalFixture();
+  expect(await recordBridgeApproval(operation.operationId, operation.revision, approval)).toBe(true);
+  const before = await Repo.transactions.get(id);
+  expect(await recordBridgePreSourceStop(id, operation)).toBe(false);
+  expect(await Repo.transactions.get(id)).toEqual(before);
 });
 
 it('enriches a saved approval hash with its verified own call, preserving facts on omitted repeats', async () => {
