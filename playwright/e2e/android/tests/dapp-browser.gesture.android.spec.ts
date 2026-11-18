@@ -25,7 +25,9 @@ type GestureStage =
   | 'dapp-ready'
   | `${'capsule' | 'predictive'}-${'cancel' | 'commit'}`
   | 'capsule-cancel-input'
-  | 'capsule-cancel-input-reply'
+  | 'capsule-cancel-reply-before-started'
+  | 'capsule-cancel-reply-before-injected'
+  | 'capsule-cancel-reply-after-injected'
   | 'capsule-cancel-input-count'
   | 'capsule-cancel-input-start'
   | 'capsule-cancel-input-sampling'
@@ -281,13 +283,24 @@ test.describe('API36 managed presentation gestures', () => {
           }
           inputFailureStage = undefined;
         } finally {
-          let replyFailureStage: GestureStage = 'capsule-cancel-input-reply';
           try {
             nativeResult = await gesture;
-            replyFailureStage = 'capsule-cancel-input-count';
+          } catch (error) {
+            if (name === 'capsule-cancel') {
+              await markStage(
+                !started
+                  ? 'capsule-cancel-reply-before-started'
+                  : injecting
+                    ? 'capsule-cancel-reply-before-injected'
+                    : 'capsule-cancel-reply-after-injected'
+              );
+            }
+            throw error;
+          }
+          try {
             expect(nativeResult.executed).toBe(bounds.executed + 1);
           } catch (error) {
-            if (name === 'capsule-cancel') await markStage(replyFailureStage);
+            if (name === 'capsule-cancel') await markStage('capsule-cancel-input-count');
             throw error;
           }
           if (name === 'capsule-cancel' && inputFailureStage) await markStage(inputFailureStage);

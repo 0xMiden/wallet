@@ -663,7 +663,7 @@ jobs:
             printf "%s\n" "Android API36 presentation gestures: PASS";
             else rc=$?; phase=unknown;
             if [ -f "$stage" ]; then IFS= read -r phase <"$stage" || phase=unknown; fi;
-            case "$phase" in device-setup|input-bridge|playwright|emulator-checks|onboarding|dapp-ready|capsule-cancel|capsule-cancel-input|capsule-cancel-input-reply|capsule-cancel-input-count|capsule-cancel-input-start|capsule-cancel-input-sampling|capsule-cancel-tracking|capsule-cancel-outcome|fixture-cleanup|capsule-commit|predictive-cancel|predictive-commit|result-checks) ;; *) phase=unknown;; esac;
+            case "$phase" in device-setup|input-bridge|playwright|emulator-checks|onboarding|dapp-ready|capsule-cancel|capsule-cancel-input|capsule-cancel-reply-before-started|capsule-cancel-reply-before-injected|capsule-cancel-reply-after-injected|capsule-cancel-input-count|capsule-cancel-input-start|capsule-cancel-input-sampling|capsule-cancel-tracking|capsule-cancel-outcome|fixture-cleanup|capsule-commit|predictive-cancel|predictive-commit|result-checks) ;; *) phase=unknown;; esac;
             printf "%s\n" "Android API36 presentation gestures: FAIL ($phase)"; exit "$rc"; fi'
       - name: Upload gesture acceptance artifacts
         if: always() && inputs.suite == 'presentation-gestures'
