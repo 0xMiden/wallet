@@ -493,7 +493,7 @@ jobs:
         run: |
           for serial in emulator-5554 emulator-5556; do
             timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
-              | grep -oE 'MIDEN_R5_TIMING (lock|client|sync|prepared|dry-run|result) [0-9]+' || true
+              | grep -oE 'MIDEN_R5_TIMING (request|ready|decode-lock|simulate|lock|client|sync|prepared|dry-run|result) [0-9]+' || true
           done
       - name: Collect emulator logs
         if: steps.run.outcome != 'success'
