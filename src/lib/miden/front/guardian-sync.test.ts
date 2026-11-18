@@ -1723,6 +1723,29 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
     });
 
+    it('fuses registration after repeated watchdog evictions following a cold rejection', async () => {
+      const publicKey = 'acct-overwritten-fused';
+      useAccount(publicKey);
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
+      mockBuildColdMultisigService.mockRejectedValue(authError);
+      mockFinalizeDirectGuardianSwitch.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+      const clock = useFakeClocks(9_000_000);
+      try {
+        for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
+          await syncGuardianAccounts();
+          clock.advance(MISSING_REGISTRATION_BACKOFF_MS + 1_000);
+        }
+
+        expect(mockFinalizeDirectGuardianSwitch.mock.calls.length).toBeGreaterThanOrEqual(
+          MAX_CONSECUTIVE_WATCHDOG_EVICTIONS
+        );
+        expect(isSyncFused(guardianSelfHealFuseKey(publicKey, endpoint))).toBe(true);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+      } finally {
+        clock.restore();
+      }
+    });
+
     it('keeps the cold re-register when the 401 comes from its own push', async () => {
       useAccount('acct-overwritten-push');
       mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
