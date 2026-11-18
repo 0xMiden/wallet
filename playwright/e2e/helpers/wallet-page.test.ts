@@ -421,6 +421,22 @@ describe('ChromeWalletPage exact token selection', () => {
     expect(clickedTokenIds).toEqual(['faucet-b']);
   });
 
+  it('reports the row from the processing route as the send receipt', async () => {
+    const { page } = makeSendPage(['faucet-a']);
+    const route = { jsonValue: jest.fn(async () => 'wallet-row'), dispose: jest.fn(async () => {}) };
+    (page.waitForFunction as jest.Mock).mockResolvedValueOnce(undefined).mockResolvedValueOnce(route);
+    const onRow = jest.fn();
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await wallet.sendTokens(
+      { recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenId: 'faucet-a' },
+      onRow
+    );
+
+    expect(onRow).toHaveBeenCalledWith('wallet-row');
+    expect(route.dispose).toHaveBeenCalledTimes(1);
+  });
+
   it('waits for a row that commits after the drawer opens', async () => {
     const { page, clickedTokenIds } = makeSendPage([], { appearOnWait: ['faucet-late'] });
     const wallet = new ChromeWalletPage(page, 'test');

@@ -142,3 +142,72 @@ describe('runStressDriver per-op claim budget (#1266)', () => {
     expect(claimBudgets).toEqual([123_456, ...Array.from({ length: 10 }, () => 300_000)]);
   });
 });
+
+describe('send helper ownership after a driver timeout', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function run(sendTokens: ChromeWalletPageApi['sendTokens'], concurrentProb = 0) {
+    const wallet = {
+      page: {},
+      quickBalanceSnapshot: async () => snapshot(10),
+      sendTokens,
+      claimAllNotes: async () => undefined
+    } as unknown as ChromeWalletPageApi;
+    return runStressDriver(
+      { walletA: wallet, walletB: wallet, addressA: 'a', addressB: 'b', faucetId: TRACKED_FAUCET },
+      { emit: jest.fn() } as unknown as TimelineRecorder,
+      {
+        numNotes: 1,
+        delayMinMs: 0,
+        delayMaxMs: 0,
+        privateRatio: 0,
+        sendAmountMin: 1,
+        sendAmountMax: 1,
+        claimAfterSendProb: 0,
+        claimBudgetMs: 123_456,
+        idleEvery: 0,
+        idleMinMs: 0,
+        idleMaxMs: 0,
+        lockEvery: 0,
+        reloadEvery: 0,
+        concurrentProb,
+        perTurnSendTimeoutMs: 10,
+        transportFailProb: 0,
+        seed: 1
+      }
+    );
+  }
+
+  it('records a late receipt on the original failed attempt before moving to the next send', async () => {
+    jest.useFakeTimers();
+    const send = jest
+      .fn<ReturnType<ChromeWalletPageApi['sendTokens']>, Parameters<ChromeWalletPageApi['sendTokens']>>()
+      .mockImplementationOnce(async (_params, onRow) => {
+        await new Promise(resolve => setTimeout(resolve, 40));
+        onRow?.('late-row');
+      })
+      .mockImplementationOnce(async (_params, onRow) => onRow?.('next-row'));
+    const result = run(send);
+    await jest.advanceTimersByTimeAsync(20);
+    expect(send).toHaveBeenCalledTimes(1);
+    await jest.runAllTimersAsync();
+    expect((await result).perOp).toMatchObject([
+      { status: 'fail', rowId: 'late-row' },
+      { status: 'ok', rowId: 'next-row' }
+    ]);
+  });
+
+  it('stops even when it is the concurrent secondary helper that never settles', async () => {
+    jest.useFakeTimers();
+    const send = jest
+      .fn<ReturnType<ChromeWalletPageApi['sendTokens']>, Parameters<ChromeWalletPageApi['sendTokens']>>()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => new Promise(() => {}));
+    const result = expect(run(send, 1)).rejects.toThrow(/secondary.*send helper is still active/);
+    await jest.runAllTimersAsync();
+    await result;
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+});
