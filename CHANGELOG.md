@@ -21,6 +21,8 @@
 - [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
 - [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
+
 - [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.
 - [FIX][ci] Keep checking the same public faucet note after a commitment read transport error, within the existing deadline and without another grant.
 
