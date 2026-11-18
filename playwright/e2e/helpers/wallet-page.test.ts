@@ -473,6 +473,16 @@ describe('ChromeWalletPage exact token selection', () => {
     ).rejects.toThrow(destroyed);
   });
 
+  it('refuses a missing requested symbol rather than selecting a different funded token', async () => {
+    const { page, clickedTokenIds } = makeSendPage(['other-faucet']);
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await expect(
+      wallet.prepareSendReview({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenSymbol: 'MISSING' })
+    ).rejects.toThrow('MISSING');
+    expect(clickedTokenIds).toEqual([]);
+  });
+
   it('fails instead of falling back when the requested token id is absent', async () => {
     const { page, clickedTokenIds } = makeSendPage(['faucet-a']);
     const wallet = new ChromeWalletPage(page, 'test');
