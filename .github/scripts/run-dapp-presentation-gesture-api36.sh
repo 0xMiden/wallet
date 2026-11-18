@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+mark_stage() {
+  if [[ ${PRESENTATION_GESTURE_PRIVATE_OUTPUT:-} == true && -n ${PRESENTATION_GESTURE_STAGE_FILE:-} ]]; then
+    (umask 077; printf '%s\n' "$1" > "$PRESENTATION_GESTURE_STAGE_FILE") 2>/dev/null ||
+      rm -f -- "$PRESENTATION_GESTURE_STAGE_FILE" 2>/dev/null || true
+  fi
+}
+
+mark_stage device-setup
 results_dir=test-results-presentation-gesture
 mkdir -p "$results_dir"
 bridge_pid=
@@ -38,7 +46,7 @@ NODE
     echo "selector=presentation-gesture-api36"
     echo "acceptance_exit_code=$status"
     echo "target_pid=$target_pid"
-  } > "$results_dir/evidence.txt"
+  } > "$results_dir/evidence.txt" || true
   exit "$status"
 }
 trap cleanup EXIT
@@ -78,6 +86,7 @@ timeout 240s adb install -r -t --no-streaming android/app/build/outputs/apk/andr
 # Clear only before instrumentation takes ownership; the spec never resets the running target.
 adb shell pm clear com.miden.wallet >/dev/null
 adb shell pm grant com.miden.wallet android.permission.POST_NOTIFICATIONS
+mark_stage input-bridge
 adb forward --no-rebind tcp:9236 tcp:8736
 owned_forward=true
 adb shell am instrument -w -e class com.miden.wallet.DappPresentationGestureInputTest \
@@ -91,11 +100,15 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 [[ "$ready" == true ]]
+# Readiness may have arrived after the loop's last empty PID sample.
+if [[ -z "$target_pid" ]]; then target_pid=$(adb shell pidof com.miden.wallet 2>/dev/null | tr -d '\r' || true); fi
 [[ "$(adb shell pidof com.miden.wallet | tr -d '\r')" == "$target_pid" ]]
 [[ "$target_pid" =~ ^[0-9]+$ ]]
 export GESTURE_TARGET_PID="$target_pid"
 export DAPP_PRESENTATION_GESTURE_API36=1
+mark_stage playwright
 yarn playwright test --config playwright.android.presentation-gesture.config.ts
+mark_stage result-checks
 node <<'NODE'
 const r = require('./test-results-presentation-gesture/results.json');
 if (!r.stats || r.stats.expected !== 4 || r.stats.unexpected !== 0 || r.stats.skipped !== 0 || r.stats.flaky !== 0)

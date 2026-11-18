@@ -671,9 +671,18 @@ jobs:
           script: >-
             bash -c 'if [ "$PRESENTATION_GESTURE_PRIVATE_OUTPUT" != true ]; then
             exec bash .github/scripts/run-dapp-presentation-gesture-api36.sh; fi;
+            unset PRESENTATION_GESTURE_STAGE_FILE;
+            if [ -n "${RUNNER_TEMP:-}" ] && stage=$(mktemp "$RUNNER_TEMP/presentation-gesture.XXXXXXXX" 2>/dev/null); then
+            export PRESENTATION_GESTURE_STAGE_FILE="$stage";
+            remove_stage() { rm -f -- "$stage" 2>/dev/null || true; }; trap remove_stage EXIT; fi;
             if bash .github/scripts/run-dapp-presentation-gesture-api36.sh >/dev/null 2>&1; then
             printf "%s\n" "Android API36 presentation gestures: PASS";
-            else rc=$?; printf "%s\n" "Android API36 presentation gestures: FAIL"; exit "$rc"; fi'
+            else rc=$?; phase=unknown;
+            if [ -f "${PRESENTATION_GESTURE_STAGE_FILE:-}" ]; then
+            for label in device-setup input-bridge playwright emulator-checks onboarding dapp-ready capsule-cancel capsule-commit predictive-cancel predictive-commit fixture-cleanup result-checks; do
+            if cmp -s -- "$PRESENTATION_GESTURE_STAGE_FILE" <(printf "%s\n" "$label") 2>/dev/null; then phase=$label; break; fi;
+            done; fi;
+            printf "%s\n" "Android API36 presentation gestures: FAIL ($phase)"; exit "$rc"; fi'
       - name: Upload gesture acceptance artifacts
         if: always() && inputs.suite == 'presentation-gestures'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

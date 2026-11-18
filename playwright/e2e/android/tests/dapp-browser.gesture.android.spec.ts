@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { promisify } from 'node:util';
 
@@ -17,7 +17,27 @@ const execFileAsync = promisify(execFile);
 const SERIAL = process.env.ANDROID_SERIAL ?? 'emulator-5554';
 const PACKAGE = 'com.miden.wallet';
 const OUTPUT = 'test-results-presentation-gesture';
+const stagePath =
+  process.env.PRESENTATION_GESTURE_PRIVATE_OUTPUT === 'true' ? process.env.PRESENTATION_GESTURE_STAGE_FILE : undefined;
 let commandId = 0;
+
+type GestureCaseStage = `${'capsule' | 'predictive'}-${'cancel' | 'commit'}`;
+type GestureStage =
+  | GestureCaseStage
+  | 'emulator-checks'
+  | 'onboarding'
+  | 'dapp-ready'
+  | 'playwright'
+  | 'unknown'
+  | 'fixture-cleanup';
+
+async function markStage(path: string, stage: GestureStage) {
+  try {
+    await writeFile(path, `${stage}\n`, { mode: 0o600 });
+  } catch {
+    await rm(path, { force: true }).catch(() => {});
+  }
+}
 
 interface Point {
   x: number;
@@ -114,6 +134,7 @@ test.describe('API36 managed presentation gestures', () => {
   let pid: string;
 
   test.beforeAll(async () => {
+    if (stagePath) await markStage(stagePath, 'emulator-checks');
     await mkdir(OUTPUT, { recursive: true });
     expect(await adb('shell', 'getprop', 'ro.build.version.sdk')).toBe('36');
     expect(await adb('shell', 'settings', 'get', 'secure', 'navigation_mode')).toBe('2');
@@ -129,7 +150,9 @@ test.describe('API36 managed presentation gestures', () => {
     expect(await adb('shell', 'pidof', PACKAGE)).toBe(pid);
     host = await CdpBridge.connect({ serial: SERIAL, packageName: PACKAGE, hostPort: 9230 });
     wallet = new AndroidWalletPage({ cdp: host, emulator, serial: SERIAL, packageName: PACKAGE });
+    if (stagePath) await markStage(stagePath, 'onboarding');
     await wallet.createGuardianWallet();
+    if (stagePath) await markStage(stagePath, 'dapp-ready');
     fixture = await startDappFixtureServer({ deviceHost: '10.0.2.2', fullscreen: true });
     driver = new DappBrowserDriver({ target: wallet, server: fixture, artifactDir: OUTPUT, label: 'api36' });
     await driver.gotoBrowserTab();
@@ -181,14 +204,18 @@ test.describe('API36 managed presentation gestures', () => {
     sessionId = session.id;
   });
 
-  test.afterAll(async () => {
+  test.afterAll(async ({}, testInfo) => {
     const cleanup = await Promise.allSettled([page?.close(), host?.close(), fixture?.stop()]);
-    if (cleanup.some(result => result.status === 'rejected')) throw new Error('Gesture fixture cleanup failed');
+    if (cleanup.some(result => result.status === 'rejected')) {
+      if (stagePath && testInfo.status === 'passed') await markStage(stagePath, 'fixture-cleanup');
+      throw new Error('Gesture fixture cleanup failed');
+    }
   });
 
   for (const family of ['capsule', 'predictive'] as const) {
     for (const commit of [false, true]) {
       test(`${family} ${commit ? 'commit' : 'cancel'}`, async ({}, testInfo) => {
+        if (stagePath) await markStage(stagePath, 'playwright');
         if ((await driver.state()).foregroundId === null) await driver.restoreViaPeekCard('alpha');
         await driver.waitForForeground('alpha');
         await driver.waitForMotionIdle();
@@ -216,109 +243,119 @@ test.describe('API36 managed presentation gestures', () => {
             ? { x: start.x, y: Math.min(height - 50, start.y + Math.round(height * 0.6)) }
             : { x: Math.round(width * 0.75), y: start.y };
         const points = commit ? [start, peak, peak] : [start, peak, peak, start];
-        const name = `${family}-${commit ? 'commit' : 'cancel'}`;
+        const name: GestureCaseStage = `${family}-${commit ? 'commit' : 'cancel'}`;
         const beforeFile = testInfo.outputPath(`${name}-before.png`);
         await wallet.screenshot({ path: beforeFile });
         const before = await footprint(beforeFile);
-        let started = false;
-        let injecting = false;
-        let finished = false;
-        const gesture = input({ op: 'swipe', points, steps: 150 }, phase => {
-          if (phase === 'started') started = true;
-          injecting = phase === 'started';
-        }).finally(() => {
-          finished = true;
-        });
-        void gesture.catch(() => undefined);
-        let observedTracking = false;
-        const samples = [];
-        let nativeResult: BridgeReply | undefined;
+        // A started reply precedes injection and does not confirm it.
+        if (stagePath) await markStage(stagePath, 'unknown');
+        let inputConfirmed = false;
         try {
-          await expect.poll(() => started, { timeout: 5_000 }).toBe(true);
-          for (let index = 0; !finished && injecting && index < 12; index += 1) {
-            const state = await driver.state();
-            observedTracking ||= state.motion?.tracking === true;
-            const shot = testInfo.outputPath(`${name}-during-${index}.png`);
-            const captureStartMs = Number.parseFloat(await adb('shell', 'cat', '/proc/uptime')) * 1000;
-            await wallet.screenshot({ path: shot });
-            const captureEndMs = Number.parseFloat(await adb('shell', 'cat', '/proc/uptime')) * 1000;
-            const pixels = await footprint(shot);
-            if (!finished && injecting) samples.push({ file: shot, pixels, captureStartMs, captureEndMs });
+          let started = false;
+          let injecting = false;
+          let finished = false;
+          const gesture = input({ op: 'swipe', points, steps: 150 }, phase => {
+            if (phase === 'started') started = true;
+            if (phase === 'injected') inputConfirmed = true;
+            injecting = phase === 'started';
+          }).finally(() => {
+            finished = true;
+          });
+          void gesture.catch(() => undefined);
+          let observedTracking = false;
+          const samples = [];
+          let nativeResult: BridgeReply | undefined;
+          try {
+            await expect.poll(() => started, { timeout: 5_000 }).toBe(true);
+            for (let index = 0; !finished && injecting && index < 12; index += 1) {
+              const state = await driver.state();
+              observedTracking ||= state.motion?.tracking === true;
+              const shot = testInfo.outputPath(`${name}-during-${index}.png`);
+              const captureStartMs = Number.parseFloat(await adb('shell', 'cat', '/proc/uptime')) * 1000;
+              await wallet.screenshot({ path: shot });
+              const captureEndMs = Number.parseFloat(await adb('shell', 'cat', '/proc/uptime')) * 1000;
+              const pixels = await footprint(shot);
+              if (!finished && injecting) samples.push({ file: shot, pixels, captureStartMs, captureEndMs });
+            }
+          } finally {
+            nativeResult = await gesture;
+            inputConfirmed = true;
+            expect(nativeResult.executed).toBe(bounds.executed + 1);
           }
-        } finally {
-          nativeResult = await gesture;
-          expect(nativeResult.executed).toBe(bounds.executed + 1);
+          expect(observedTracking, 'real input must enter native interactive tracking').toBe(true);
+          const inputStartedMs = nativeResult?.inputStartedMs;
+          const inputEndedMs = nativeResult?.inputEndedMs;
+          if (typeof inputStartedMs !== 'number' || typeof inputEndedMs !== 'number') {
+            throw new Error('Native gesture timing evidence is missing');
+          }
+          expect(
+            samples.some(
+              sample =>
+                sample.captureStartMs >= inputStartedMs &&
+                sample.captureEndMs <= inputEndedMs &&
+                sample.pixels.count < before.count * 0.97
+            ),
+            'a frame captured during continuous native input must visibly shrink/move the page'
+          ).toBe(true);
+          await driver.waitForState(
+            'gesture outcome on the original session',
+            state =>
+              state.sessions.length === beforeState.sessions.length &&
+              state.sessions.some(
+                session => session.id === sessionId && session.status === (commit ? 'parked' : 'active')
+              ) &&
+              state.foregroundId === (commit ? null : sessionId)
+          );
+          await driver.waitForMotionIdle();
+          const afterCount = await wallet.evalJs<number>(
+            'return window.__TEST_DAPP_BROWSER__.nativeMinimizeRequestCount;'
+          );
+          expect(afterCount).toBe(beforeCount + (commit ? 1 : 0));
+          expect(fixture.loadCount('alpha'), 'the gesture must not replace or reload the document').toBe(1);
+          expect(await adb('shell', 'pidof', PACKAGE)).toBe(pid);
+          expect(await host.eval('return Boolean(window.__TEST_DAPP_BROWSER__);')).toBe(true);
+          const afterFile = testInfo.outputPath(`${name}-after.png`);
+          await wallet.screenshot({ path: afterFile });
+          const after = await footprint(afterFile);
+          expect(after.width).toBe(before.width);
+          expect(after.height).toBe(before.height);
+          const expectedGeometry = commit
+            ? { minimumRatio: 100 / before.count, maximumRatio: 0.8, maximumEdgeShift: before.height }
+            : { minimumRatio: 0.95, maximumRatio: 1.05, maximumEdgeShift: 4 };
+          expect(after.count / before.count).toBeGreaterThan(expectedGeometry.minimumRatio);
+          expect(after.count / before.count).toBeLessThan(expectedGeometry.maximumRatio);
+          expect(Math.abs(after.top - before.top)).toBeLessThan(expectedGeometry.maximumEdgeShift);
+          expect(Math.abs(after.bottom - before.bottom)).toBeLessThan(expectedGeometry.maximumEdgeShift);
+          if (!commit) await driver.expectDappPainted('alpha', `${name}-restored`);
+          await writeFile(
+            testInfo.outputPath(`${name}.json`),
+            JSON.stringify(
+              {
+                sourceSha: process.env.GITHUB_SHA,
+                selector: name,
+                family,
+                commit,
+                sessionId,
+                targetPid: pid,
+                sdk: 36,
+                points,
+                segmentSteps: 150,
+                observedTracking,
+                nativeResult,
+                before,
+                samples,
+                after,
+                minimizeDelta: afterCount - beforeCount,
+                documentLoads: fixture.loadCount('alpha')
+              },
+              null,
+              2
+            )
+          );
+        } catch (error) {
+          if (stagePath && inputConfirmed) await markStage(stagePath, name);
+          throw error;
         }
-        expect(observedTracking, 'real input must enter native interactive tracking').toBe(true);
-        const inputStartedMs = nativeResult?.inputStartedMs;
-        const inputEndedMs = nativeResult?.inputEndedMs;
-        if (typeof inputStartedMs !== 'number' || typeof inputEndedMs !== 'number') {
-          throw new Error('Native gesture timing evidence is missing');
-        }
-        expect(
-          samples.some(
-            sample =>
-              sample.captureStartMs >= inputStartedMs &&
-              sample.captureEndMs <= inputEndedMs &&
-              sample.pixels.count < before.count * 0.97
-          ),
-          'a frame captured during continuous native input must visibly shrink/move the page'
-        ).toBe(true);
-        await driver.waitForState(
-          'gesture outcome on the original session',
-          state =>
-            state.sessions.length === beforeState.sessions.length &&
-            state.sessions.some(
-              session => session.id === sessionId && session.status === (commit ? 'parked' : 'active')
-            ) &&
-            state.foregroundId === (commit ? null : sessionId)
-        );
-        await driver.waitForMotionIdle();
-        const afterCount = await wallet.evalJs<number>(
-          'return window.__TEST_DAPP_BROWSER__.nativeMinimizeRequestCount;'
-        );
-        expect(afterCount).toBe(beforeCount + (commit ? 1 : 0));
-        expect(fixture.loadCount('alpha'), 'the gesture must not replace or reload the document').toBe(1);
-        expect(await adb('shell', 'pidof', PACKAGE)).toBe(pid);
-        expect(await host.eval('return Boolean(window.__TEST_DAPP_BROWSER__);')).toBe(true);
-        const afterFile = testInfo.outputPath(`${name}-after.png`);
-        await wallet.screenshot({ path: afterFile });
-        const after = await footprint(afterFile);
-        expect(after.width).toBe(before.width);
-        expect(after.height).toBe(before.height);
-        const expectedGeometry = commit
-          ? { minimumRatio: 100 / before.count, maximumRatio: 0.8, maximumEdgeShift: before.height }
-          : { minimumRatio: 0.95, maximumRatio: 1.05, maximumEdgeShift: 4 };
-        expect(after.count / before.count).toBeGreaterThan(expectedGeometry.minimumRatio);
-        expect(after.count / before.count).toBeLessThan(expectedGeometry.maximumRatio);
-        expect(Math.abs(after.top - before.top)).toBeLessThan(expectedGeometry.maximumEdgeShift);
-        expect(Math.abs(after.bottom - before.bottom)).toBeLessThan(expectedGeometry.maximumEdgeShift);
-        if (!commit) await driver.expectDappPainted('alpha', `${name}-restored`);
-        await writeFile(
-          testInfo.outputPath(`${name}.json`),
-          JSON.stringify(
-            {
-              sourceSha: process.env.GITHUB_SHA,
-              selector: name,
-              family,
-              commit,
-              sessionId,
-              targetPid: pid,
-              sdk: 36,
-              points,
-              segmentSteps: 150,
-              observedTracking,
-              nativeResult,
-              before,
-              samples,
-              after,
-              minimizeDelta: afterCount - beforeCount,
-              documentLoads: fixture.loadCount('alpha')
-            },
-            null,
-            2
-          )
-        );
       });
     }
   }
