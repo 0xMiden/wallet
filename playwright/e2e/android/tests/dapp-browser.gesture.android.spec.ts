@@ -19,7 +19,15 @@ const PACKAGE = 'com.miden.wallet';
 const OUTPUT = 'test-results-presentation-gesture';
 let commandId = 0;
 
-type GestureStage = 'emulator-checks' | 'onboarding' | 'dapp-ready' | `${'capsule' | 'predictive'}-${'cancel' | 'commit'}`;
+type GestureStage =
+  | 'emulator-checks'
+  | 'onboarding'
+  | 'dapp-ready'
+  | `${'capsule' | 'predictive'}-${'cancel' | 'commit'}`
+  | 'capsule-cancel-input'
+  | 'capsule-cancel-tracking'
+  | 'capsule-cancel-outcome'
+  | 'fixture-cleanup';
 
 async function markStage(stage: GestureStage) {
   const path = process.env.PRESENTATION_GESTURE_STAGE_FILE;
@@ -198,7 +206,10 @@ test.describe('API36 managed presentation gestures', () => {
 
   test.afterAll(async () => {
     const cleanup = await Promise.allSettled([page?.close(), host?.close(), fixture?.stop()]);
-    if (cleanup.some(result => result.status === 'rejected')) throw new Error('Gesture fixture cleanup failed');
+    if (cleanup.some(result => result.status === 'rejected')) {
+      await markStage('fixture-cleanup');
+      throw new Error('Gesture fixture cleanup failed');
+    }
   });
 
   for (const family of ['capsule', 'predictive'] as const) {
@@ -236,6 +247,7 @@ test.describe('API36 managed presentation gestures', () => {
         const beforeFile = testInfo.outputPath(`${name}-before.png`);
         await wallet.screenshot({ path: beforeFile });
         const before = await footprint(beforeFile);
+        if (name === 'capsule-cancel') await markStage('capsule-cancel-input');
         let started = false;
         let injecting = false;
         let finished = false;
@@ -265,6 +277,7 @@ test.describe('API36 managed presentation gestures', () => {
           nativeResult = await gesture;
           expect(nativeResult.executed).toBe(bounds.executed + 1);
         }
+        if (name === 'capsule-cancel') await markStage('capsule-cancel-tracking');
         expect(observedTracking, 'real input must enter native interactive tracking').toBe(true);
         const inputStartedMs = nativeResult?.inputStartedMs;
         const inputEndedMs = nativeResult?.inputEndedMs;
@@ -280,6 +293,7 @@ test.describe('API36 managed presentation gestures', () => {
           ),
           'a frame captured during continuous native input must visibly shrink/move the page'
         ).toBe(true);
+        if (name === 'capsule-cancel') await markStage('capsule-cancel-outcome');
         await driver.waitForState(
           'gesture outcome on the original session',
           state =>
