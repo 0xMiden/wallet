@@ -8,7 +8,7 @@ import History from 'app/templates/history/History';
 import HistoryItem from 'app/templates/history/HistoryItem';
 import { HistoryLoadErrorCard, HistoryLoadErrorNotice } from 'app/templates/history/HistoryView';
 import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
-import { EmptyState, SectionHeader, Spinner, TextAction } from 'components/ui';
+import { EmptyState, Notice, SectionHeader, Spinner, TextAction } from 'components/ui';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { navigate } from 'lib/woozie';
 
@@ -39,7 +39,18 @@ export function CommandRecentActions({ scope }: { scope: AccountScope }): React.
 
 function RecentActionsList({ scope }: { scope: AccountScope }): React.ReactElement {
   const { t } = useTranslation();
-  const { account, representedItems, listItems, renderPendingItem, isLoadingNotes } = useActivityClaimList('', 'all');
+  const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden } = useActivityClaimList(
+    '',
+    'all'
+  );
+  if (hidden.failed)
+    return (
+      <Notice role="alert" tone="negative" variant="inline" errorId="activityHiddenNotesError">
+        {t('activityHiddenNotesError')}
+      </Notice>
+    );
+  if (!hidden.loaded) return <ClaimsLoadingBar loading label={t('activityFetchingHistoryAndNotes')} />;
+
   const claims = account.publicKey === scope.accountId ? listItems : [];
   const representedClaims = account.publicKey === scope.accountId ? representedItems : [];
   const claimTransactionIds = new Set(claims.flatMap(item => (item.txId ? [item.txId] : [])));

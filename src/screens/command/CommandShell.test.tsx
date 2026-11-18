@@ -15,8 +15,6 @@ import { useCommandDrafts } from './command-drafts';
 import { CommandShell } from './CommandShell';
 import { useCommandWorkbenchSlots } from './CommandWorkbench';
 
-let mockRowExists = true;
-const mockReadRow = jest.fn();
 let mockHidden = false;
 let mockRecentEntries: IHistoryEntry[] = [];
 let mockHistoryInputs: { address: string; numItems?: number; pendingItems?: unknown[] } | undefined;
@@ -55,6 +53,7 @@ jest.mock('app/templates/history/History', () => ({
 jest.mock('app/templates/history/useActivityClaimList', () => ({
   useActivityClaimList: () => ({
     account: { publicKey: 'account-a' },
+    hidden: { loaded: true, failed: false },
     representedItems: mockClaimItems,
     listItems: mockClaimItems,
     renderPendingItem: (item: { note: { id: string } }) => <button>{item.note.id}</button>
@@ -67,12 +66,6 @@ jest.mock('app/templates/history/HistoryItem', () => ({
       {entry.message} {entry.amount}
     </div>
   )
-}));
-jest.mock('screens/generating-transaction/useTransactionRow', () => ({
-  useTransactionRow: (id: string) => {
-    mockReadRow(id);
-    return { loaded: true, row: mockRowExists && id !== 'unknown' ? { id } : undefined };
-  }
 }));
 jest.mock('./useCommandPrivacy', () => ({ useCommandPrivacy: () => [mockHidden, jest.fn()] }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -95,7 +88,6 @@ const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockRowExists = true;
   mockHidden = false;
   mockRecentEntries = [];
   mockHistoryInputs = undefined;
@@ -548,17 +540,6 @@ it('keeps the shell while replacing the operation controller for a different tra
   expect(screen.queryByText('tx1')).not.toBeInTheDocument();
 });
 
-it('does not mount a receipt or its actions for an unknown operation ID', () => {
-  mockRowExists = false;
-  render(
-    <CommandShell scope={scope} route={{ kind: 'operation', id: 'unknown' }}>
-      <button onClick={jest.fn()}>Retry unknown funds</button>
-    </CommandShell>
-  );
-  expect(screen.queryByRole('button', { name: 'Retry unknown funds' })).not.toBeInTheDocument();
-  expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
-});
-
 it('reopens the same persisted operation by ID after a cold Command shell mount', () => {
   const view = render(
     <CommandShell scope={scope} route={{ kind: 'operation', id: 'original' }}>
@@ -573,7 +554,6 @@ it('reopens the same persisted operation by ID after a cold Command shell mount'
     </CommandShell>
   );
   expect(screen.getByText('Existing row receipt')).toBeInTheDocument();
-  expect(mockReadRow).toHaveBeenCalledWith('original');
   expect(navigate).not.toHaveBeenCalled();
 });
 

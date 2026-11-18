@@ -35,6 +35,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 import { findUsdcxDestinationTransaction } from 'lib/usdcx/destination-transaction';
 import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
+import { CommandOperation } from 'screens/command/CommandOperation';
 import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 // Imported after the mocks so the module graph is wired to the stubs.
@@ -78,6 +79,8 @@ let mockNativeChainMetadata: { symbol: string; decimals: number } | null = { sym
 let mockMaxNetworkFee: string | undefined;
 let mockRow: Tx | undefined;
 let mockRowLoaded = true;
+let mockCommandPrivacyHidden = false;
+const mockRowSubscriptionStart = jest.fn();
 let mockSettlementNotes: {
   settled: string[];
   reclaimed: string[];
@@ -231,7 +234,15 @@ jest.mock('lib/woozie', () => ({
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
-  useTransactionRow: () => ({ row: mockRow, loaded: mockRowLoaded })
+  useTransactionRow: (id: string) => {
+    React.useEffect(() => {
+      mockRowSubscriptionStart(id);
+    }, [id]);
+    return { row: mockRow, loaded: mockRowLoaded };
+  }
+}));
+jest.mock('screens/command/useCommandPrivacy', () => ({
+  useCommandPrivacy: () => [mockCommandPrivacyHidden, jest.fn()]
 }));
 
 let mockPaybackState: { stuck: boolean; failedClaimId?: string; reason?: string } | null = null;
@@ -537,6 +548,7 @@ beforeEach(() => {
 
   mockRow = undefined;
   mockRowLoaded = true;
+  mockCommandPrivacyHidden = false;
   mockPaybackState = null;
   setMockSettlementNotes(settlementNotes([]));
   trackingStore().useSwapOrderTrackingStore.setState({ entries: {} });
@@ -596,6 +608,46 @@ describe('HistoryDetails', () => {
     expect(screen.getByTestId('command-workbench')).toBeInTheDocument();
     expect(screen.queryByTestId('screen-header')).not.toBeInTheDocument();
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+  });
+
+  it('opens an original Command receipt with exactly one row subscription after privacy reveal', async () => {
+    setMockRow(baseSendTx);
+    mockCommandPrivacyHidden = true;
+    const commandReceipt = () => (
+      <FlowPresentationProvider value="command">
+        <CommandWorkbench route={{ kind: 'operation', id: 'tx-1' }} container={document.body}>
+          <CommandOperation>
+            <HistoryDetails transactionId="tx-1" />
+          </CommandOperation>
+        </CommandWorkbench>
+      </FlowPresentationProvider>
+    );
+    const view = render(commandReceipt());
+    expect(mockRowSubscriptionStart).not.toHaveBeenCalled();
+    mockCommandPrivacyHidden = false;
+    view.rerender(commandReceipt());
+    await flush();
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+    expect(mockRowSubscriptionStart).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('keeps an unknown Command receipt in the original detail error boundary without retry actions', async () => {
+    mockRow = undefined;
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandWorkbench route={{ kind: 'operation', id: 'missing-id' }} container={document.body}>
+          <CommandOperation>
+            <HistoryDetails transactionId="missing-id" />
+          </CommandOperation>
+        </CommandWorkbench>
+      </FlowPresentationProvider>
+    );
+    await flush();
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByTestId('history-retry-button')).not.toBeInTheDocument();
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+    expect(mockRowSubscriptionStart).toHaveBeenCalledWith('missing-id');
   });
 
   const setOneClickHistoryRow = (

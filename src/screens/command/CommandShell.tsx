@@ -88,11 +88,7 @@ export function CommandShell({
                     route={route}
                     container={portalHost}
                   >
-                    {route.kind === 'operation' ? (
-                      <CommandOperation id={route.id}>{children}</CommandOperation>
-                    ) : (
-                      children
-                    )}
+                    {route.kind === 'operation' ? <CommandOperation>{children}</CommandOperation> : children}
                   </CommandWorkbench>
                 )}
               </main>
