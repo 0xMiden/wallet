@@ -1,8 +1,6 @@
 name: Fresh wallet storage browser proof
 
 on:
-  push:
-    branches: [ci/fresh-wallet-storage-browser]
   workflow_dispatch:
     inputs:
       web_run:
@@ -28,7 +26,7 @@ jobs:
           fetch-depth: 0
       - name: Verify wallet source
         env:
-          EXPECTED_SOURCE: ${{ inputs.wallet_source || '7d9de53573dd88cfa5829674d0fc390af953237e' }}
+          EXPECTED_SOURCE: ${{ inputs.wallet_source }}
         run: |
           [[ "$EXPECTED_SOURCE" =~ ^[a-f0-9]{40}$ ]]
           git merge-base --is-ancestor "$EXPECTED_SOURCE" HEAD
