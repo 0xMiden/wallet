@@ -1,7 +1,7 @@
 name: Independent Swap custody audit (read only)
 on:
   push:
-    branches: [wiktor/green03-swap-custody-audit-typed-once]
+    branches: [wiktor/green03-swap-custody-audit-build-once]
 permissions:
   contents: read
   actions: read
@@ -18,13 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 3
+          fetch-depth: 4
       - name: Bind exact audit source and original producer
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green03-swap-custody-audit-typed-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green03-swap-custody-audit-build-once
           base=cccee6fb4001f4d3debf36c73329563fbb996d6f
           git merge-base --is-ancestor "$base" HEAD
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/green03-swap-custody.spec.ts)"
@@ -54,6 +54,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - uses: ./.github/actions/start-eligibility-fixture
       - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
       - name: Observe original on-chain forward proof and private held vault without authority
         env:
           E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
