@@ -225,7 +225,10 @@ const ALLOWED: Record<string, string[]> = {
   // candidate a write left on its Guardian, which the next proposal asks about
   // (#312) and whose failed abandon it retries (#1317): a record of the last
   // write, replaced by the next one, with no cap and no cooldown.
-  'src/lib/miden/guardian/serialize.ts': ['guardianCandidates', 'guardianTxChains']
+  // `newGuardianAnswers` is a WeakSet of the error objects that the new
+  // Guardian's key fetch rejected with: an origin marker that the switch
+  // classifier reads, with no count, no cap and no cooldown.
+  'src/lib/miden/guardian/serialize.ts': ['guardianCandidates', 'guardianTxChains', 'newGuardianAnswers']
 };
 
 describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
