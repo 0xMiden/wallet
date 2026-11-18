@@ -8,6 +8,7 @@ import { ITransactionStatus, type ITransaction } from '../db/types';
 import { readAccountChainStates } from '../guardian/recovery-verification';
 import * as Repo from '../repo';
 import { assessSpendingLimit } from '../spending-limits/policy';
+import { orderFromSavedRequest } from '../transaction/pinned-replay-check';
 import { judgeSubmitEvidence } from '../transaction/reconcile-judge';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -54,8 +55,12 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (run: (hold: number) => Promise<unknown>) => run(1)
 }));
 jest.mock('../transaction/reconcile-judge', () => ({ judgeSubmitEvidence: jest.fn() }));
+jest.mock('../transaction/pinned-replay-check', () => ({
+  ...jest.requireActual('../transaction/pinned-replay-check'),
+  orderFromSavedRequest: jest.fn()
+}));
 jest.mock('../transaction/reconcile-reads', () => ({
-  createNodeReads: async () => ({}),
+  createNodeReads: async () => ({ blockCommitment: mockBlockCommitment }),
   observedCadenceMs: () => 5000
 }));
 
@@ -75,6 +80,7 @@ const mockStorage = new Map<string, unknown>();
 const mockWriteStorage = jest.fn<Promise<void>, [string, unknown]>();
 const mockJournal = { read: jest.fn(), retain: jest.fn() };
 const mockGetTransaction = jest.fn<Promise<ITransaction | undefined>, [string]>();
+const mockBlockCommitment = jest.fn<Promise<string>, [number]>();
 const testAccount: WalletAccount = {
   publicKey: accountId,
   name: 'Saved account',
@@ -487,6 +493,56 @@ it('carries only freshly verified transfer outcomes into the live store before c
     })
   );
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
+});
+
+it('decodes the verified swap request before the final chain identity check', async () => {
+  const evidence = {
+    attemptId: 'swap-attempt',
+    capturedAt: 1,
+    source: 'stage',
+    refBlock: 4,
+    refBlockCommitment: 'chain-id'
+  } as const;
+  const swap: ITransaction = {
+    id: 'verified-swap',
+    type: 'swap',
+    accountId,
+    displayIcon: 'SWAP',
+    initiatedAt: 1,
+    status: ITransactionStatus.Unconfirmed,
+    mayHaveSubmitted: true,
+    attemptId: evidence.attemptId,
+    requestBytes: Uint8Array.of(7, 7),
+    extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 5n },
+    submitEvidence: [evidence]
+  };
+  const savedOrder = { orderId: '42', orderNoteId: `0x${'c'.repeat(64)}` };
+  const landed = { attemptId: evidence.attemptId, proof: { kind: 'commitment' } } as const;
+  jest.mocked(Repo.deserializeRecoveryTransfers).mockReturnValue([swap]);
+  jest.mocked(orderFromSavedRequest).mockResolvedValue(savedOrder);
+  jest.mocked(judgeSubmitEvidence).mockResolvedValue({
+    rowId: swap.id,
+    judgedEntries: [evidence],
+    entries: [],
+    landed,
+    allDead: false,
+    landingHeld: false
+  });
+  mockBlockCommitment.mockResolvedValueOnce(evidence.refBlockCommitment);
+
+  await rebuildWalletStorage();
+
+  expect(orderFromSavedRequest).toHaveBeenCalledWith(swap.requestBytes);
+  expect(jest.mocked(orderFromSavedRequest).mock.invocationCallOrder[0]).toBeLessThan(
+    mockBlockCommitment.mock.invocationCallOrder[0]!
+  );
+  expect(Repo.restoreRecoveryTransfers).toHaveBeenCalledWith(
+    [expect.objectContaining({ status: ITransactionStatus.Completed })],
+    retained.limits,
+    expect.any(Function),
+    expect.any(Function),
+    expect.objectContaining({ verifiedTransfers: new Map([[swap.id, { ...landed, savedOrder }]]) })
+  );
 });
 
 it('keeps a recovery-only submit pending through capture and requires its chain verdict on rebuild', async () => {

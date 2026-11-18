@@ -2689,6 +2689,93 @@ describe('verified wallet storage generation', () => {
     });
   });
 
+  it.each([true, false])('uses a decoded swap order only with unchanged saved request bytes (%s)', async unchanged => {
+    const noteId = `0x${'b'.repeat(64)}`;
+    const requestBytes = Uint8Array.of(7, 7);
+    const extraInputs = { requestedFaucetId: 'requested-faucet', requestedAmount: 5n, expirySeconds: 10 };
+    const live: ITransaction = {
+      ...row,
+      type: 'swap',
+      status: ITransactionStatus.Unconfirmed,
+      attemptId: sent.attemptId,
+      extraInputs,
+      requestBytes: unchanged ? Uint8Array.of(7, 7) : Uint8Array.of(7, 8)
+    };
+    const verified = {
+      ...live,
+      status: ITransactionStatus.Completed,
+      completedAt: 20,
+      requestBytes,
+      submitEvidence: [sent]
+    };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Map([[row.id, { ...landing, savedOrder: { orderId: '42', orderNoteId: noteId } }]])
+    };
+    await transactions.add(live);
+
+    await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+
+    const restored = await transactions.get(row.id);
+    expect(restored?.extraInputs.orderId).toBe(unchanged ? 42n : undefined);
+    expect(restored?.extraInputs.expiresAt).toBe(unchanged ? 30 : undefined);
+    expect(restored?.outputNoteIds).toEqual(unchanged ? [noteId] : undefined);
+  });
+
+  it('journals the compatible completed row when retrying a failed recovery snapshot write', async () => {
+    const live = {
+      ...row,
+      status: ITransactionStatus.Unconfirmed,
+      attemptId: sent.attemptId,
+      noteType: NoteTypeEnum.Private
+    };
+    const verified = {
+      ...live,
+      status: ITransactionStatus.Completed,
+      mayHaveSubmitted: true,
+      submitEvidence: [{ ...sent, outputNoteIds: ['0x1234'] }]
+    };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Map([[row.id, landing]])
+    };
+    await transactions.add(live);
+    const writeSnapshot = jest.fn().mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
+    const rebuild = async () => {
+      const restored = await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+      await writeSnapshot(restored.transfers);
+    };
+
+    await expect(rebuild()).rejects.toThrow('No space left');
+    const committed = await transactions.get(row.id);
+    expect(committed).toMatchObject({ status: ITransactionStatus.Completed, outputNoteIds: ['0x1234'] });
+
+    await rebuild();
+
+    expect(writeSnapshot).toHaveBeenLastCalledWith([committed]);
+  });
+
+  it('refuses to journal a completed live row from a different transaction attempt', async () => {
+    const live = { ...row, attemptId: 'different-attempt', transactionId: 'different-transaction' };
+    const verified = { ...row, attemptId: sent.attemptId, transactionId: sent.transactionId, submitEvidence: [sent] };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Map([[row.id, landing]])
+    };
+    await transactions.add(live);
+
+    await expect(restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation)).rejects.toThrow(
+      WalletStorageUnavailableError
+    );
+    await expect(transactions.get(row.id)).resolves.toEqual(live);
+  });
+
   it('keeps the prior generation and policy if a live spending row conflicts with the journal', async () => {
     await transactions.add({ ...row, spentUsd: 30n });
     await spendingLimits.add(config('25'));
