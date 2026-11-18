@@ -87,7 +87,7 @@ export async function assertUsdcxDepositCurrent(owned: OwnedUsdcxDeposit): Promi
 }
 
 export async function recordCctpSourceFacts(
-  owned: OwnedUsdcxDeposit,
+  owned: Pick<OwnedUsdcxDeposit, 'rowId' | 'operation'> & Partial<Pick<OwnedUsdcxDeposit, 'checks'>>,
   facts: { messageTransmitter?: string; sourceMessage?: Hex }
 ): Promise<void> {
   await Repo.db.transaction('rw', Repo.transactions, async () => {
@@ -110,7 +110,13 @@ export async function recordCctpSourceFacts(
         facts.sourceMessage &&
         previous.sourceMessage.toLowerCase() !== facts.sourceMessage.toLowerCase()) ||
       (facts.sourceMessage &&
-        (!original.sourceAttempt.hash || original.sourceAttempt.hash !== row.extraInputs?.evmTxHash))
+        (row.restoredFromBackup ||
+          row.recovered ||
+          row.extraInputs?.provider !== 'usdcx' ||
+          (row.extraInputs.phase !== 'submitting' && row.extraInputs.phase !== 'delivering') ||
+          original.sourceAttempt.phase !== 'known' ||
+          !original.sourceAttempt.hash ||
+          original.sourceAttempt.hash !== row.extraInputs.evmTxHash))
     )
       throw new Error('Circle original source facts changed');
     const chain = original.review.route.recovery.config.supportedEvmChains[original.review.route.source.network];

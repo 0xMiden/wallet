@@ -829,6 +829,16 @@ describe('Command Send uses the real SendManager form', () => {
     expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('route=agglayer'));
   });
 
+  it('gives a Command-authored Send review link an ephemeral handoff identity', () => {
+    openBridge();
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    const path: unknown = navigateMock.mock.calls[0]?.[0];
+    if (typeof path !== 'string') throw new Error('Missing Command review handoff');
+    expect(new URL(path, 'https://wallet.invalid').searchParams.get('commandReviewId')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
+  });
+
   it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {
     useAllBalancesMock.mockReturnValue({
       data: [

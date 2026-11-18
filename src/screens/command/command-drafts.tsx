@@ -8,7 +8,7 @@ import type { CommandAction } from './command-routes';
 export type CommandSendRecall = { kind: 'never' } | { kind: 'scheduled'; date?: string; time: string; blocks?: string };
 
 export interface CommandDrafts {
-  send: SendDraft & { privacy?: 'public' | 'private'; recall?: CommandSendRecall };
+  send: SendDraft & { privacy?: 'public' | 'private'; recall?: CommandSendRecall; reviewId?: string };
   receive: { faucetId: string };
   swap:
     | {
@@ -33,11 +33,23 @@ export interface CommandDrafts {
   bridge: { direction: 'in' | 'out'; route: string; amount: string; externalAccountId: string };
 }
 
+interface SendAdmission {
+  intent: string;
+  revision: number;
+  status: 'pending' | 'admitted';
+  txId?: string;
+}
+
 interface DraftContext {
   readDraft: <K extends CommandAction>(action: K) => CommandDrafts[K] | undefined;
   writeDraft: <K extends CommandAction>(action: K, draft: CommandDrafts[K]) => void;
   clearDraft: (action: CommandAction) => void;
   clearDrafts: () => void;
+  readSendAdmission: () => SendAdmission | undefined;
+  readSendDraftRevision: () => number;
+  beginSendAdmission: (intent: string) => boolean;
+  finishSendAdmission: (intent: string, txId: string) => void;
+  abortSendAdmission: (intent: string) => void;
 }
 
 const Context = createContext<DraftContext | null>(null);
@@ -50,14 +62,16 @@ export function CommandDraftProvider({
   children: React.ReactNode;
 }): React.ReactElement {
   const scopeKey = JSON.stringify([scope.accountId, scope.network, scope.rpcUrl]);
-  const current = useRef<{ key: string; generation: number; drafts: Partial<CommandDrafts> }>({
-    key: scopeKey,
-    generation: 0,
-    drafts: {}
-  });
+  const current = useRef<{
+    key: string;
+    generation: number;
+    drafts: Partial<CommandDrafts>;
+    sendDraftRevision: number;
+    sendAdmission?: SendAdmission;
+  }>({ key: scopeKey, generation: 0, drafts: {}, sendDraftRevision: 0 });
   const [, refresh] = useReducer(value => value + 1, 0);
   if (current.current.key !== scopeKey)
-    current.current = { key: scopeKey, generation: current.current.generation + 1, drafts: {} };
+    current.current = { key: scopeKey, generation: current.current.generation + 1, drafts: {}, sendDraftRevision: 0 };
   const generation = current.current.generation;
 
   const readDraft = useCallback(
@@ -70,6 +84,10 @@ export function CommandDraftProvider({
   const writeDraft = useCallback(
     <K extends CommandAction>(action: K, draft: CommandDrafts[K]): void => {
       if (current.current.generation !== generation) return;
+      if (action === 'send') {
+        if (!current.current.drafts.send) current.current.sendDraftRevision++;
+        if (current.current.sendAdmission?.status === 'admitted') current.current.sendAdmission = undefined;
+      }
       current.current.drafts[action] = draft;
       refresh();
     },
@@ -88,8 +106,86 @@ export function CommandDraftProvider({
     current.current.drafts = {};
     refresh();
   }, [generation]);
+  const readSendAdmission = useCallback(
+    () => (current.current.generation === generation ? current.current.sendAdmission : undefined),
+    [generation]
+  );
+  const readSendDraftRevision = useCallback(
+    () => (current.current.generation === generation ? current.current.sendDraftRevision : -1),
+    [generation]
+  );
+  const beginSendAdmission = useCallback(
+    (intent: string) => {
+      if (
+        current.current.generation !== generation ||
+        current.current.sendAdmission?.status === 'pending' ||
+        current.current.sendAdmission?.intent === intent
+      )
+        return false;
+      current.current.sendAdmission = { intent, revision: current.current.sendDraftRevision, status: 'pending' };
+      refresh();
+      return true;
+    },
+    [generation]
+  );
+  const finishSendAdmission = useCallback(
+    (intent: string, txId: string) => {
+      const admission = current.current.sendAdmission;
+      if (current.current.generation !== generation || admission?.status !== 'pending' || admission.intent !== intent)
+        return;
+      const draft = current.current.drafts.send;
+      if (admission.revision !== current.current.sendDraftRevision) {
+        current.current.sendAdmission = undefined;
+      } else {
+        current.current.sendAdmission = { ...admission, status: 'admitted', txId };
+        if (
+          draft &&
+          JSON.stringify([
+            draft.reviewId ?? null,
+            draft.amount,
+            draft.recipientAddress,
+            draft.tokenId,
+            draft.bridgeNetwork,
+            draft.bridgeRoute
+          ]) === intent
+        )
+          delete current.current.drafts.send;
+      }
+      refresh();
+    },
+    [generation]
+  );
+  const abortSendAdmission = useCallback(
+    (intent: string) => {
+      if (
+        current.current.generation !== generation ||
+        current.current.sendAdmission?.status !== 'pending' ||
+        current.current.sendAdmission.intent !== intent
+      )
+        return;
+      current.current.sendAdmission = undefined;
+      refresh();
+    },
+    [generation]
+  );
 
-  return <Context.Provider value={{ readDraft, writeDraft, clearDraft, clearDrafts }}>{children}</Context.Provider>;
+  return (
+    <Context.Provider
+      value={{
+        readDraft,
+        writeDraft,
+        clearDraft,
+        clearDrafts,
+        readSendAdmission,
+        readSendDraftRevision,
+        beginSendAdmission,
+        finishSendAdmission,
+        abortSendAdmission
+      }}
+    >
+      {children}
+    </Context.Provider>
+  );
 }
 
 export function useOptionalCommandDrafts(): DraftContext | null {

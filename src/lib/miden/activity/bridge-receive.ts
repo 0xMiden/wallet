@@ -16,7 +16,8 @@ import { matchesAgglayerReceiveDeposit } from 'lib/bridge/providers/agglayer/agg
 import {
   assertOwnedCctpArcReceipt,
   fetchOwnedAttestedCctpMessage,
-  ownedCctpSourceProof
+  ownedCctpSourceProof,
+  recoverOwnedCctpSourceProof
 } from 'lib/bridge/providers/xreserve/cctp-status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
@@ -536,8 +537,10 @@ async function reconcileRow(
     inputs.evmTxHash &&
     (inputs.usdcxSource?.route === 'cctp-executor' || originalSourceRoute?.route === 'executor') &&
     (inputs.usdcxSource?.route !== 'cctp-executor' || !ownedCctpSourceProof(row, inputs.usdcxSource))
-  )
+  ) {
+    if (inputs.usdcxSource?.route === 'cctp-executor') await recoverOwnedCctpSourceProof(row, inputs.usdcxSource);
     return;
+  }
   if (!withinDeliveryWindow(row, inputs, cutoffSec)) {
     await updateBridgedReceivePhase(row.id, 'failed', {
       error: BRIDGE_DELIVERY_TIMED_OUT,

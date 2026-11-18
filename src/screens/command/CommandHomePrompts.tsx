@@ -36,6 +36,7 @@ export function CommandHomePrompts(): React.ReactElement {
       fundingNotes={claimableNotesAreCached ? undefined : claimableNotes}
       tokenPrices={tokenPrices}
       maskMonetaryValues={maskMonetaryValues}
+      requireReadableHiddenNotes
     />
   );
 }

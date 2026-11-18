@@ -15,6 +15,7 @@ import {
 } from 'viem';
 
 import { quoteAmounts } from 'lib/bridge/core/quote';
+import { assertReviewedBridge } from 'lib/bridge/core/review';
 import type { SubmissionChecks } from 'lib/bridge/core/submission';
 import { ensureTokenApproval, type TokenApprovalClient } from 'lib/bridge/evm/token-approval';
 import { recordBridgeSourceAttempt, type BridgeOperationSnapshot } from 'lib/bridge/operation';
@@ -61,12 +62,9 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
   const recipient = usdcxRemoteRecipientFor(accounts.midenAccount);
   assertUsdcxDepositTerms(owned, rowId, amount, recipient, source, account);
   const target = source.route === 'xreserve' ? source : source.target;
+  const targetClient = xreserveReadClient(target.chain.id);
   const assertRoute = () =>
-    assertXReserveRouteAvailable(
-      xreserveReadClient(target.chain.id),
-      source,
-      route.recovery.nativeAsset?.faucetId ?? ''
-    );
+    assertXReserveRouteAvailable(targetClient, source, route.recovery.nativeAsset?.faucetId ?? '');
   const assertFee = async () => {
     if (quote.kind !== 'cctp' || source.route !== 'cctp-executor') return;
     const [fee, token] = await client.readContract({
@@ -89,6 +87,7 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
     )
       throw new Error('Circle wallet account or chain changed');
     await assertUsdcxDepositCurrent(owned);
+    assertReviewedBridge(operation.review, await checks.readCurrent(), checks.now());
   };
   const send = async (to: Address, data: Hex, burnArgs?: DepositForBurnWithHookAndFeesArgs): Promise<Hash> => {
     await client.call({ account, to, data, value: 0n });
@@ -151,7 +150,7 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
       source,
       owned,
       isRemoteDomainRegistered: (domain: number) =>
-        client.readContract({
+        targetClient.readContract({
           address: target.xReserve,
           abi: XRESERVE_ABI,
           functionName: 'isRemoteDomainRegistered',

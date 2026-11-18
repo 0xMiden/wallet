@@ -24,7 +24,8 @@ jest.mock('app/templates/HomePrompts', () => ({
     claimableNotes,
     fundingNotes,
     tokenPrices,
-    maskMonetaryValues
+    maskMonetaryValues,
+    requireReadableHiddenNotes
   }: {
     account: { publicKey: string };
     balances: unknown[];
@@ -33,6 +34,7 @@ jest.mock('app/templates/HomePrompts', () => ({
     fundingNotes?: unknown[];
     tokenPrices: unknown;
     maskMonetaryValues: boolean;
+    requireReadableHiddenNotes: boolean;
   }) => (
     <div
       data-testid="home-prompts-inputs"
@@ -43,6 +45,7 @@ jest.mock('app/templates/HomePrompts', () => ({
       data-funding={fundingNotes === undefined ? 'unloaded' : fundingNotes === mockRawNotes ? 'unfiltered' : 'wrong'}
       data-prices={tokenPrices === mockPrices ? 'current' : 'wrong'}
       data-masked={String(maskMonetaryValues)}
+      data-require-readable-hidden-notes={String(requireReadableHiddenNotes)}
     />
   )
 }));
@@ -78,6 +81,7 @@ it('hands the existing notice controller current account, balances, prices and d
   expect(prompts).toHaveAttribute('data-funding', 'unfiltered');
   expect(prompts).toHaveAttribute('data-prices', 'current');
   expect(prompts).toHaveAttribute('data-masked', 'true');
+  expect(prompts).toHaveAttribute('data-require-readable-hidden-notes', 'true');
   expect(mockExcludeAutoManagedNotes).toHaveBeenCalledWith(mockRawNotes, 'native-fee-token', true, 5);
   mockCached = true;
   view.rerender(<CommandHomePrompts />);

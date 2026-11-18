@@ -496,6 +496,24 @@ it('the original receive driver never discloses raw external wallet failures fro
   expect(await Repo.transactions.count()).toBe(1);
 });
 
+it('refuses the source prompt when the reviewed live amount changes during the final wallet chain read', async () => {
+  const review = reviewedErc20Transfer('agglayer');
+  allowance = 10n ** 25n;
+  const read = wallet.getMockImplementation();
+  if (!read) throw new Error('Missing original wallet reader');
+  let chainReads = 0;
+  wallet.mockImplementation(async args => {
+    const result = await read(args);
+    if (args.method === 'eth_chainId' && ++chainReads === 3) review.amount = '2';
+    return result;
+  });
+  const { row, error } = await drive(review);
+  expect(chainReads).toBe(3);
+  expect(error).toHaveProperty('message', expect.stringContaining('review'));
+  expect(signed).toHaveLength(0);
+  expect(row?.extraInputs.evmTxHash).toBeUndefined();
+});
+
 it('a returned source hash is saved to the original owner after explicit UI departure', async () => {
   const originalWallet = wallet.getMockImplementation();
   let release: (hash: Hash) => void = () => undefined;

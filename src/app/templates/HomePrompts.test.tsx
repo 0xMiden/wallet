@@ -3927,6 +3927,54 @@ describe('HomePrompts', () => {
     expect(screen.queryByTestId('prompt-card-value')).not.toBeInTheDocument();
   });
 
+  it('hides Command pending-note count, value and action while the declined-note preference is unreadable', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    mockHiddenNotes.loaded = false;
+    mockHiddenNotes.failed = true;
+    const content = (
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
+        tokenPrices={tokenPrices}
+        requireReadableHiddenNotes
+      />
+    );
+    const view = render(content);
+    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+    expect(screen.queryByText('pendingNotesPromptBodyReview:2')).not.toBeInTheDocument();
+    expect(screen.queryByText('$4.50')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'pendingNotesPromptTitle' })).not.toBeInTheDocument();
+
+    mockHiddenNotes.loaded = true;
+    mockHiddenNotes.failed = false;
+    mockHiddenNotes.ids = new Set(['note-1']);
+    view.rerender(React.cloneElement(content));
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    expect(screen.getByText('pendingNotesPromptBodyReview:1')).toBeInTheDocument();
+    expect(screen.queryByText('$4.50')).not.toBeInTheDocument();
+  });
+
+  it('keeps the existing Compact pending-note fallback when the hidden-note preference is unreadable', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    mockHiddenNotes.loaded = false;
+    mockHiddenNotes.failed = true;
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    expect(screen.getByText('pendingNotesPromptBodyReview:2')).toBeInTheDocument();
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
+  });
+
   it('leaves a declined transfer out of the count and out of the total, until it is restored', () => {
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     // `note-1` was declined on the Activity tab. It is still claimable — declining only hides it

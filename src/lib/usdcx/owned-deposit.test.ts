@@ -28,6 +28,7 @@ import {
 import { reviewedOwnedCircleTransfer, TEST_CCTP_TRANSMITTER } from 'lib/bridge/testing/circle-fixtures';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
+import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiate';
@@ -78,6 +79,8 @@ const adapterRpc = {
   getBlock: jest.fn()
 } satisfies XReserveClient;
 const receiptReader = jest.fn();
+const targetReadContract = jest.fn();
+let useDistinctTargetClient = false;
 const adapterWallet = jest.fn();
 const adapterTransactions = new Map<Hash, SourceRpcTransaction>();
 let adapterAllowance: bigint;
@@ -85,7 +88,10 @@ let afterAdapterApproval: () => void;
 let adapterFee: bigint;
 let targetRegistered: boolean;
 let signed: { from: string; to: Hex; data: Hex; chainId: Hex; value: Hex }[];
-jest.mock('lib/bridge/providers/xreserve/provider', () => ({ xreserveReadClient: () => adapterRpc }));
+jest.mock('lib/bridge/providers/xreserve/provider', () => ({
+  xreserveReadClient: (chainId: number) =>
+    useDistinctTargetClient && chainId === 5042002 ? { readContract: targetReadContract } : adapterRpc
+}));
 const fetchMock = jest.fn();
 const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
 beforeAll(() => Object.defineProperty(globalThis, 'fetch', { configurable: true, value: fetchMock }));
@@ -229,6 +235,7 @@ async function drive(
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  useDistinctTargetClient = false;
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
   jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -334,6 +341,42 @@ async function driveAdapter(executor: boolean, configure?: () => void, received?
     }
   );
 }
+it('reads the executor target registration on its own chain, not the different source client', async () => {
+  const id = await driveAdapter(true, () => {
+    useDistinctTargetClient = true;
+    targetRegistered = false;
+    targetReadContract.mockImplementation(async args =>
+      args.functionName === 'isRemoteDomainRegistered' ? true : adapterRpc.readContract(args)
+    );
+  });
+  await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('delivering'));
+  expect(targetReadContract.mock.calls.some(([args]) => args.functionName === 'isRemoteDomainRegistered')).toBe(true);
+  expect(adapterRpc.readContract.mock.calls.some(([args]) => args.functionName === 'isRemoteDomainRegistered')).toBe(
+    false
+  );
+  expect(signed).toHaveLength(1);
+});
+
+it('refuses an unregistered executor target before source approval or burn even if the source says registered', async () => {
+  const id = await driveAdapter(true, () => {
+    useDistinctTargetClient = true;
+    targetRegistered = true;
+    adapterAllowance = 0n;
+    targetReadContract.mockImplementation(async args =>
+      args.functionName === 'isRemoteDomainRegistered' ? false : adapterRpc.readContract(args)
+    );
+  });
+  await waitFor(async () =>
+    expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain')
+  );
+  expect(targetReadContract.mock.calls.some(([args]) => args.functionName === 'isRemoteDomainRegistered')).toBe(true);
+  expect(adapterRpc.readContract.mock.calls.some(([args]) => args.functionName === 'isRemoteDomainRegistered')).toBe(
+    false
+  );
+  expect(signed).toHaveLength(0);
+  expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBeUndefined();
+});
+
 it.each([false, true])(
   'adapts the reviewed provider into the actual receive wrapper and source leaf (executor=%s)',
   async executor => {
@@ -597,7 +640,7 @@ async function prepareOwnedStatus(
     | 'arc deposit'
     | 'arc handler'
     | 'none',
-  beforeStatus?: () => void
+  beforeStatus?: (id: string) => void | Promise<void>
 ) {
   const id = await driveAdapter(true);
   await waitFor(async () => expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('delivering'));
@@ -628,7 +671,7 @@ async function prepareOwnedStatus(
             : {}
     )
   );
-  beforeStatus?.();
+  await beforeStatus?.(id);
   const reconciler = createBridgeReceiveReconciler({ getLocks: () => undefined });
   await reconciler.reconcile();
   await reconciler.reconcile();
@@ -650,6 +693,108 @@ it('continues passive funded status after UI RPC departure and quote expiry with
   expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
   expect(signed).toHaveLength(1);
 });
+it('recovers only the original owned CCTP source proof from its saved hash and receipt after a restart', async () => {
+  const source = getUsdcxSourceChain(11155111);
+  if (source.route !== 'cctp-executor') throw new Error('Missing CCTP source');
+  const { id } = await prepareOwnedStatus('proof', () => {
+    receiptReader.mockImplementation(async ({ hash }) =>
+      hash === sourceHash ? cctpSourceReceipt(sourceHash, cctpSourceMessage(source)) : cctpArcReceipt(source)
+    );
+  });
+  const reconciler = createBridgeReceiveReconciler({ getLocks: () => undefined });
+  await reconciler.reconcile();
+  const row = await Repo.transactions.get(id);
+  expect(receiptReader.mock.calls.some(([args]) => args.hash === sourceHash)).toBe(true);
+  expect(row?.extraInputs.cctp?.sourceMessage).toBe(cctpSourceMessage(source).toLowerCase());
+  expect(row?.extraInputs.phase).toBe('ready');
+  expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+  expect(signed).toHaveLength(1);
+});
+
+it.each([
+  'wrong chain',
+  'wrong source hash',
+  'missing transmitter',
+  'wrong account',
+  'wrong amount',
+  'wrong faucet',
+  'wrong sender',
+  'contradictory proof',
+  'restored',
+  'recovered'
+])('never reads a source receipt or re-arms an owned %s row with unverified original facts', async change => {
+  const { row } = await prepareOwnedStatus('proof', async id => {
+    if (change === 'wrong chain') await Repo.transactions.update(id, { 'extraInputs.sourceChainId': 5042002 });
+    if (change === 'wrong source hash')
+      await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.sourceAttempt.hash': FORWARD_HASH });
+    if (change === 'missing transmitter')
+      await Repo.transactions.update(id, {
+        'extraInputs.cctp.messageTransmitter': '0x0000000000000000000000000000000000000000'
+      });
+    if (change === 'wrong account') await Repo.transactions.update(id, { accountId: 'mtst1wrongaccount' });
+    if (change === 'wrong amount') await Repo.transactions.update(id, { amount: 1000002n });
+    if (change === 'wrong faucet') await Repo.transactions.update(id, { faucetId: 'mtst1wrongfaucet' });
+    if (change === 'wrong sender')
+      await Repo.transactions.update(id, { 'extraInputs.sourceAddress': '0x0000000000000000000000000000000000000001' });
+    if (change === 'contradictory proof')
+      await Repo.transactions.update(id, { 'extraInputs.cctp.sourceMessage': '0x01' });
+    if (change === 'restored') await Repo.transactions.update(id, { restoredFromBackup: true });
+    if (change === 'recovered') await Repo.transactions.update(id, { recovered: true });
+  });
+  expect(receiptReader).not.toHaveBeenCalled();
+  expect(row?.extraInputs.cctp?.sourceMessage).toBe(change === 'contradictory proof' ? '0x01' : undefined);
+  expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+  expect(signed).toHaveLength(1);
+});
+it.each(['wrong hash', 'wrong transmitter log', 'wrong amount', 'duplicate message'])(
+  'refuses a recovered source receipt with %s without persisting Circle proof',
+  async change => {
+    const source = getUsdcxSourceChain(11155111);
+    if (source.route !== 'cctp-executor') throw new Error('Missing CCTP source');
+    const { row } = await prepareOwnedStatus('proof', () => {
+      receiptReader.mockImplementation(async ({ hash }) => {
+        if (hash !== sourceHash) return cctpArcReceipt(source);
+        const receipt = cctpSourceReceipt(
+          sourceHash,
+          cctpSourceMessage(source, change === 'wrong amount' ? { amount: 1000002n } : {})
+        );
+        if (change === 'wrong hash') receipt.transactionHash = FORWARD_HASH;
+        if (change === 'wrong transmitter log' && receipt.logs[0]) receipt.logs[0].address = source.usdc;
+        if (change === 'duplicate message' && receipt.logs[0]) receipt.logs.push(receipt.logs[0]);
+        return receipt;
+      });
+    });
+    expect(receiptReader.mock.calls.some(([args]) => args.hash === sourceHash)).toBe(true);
+    expect(row?.extraInputs.cctp?.sourceMessage).toBeUndefined();
+    expect(row?.extraInputs.phase).toBe('delivering');
+    expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+    expect(signed).toHaveLength(1);
+  }
+);
+it.each(['revision', 'transmitter', 'restored'])(
+  'rejects recovered Circle proof when its original %s changes before the CAS',
+  async change => {
+    const source = getUsdcxSourceChain(11155111);
+    if (source.route !== 'cctp-executor') throw new Error('Missing CCTP source');
+    const { row } = await prepareOwnedStatus('proof', id => {
+      receiptReader.mockImplementation(async ({ hash }) => {
+        if (hash !== sourceHash) return cctpArcReceipt(source);
+        if (change === 'revision') await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.revision': 999 });
+        if (change === 'transmitter')
+          await Repo.transactions.update(id, {
+            'extraInputs.cctp.messageTransmitter': '0x1111111111111111111111111111111111111111'
+          });
+        if (change === 'restored') await Repo.transactions.update(id, { restoredFromBackup: true });
+        return cctpSourceReceipt(sourceHash, cctpSourceMessage(source));
+      });
+    });
+    expect(receiptReader.mock.calls.some(([args]) => args.hash === sourceHash)).toBe(true);
+    expect(row?.extraInputs.cctp?.sourceMessage).toBeUndefined();
+    expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
+    expect(signed).toHaveLength(1);
+  }
+);
+
 it('does not fail or rearm known funded ownership merely because source proof metadata is missing after restart', async () => {
   const { row } = await prepareOwnedStatus('proof', () => {
     jest.spyOn(Date, 'now').mockReturnValue(now + 8 * 24 * 60 * 60 * 1000);
@@ -757,6 +902,25 @@ it.each([false, true])('refuses RPC departure after allowance read before signin
   expect(error).toBeInstanceOf(Error);
   expect(deposit).not.toHaveBeenCalled();
   expect(approve).not.toHaveBeenCalled();
+});
+
+it('refuses the Circle source prompt when live consent changes during the final owner read', async () => {
+  const changeDuringOwnerRead = (row: ITransaction) => {
+    if (adapterRpc.estimateGas.mock.calls.length > 0 && signed.length === 0) live = { ...live, amount: '2' };
+    return row;
+  };
+  Repo.transactions.hook('reading', changeDuringOwnerRead);
+  try {
+    const id = await driveAdapter(true);
+    await waitFor(async () =>
+      expect(bridgeOperationOf((await Repo.transactions.get(id))!)?.sourceAttempt?.phase).toBe('uncertain')
+    );
+    expect(adapterRpc.estimateGas).toHaveBeenCalled();
+    expect(signed).toHaveLength(0);
+    expect((await Repo.transactions.get(id))?.extraInputs.evmTxHash).toBeUndefined();
+  } finally {
+    Repo.transactions.hook('reading').unsubscribe(changeDuringOwnerRead);
+  }
 });
 
 it.each([false, true])('refuses live reviewed amount change after allowance read (executor=%s)', async executor => {

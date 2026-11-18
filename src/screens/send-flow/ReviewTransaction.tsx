@@ -120,6 +120,7 @@ export const ReviewTransaction: React.FC = () => {
   const formId = useId();
   const commandDrafts = useOptionalCommandDrafts();
   const [restoredDraft] = useState(() => (command ? commandDrafts?.readDraft('send') : undefined));
+  const [reviewRevision] = useState(() => (command ? commandDrafts?.readSendDraftRevision() : undefined));
   const networkFeeDetails = useNetworkFeeEstimateDetails();
   const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const { search } = useLocation();
@@ -147,12 +148,13 @@ export const ReviewTransaction: React.FC = () => {
 
   const { signTransaction } = useMidenContext();
 
-  const { amount, to, tokenId, network, route } = useMemo<{
+  const { amount, to, tokenId, network, route, commandReviewId } = useMemo<{
     amount: string;
     to: string;
     tokenId: string;
     network?: BridgeNetworkId;
     route?: BridgeRoute;
+    commandReviewId?: string;
   }>(() => {
     const params = new URLSearchParams(search);
     const networkParam = params.get('network');
@@ -161,10 +163,13 @@ export const ReviewTransaction: React.FC = () => {
       amount: params.get('amount') ?? '',
       to: params.get('to') ?? '',
       tokenId: params.get('tokenId') ?? '',
+      commandReviewId: params.get('commandReviewId') ?? undefined,
       network: isBridgeNetworkId(networkParam) ? networkParam : undefined,
       route: routeParam === 'epoch' || routeParam === 'agglayer' || routeParam === 'usdcx' ? routeParam : undefined
     };
   }, [search]);
+  const sendIntent = JSON.stringify([commandReviewId ?? null, amount, to, tokenId, network, route]);
+  const sendAdmission = command ? commandDrafts?.readSendAdmission() : undefined;
 
   // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
@@ -492,16 +497,22 @@ export const ReviewTransaction: React.FC = () => {
       // The single success funnel for all three submit paths (Miden, Agglayer,
       // Epoch): a transaction row now exists, which is what "the user sent"
       // means here. Its later on-chain fate belongs to the progress screen.
+      if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
       settleSendFlow(flow => flow.complete());
       if (!isCurrentSubmission()) return;
       if (!command) clearSendDraft();
-      else commandDrafts?.clearDraft('send');
+      else if (
+        commandDrafts?.readDraft('send') &&
+        commandDrafts.readSendDraftRevision() === reviewRevision &&
+        commandDrafts.readSendAdmission()?.intent !== sendIntent
+      )
+        commandDrafts.clearDraft('send');
       navigate(
         `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
         HistoryAction.Replace
       );
     },
-    [fullPage, command, commandDrafts, isCurrentSubmission]
+    [fullPage, command, commandDrafts, isCurrentSubmission, reviewRevision, sendIntent]
   );
 
   const runSameChainSend = useCallback(
@@ -511,6 +522,7 @@ export const ReviewTransaction: React.FC = () => {
         setSpendingLimitChallenge(undefined);
         return;
       }
+      if (command && commandDrafts && !commandDrafts.beginSendAdmission(sendIntent)) return;
       setIsSubmitting(true);
       setSubmitError(undefined);
       setSubmitErrorId(undefined);
@@ -519,6 +531,7 @@ export const ReviewTransaction: React.FC = () => {
       // that actually submits. Re-open a flow a previous error already settled.
       enterSendFlow();
       reportSendStep('submitting');
+      let txId: string | undefined;
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         const commonArguments = [
@@ -530,13 +543,22 @@ export const ReviewTransaction: React.FC = () => {
           recallBlocks ? parseInt(recallBlocks) : undefined,
           isDelegateProofEnabled()
         ] as const;
-        const txId =
+        txId =
           authorization === undefined
             ? await initiateSendTransaction(...commonArguments)
             : await initiateSendTransaction(...commonArguments, authorization);
-        if (isExtension()) requestSWTransactionProcessing();
+        if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
+        if (isExtension()) {
+          try {
+            requestSWTransactionProcessing();
+          } catch (error) {
+            console.error(error);
+          }
+        }
         goToGeneratingTransaction(txId);
       } catch (error) {
+        if (txId !== undefined) return;
+        if (command) commandDrafts?.abortSendAdmission(sendIntent);
         console.error(error);
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
@@ -566,6 +588,8 @@ export const ReviewTransaction: React.FC = () => {
     },
     [
       amountBaseUnits,
+      command,
+      commandDrafts,
       goToGeneratingTransaction,
       openUnpricedChallenge,
       publicKey,
@@ -573,6 +597,7 @@ export const ReviewTransaction: React.FC = () => {
       sharePrivately,
       to,
       token,
+      sendIntent,
       isCurrentSubmission
     ]
   );
@@ -726,7 +751,15 @@ export const ReviewTransaction: React.FC = () => {
       !/^[1-9]\d*$/.test(recallBlocks));
   const submittingRef = useRef(false);
   const onSubmit = useCallback(async () => {
-    if (submittingRef.current || bridgeBlocked || tokenHeld || epochQuoteUnavailable || recallInvalid) return;
+    if (
+      submittingRef.current ||
+      bridgeBlocked ||
+      tokenHeld ||
+      epochQuoteUnavailable ||
+      recallInvalid ||
+      (command && sendAdmission?.status === 'pending')
+    )
+      return;
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
@@ -783,6 +816,8 @@ export const ReviewTransaction: React.FC = () => {
     tokenHeld,
     epochQuoteUnavailable,
     recallInvalid,
+    command,
+    sendAdmission,
     amountBaseUnits,
     assessSpendingLimit,
     isBridge,
@@ -869,7 +904,25 @@ export const ReviewTransaction: React.FC = () => {
     : submitError !== undefined
       ? submitErrorId
       : (precisionErrorId ?? (recallInvalid ? 'recallTimeInPast' : burnValidationErrorId));
-  if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
+  if (
+    command &&
+    sendAdmission?.status === 'admitted' &&
+    sendAdmission.intent === sendIntent &&
+    sendAdmission.revision === reviewRevision &&
+    sendAdmission.txId
+  ) {
+    return (
+      <Redirect
+        to={`${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(sendAdmission.txId)}`}
+      />
+    );
+  }
+  if (
+    paramsInvalid ||
+    bridgeParamsInvalid ||
+    tokenInvalid ||
+    (command && commandReviewId !== undefined && (!commandReviewId || restoredDraft?.reviewId !== commandReviewId))
+  ) {
     return <Redirect to="/send" />;
   }
 
@@ -915,6 +968,7 @@ export const ReviewTransaction: React.FC = () => {
     tokenHeld ||
     epochQuoteUnavailable ||
     isSubmitting ||
+    (command && sendAdmission?.status === 'pending') ||
     scaleIsUnknown ||
     amountExceedsPrecision ||
     (isUsdcxBurn && (!!burnValidationError || !burnFeeReady)) ||
@@ -950,7 +1004,7 @@ export const ReviewTransaction: React.FC = () => {
               variant={ButtonVariant.Primary}
               accent="send"
               onClick={command ? undefined : onSubmit}
-              isLoading={isSubmitting}
+              isLoading={isSubmitting || (command && sendAdmission?.status === 'pending')}
               // Disabled rather than merely rejected on press: the reason is known
               // before the user reaches for the button, and letting them tap a live
               // CTA only to be refused reads as a wallet fault rather than a

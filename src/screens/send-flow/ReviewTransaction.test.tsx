@@ -307,6 +307,7 @@ jest.mock('components/ui/DetailCard', () => ({
       {children !== undefined && <span data-testid="row-children">{children}</span>}
       {action && (
         <button
+          type="button"
           data-testid={action['data-testid']}
           aria-haspopup={action['aria-haspopup']}
           disabled={action.disabled}
@@ -316,7 +317,7 @@ jest.mock('components/ui/DetailCard', () => ({
         </button>
       )}
       {onClick && (
-        <button data-testid="row-open" aria-haspopup={hasPopup} disabled={disabled} onClick={onClick}>
+        <button type="button" data-testid="row-open" aria-haspopup={hasPopup} disabled={disabled} onClick={onClick}>
           open
         </button>
       )}
@@ -326,7 +327,7 @@ jest.mock('components/ui/DetailCard', () => ({
   // Like the real one, the rows inside render only while open and the summary only while closed.
   DetailDisclosure: ({ title, summary, summaryEmphasis, open, onOpenChange, children, 'data-testid': testId }: any) => (
     <div data-testid={testId} data-open={String(open)} data-emphasis={String(Boolean(summaryEmphasis))}>
-      <button data-testid={`${testId}-toggle`} onClick={() => onOpenChange(!open)}>
+      <button type="button" data-testid={`${testId}-toggle`} onClick={() => onOpenChange(!open)}>
         {title}
       </button>
       {!open && summary && <span data-testid={`${testId}-summary`}>{summary}</span>}
@@ -337,13 +338,13 @@ jest.mock('components/ui/DetailCard', () => ({
 jest.mock('./TransferTypeDrawer', () => ({
   TransferTypeDrawer: (props: any) => (
     <div data-testid="transfer-type-drawer" data-open={String(props.open)} data-value={props.value}>
-      <button data-testid="transfer-type-pick-public" onClick={() => props.onChange('public')}>
+      <button type="button" data-testid="transfer-type-pick-public" onClick={() => props.onChange('public')}>
         public
       </button>
-      <button data-testid="transfer-type-pick-private" onClick={() => props.onChange('private')}>
+      <button type="button" data-testid="transfer-type-pick-private" onClick={() => props.onChange('private')}>
         private
       </button>
-      <button data-testid="transfer-type-close" onClick={() => props.onOpenChange(false)}>
+      <button type="button" data-testid="transfer-type-close" onClick={() => props.onOpenChange(false)}>
         close
       </button>
     </div>
@@ -490,16 +491,17 @@ jest.mock('./RecallCalendarDrawer', () => ({
   dateTimeToRecallBlocks: jest.fn(() => 999),
   RecallCalendarDrawer: (props: any) => (
     <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime}>
-      <button data-testid="recall-pick-never" onClick={() => props.onRecallNever()}>
+      <button type="button" data-testid="recall-pick-never" onClick={() => props.onRecallNever()}>
         recall-never
       </button>
-      <button data-testid="recall-pick-blocks" onClick={() => props.onRecallBlocksChange('42')}>
+      <button type="button" data-testid="recall-pick-blocks" onClick={() => props.onRecallBlocksChange('42')}>
         recall-blocks
       </button>
-      <button data-testid="recall-pick-time" onClick={() => props.onRecallTimeChange('09:37')}>
+      <button type="button" data-testid="recall-pick-time" onClick={() => props.onRecallTimeChange('09:37')}>
         recall-time
       </button>
       <button
+        type="button"
         data-testid="recall-pick-date"
         onClick={() => props.onRecallDateChange(new Date(Date.now() + 86_400_000))}
       >
@@ -716,6 +718,58 @@ describe('Command Send review controller', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the original Command payment pending across review departure and opens its admitted row without another confirmation', async () => {
+    setValidRoute();
+    mockFullPage = true;
+    const queued = deferred<string>();
+    initiateMock.mockReturnValue(queued.promise);
+    const scope = { accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' };
+    function AdmissionSend({ reviewOpen }: { reviewOpen: boolean }) {
+      const drafts = useCommandDrafts();
+      const [prepared, setPrepared] = useState(false);
+      return (
+        <>
+          <button
+            onClick={() => {
+              drafts.writeDraft('send', { amount: '5', recipientAddress: '0xrecipient', tokenId: 'tok1' });
+              setPrepared(true);
+            }}
+          >
+            Prepare payment
+          </button>
+          <DraftReader />
+          {prepared && reviewOpen && <ReviewTransaction />}
+        </>
+      );
+    }
+    const shell = (reviewOpen: boolean) => (
+      <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+        <AdmissionSend reviewOpen={reviewOpen} />
+      </CommandShell>
+    );
+    const view = render(shell(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare payment' }));
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    view.rerender(shell(false));
+    view.rerender(shell(true));
+    await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeDisabled());
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      queued.resolve('tx-original');
+      await queued.promise;
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction-full/tx-original')
+    );
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+  });
+
   function ReviewSession({ recall }: { recall?: CommandSendRecall }) {
     const drafts = useCommandDrafts();
     const [open, setOpen] = useState(false);
@@ -878,6 +932,126 @@ describe('Command Send review controller', () => {
     expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
     expect(initiateMock).not.toHaveBeenCalled();
     expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original Command row after an optional worker nudge throws', async () => {
+    setValidRoute();
+    isExtensionMock.mockReturnValue(true);
+    requestSWMock.mockImplementation(() => {
+      throw new Error('worker nudge unavailable');
+    });
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      renderCommandReview();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction/tx-abc'));
+      expect(requestSWMock).toHaveBeenCalledTimes(1);
+      expect(initiateMock).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('releases a rejected local atomic Send queue so the same Command review can retry', async () => {
+    setValidRoute();
+    initiateMock.mockRejectedValueOnce(new Error('local queue rejected before insert'));
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      renderCommandReview();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeEnabled());
+      expect(screen.getByTestId('review-error')).toHaveTextContent('local queue rejected before insert');
+      expect(navigateMock).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(2));
+      expect(confirmMock).toHaveBeenCalledTimes(2);
+      expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('refuses a stale Command-authored review link after its in-memory handoff is gone', () => {
+    setValidRoute();
+    mockSearch += '&commandReviewId=old-handoff';
+    renderCommandReview();
+    expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts a matching live Command handoff but not its link after the provider unmounts', () => {
+    setValidRoute();
+    mockSearch += '&commandReviewId=matching-handoff';
+    function AuthoredReview({ reviewId = 'matching-handoff' }: { reviewId?: string }) {
+      const { writeDraft } = useCommandDrafts();
+      const [ready, setReady] = useState(false);
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              writeDraft('send', {
+                amount: '5',
+                recipientAddress: '0xrecipient',
+                tokenId: 'tok1',
+                reviewId
+              });
+              setReady(true);
+            }}
+          >
+            Prepare review
+          </button>
+          {ready && <ReviewTransaction />}
+        </>
+      );
+    }
+    const view = render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <AuthoredReview />
+      </CommandShell>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare review' }));
+    expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    view.unmount();
+    const other = render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <AuthoredReview reviewId="different-handoff" />
+      </CommandShell>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare review' }));
+    expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+    other.unmount();
+    renderCommandReview();
+    expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('allows a newly prepared Command draft with identical terms after the original row was admitted', async () => {
+    openSession({ kind: 'never' });
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction/tx-abc'));
+    expect(screen.getByTestId('saved-review-input')).toBeEmptyDOMElement();
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Leave review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(2));
+    expect(confirmMock).toHaveBeenCalledTimes(2);
   });
 
   it('abandons a pending review on lock/remount without reviving an old draft or submitting', async () => {

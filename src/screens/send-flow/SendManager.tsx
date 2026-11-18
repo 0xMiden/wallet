@@ -3,6 +3,7 @@ import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { useForm } from 'react-hook-form';
+import { v4 as uuid } from 'uuid';
 import * as yup from 'yup';
 
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
@@ -888,9 +889,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
       bridgeNetwork: isBridge ? bridgeNetwork : undefined,
       bridgeRoute: isBridge ? bridgeRoute : undefined
     };
-    if (command) saveCommandDraft(reviewDraft);
+    const commandReviewId = command ? uuid() : undefined;
+    if (command) saveCommandDraft({ ...reviewDraft, reviewId: commandReviewId });
     else setSendDraft(reviewDraft);
     const params = new URLSearchParams({ amount, to: recipientAddress, tokenId: token.id });
+    if (commandReviewId) params.set('commandReviewId', commandReviewId);
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);

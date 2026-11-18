@@ -1,19 +1,22 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/xreserve/cctp-status.ts (MIT).
 import { isAddress, isHash, isHex, parseUnits, type Hex } from 'viem';
 
-import { bridgeOperationOf } from 'lib/bridge/operation';
+import { bridgeOperationOf, findAdmittedBridgeOperation } from 'lib/bridge/operation';
 import type { ITransaction } from 'lib/miden/db/types';
 import { fetchCctpMessages, type AttestedCctpMessage } from 'lib/usdcx/cctp';
 import type { UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { encodeExecutorHookData } from 'lib/usdcx/executor';
+import { readEvmReceiptOutcome } from 'lib/walletconnect/receipt';
 
 import {
   assertCctpArcReceipt,
   assertCctpSourceMessage,
   matchesCctpSourceMessage,
+  sourceMessageFromReceipt,
   type CctpReceipt
 } from './cctp-message';
+import { recordCctpSourceFacts } from './ownership';
 
 /** Missing tagged provenance is proof-pending, never the legacy observation path or new consent. */
 export function ownedCctpSourceProof(row: ITransaction, source: UsdcxExecutorSource): Hex | undefined {
@@ -46,6 +49,80 @@ export function ownedCctpSourceProof(row: ITransaction, source: UsdcxExecutorSou
   } catch {
     return undefined;
   }
+}
+
+export async function recoverOwnedCctpSourceProof(row: ITransaction, source: UsdcxExecutorSource): Promise<void> {
+  const operation = bridgeOperationOf(row);
+  const inputs = row.extraInputs;
+  const leg = inputs?.cctp;
+  const hash = inputs?.evmTxHash;
+  const transmitter = leg?.messageTransmitter;
+  const review = operation?.review;
+  const sourceChain = review?.route.recovery.config.supportedEvmChains[review.route.source.network];
+  const sourceRoute = sourceChain?.bridges.usdcx;
+  const deposit = sourceRoute?.deposit;
+  const targetChain =
+    deposit?.route === 'executor' ? review?.route.recovery.config.supportedEvmChains[deposit.executorChain] : undefined;
+  const targetRoute = targetChain?.bridges.usdcx;
+  if (
+    !operation ||
+    !review ||
+    row.restoredFromBackup ||
+    row.recovered ||
+    inputs?.provider !== 'usdcx' ||
+    (inputs.phase !== 'submitting' && inputs.phase !== 'delivering') ||
+    inputs.usdcxSource?.route !== 'cctp-executor' ||
+    inputs.sourceChainId !== source.chain.id ||
+    !isHash(hash) ||
+    operation.sourceAttempt?.phase !== 'known' ||
+    operation.sourceAttempt.hash !== hash ||
+    leg?.sourceMessage !== undefined ||
+    leg?.sourceDomain !== source.domain ||
+    typeof transmitter !== 'string' ||
+    !isAddress(transmitter) ||
+    /^0x0{40}$/i.test(transmitter) ||
+    !source.tokenMessenger ||
+    review.route.provider !== 'xreserve' ||
+    review.route.mode !== 'receive' ||
+    review.route.source.kind !== 'erc20' ||
+    review.route.destination.kind !== 'miden' ||
+    review.quote?.kind !== 'cctp' ||
+    row.accountId !== review.accounts.midenAccount ||
+    row.faucetId !== review.route.destination.faucetId ||
+    row.amount !== parseUnits(review.amount, 6) ||
+    inputs.sourceAddress.toLowerCase() !== review.accounts.evmAddress.toLowerCase() ||
+    sourceChain?.chainId !== source.chain.id ||
+    sourceRoute?.domain !== source.domain ||
+    sourceRoute.tokens.USDC?.contractAddress.toLowerCase() !== source.usdc.toLowerCase() ||
+    review.route.source.address.toLowerCase() !== source.usdc.toLowerCase() ||
+    deposit?.route !== 'executor' ||
+    deposit.tokenMessenger?.toLowerCase() !== source.tokenMessenger.toLowerCase() ||
+    deposit.tokenMessengerWithFees.toLowerCase() !== source.tokenMessengerWithFees.toLowerCase() ||
+    targetChain?.chainId !== source.target.chain.id ||
+    targetRoute?.domain !== source.target.domain ||
+    targetRoute.executor?.address.toLowerCase() !== source.target.executor.toLowerCase() ||
+    targetRoute.executor.handler.toLowerCase() !== source.target.handler.toLowerCase() ||
+    targetRoute.deposit?.route !== 'xreserve' ||
+    targetRoute.deposit.xReserve.toLowerCase() !== source.target.xReserve.toLowerCase() ||
+    targetRoute.tokens.USDC?.contractAddress.toLowerCase() !== source.target.usdc.toLowerCase()
+  )
+    return;
+  const admitted = await findAdmittedBridgeOperation(operation);
+  if (admitted?.id !== row.id || bridgeOperationOf(admitted)?.revision !== operation.revision) return;
+  let sourceMessage: Hex | undefined;
+  const outcome = await readEvmReceiptOutcome(hash, source.chain, receipt => {
+    const message = sourceMessageFromReceipt(receipt, hash, transmitter);
+    const account = `0x${review.accounts.evmAddress.slice(2)}` satisfies `0x${string}`;
+    assertCctpSourceMessage(
+      message,
+      source,
+      parseUnits(review.amount, 6),
+      encodeExecutorHookData(source.target, usdcxRemoteRecipientFor(review.accounts.midenAccount), account)
+    );
+    sourceMessage = message;
+  });
+  if (outcome === 'success' && sourceMessage)
+    await recordCctpSourceFacts({ rowId: row.id, operation }, { messageTransmitter: transmitter, sourceMessage });
 }
 
 export async function fetchOwnedAttestedCctpMessage(

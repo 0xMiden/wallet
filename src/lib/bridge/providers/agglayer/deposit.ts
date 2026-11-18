@@ -106,6 +106,7 @@ export async function submitAgglayerDeposit(request: AgglayerDepositRequest): Pr
     )
       throw new Error('Agglayer wallet account or chain changed');
     await assertCurrent();
+    assertReviewedBridge(review, await checks.readCurrent(), checks.now());
   };
   const send = async (to: Address, data: Hex, value: bigint): Promise<Hash> => {
     const gas = ((await client.estimateGas({ account, to, data, value })) * 120n) / 100n;
