@@ -27,7 +27,7 @@
 
 import React from 'react';
 
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import * as Woozie from 'lib/woozie';
@@ -45,7 +45,14 @@ const mockLocation: { pathname: string; trigger: string | null } = {
   trigger: null
 };
 const mockEnv = { popup: false, fullPage: false, sidePanel: false };
-const mockMiden = { ready: false, locked: false, hydrated: false };
+const mockRebuildWalletStorage = jest.fn();
+const mockMiden = {
+  ready: false,
+  locked: false,
+  hydrated: false,
+  storageUnavailable: false,
+  rebuildWalletStorage: mockRebuildWalletStorage
+};
 const mockSwapEnabled = { value: true };
 // Whether the user has already answered the telemetry consent prompt. Read by
 // the `/help-improve-wallet` route factory, which refuses to re-ask.
@@ -92,6 +99,13 @@ jest.mock('app/env', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => mockMiden
+}));
+
+jest.mock('react-i18next', () => ({
+  ...jest.requireActual('react-i18next'),
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, number>) => (values ? `${key} ${Object.values(values).join(' ')}` : key)
+  })
 }));
 
 // App-lifecycle telemetry (`open` / `return`) is a leaf concern here and has its
@@ -270,6 +284,7 @@ type Ctx = {
   ready?: boolean;
   locked?: boolean;
   hydrated?: boolean;
+  storageUnavailable?: boolean;
   popup?: boolean;
   fullPage?: boolean;
   sidePanel?: boolean;
@@ -284,6 +299,7 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
   mockMiden.ready = ctx.ready ?? false;
   mockMiden.locked = ctx.locked ?? false;
   mockMiden.hydrated = ctx.hydrated ?? false;
+  mockMiden.storageUnavailable = ctx.storageUnavailable ?? false;
   return render(<PageRouter />);
 }
 
@@ -323,6 +339,61 @@ beforeEach(() => {
   mockSwapEnabled.value = true;
   mockTelemetryChoice.made = false;
   act(() => backgroundLockPending.set(false));
+});
+
+describe('wallet storage recovery', () => {
+  it('replaces an open wallet until the user rebuilds and storage is verified', async () => {
+    const { rerender } = renderAt('/', ready);
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+
+    mockMiden.storageUnavailable = true;
+    rerender(<PageRouter />);
+
+    expect(screen.getByRole('heading', { name: 'storageRecoveryTitle' })).toHaveFocus();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+    expect(mockRebuildWalletStorage).not.toHaveBeenCalled();
+
+    let finish = () => {};
+    mockRebuildWalletStorage.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = () => resolve({ verifiedAccounts: 1, expectedAccounts: 1, verifiedNotes: 2, expectedNotes: 2 });
+        })
+    );
+
+    const rebuild = screen.getByRole('button', { name: 'storageRecoveryRebuild' });
+    fireEvent.click(rebuild);
+    expect(rebuild).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('storageRecoveryWorking');
+    expect(mockRebuildWalletStorage).toHaveBeenCalledTimes(1);
+
+    await act(async () => finish());
+    expect(screen.getByRole('status')).toHaveTextContent('storageRecoveryProgress 1 1 2 2');
+
+    mockMiden.storageUnavailable = false;
+    rerender(<PageRouter />);
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'storageRecoveryTitle' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a direct financial route paused when rebuilding fails', async () => {
+    mockRebuildWalletStorage.mockRejectedValueOnce(new Error('verification failed'));
+    renderAt('/send/review', { ...ready, storageUnavailable: true });
+
+    const rebuild = screen.getByRole('button', { name: 'storageRecoveryRebuild' });
+    fireEvent.click(rebuild);
+
+    expect(await screen.findByText('storageRecoveryFailed')).toBeInTheDocument();
+    expect(screen.queryByTestId('review-transaction')).not.toBeInTheDocument();
+    expect(rebuild).toBeEnabled();
+  });
+
+  it('keeps a locked wallet on the unlock screen', () => {
+    renderAt('/', { ...ready, locked: true, storageUnavailable: true });
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'storageRecoveryTitle' })).not.toBeInTheDocument();
+  });
 });
 
 describe('app/PageRouter — no network banner', () => {

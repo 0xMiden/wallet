@@ -427,6 +427,17 @@ describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () =>
 });
 
 describe('doSync', () => {
+  it('does not publish zero balances when the vault account is missing from IndexedDB', async () => {
+    mockStoreAccounts = [{ publicKey: 'pk-1' }];
+    mockClient.getAccount.mockResolvedValue(null);
+
+    await doSync();
+
+    expect(mockStorageSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ miden_sync_data: expect.any(Object) })
+    );
+  });
+
   it('is a no-op when the vault is not set up', async () => {
     mockIsExist.mockResolvedValueOnce(false);
     await doSync();
