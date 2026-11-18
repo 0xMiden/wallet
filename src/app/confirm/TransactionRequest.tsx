@@ -68,27 +68,19 @@ interface HeaderLine {
   symbol?: string;
   incoming: boolean;
   testId?: string;
-  verified?: boolean;
 }
 
 /** The signed amount(s) as the window's figure, then the summary pill under them. */
 export const AmountHeader: FC<{
   lines: HeaderLine[];
   pill: React.ReactNode;
-  dim?: boolean;
   children?: React.ReactNode;
-}> = ({ lines, pill, dim = false, children }) => (
+}> = ({ lines, pill, children }) => (
   <div className="flex flex-col items-center gap-2 text-center">
     {lines.length > 0 && (
       <div className="flex flex-col gap-1">
         {lines.map((line, i) => (
-          <div
-            key={i}
-            className={cn(
-              'text-hero-value',
-              dim ? 'text-muted' : line.incoming ? 'text-positive-tint-ink' : 'text-ink'
-            )}
-          >
+          <div key={i} className={cn('text-hero-value', line.incoming ? 'text-positive-tint-ink' : 'text-ink')}>
             <span data-testid={line.testId}>{line.amount}</span>
             {line.symbol && <span className="ml-1.5 text-entry-unit">{line.symbol}</span>}
           </div>
@@ -113,8 +105,8 @@ interface MovementRow {
   subtitle: React.ReactNode;
   amount: React.ReactNode;
   incoming: boolean;
-  dim?: boolean;
   titleTestId?: string;
+  /** A row of the simulated view: marked for the E2E preview checks. */
   verified?: boolean;
 }
 
@@ -142,11 +134,8 @@ const MovementCard: FC<{ rows: MovementRow[]; fee?: { label: string; value: Reac
           <div className="truncate text-caption-heading text-muted">{row.subtitle}</div>
         </div>
         <span
-          className={cn(
-            'shrink-0 whitespace-nowrap text-value',
-            row.dim ? 'text-muted' : row.incoming ? 'text-positive-tint-ink' : 'text-ink'
-          )}
-          data-verified={row.verified === undefined ? undefined : String(row.verified)}
+          className={cn('shrink-0 whitespace-nowrap text-value', row.incoming ? 'text-positive-tint-ink' : 'text-ink')}
+          data-verified={row.verified ? 'true' : undefined}
         >
           {row.amount}
         </span>
@@ -418,19 +407,15 @@ export const CustomRequest: FC<{
   origin: string;
   account: WalletAccount;
   view: TxAssetView;
-  mode: 'verified' | 'declared';
   noteFlow?: NoteFlow;
-  simulationFailed: boolean;
   advanced: React.ReactNode;
   error?: TransactionRequestError;
-}> = ({ origin, account, view, mode, noteFlow, simulationFailed, advanced, error }) => {
+}> = ({ origin, account, view, noteFlow, advanced, error }) => {
   const { t } = useTranslation();
   const outgoing = useResolvedAssets(view.outgoing);
   const incoming = useResolvedAssets(view.incoming);
   const feeAssets = useMemo(() => (view.fee ? [view.fee] : []), [view.fee]);
   const [feeAsset] = useResolvedAssets(feeAssets);
-  const verified = mode === 'verified';
-  const dim = !verified;
   const label = (a: ResolvedAsset) => `${quantityOf(a)} ${a.symbol ?? t('unknown')}`;
   const moves =
     view.outgoing.length > 0 ||
@@ -446,8 +431,7 @@ export const CustomRequest: FC<{
       subtitle: t('confirmTxLeavesAccount'),
       amount: `-${label(a)}`,
       incoming: false,
-      dim,
-      verified
+      verified: true
     })),
     ...view.outgoingNfts.map(nft => ({
       leading: <GlyphAvatar icon={IconName.Send} color="var(--accent-send)" />,
@@ -455,8 +439,7 @@ export const CustomRequest: FC<{
       subtitle: `${t('nftFaucet')} ${truncateAddress(nft.faucetId)}`,
       amount: `-${t('nft')} ${nft.assetId}`,
       incoming: false,
-      dim,
-      verified
+      verified: true
     })),
     ...incoming.map(a => ({
       leading: <GlyphAvatar icon={IconName.Receive} color="var(--accent-receive)" />,
@@ -464,8 +447,7 @@ export const CustomRequest: FC<{
       subtitle: t('confirmTxArrivesAccount'),
       amount: `+${label(a)}`,
       incoming: true,
-      dim,
-      verified
+      verified: true
     })),
     ...view.incomingNfts.map(nft => ({
       leading: <GlyphAvatar icon={IconName.Receive} color="var(--accent-receive)" />,
@@ -473,8 +455,7 @@ export const CustomRequest: FC<{
       subtitle: `${t('nftFaucet')} ${truncateAddress(nft.faucetId)}`,
       amount: `+${t('nft')} ${nft.assetId}`,
       incoming: true,
-      dim,
-      verified
+      verified: true
     }))
   ];
 
@@ -488,35 +469,19 @@ export const CustomRequest: FC<{
       <div
         className="flex w-full flex-col gap-5"
         data-testid="tx-asset-view"
-        data-mode={mode}
+        data-mode="verified"
         data-account={view.account ?? ''}
       >
         <AmountHeader
           lines={headerLines}
-          dim={dim}
           pill={
             <SummaryPill>
               <span className="truncate">{t('confirmTxCustomTransaction')}</span>
             </SummaryPill>
           }
-        >
-          {dim && !simulationFailed && (
-            <span className="text-caption-heading text-muted">{t('declaredBySiteVerifying')}</span>
-          )}
-        </AmountHeader>
+        />
 
         {error && <FailureNotice message={error.message} errorId={error.errorId} />}
-        {simulationFailed && (
-          <Notice
-            variant="fact"
-            tone="warning"
-            title={t('confirmTxNotVerifiedTitle')}
-            icon={<Icon name={IconName.FactAlert} size="xs" fill="currentColor" />}
-            data-testid="tx-simulation-failed"
-          >
-            {t('couldNotVerifyBySimulation')}
-          </Notice>
-        )}
         {view.unlistedAssets > 0 && (
           <Notice
             variant="fact"
@@ -550,29 +515,27 @@ export const CustomRequest: FC<{
           <DetailRow label={t('outputNotesCreated')}>
             <span data-testid="tx-output-notes-created">{view.outputNotesCreated}</span>
           </DetailRow>
-          {verified && (
-            <DetailRow label={t('storageChanged')}>
-              {view.storageChanged ? (
-                <span className="flex items-center gap-1.5">
-                  <Icon name={IconName.WarningFill} size="xs" fill="currentColor" className="text-pending-ink" />
-                  <span data-testid="tx-storage-changed" data-changed="true">
-                    {t('yes')}
-                  </span>
+          <DetailRow label={t('storageChanged')}>
+            {view.storageChanged ? (
+              <span className="flex items-center gap-1.5">
+                <Icon name={IconName.WarningFill} size="xs" fill="currentColor" className="text-pending-ink" />
+                <span data-testid="tx-storage-changed" data-changed="true">
+                  {t('yes')}
                 </span>
-              ) : (
-                <span data-testid="tx-storage-changed" data-changed="false">
-                  {t('no')}
-                </span>
-              )}
-            </DetailRow>
-          )}
+              </span>
+            ) : (
+              <span data-testid="tx-storage-changed" data-changed="false">
+                {t('no')}
+              </span>
+            )}
+          </DetailRow>
         </DetailCard>
 
-        {verified && noteFlow ? (
+        {noteFlow ? (
           <TransactionNoteFlow flow={noteFlow} account={view.account} />
         ) : (
           <p className="px-1 text-caption-heading text-muted" data-testid="tx-note-flow-unavailable">
-            {t(verified ? 'verifiedNoteDetailsUnavailable' : 'declaredNoteDetailsUnavailable')}
+            {t('verifiedNoteDetailsUnavailable')}
           </p>
         )}
 

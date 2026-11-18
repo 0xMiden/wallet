@@ -360,7 +360,6 @@
         "src/app/atoms/**",
         "src/app/ConfirmPage.tsx",
         "src/app/pages/Receive/AddressTab.tsx",
-        "src/app/templates/AccountBanner.tsx",
         "src/app/templates/AddressChip.tsx",
         "src/app/templates/HashChip.tsx",
         "src/app/templates/history/HistoryItem.tsx",

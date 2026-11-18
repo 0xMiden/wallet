@@ -211,15 +211,7 @@ const CustomTransactionContent: React.FC<{
 
   const shared = { origin: payload.origin, account, advanced, error };
   if (verifiedView) {
-    return (
-      <CustomRequest
-        {...shared}
-        view={verifiedView}
-        mode="verified"
-        noteFlow={verifiedNoteFlow}
-        simulationFailed={false}
-      />
-    );
+    return <CustomRequest {...shared} view={verifiedView} noteFlow={verifiedNoteFlow} />;
   }
 
   if (simError) {
