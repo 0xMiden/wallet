@@ -11,14 +11,16 @@ const NOTE_ID = '0x' + '01'.repeat(32);
 const OTHER_ID = '0x' + '02'.repeat(32);
 const execute = jest.mocked(execFile);
 
-function sdkResponds(responses: { id: string; public: boolean }[][]) {
+function sdkResponds(responses: ({ id: string; public: boolean }[] | Error)[]) {
   let calls = 0;
   execute.mockImplementation(((_file: string, args: string[], _options: unknown, callback: Function) => {
     const query = args[2]!.replace(/^import .*;$/m, '');
     const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
     class Rpc {
       async getNotesById() {
-        return (responses[Math.min(calls++, responses.length - 1)] ?? []).map(note => ({
+        const response = responses[Math.min(calls++, responses.length - 1)] ?? [];
+        if (response instanceof Error) throw response;
+        return response.map(note => ({
           noteId: { toString: () => note.id },
           asInputNote: () => (note.public ? {} : undefined)
         }));
@@ -65,6 +67,19 @@ describe('waitForPublicNoteCommitment', () => {
     await jest.runAllTimersAsync();
     await waiting;
     expect(calls()).toBe(3);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps polling the same queued note after a read transport error', async () => {
+    const calls = sdkResponds([
+      new Error("failed to get notes by ID: grpc request failed for get_notes_by_id: unknown error: transport error"),
+      [{ id: NOTE_ID, public: true }]
+    ]);
+    const waiting = waitForPublicNoteCommitment('https://rpc.testnet.miden.io', NOTE_ID);
+    const outcome = waiting.catch(error => error);
+    await jest.runAllTimersAsync();
+    await expect(outcome).resolves.toBeUndefined();
+    expect(calls()).toBe(2);
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
