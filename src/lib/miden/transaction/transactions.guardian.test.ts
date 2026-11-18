@@ -16659,6 +16659,53 @@ describe('generateTransaction - direct switch audit marker', () => {
     expect(abandonCandidate).toHaveBeenCalledWith(7, 'prop-1');
   });
 
+  // The warn names the verdict that started the direct switch. It said "unusable" for every
+  // verdict at the cold co-sign, and the final co-sign logged nothing.
+  it('logs the refusal verdict, not "unusable", when the cold co-sign is refused with a 403', async () => {
+    const txId = 'switch-guardian-marker-cold-cosign-warn';
+    const provider = setup(txId);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      abandonCandidate: jest.fn(async () => {})
+    });
+    mockBuildColdMultisigService.mockRejectedValue(Object.assign(new Error('Forbidden'), { status: 403 }));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await run(txId, provider);
+
+      const messages = warnSpy.mock.calls.map(call => String(call[0]));
+      expect(messages.some(message => message.includes('refused the request at cold co-sign'))).toBe(true);
+      expect(messages.some(message => message.includes('unusable at cold co-sign'))).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('logs the refusal verdict when the final co-sign is refused with a 403', async () => {
+    const txId = 'switch-guardian-marker-final-cosign-warn';
+    const provider = setup(txId);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      signAndCreateTransactionRequest: jest.fn(async () => {
+        throw Object.assign(new Error('Forbidden'), { status: 403 });
+      }),
+      abandonCandidate: jest.fn(async () => {})
+    });
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await run(txId, provider);
+
+      const messages = warnSpy.mock.calls.map(call => String(call[0]));
+      expect(messages.some(message => message.includes('refused the request at the final co-sign'))).toBe(true);
+      expect(markerExtraInputs(txId)).toMatchObject({ switchedDirectly: true });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('keeps a failure that is not a Guardian answer on the normal path', async () => {
     const txId = 'switch-guardian-marker-local-failure';
     const provider = setup(txId);

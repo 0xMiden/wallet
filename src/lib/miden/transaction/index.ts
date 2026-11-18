@@ -1444,8 +1444,9 @@ async function reconcileStructuralApplyFailure(
       //
       // A refusal (any HTTP 4xx, a 401 included) is the same condition here: the
       // old operator cannot help, and the switch is already submitted.
-      if (directSwitchTriggerFor(error) === undefined) throw error;
-      console.warn('[Guardian] old guardian unusable during switch reconcile - finalizing directly', error);
+      const reconcileTrigger = directSwitchTriggerFor(error);
+      if (reconcileTrigger === undefined) throw error;
+      console.warn(`[Guardian] old guardian ${reconcileTrigger} during switch reconcile - finalizing directly`, error);
     }
   }
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
@@ -4590,7 +4591,10 @@ const generateGuardianTransaction = async (
       // A refusal of the cold co-sign (any HTTP 4xx) goes to the direct path too.
       const coldCoSignTrigger = directSwitchTriggerFor(error);
       if (coldCoSignTrigger === undefined) throw error;
-      console.warn('[Guardian] outgoing guardian unusable at cold co-sign - switching directly on-chain:', error);
+      console.warn(
+        `[Guardian] outgoing guardian ${coldCoSignTrigger} at cold co-sign - switching directly on-chain:`,
+        error
+      );
       // Try to retract the pushed delta first, best-effort and swallowed - the
       // same idiom the submission failure path below uses. It will usually fail
       // (it needs the operator we just failed to reach), but "the call may fail"
@@ -4607,9 +4611,10 @@ const generateGuardianTransaction = async (
       // there is no co-signature the chain may be about to consume.
       //
       // Deadline-bounded like the calls above it, and for a sharper reason: one
-      // of the two verdicts that reach here is that this operator is unreachable,
-      // and the shape that most often produces that verdict is one that accepts
-      // the connection and never replies. Left to the fetch boundary's minute per
+      // of the three verdicts that reach here (unreachable, cannot co-sign and
+      // refused) is that this operator is unreachable, and the shape that most
+      // often produces that verdict is one that accepts the connection and never
+      // replies. Left to the fetch boundary's minute per
       // request, a best-effort call against it holds the row at `signing-proposal`
       // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
       // A cleanup step must not be able to cost more than the thing it cleans up.
@@ -4962,7 +4967,7 @@ const generateGuardianTransaction = async (
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the
     // other three. A `switch-guardian` that reaches here because the operator is
-    // unreachable or cannot co-sign has no requeue and no user-facing Retry, so
+    // unreachable, cannot co-sign or refuses has no requeue and no user-facing Retry, so
     // rethrowing ends it Failed and leaves the user pointed at the very guardian
     // they were trying to escape - the exact dead end this feature exists to
     // remove.
@@ -4987,6 +4992,10 @@ const generateGuardianTransaction = async (
     const finalCoSignTrigger =
       transaction.type === 'switch-guardian' && !guardianCoSignReturned ? directSwitchTriggerFor(error) : undefined;
     if (finalCoSignTrigger !== undefined) {
+      console.warn(
+        `[Guardian] outgoing guardian ${finalCoSignTrigger} at the final co-sign - switching directly on-chain:`,
+        error
+      );
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,
