@@ -478,7 +478,8 @@ export interface ISwitchGuardianExtraInputs {
   // falls back to a deadline-bounded attempt, so a missing marker costs 30s and
   // never correctness. The two paths also differ in what state can be left
   // behind (see `registerFailed` above), and without `directSwitchReason` a
-  // support log cannot tell whether the unreachability verdict was right.
+  // support log cannot tell whether the classified verdict (unreachable, cannot
+  // co-sign or refused) was right.
   switchedDirectly?: boolean;
   directSwitchReason?: string;
   // `commitUnconfirmed`: the direct rotation was SUBMITTED but the wallet never

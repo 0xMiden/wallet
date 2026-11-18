@@ -44,13 +44,26 @@ export function remainingMainnetLoopBudget(
       !record(entry) ||
       typeof entry.provider !== 'string' ||
       !expected.some(name => name === entry.provider) ||
-      seen.has(entry.provider) ||
-      !record(entry.checkpoint)
+      seen.has(entry.provider)
     ) {
       throw new Error('Unexpected or duplicate mainnet loop cost evidence');
     }
     const state = entry.checkpoint;
+    if (process.env.MAINNET_LOOP_BRIDGES_ONLY === 'true' && entry.provider === 'swap') {
+      if (
+        state !== undefined &&
+        (!record(state) ||
+          typeof state.sourceRunId !== 'string' ||
+          state.sourceRunId === runId ||
+          typeof state.phase !== 'string' ||
+          !['complete', 'unspent', 'cancelled'].includes(state.phase))
+      )
+        throw new Error('Unexpected fresh or unresolved swap evidence in bridge-only mode');
+      seen.add(entry.provider);
+      continue;
+    }
     if (
+      !record(state) ||
       state.version !== 1 ||
       state.phase !== 'complete' ||
       state.sourceRunId !== runId ||
