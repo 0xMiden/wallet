@@ -92,7 +92,7 @@ export function CommandShell({
         <CommandFlowBackProvider>
           <Dialog.Root open={paletteOpen} onOpenChange={setPaletteOpen}>
             <div data-testid="command-shell" className="relative flex h-full min-h-0 w-full flex-col bg-page text-ink">
-              <CommandHeader />
+              <CommandHeader scope={scope} />
               <main className="relative min-h-0 flex-1 overflow-y-auto">
                 {route.kind === 'dashboard' && (
                   <CommandDashboard
