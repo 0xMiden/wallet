@@ -1,7 +1,7 @@
 name: Independent Swap custody audit (read only)
 on:
   push:
-    branches: [wiktor/green04-near-status-diagnostic-once]
+    branches: [wiktor/green04-near-status-bound-once]
 permissions:
   contents: read
   actions: read
@@ -18,13 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 4
+          fetch-depth: 8
       - name: Bind exact audit source and original producer
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green04-near-status-diagnostic-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green04-near-status-bound-once
           base=eb23473d006c3564a30cdb991f177e64ff89ec24
           test "$(gh api repos/0xMiden/wallet/branches/main --jq .commit.sha)" = "$base"
           test "$(gh run list --workflow e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44318071333:completed
