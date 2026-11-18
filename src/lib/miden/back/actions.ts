@@ -54,6 +54,11 @@ import {
   toPersistedSpendingLimit,
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
+import {
+  assertWalletStorageAvailable,
+  getWalletStorageFailure,
+  observeWalletStorageError
+} from 'lib/miden/storage-health';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import {
   getEffectiveNetworkName,
@@ -62,11 +67,6 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import {
-  assertWalletStorageAvailable,
-  getWalletStorageFailure,
-  observeWalletStorageError
-} from 'lib/miden/storage-health';
 import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import {
   GetStateResponse,

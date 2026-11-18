@@ -72,7 +72,7 @@ test('blocks balances and send review after the disposable wallet loses IndexedD
   const origin = `chrome-extension://${extensionId}`;
   const fullPage = `${origin}/fullpage.html`;
   const page = await extensionContext.newPage();
-  await page.setViewportSize({ width: 360, height: 800 });
+  await page.setViewportSize({ width: 800, height: 800 });
   await page.goto(fullPage, { waitUntil: 'domcontentloaded' });
 
   const balance = page.getByTestId('balance-card-label');
@@ -113,8 +113,13 @@ test('blocks balances and send review after the disposable wallet loses IndexedD
     await expect(page.getByTestId('send-review-submit')).toHaveCount(0);
     await expect.poll(() => rowCount(protocol, origin, 'mock_client_db', 'latestAccountHeaders')).toBe(0);
 
+    const panel = await extensionContext.newPage();
+    await panel.setViewportSize({ width: 360, height: 600 });
+    await panel.goto(`${origin}/sidepanel.html`, { waitUntil: 'domcontentloaded' });
+    await expect(panel.getByRole('heading', { name: 'Wallet storage unavailable' })).toBeInViewport({ ratio: 1 });
+    await expect(panel.getByRole('button', { name: 'Rebuild from recovery data' })).toBeInViewport({ ratio: 1 });
     const file = info.outputPath('wallet-access-storage-recovery.png');
-    const screenshot = await page.screenshot({ scale: 'css', animations: 'disabled' });
+    const screenshot = await panel.screenshot({ scale: 'css', animations: 'disabled' });
     await writeFile(
       file,
       await sharp(screenshot)

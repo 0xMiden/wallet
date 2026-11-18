@@ -57,6 +57,8 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 
+jest.mock('../back/storage-recovery', () => ({ retainWalletTransfer: jest.fn(async () => {}) }));
+
 jest.mock('../front', () => ({
   putToStorage: jest.fn(async () => {}),
   fetchFromStorage: jest.fn(),

@@ -10,16 +10,16 @@ import { WalletType } from 'screens/onboarding/types';
 import { midenClientProxy } from './miden-client-proxy';
 import { withUnlocked, store } from './store';
 import type { Vault } from './vault';
+import { ITransactionStatus, type ITransaction } from '../db/types';
 import { inStorageTurn } from '../front/storage';
 import { resolveGuardianEndpoint } from '../guardian/account';
-import { ITransactionStatus, type ITransaction } from '../db/types';
 import { registerGuardianOrigin } from '../guardian/native-http';
 import { readAccountChainStates, type AccountChainState } from '../guardian/recovery-verification';
 import { WalletSigner } from '../guardian/signer';
-import { canonicalWalletAccountId } from '../sdk/helpers';
 import * as Repo from '../repo';
-import { MAX_WINDOW_SECONDS } from '../spending-limits/policy';
+import { canonicalWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { MAX_WINDOW_SECONDS } from '../spending-limits/policy';
 import {
   clearVerifiedStorageFailure,
   getWalletStorageFailure,

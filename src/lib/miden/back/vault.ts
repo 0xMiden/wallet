@@ -1,3 +1,4 @@
+import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import {
   AccountBuilder,
   AccountComponent,
@@ -17,7 +18,6 @@ import { parseTransaction, toHex } from 'viem';
 import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
-import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { MidenDAppErrorType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';

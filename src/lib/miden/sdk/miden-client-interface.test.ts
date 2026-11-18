@@ -394,7 +394,9 @@ describe('MidenClientInterface', () => {
      * An exact key set forbids it — and anything else new — without naming it.
      */
     const CREATE_OPTION_KEYS = [
+      'beforeNoteAcquisition',
       'feeFaucetId',
+      'indexedDb',
       'keystore',
       'noteTransportMaxRetries',
       'noteTransportUrl',
