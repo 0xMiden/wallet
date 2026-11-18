@@ -1001,6 +1001,7 @@ describe('Receive - Address', () => {
 
         await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
         expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toBeNull();
         expect(warn.mock.calls).toEqual(warns ? dismissed : []);
       } finally {
         warn.mockRestore();
@@ -1029,8 +1030,121 @@ describe('Receive - Address', () => {
           await new Promise(resolve => setTimeout(resolve, 20));
         });
         expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+        const failure = container.querySelector('[data-testid="receive-share-copy-failed"]');
+        expect(failure).toHaveAttribute('role', 'alert');
+        expect(failure).toHaveTextContent('receiveShareCopyFailed');
+        const selectable = container.querySelector<HTMLTextAreaElement>('[data-testid="receive-share-manual-address"]');
+        expect(selectable).toHaveValue('test-account-123');
+        document.body.appendChild(testContainer!);
+        const select = jest.spyOn(selectable!, 'select');
+        selectable!.focus();
+        expect(document.activeElement).toBe(selectable);
+        expect(select).toHaveBeenCalledTimes(1);
+        expect(selectable!.selectionStart).toBe(0);
+        expect(selectable!.selectionEnd).toBe('test-account-123'.length);
+        Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+        await clickShare(container);
+        expect(share).toHaveBeenCalledTimes(1);
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toBeNull();
       } finally {
         errorSpy.mockRestore();
+      }
+    });
+
+    it('offers the same selectable address when Command Share and its clipboard fallback fail', async () => {
+      mockIsMobile.mockReturnValue(false);
+      delete (navigator as { share?: unknown }).share;
+      mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        testContainer = document.createElement('div');
+        testRoot = createRoot(testContainer);
+        await act(async () => {
+          testRoot!.render(
+            <CommandDraftProvider scope={{ accountId: 'scope-one', network: 'testnet', rpcUrl: 'rpc-one' }}>
+              <FlowPresentationProvider value="command">
+                <Receive />
+              </FlowPresentationProvider>
+            </CommandDraftProvider>
+          );
+        });
+        await act(async () => {
+          testContainer!.querySelector<HTMLButtonElement>('[data-testid="receive-share"]')!.click();
+        });
+        await waitFor(() =>
+          expect(testContainer!.querySelector('[data-testid="receive-share-copy-failed"]')).not.toBeNull()
+        );
+        expect(testContainer!.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(
+          'test-account-123'
+        );
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it.each([
+      { platform: 'web', mobile: false, changeAccount: false },
+      { platform: 'native', mobile: true, changeAccount: false },
+      { platform: 'web after account change', mobile: false, changeAccount: true }
+    ])('does not let an older $platform Share success erase a newer clipboard failure', async ({ mobile, changeAccount }) => {
+      const originalAccount = mockPublicKey;
+      mockIsMobile.mockReturnValue(mobile);
+      let finishOlderShare: () => void = () => {};
+      const olderShare = new Promise<void>(resolve => {
+        finishOlderShare = resolve;
+      });
+      const shareAction = mobile ? jest.mocked(Share.share) : share;
+      shareAction.mockReset().mockImplementationOnce(() => olderShare).mockRejectedValueOnce(new Error('dismissed'));
+      mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const container = await renderReceive();
+        await clickShare(container);
+        expect(shareAction).toHaveBeenCalledTimes(1);
+        if (changeAccount) {
+          mockPublicKey = 'other-account';
+          await setPageActive(true);
+        }
+        await clickShare(container);
+        await waitFor(() => expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).not.toBeNull());
+        expect(container.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(mockPublicKey);
+        await act(async () => finishOlderShare());
+        expect(shareAction).toHaveBeenCalledTimes(2);
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toHaveAttribute('role', 'alert');
+        expect(container.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(mockPublicKey);
+      } finally {
+        finishOlderShare();
+        mockPublicKey = originalAccount;
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    });
+
+    it('does not copy a previous account when its Share rejects after switching accounts', async () => {
+      const originalAccount = mockPublicKey;
+      let rejectOlderShare: (error: Error) => void = () => {};
+      const olderShare = new Promise<void>((_, reject) => {
+        rejectOlderShare = reject;
+      });
+      share.mockReset().mockImplementationOnce(() => olderShare);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const container = await renderReceive();
+        await clickShare(container);
+        expect(share).toHaveBeenCalledTimes(1);
+        mockPublicKey = 'other-account';
+        await setPageActive(true);
+        await act(async () => rejectOlderShare(new Error('dismissed')));
+        expect(mockClipboardWrite).not.toHaveBeenCalled();
+        expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toBeNull();
+        expect(container.querySelector('[data-testid="receive-address-full"]')).toHaveTextContent('other-account');
+      } finally {
+        mockPublicKey = originalAccount;
+        warn.mockRestore();
       }
     });
 

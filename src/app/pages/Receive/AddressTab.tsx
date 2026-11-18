@@ -17,6 +17,7 @@ import { Card } from 'components/ui/Card';
 import { CopyButton } from 'components/ui/CopyButton';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
+import { TextField } from 'components/ui/TextField';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -155,7 +156,17 @@ export const AddressTab: React.FC<AddressTabProps> = ({
   const network = networkKey ? t(networkKey) : null;
   // The share fallback copies through the same hook as the page's copy control: one clipboard
   // path, and it catches a rejected write.
-  const { copy: copyAddress } = useClipboardCopy(address);
+  const { copy: copyAddress, status: shareCopyStatus } = useClipboardCopy(address);
+  const [failedShareAddress, setFailedShareAddress] = useState<string | null>(null);
+  const shareAttemptRef = useRef(0);
+  useEffect(() => {
+    if (shareCopyStatus === 'failure') setFailedShareAddress(address);
+    if (shareCopyStatus === 'success') setFailedShareAddress(null);
+  }, [address, shareCopyStatus]);
+  useEffect(() => {
+    shareAttemptRef.current += 1;
+    setFailedShareAddress(null);
+  }, [address]);
   const qrRef = useRef<QRCodeHandle>(null);
 
   // The logo easter egg. Receive stays mounted when it is left for another Home page or another tab,
@@ -199,25 +210,27 @@ export const AddressTab: React.FC<AddressTabProps> = ({
   const shareText = network ? t('shareAddressText', { network, address }) : address;
 
   const handleShare = useCallback(async () => {
+    const attempt = ++shareAttemptRef.current;
     let qrBlob: Blob | null = null;
     try {
       qrBlob = (await qrRef.current?.getImageBlob()) ?? null;
     } catch (e) {
       console.warn('[Receive] failed to render QR image for share:', e);
     }
+    if (shareAttemptRef.current !== attempt) return;
 
     try {
       if (isMobile()) {
         if (qrBlob) {
-          const { uri } = await Filesystem.writeFile({
-            path: QR_FILE_NAME,
-            data: await blobToBase64(qrBlob),
-            directory: Directory.Cache
-          });
+          const data = await blobToBase64(qrBlob);
+          if (shareAttemptRef.current !== attempt) return;
+          const { uri } = await Filesystem.writeFile({ path: QR_FILE_NAME, data, directory: Directory.Cache });
+          if (shareAttemptRef.current !== attempt) return;
           await Share.share({ text: shareText, files: [uri], dialogTitle: t('receive') });
         } else {
           await Share.share({ text: shareText, dialogTitle: t('receive') });
         }
+        if (shareAttemptRef.current === attempt) setFailedShareAddress(null);
         return;
       }
       if (typeof navigator !== 'undefined' && navigator.share) {
@@ -225,10 +238,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({
           const file = new File([qrBlob], QR_FILE_NAME, { type: 'image/png' });
           if (navigator.canShare({ files: [file] })) {
             await navigator.share({ files: [file], text: shareText });
+            if (shareAttemptRef.current === attempt) setFailedShareAddress(null);
             return;
           }
         }
         await navigator.share({ text: shareText });
+        if (shareAttemptRef.current === attempt) setFailedShareAddress(null);
         return;
       }
     } catch (e) {
@@ -240,7 +255,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({
     // entered no catch. A share rejection also lands here via the catch; every success branch
     // returns first. Moved into the catch, the Share button would do nothing at all on those builds;
     // Receive.test.tsx's 'the web has no navigator.share' row is what fails if anyone does.
-    await copyAddress();
+    if (shareAttemptRef.current === attempt) await copyAddress();
   }, [copyAddress, shareText, t]);
 
   const content = (
@@ -331,6 +346,26 @@ export const AddressTab: React.FC<AddressTabProps> = ({
           </div>
           {presentation !== 'command' && bridgeOffered && (
             <FeatureUnavailableNotice availability={bridgeAvailability} variant="inline" />
+          )}
+          {failedShareAddress === address && (
+            <>
+              <Notice
+                errorId="smthWentWrong"
+                tone="negative"
+                variant="inline"
+                role="alert"
+                data-testid="receive-share-copy-failed"
+                title={t('receiveShareCopyFailed')}
+              />
+              <TextField
+                multiline
+                readOnly
+                label={t('address')}
+                value={address}
+                onFocus={event => event.currentTarget.select()}
+                data-testid="receive-share-manual-address"
+              />
+            </>
           )}
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —

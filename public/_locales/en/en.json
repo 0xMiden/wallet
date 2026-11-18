@@ -1368,6 +1368,7 @@
   "faucetRequestTitle": "Faucet Request",
   "share": "Share",
   "receiveShareCaption": "Send your address",
+  "receiveShareCopyFailed": "Couldn't copy this address. Select it below to copy manually.",
   "receiveCrossChainCaption": "From another network",
   "copy": "Copy",
   "crossChain": "Cross-chain",
