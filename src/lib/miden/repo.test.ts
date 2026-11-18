@@ -2,6 +2,7 @@ import Dexie, { DBCore, DBCoreCursor, DBCoreMutateResponse, DBCoreTable, Middlew
 import { IDBDatabase, IDBObjectStore } from 'fake-indexeddb';
 
 import { deriveSwapReceipt } from 'app/templates/history/swapReceipt';
+import { ExtensionStorage } from 'lib/platform/storage-adapter';
 import {
   annotateCrash,
   snapshotCrashDiagnostics,
@@ -31,7 +32,12 @@ import {
   SPENDING_LIMITS_V19_STORE,
   writeWalletStoreGeneration
 } from './repo';
-import { WalletStorageUnavailableError } from './storage-health';
+import {
+  clearVerifiedStorageFailure,
+  getWalletStorageFailure,
+  onWalletStorageChanged,
+  WalletStorageUnavailableError
+} from './storage-health';
 import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
 import { getCompletedTransactionsPage } from './transaction/get';
 import { isRequeueableTransaction } from './transaction/retry';
@@ -1406,6 +1412,30 @@ describe('wallet storage rejection boundaries', () => {
     await target.table<Record<string, unknown>, string>(table).bulkAdd([row('a'), row('b'), row('c')]);
   }
 
+  async function withRecoveryJournal(run: (changed: jest.Mock) => Promise<void>): Promise<void> {
+    const key = 'miden_recovery_v1_testnet_slot1';
+    const untouched = { iv: 'retained-iv', dt: 'retained-ciphertext' };
+    const stored = new Map<string, unknown>([[key, untouched]]);
+    const get = jest
+      .spyOn(ExtensionStorage.prototype, 'get')
+      .mockImplementation(async keys => Object.fromEntries(keys.map(name => [name, stored.get(name)])));
+    const set = jest.spyOn(ExtensionStorage.prototype, 'set').mockImplementation(async values => {
+      for (const [name, value] of Object.entries(values)) stored.set(name, value);
+    });
+    const changed = jest.fn();
+    const unsubscribe = onWalletStorageChanged(changed);
+    try {
+      await run(changed);
+      expect(stored.get(key)).toBe(untouched);
+    } finally {
+      unsubscribe();
+      const failure = await getWalletStorageFailure();
+      if (failure) await clearVerifiedStorageFailure(failure);
+      get.mockRestore();
+      set.mockRestore();
+    }
+  }
+
   // Real hooks and observability consult Dexie's active transaction zone.
   // A bare IDB transaction would bypass that public-operation invariant.
   function cursorRequest(target: Dexie, tableName: Table) {
@@ -1857,6 +1887,53 @@ describe('wallet storage rejection boundaries', () => {
     }
   );
 
+  it('reports a quota failure in a resolved partial mutation without rolling back successful writes', async () => {
+    const target = database();
+    const table = Table.Transactions;
+    const quota = new DOMException('The IndexedDB write could not fit', 'QuotaExceededError');
+    let originalResponse: DBCoreMutateResponse | undefined;
+    target.use({
+      stack: 'dbcore',
+      name: 'partial-quota-response',
+      level: 10.5,
+      create: down => ({
+        ...down,
+        table: name => {
+          const original = down.table(name);
+          if (name !== table) return original;
+          return {
+            ...original,
+            mutate: request =>
+              original.mutate(request).then(response => {
+                if (response.numFailures) {
+                  response.failures[0] = quota;
+                  originalResponse = response;
+                }
+                return response;
+              })
+          };
+        }
+      })
+    });
+    try {
+      await seed(target, table);
+      await withRecoveryJournal(async changed => {
+        const response = await target.transaction('rw', table, tx =>
+          target.core.table(table).mutate({ type: 'add', trans: tx.idbtrans, values: [row('a'), row('d'), row('b')] })
+        );
+        expect(response).toBe(originalResponse);
+        expect(response.failures[0]).toBe(quota);
+        expect(response.failures[2]?.name).toBe('ConstraintError');
+        expect(response.numFailures).toBe(2);
+        expect(await target.table(table).get('d')).toMatchObject(row('d'));
+        expect(snapshotCrashDiagnostics(quota)).toEqual(pair('wallet_transactions', 'mutate'));
+        expect(changed).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      await dispose(target);
+    }
+  });
+
   // The uninstrumented control pins Dexie's public reconstruction, including primary
   // key-changing modify failures, partial bulk commits and explicitly consumed errors.
   it.each(owners)(
@@ -2153,6 +2230,30 @@ describe('wallet storage rejection boundaries', () => {
       }
     }
   );
+
+  it('reports a quota failure when Dexie cannot open the wallet database', async () => {
+    const target = database();
+    const factory = Dexie.dependencies.indexedDB;
+    if (factory === undefined) throw new Error('fake-indexeddb is unavailable');
+    const original = factory.open;
+    const quota = new DOMException('The IndexedDB open could not fit', 'QuotaExceededError');
+    const spy = jest.spyOn(factory, 'open').mockImplementation(function (this: IDBFactory, name, version) {
+      if (name === target.name) throw quota;
+      return original.call(this, name, version);
+    });
+    try {
+      await withRecoveryJournal(async changed => {
+        const caught = await rejection(() => target.open());
+        expect(caught).toBeInstanceOf(Dexie.QuotaExceededError);
+        expect(caught).toMatchObject({ inner: quota });
+        expect(snapshotCrashDiagnostics(caught)).toEqual(pair('wallet_database', 'open'));
+        expect(changed).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      spy.mockRestore();
+      await dispose(target);
+    }
+  });
 
   // Closing explicitly disables auto-open. Diagnostics must not manufacture an
   // observed open failure when Dexie refuses the call without trying to open.
