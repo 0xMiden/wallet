@@ -1999,5 +1999,6 @@
   "storageRecoveryWorking": "Vérification des données de portefeuille conservées…",
   "storageRecoveryVerified": "Récupération du contenu du portefeuille",
   "storageRecoveryFailed": "Impossible de vérifier le stockage du portefeuille. Libérez de l’espace disque si nécessaire, puis réessayez. Les actions du portefeuille restent suspendues.",
-  "storageRecoveryUnlockOptions": "Retour aux options de déverrouillage"
+  "storageRecoveryUnlockOptions": "Retour aux options de déverrouillage",
+  "storageRecoveryProgress": "$verifiedAccounts$ comptes sur $expectedAccounts$ et $verifiedNotes$ notes sur $expectedNotes$ ont été vérifiés."
 }

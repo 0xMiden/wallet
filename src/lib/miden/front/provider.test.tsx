@@ -208,6 +208,7 @@ describe('MidenProvider', () => {
         'network_id',
         'wallet_badges:v1:mainnet',
         'wallet_badges_seen:v1:mainnet',
+        'miden_wallet_storage_failure_v1',
         'seed_backup_required_v1',
         'wallet_prompts_v1'
       ],

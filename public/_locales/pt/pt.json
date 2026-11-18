@@ -1996,5 +1996,6 @@
   "storageRecoveryWorking": "Verificando os dados retidos da carteira…",
   "storageRecoveryVerified": "Armazenamento da carteira recuperado",
   "storageRecoveryFailed": "Não foi possível verificar o armazenamento da carteira. Libere espaço em disco, se necessário, e tente novamente. As ações da carteira permanecem pausadas.",
-  "storageRecoveryUnlockOptions": "Voltar às opções de desbloqueio"
+  "storageRecoveryUnlockOptions": "Voltar às opções de desbloqueio",
+  "storageRecoveryProgress": "Foram verificados $verifiedAccounts$ de $expectedAccounts$ contas e $verifiedNotes$ de $expectedNotes$ notas."
 }

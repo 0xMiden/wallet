@@ -9152,5 +9152,23 @@
   "storageRecoveryUnlockOptions": {
     "message": "Retour aux options de déverrouillage",
     "englishSource": "Return to unlock options"
+  },
+  "storageRecoveryProgress": {
+    "message": "$verifiedAccounts$ comptes sur $expectedAccounts$ et $verifiedNotes$ notes sur $expectedNotes$ ont été vérifiés.",
+    "englishSource": "Verified $verifiedAccounts$ of $expectedAccounts$ accounts and $verifiedNotes$ of $expectedNotes$ notes.",
+    "placeholders": {
+      "verifiedaccounts": {
+        "content": "$1"
+      },
+      "expectedaccounts": {
+        "content": "$2"
+      },
+      "verifiednotes": {
+        "content": "$3"
+      },
+      "expectednotes": {
+        "content": "$4"
+      }
+    }
   }
 }

@@ -88,7 +88,7 @@ test('blocks balances and send review after the disposable wallet loses IndexedD
   const protocol = await extensionContext.newCDPSession(page);
   try {
     await syncWallet(page);
-    await expect.poll(() => rowCount(protocol, origin, 'mock_client_db', 'latestAccountHeaders')).toBeGreaterThan(0);
+    await expect.poll(() => rowCount(protocol, origin, 'mock_client_db', 'latestAccountHeaders')).toBe(1);
     await expect.poll(() => rowCount(protocol, origin, 'TridentMain', 'recovery')).toBe(1);
     await expect.poll(() => recoveryDataPresent(page)).toBe(true);
 
