@@ -157,6 +157,17 @@ describe('durable nightly swap authorization', () => {
       }
     };
   };
+  it('retains the historical quote while accepting a bounded first recovery minimum', () => {
+    const state = withGrantedReturn();
+    state.request = { ...state.request, symbol: 'USDT', decimals: 6 };
+    const recovery = { ...state, recoveryReturnMinimum: '1006899' };
+    recovery.reverseRequestAuthority.minimumReceive = '1006899';
+    const path = join(dir, 'state.json');
+    saveMainnetSwapCheckpoint(path, recovery);
+    expect(loadMainnetSwapCheckpoint(path)).toMatchObject({ reverseMinimum: '1007000', recoveryReturnMinimum: '1006899' });
+    expect(() => saveMainnetSwapCheckpoint(path, { ...recovery, recoveryReturnMinimum: '1006898' })).toThrow();
+    expect(() => saveMainnetSwapCheckpoint(path, { ...recovery, recoveryReturnAuthorizedAt: undefined })).toThrow();
+  });
   const withReplacement = () => {
     const previous = withGrantedReturn();
     const authorizedAt = '2026-11-13T16:10:00.000Z';
