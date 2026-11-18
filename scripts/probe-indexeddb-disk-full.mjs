@@ -76,7 +76,9 @@ function probe({ mode, dbName }) {
 }
 
 const names = ['wallet', 'activity'];
+let extensionId;
 await inProfile(async page => {
+  extensionId = new URL(page.url()).hostname;
   for (const dbName of names) assert.equal((await page.evaluate(probe, { mode: 'seed', dbName })).committed, true);
   await page.evaluate(() => chrome.storage.local.set({ checkpoint: 'known-good' }));
 });
@@ -114,4 +116,17 @@ await inProfile(async page => {
   }
   console.log('Records after restoring disk space and reopening the profile:', JSON.stringify(survived));
   console.log('Independent chrome.storage.local checkpoint survived');
+});
+
+const current = join(profile, 'Default', 'IndexedDB', 'chrome-extension_' + extensionId + '_0.indexeddb.leveldb', 'CURRENT');
+await writeFile(current, 'truncated database manifest pointer', { flag: 'r+' });
+
+await inProfile(async page => {
+  const wallet = await page.evaluate(probe, { mode: 'read', dbName: names[0] });
+  assert.equal(wallet.committed, true, 'Brave should reopen IndexedDB after handling the corrupt backing store');
+  assert.equal(wallet.prior, undefined, 'The original wallet record should disappear when Brave rebuilds the origin store');
+  const present = await page.evaluate(async () => (await indexedDB.databases()).map(db => db.name));
+  assert.ok(!present.includes(names[1]), 'The unrelated Activity database should disappear with the same origin store');
+  assert.equal((await page.evaluate(() => chrome.storage.local.get('checkpoint'))).checkpoint, 'known-good');
+  console.log('Brave recreated the corrupt origin store, with both IndexedDB databases lost and the independent checkpoint intact');
 });
