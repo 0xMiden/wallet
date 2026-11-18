@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Read measured maximum fee rows in Chrome and iOS USDCx burn reviews, restore each dApp's existing account grant before completion reads, and retain scalar refusal-phase and screenshot-helper diagnostics without changing existing timing bounds.
 - [FIX][ci] Check signed 1Click execution economics against the shared nightly loss allowance when the direct NEAR endpoint has no configured application fees or explicit fee policy. Public wallet settings are unchanged.
 
 - [FIX][ci] Observe an early NEAR quote-response rejection while the nightly waits for Review, preserving the original error on await without changing requests, amounts, timeouts or authorization.
