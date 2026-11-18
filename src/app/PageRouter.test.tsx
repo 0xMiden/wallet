@@ -52,6 +52,7 @@ const mockMiden = {
   locked: false,
   hydrated: false,
   storageUnavailable: false,
+  storageFailure: undefined as string | undefined,
   rebuildWalletStorage: mockRebuildWalletStorage
 };
 const mockSwapEnabled = { value: true };
@@ -305,6 +306,7 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
   mockMiden.locked = ctx.locked ?? false;
   mockMiden.hydrated = ctx.hydrated ?? false;
   mockMiden.storageUnavailable = ctx.storageUnavailable ?? false;
+  mockMiden.storageFailure = ctx.storageUnavailable ? 'original-failure' : undefined;
   return render(page);
 }
 
@@ -388,6 +390,46 @@ describe('wallet storage recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'continue' }));
     expect(screen.getByTestId('explore')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'storageRecoveryTitle' })).not.toBeInTheDocument();
+  });
+
+  it('returns to the wallet after a verified recovery is interrupted by lock and healthy unlock', async () => {
+    mockRebuildWalletStorage.mockResolvedValueOnce({
+      verifiedAccounts: 1,
+      expectedAccounts: 1,
+      verifiedNotes: 1,
+      expectedNotes: 1
+    });
+    const { rerender } = renderAt('/', { ...ready, storageUnavailable: true }, null, <RoutedWallet />);
+    fireEvent.click(screen.getByRole('button', { name: 'storageRecoveryRebuild' }));
+    await screen.findByRole('heading', { name: 'storageRecoveryVerified' });
+
+    mockMiden.storageUnavailable = false;
+    mockMiden.storageFailure = undefined;
+    mockMiden.locked = true;
+    rerender(<RoutedWallet />);
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+
+    mockMiden.locked = false;
+    rerender(<RoutedWallet />);
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+    expect(mockRebuildWalletStorage).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a new rebuild when a different storage failure follows a verified recovery', async () => {
+    mockRebuildWalletStorage.mockResolvedValueOnce({
+      verifiedAccounts: 1,
+      expectedAccounts: 1,
+      verifiedNotes: 1,
+      expectedNotes: 1
+    });
+    const { rerender } = renderAt('/', { ...ready, storageUnavailable: true }, null, <RoutedWallet />);
+    fireEvent.click(screen.getByRole('button', { name: 'storageRecoveryRebuild' }));
+    await screen.findByRole('heading', { name: 'storageRecoveryVerified' });
+
+    mockMiden.storageFailure = 'second-failure';
+    rerender(<RoutedWallet />);
+    expect(screen.getByRole('button', { name: 'storageRecoveryRebuild' })).toBeEnabled();
+    expect(mockRebuildWalletStorage).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a direct financial route paused when rebuilding fails', async () => {

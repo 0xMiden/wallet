@@ -63,6 +63,14 @@ it('refuses a failed save and preserves the last verified generation', async () 
   expect(markWalletStorageUnavailable).toHaveBeenCalledTimes(1);
 });
 
+it('acknowledges 257 compact retained notes while the snapshot fits the byte budget', async () => {
+  const notes = Array.from({ length: 257 }, (_, index) => `note-${index}`);
+
+  await expect(journal.retain(data => ({ ...data, notes }), noop)).resolves.toBeUndefined();
+  expect(await journal.read()).toMatchObject({ generation: 1, notes });
+  expect(markWalletStorageUnavailable).not.toHaveBeenCalled();
+});
+
 it('does not acknowledge an oversized journal or evict the previous notes', async () => {
   await journal.retain(data => ({ ...data, notes: ['first'] }), noop);
   const notes = Array.from({ length: 257 }, (_, index) => String(index));

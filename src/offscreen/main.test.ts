@@ -3556,8 +3556,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Array.from(Buffer.from(sendResponse.mock.calls[0][0].resultB64, 'base64'))).toEqual([11, 22, 33]);
   });
 
-  // #1081: each write's 'submitting' stamp carries the evidence its leaf read, so the service worker can record what
-  // the attempt was.
   it.each<[string, string[]]>([
     ['consumeNoteId', [encodeArg({ accountId: 'mtst1qacc', noteId: '0xn1', noteIds: ['0xn1'] })]],
     [
@@ -3591,16 +3589,18 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       ]
     ],
     ['newTransaction', [encodeArg('mtst1qacc'), encodeArg(new Uint8Array([1])), encodeArg(true)]]
-  ])('%s posts its submitting stamp with the evidence the leaf read (#1081)', async (method, argsB64) => {
+  ])('%s refuses to submit when the recovery journal rejects the evidence', async (method, argsB64) => {
     await loadModule();
-    const posted: any[] = [];
-    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
-      posted.push(m);
-      return undefined;
+    const posted: unknown[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (message: { type: string }) => {
+      posted.push(message);
+      return message.type === OFFSCREEN_SUBMIT_GATE ? { ok: false, error: 'Recovery journal write failed' } : undefined;
     });
+    const submit = jest.fn();
     const leaf = jest.fn(async (...args: unknown[]) => {
       const onStage = args.find(arg => typeof arg === 'function');
       if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
+      submit();
       return { serialize: () => new Uint8Array([1]) };
     });
     const leaves: Record<string, string> = {
@@ -3614,14 +3614,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     capturedListener!(callReq({ op_id: 'op-evidence', method, argsB64 }), {}, sendResponse);
     await flush();
 
-    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+    expect(submit).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false });
     expect(posted).toContainEqual(
-      expect.objectContaining({
-        type: 'OFFSCREEN_STAGE_EVENT',
-        op_id: 'op-evidence',
-        stage: 'submitting',
-        evidence: { refBlock: 9 }
-      })
+      expect.objectContaining({ type: OFFSCREEN_SUBMIT_GATE, op_id: 'op-evidence', evidence: { refBlock: 9 } })
     );
   });
 
