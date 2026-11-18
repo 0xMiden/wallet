@@ -3,6 +3,7 @@
 ## 1.18.1 (TBD)
 
 - [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.
+- [FIX][ci] Keep checking the same public faucet note after a commitment read transport error, within the existing deadline and without another grant.
 
 - [FIX][ci] Compare the USDCx burn activity fee with verification and sponsorship combined, and count each component once in Chrome and iOS live vault checks.
 

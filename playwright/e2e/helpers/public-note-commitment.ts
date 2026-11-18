@@ -17,7 +17,10 @@ const noteId = NoteId.${sdk.fromHex}(process.argv[2]);
 const timeoutMs = Number(process.argv[3]);
 const deadline = Date.now() + timeoutMs;
 for (;;) {
-  const notes = await rpc.${sdk.getNotesById}([noteId]);
+  const notes = await rpc.${sdk.getNotesById}([noteId]).catch(error => {
+    if (Date.now() >= deadline || !String(error).includes('grpc request failed for get_notes_by_id: unknown error: transport error')) throw error;
+    return [];
+  });
   if (notes.some(note => note.noteId.toString() === noteId.toString() && note.asInputNote())) {
     console.log('committed');
     break;

@@ -83,6 +83,16 @@ describe('waitForPublicNoteCommitment', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it('fails closed within the existing budget when the transport stays down', async () => {
+    const transport = new Error('grpc request failed for get_notes_by_id: unknown error: transport error');
+    const calls = sdkResponds([transport]);
+    const outcome = waitForPublicNoteCommitment('https://rpc.testnet.miden.io', NOTE_ID, 5_000).catch(error => error);
+    await jest.runAllTimersAsync();
+    expect(await outcome).toBeInstanceOf(PublicFaucetError);
+    expect(calls()).toBe(4);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   it('fails within the bound when the queued note never commits', async () => {
     const calls = sdkResponds([[]]);
     const waiting = waitForPublicNoteCommitment('https://rpc.devnet.miden.io', NOTE_ID, 5_000);
