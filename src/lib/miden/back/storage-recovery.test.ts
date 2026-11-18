@@ -495,55 +495,66 @@ it('carries only freshly verified transfer outcomes into the live store before c
   await expect(storageHealth.getWalletStorageFailure()).resolves.toBeUndefined();
 });
 
-it('decodes the verified swap request before the final chain identity check', async () => {
-  const evidence = {
-    attemptId: 'swap-attempt',
-    capturedAt: 1,
-    source: 'stage',
-    refBlock: 4,
-    refBlockCommitment: 'chain-id'
-  } as const;
-  const swap: ITransaction = {
-    id: 'verified-swap',
-    type: 'swap',
-    accountId,
-    displayIcon: 'SWAP',
-    initiatedAt: 1,
-    status: ITransactionStatus.Unconfirmed,
-    mayHaveSubmitted: true,
-    attemptId: evidence.attemptId,
-    requestBytes: Uint8Array.of(7, 7),
-    extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 5n },
-    submitEvidence: [evidence]
-  };
-  const savedOrder = { orderId: '42', orderNoteId: `0x${'c'.repeat(64)}` };
-  const landed = { attemptId: evidence.attemptId, proof: { kind: 'commitment' } } as const;
-  jest.mocked(Repo.deserializeRecoveryTransfers).mockReturnValue([swap]);
-  jest.mocked(orderFromSavedRequest).mockResolvedValue(savedOrder);
-  jest.mocked(judgeSubmitEvidence).mockResolvedValue({
-    rowId: swap.id,
-    judgedEntries: [evidence],
-    entries: [],
-    landed,
-    allDead: false,
-    landingHeld: false
-  });
-  mockBlockCommitment.mockResolvedValueOnce(evidence.refBlockCommitment);
+it.each([
+  ['current attempt', 'swap-attempt', true],
+  ['earlier attempt', 'newer-attempt', true],
+  ['earlier attempt with another note', 'newer-attempt', false]
+] as const)(
+  'decodes the verified swap request for %s before the final chain identity check',
+  async (_, attemptId, sameNote) => {
+    const savedOrder = { orderId: '42', orderNoteId: `0x${'c'.repeat(64)}` };
+    const noteId = sameNote ? savedOrder.orderNoteId : `0x${'d'.repeat(64)}`;
+    const evidence = {
+      attemptId: 'swap-attempt',
+      capturedAt: 1,
+      source: 'stage',
+      refBlock: 4,
+      refBlockCommitment: 'chain-id',
+      outputNoteIds: [noteId]
+    } as const;
+    const swap: ITransaction = {
+      id: 'verified-swap',
+      type: 'swap',
+      accountId,
+      displayIcon: 'SWAP',
+      initiatedAt: 1,
+      status: ITransactionStatus.Unconfirmed,
+      mayHaveSubmitted: true,
+      attemptId,
+      requestBytes: Uint8Array.of(7, 7),
+      extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 5n },
+      submitEvidence: [evidence]
+    };
+    const landed = { attemptId: evidence.attemptId, proof: { kind: 'note', noteId } } as const;
+    jest.mocked(Repo.deserializeRecoveryTransfers).mockReturnValue([swap]);
+    jest.mocked(orderFromSavedRequest).mockResolvedValue(savedOrder);
+    jest.mocked(judgeSubmitEvidence).mockResolvedValue({
+      rowId: swap.id,
+      judgedEntries: [evidence],
+      entries: [],
+      landed,
+      allDead: false,
+      landingHeld: false
+    });
+    mockBlockCommitment.mockResolvedValueOnce(evidence.refBlockCommitment);
 
-  await rebuildWalletStorage();
+    await rebuildWalletStorage();
 
-  expect(orderFromSavedRequest).toHaveBeenCalledWith(swap.requestBytes);
-  expect(jest.mocked(orderFromSavedRequest).mock.invocationCallOrder[0]).toBeLessThan(
-    mockBlockCommitment.mock.invocationCallOrder[0]!
-  );
-  expect(Repo.restoreRecoveryTransfers).toHaveBeenCalledWith(
-    [expect.objectContaining({ status: ITransactionStatus.Completed })],
-    retained.limits,
-    expect.any(Function),
-    expect.any(Function),
-    expect.objectContaining({ verifiedTransfers: new Map([[swap.id, { ...landed, savedOrder }]]) })
-  );
-});
+    expect(orderFromSavedRequest).toHaveBeenCalledWith(swap.requestBytes);
+    expect(jest.mocked(orderFromSavedRequest).mock.invocationCallOrder[0]).toBeLessThan(
+      mockBlockCommitment.mock.invocationCallOrder[0]!
+    );
+    expect(Repo.restoreRecoveryTransfers).toHaveBeenCalledWith(
+      [expect.objectContaining({ status: ITransactionStatus.Completed })],
+      retained.limits,
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({
+        verifiedTransfers: new Map([[swap.id, sameNote ? { ...landed, savedOrder } : landed]])
+      })
+    );
+  }
+);
 
 it('keeps a recovery-only submit pending through capture and requires its chain verdict on rebuild', async () => {
   const live: ITransaction = {
