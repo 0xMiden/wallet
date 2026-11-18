@@ -2588,6 +2588,100 @@ describe('verified wallet storage generation', () => {
     }
   );
 
+  it.each([undefined, 'relayed'] as const)(
+    'restores a proven private note delivery target without erasing a recorded %s outcome',
+    async noteDelivery => {
+      const noteId = '0x1234';
+      const live: ITransaction = {
+        ...row,
+        status: ITransactionStatus.Unconfirmed,
+        attemptId: sent.attemptId,
+        noteType: NoteTypeEnum.Private,
+        noteDelivery,
+        ...(noteDelivery ? { outputNoteIds: [noteId] } : {})
+      };
+      const verified = {
+        ...live,
+        status: ITransactionStatus.Completed,
+        transactionId: sent.transactionId,
+        mayHaveSubmitted: true,
+        submitEvidence: [{ ...sent, outputNoteIds: [noteId] }]
+      };
+      const generation = {
+        observed: currentGeneration,
+        verified: currentGeneration,
+        spendingSince: 0,
+        verifiedTransfers: new Set([row.id])
+      };
+      await transactions.add(live);
+
+      await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+
+      await expect(transactions.get(row.id)).resolves.toMatchObject({
+        status: ITransactionStatus.Completed,
+        stage: 'complete',
+        noteDelivery: noteDelivery ?? 'undelivered',
+        outputNoteIds: [noteId]
+      });
+    }
+  );
+
+  it('keeps newer block observations for unchanged submit proof inputs', async () => {
+    const observedEvidence = { ...sent, initialSeenAtBlock: 4, landingSeenAtBlock: 8, landingSeenBy: 1 } as const;
+    const live = {
+      ...row,
+      status: ITransactionStatus.Unconfirmed,
+      attemptId: sent.attemptId,
+      mayHaveSubmitted: true,
+      submitEvidence: [observedEvidence]
+    };
+    const verified = { ...live, status: ITransactionStatus.Completed, submitEvidence: [sent] };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Set([row.id])
+    };
+    await transactions.add(live);
+
+    await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+
+    await expect(transactions.get(row.id)).resolves.toMatchObject({
+      status: ITransactionStatus.Completed,
+      submitEvidence: [observedEvidence]
+    });
+  });
+
+  it('opens the saved order when recovery proves a swap landed', async () => {
+    const live: ITransaction = {
+      ...row,
+      type: 'swap',
+      status: ITransactionStatus.Unconfirmed,
+      attemptId: sent.attemptId,
+      extraInputs: {
+        requestedFaucetId: 'requested-faucet',
+        requestedAmount: 5n,
+        landedOrder: { orderId: '42', expiresAt: 50, noteId: '0x1234' }
+      }
+    };
+    const verified = { ...live, status: ITransactionStatus.Completed, submitEvidence: [sent] };
+    const generation = {
+      observed: currentGeneration,
+      verified: currentGeneration,
+      spendingSince: 0,
+      verifiedTransfers: new Set([row.id])
+    };
+    await transactions.add(live);
+
+    await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
+
+    await expect(transactions.get(row.id)).resolves.toMatchObject({
+      status: ITransactionStatus.Completed,
+      extraInputs: { orderId: 42n, expiresAt: 50 },
+      outputNoteIds: ['0x1234']
+    });
+  });
+
   it('keeps the prior generation and policy if a live spending row conflicts with the journal', async () => {
     await transactions.add({ ...row, spentUsd: 30n });
     await spendingLimits.add(config('25'));
