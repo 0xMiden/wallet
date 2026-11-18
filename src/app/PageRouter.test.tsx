@@ -99,7 +99,11 @@ jest.mock('app/env', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockAccount,
   useMidenContext: () => mockMiden
+}));
+jest.mock('lib/miden/front/claimable-notes', () => ({
+  useClaimableNotes: () => ({ data: undefined, isLoading: false })
 }));
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
