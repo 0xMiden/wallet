@@ -937,9 +937,9 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
     payoutChain.reviewNetwork
   );
   await expect(detailRowValue(page, enText('network'))).toHaveText(payoutChain.networkName, { timeout: step });
-  await expect(detailRowValue(page, enText('networkFee')), 'the fee row names the native fee asset').toHaveText(
-    sponsorshipFee
-  );
+  const maximumFee = detailRowValue(page, enText('networkFeeMax'));
+  await expect(maximumFee, 'the maximum fee row names the native fee asset').toContainText(sponsorshipFee);
+  await expect(maximumFee.locator(':scope > div:first-child')).toContainText(opts.nativeSymbol);
   await expect(payoutRowValue(page, 'usdcx-payout-fee'), "the review says Circle's fee varies").toHaveText(payout.fee);
   await expect(page.getByTestId('usdcx-burn-notice')).toHaveText(notice);
   await waitForReviewSubmitEnabled(page, REVIEW_READY_TIMEOUT_MS);
