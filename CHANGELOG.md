@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.
+
 - [FIX][ci] Allow a first explicitly approved Swap recovery return when an unsigned plan was retained and still matches the verified proceeds and vault balances. Previously issued return authority remains ineligible.
 
 - [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
