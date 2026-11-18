@@ -245,9 +245,7 @@ export async function fundSwapPair(
 export interface CreateOrderOptions {
   offerSymbol: string;
   requestSymbol: string;
-  /** Only this side is typed; the opposite side must match its quoted expected amount. */
-  amountAnchor: 'pay' | 'receive';
-  /** Expected human amounts, e.g. '10'. */
+  /** Exact human amounts: pay is typed and the readonly receive quote must match. */
   payAmount: string;
   receiveAmount: string;
 }
@@ -264,19 +262,20 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
   await expect(workbench.getByTestId('swap-flow').getByTestId('command-swap-composer')).toBeVisible({ timeout: 30_000 });
   await expect(workbench.getByTestId('command-footer').getByTestId('swap-review-submit')).toBeVisible();
 
-  await page.getByTestId('send-token-selector').first().click();
+  await workbench.getByTestId('command-swap-composer').getByTestId('send-token-selector').click();
   await page.getByTestId(`swap-token-${opts.offerSymbol}`).click();
-  await page.getByTestId('send-token-selector').nth(1).click();
+  const receive = page.getByTestId('command-swap-receive');
+  await receive.getByRole('button', { name: 'You Receive' }).click();
   await page.getByTestId(`swap-token-${opts.requestSymbol}`).click();
-  const payInput = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
-  const receiveInput = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
-  if (opts.amountAnchor === 'pay') await payInput.fill(opts.payAmount);
-  else await receiveInput.fill(opts.receiveAmount);
+  await expect(receive.getByTestId('send-amount-input')).toHaveCount(0);
+  const payInput = workbench.getByTestId('command-swap-composer').getByTestId('send-amount-input');
+  await payInput.fill(opts.payAmount);
   await expect(payInput).toHaveValue(opts.payAmount);
-  await expect(receiveInput).toHaveValue(opts.receiveAmount);
+  await expect(receive.getByText(opts.receiveAmount, { exact: true })).toHaveCount(1);
 
-  await page.getByTestId('swap-review-submit').click();
-  await page.getByTestId('swap-submit').click();
+  await workbench.getByTestId('command-footer').getByTestId('swap-review-submit').click();
+  await expect(workbench.getByText(`≈ ${opts.receiveAmount} ${opts.requestSymbol}`, { exact: true })).toHaveCount(1);
+  await workbench.getByTestId('command-footer').getByTestId('swap-submit').click();
   await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
 
   let orderId = '';
