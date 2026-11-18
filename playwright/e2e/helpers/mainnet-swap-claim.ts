@@ -94,14 +94,21 @@ export function authorizeMainnetSwapRecoveryReturn(
   authorizedAt: string
 ): MainnetSwapCheckpoint {
   const original = state.forwardRequestAuthority;
+  // A pre-submission failure can retain the unsigned plan without retaining a return authority.
+  const retainedUnsignedPlan =
+    state.phase === 'forward-settled' &&
+    state.authorizationRunId === state.sourceRunId &&
+    state.returnAmount === evidence.amount.toString() &&
+    state.returnBaseline?.offer === balances.offer.toString() &&
+    state.returnBaseline.request === balances.request.toString() &&
+    state.returnBaseline.native === balances.native.toString();
   if (
     (state.phase !== 'forward-authorized' && state.phase !== 'forward-settled') ||
     !original ||
     state.recoveryReturnAuthorizedAt !== undefined ||
     state.reverseRequestAuthority !== undefined ||
     state.reverseOrderId !== undefined ||
-    state.returnAmount !== undefined ||
-    state.returnBaseline !== undefined
+    (!retainedUnsignedPlan && (state.returnAmount !== undefined || state.returnBaseline !== undefined))
   )
     throw new Error('Recovery return already prepared or issued; never renew its authority');
   if (
