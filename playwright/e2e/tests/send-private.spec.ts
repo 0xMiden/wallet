@@ -1,4 +1,6 @@
+import { IS_LOCALNET } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
+import { LOCALNET_SDK_STORES } from '../harness/extension-network';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import {
   fromBaseUnits,
@@ -24,6 +26,7 @@ test.describe('Private Note Send', () => {
     walletA,
     walletB,
     midenCli,
+    envConfig,
     steps,
     timeline
   }) => {
@@ -155,5 +158,72 @@ test.describe('Private Note Send', () => {
         ]
       }
     );
+
+    if (IS_LOCALNET) {
+      await steps.step('rebuild_receiver_and_verify_private_note_after_browser_restart', async () => {
+        expect(walletB.ownsProfile, 'IndexedDB loss must use an isolated test profile').toBe(true);
+        const sdkStore = LOCALNET_SDK_STORES.get(envConfig.rpcUrl);
+        if (!sdkStore) throw new Error('Localnet SDK database is unknown');
+        const origin = `chrome-extension://${walletB.extensionId}`;
+        const readIds = async (db: string, store: string, key: string): Promise<unknown[]> => {
+          if (!(await walletB.listIndexedDBStores()).some(entry => entry.db === db && entry.store === store)) return [];
+          const { json } = await walletB.dumpIndexedDBStore(db, store, 2);
+          return (JSON.parse(json) as Record<string, unknown>[]).map(row => row[key]);
+        };
+        const accountIds = () => readIds(sdkStore, 'latestAccountHeaders', 'id');
+        const noteIds = () => readIds(sdkStore, 'inputNotes', 'detailsCommitment');
+        const generationIds = () => readIds('TridentMain', 'recovery', 'id');
+        const journalHead = async () => (await walletB.dumpChromeStorage()).miden_recovery_v1_localnet_head;
+
+        await expect.poll(journalHead).toBeGreaterThan(0);
+        const accounts = await accountIds();
+        const notes = await noteIds();
+        expect(accounts).toEqual([expect.any(String)]);
+        expect(notes).toEqual([expect.any(String)]);
+        expect(await generationIds()).toEqual(['wallet']);
+
+        // Keep the authoritative localhost node available while ruling out private-note refetch.
+        await walletB.armNetworkFault({ target: 'transport', mode: 'connectionRefused' });
+        try {
+          await walletB.triggerSync(true);
+          await expect.poll(() => walletB.networkFaultHits()).toBeGreaterThan(0);
+          const protocol = await walletB.page.context().newCDPSession(walletB.page);
+          try {
+            await protocol.send('Storage.clearDataForOrigin', { origin, storageTypes: 'indexeddb' });
+          } finally {
+            await protocol.detach();
+          }
+          await expect.poll(accountIds).toEqual([]);
+          await expect.poll(noteIds).toEqual([]);
+          await expect.poll(generationIds).toEqual([]);
+          await expect.poll(journalHead).toBeGreaterThan(0);
+
+          await walletB.triggerSync(true);
+          const rebuild = walletB.page.getByRole('button', { name: 'Rebuild from recovery data' });
+          await expect(rebuild).toBeEnabled();
+          await rebuild.click();
+          await expect(walletB.page.getByRole('heading', { name: 'Wallet storage recovered' })).toBeVisible();
+          await expect(walletB.page.getByRole('status')).toContainText('Verified 1 of 1 accounts and 1 of 1 notes.');
+          expect(await accountIds()).toEqual(accounts);
+          expect(await noteIds()).toEqual(notes);
+          expect(await generationIds()).toEqual(['wallet']);
+          await walletB.page.getByRole('button', { name: 'Continue', exact: true }).click();
+
+          await walletB.killBrowser();
+          expect(await walletB.reopen()).toBe(true);
+          expect(await walletB.getAccountAddress()).toBe(addressB!);
+          expect(await accountIds()).toEqual(accounts);
+          expect(await noteIds()).toEqual(notes);
+        } finally {
+          await walletB.clearFaults();
+        }
+
+        await walletB.triggerSync(true);
+        await waitForPendingNoteTotal(walletB.page, TOKEN, beforeSend.toPending + SEND_BASE_UNITS, {
+          timeoutMs: 60_000,
+          decimals: TOKEN_DECIMALS
+        });
+      });
+    }
   });
 });
