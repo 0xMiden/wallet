@@ -220,6 +220,51 @@ export interface ISendExtraInputs {
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
 
+/**
+ * epoch: a Compact deposit that landed on the source chain while Epoch refused its allocation (#2120). The USDC
+ * stays in the sponsor's resource lock in The Compact. The row keeps phase `failed`, and this record is what lets
+ * the sponsor's connected EVM wallet register the deposit again or withdraw it. A row restored from a backup never
+ * uses it.
+ */
+export interface IEpochLockedDeposit {
+  /** The connected EVM account that signed the deposit. Only this account can recover it. */
+  sponsorAddress: string;
+  /** The EVM chain of The Compact that holds the deposit. */
+  chainId: number;
+  /** The Compact resource lock id (ERC-6909 token id), as a decimal string. */
+  lockId: string;
+  /** The deposited token, the zero address for a native deposit. */
+  tokenAddress: string;
+  isNative: boolean;
+  /** Base units this deposit added to the lock. */
+  amount: string;
+  /** The intent that the allocator refused: a retry registers it again over the locked balance. */
+  taskTypeString: string;
+  intentData: Record<string, unknown>;
+  /** Unix seconds at which the wallet found the deposit locked. */
+  lockedAt: number;
+  /** Unix seconds at which the forced withdrawal was enabled from this wallet. */
+  withdrawEnabledAt?: number;
+  /** Unix seconds from which The Compact lets the sponsor withdraw. */
+  withdrawableAt?: number;
+  withdrawTxHash?: string;
+  /**
+   * Base units that the withdrawal sent back: the whole balance of the lock. This can be more than `amount`, because
+   * the lock holds every deposit of the sponsor in this token on this chain.
+   */
+  withdrawnAmount?: string;
+  /** Unix seconds at which the deposit went back to the sponsor. Final. */
+  withdrawnAt?: number;
+  /**
+   * Unix seconds at which the wallet read the lock empty with no withdrawal of its own on record. It says nothing about
+   * where the funds went. `withdrawnAt`, `withdrawTxHash` and `withdrawnAmount` stay for a withdrawal that this wallet
+   * sent.
+   */
+  emptiedAt?: number;
+  /** Unix seconds at which a retry registered the deposit again. The row then continues as a normal bridge-in. */
+  reallocatedAt?: number;
+}
+
 /** One faucet's summed amount inside a batch consume. */
 export interface IConsumedAssetTotal {
   faucetId: string;
@@ -385,6 +430,8 @@ export interface IBridgedReceiveExtraInputs {
   usdcxRemoteRecipient?: string;
   /** Unix seconds at which the row first reached `ready`. Written once, never cleared, and kept through `failed`. */
   readyAt?: number;
+  /** epoch: the deposit that is in The Compact without an allocation. See `IEpochLockedDeposit`. */
+  epochLockedDeposit?: IEpochLockedDeposit;
 }
 
 /** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`
@@ -423,7 +470,8 @@ export interface ISwitchGuardianExtraInputs {
   // falls back to a deadline-bounded attempt, so a missing marker costs 30s and
   // never correctness. The two paths also differ in what state can be left
   // behind (see `registerFailed` above), and without `directSwitchReason` a
-  // support log cannot tell whether the unreachability verdict was right.
+  // support log cannot tell whether the classified verdict (unreachable, cannot
+  // co-sign or refused) was right.
   switchedDirectly?: boolean;
   directSwitchReason?: string;
   // `commitUnconfirmed`: the direct rotation was SUBMITTED but the wallet never
@@ -478,8 +526,16 @@ export interface ISwitchGuardianExtraInputs {
  */
 export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
 
+/** Native base-unit cap shown at confirmation, bound to a fingerprint of the source RPC/network. */
+export interface IUsdcxNetworkFeeBudget {
+  faucetId: string;
+  maxAmount: string;
+  scope: string;
+}
+
 /** Faucet-side lifecycle, independent of the sender's transaction status. */
 export interface IUsdcxBurn {
+  networkFeeBudget?: IUsdcxNetworkFeeBudget;
   noteId: string;
   destinationDomain: number;
   destinationUsdc?: `0x${string}`;

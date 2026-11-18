@@ -141,6 +141,7 @@ describe('funded nightly swap workflow', () => {
     expect(paths.split('\n')).toContain(
       'test-results/mainnet-epoch-state/roundtrip.json.return-readiness-failure.json'
     );
+    expect(paths.split('\n')).toContain('test-results/mainnet-epoch-state/roundtrip.json.return-solve-failure.json');
     expect(paths).not.toMatch(/epoch-reverse\.log|RUNNER_TEMP|epoch-reverse-results|mainnet-epoch-state\/\*/);
   });
   it('binds known unsigned NEAR reconciliation only to official artifact provenance without relabelling attempted funding', () => {

@@ -73,6 +73,12 @@ describe('nightly-only mainnet NEAR configuration', () => {
     const unsafe = { ...original, swap: { ...original.swap, oneClick: { serviceUrl: 'http://insecure.example' } } };
     expect(() => qualifyMainnetLoopConfig(unsafe, catalog(), tokens())).toThrow();
   });
+  it('does not infer a partner fee for the direct endpoint with an explicit empty app-fee list', () => {
+    const original = document();
+    const oneClick = { serviceUrl: 'https://1click.chaindefuser.com', appFees: [] };
+    const snapshot = qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens());
+    expect(parseBridgeConfig(snapshot, 'mainnet')?.swap?.oneClick?.feePolicy).toBeUndefined();
+  });
   it('preserves explicitly configured provider fees and the real HTTPS service', () => {
     const original = document();
     const oneClick = {
@@ -81,7 +87,7 @@ describe('nightly-only mainnet NEAR configuration', () => {
     };
     expect(
       qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())
-    ).toMatchObject({ swap: { oneClick } });
+    ).toMatchObject({ swap: { oneClick: { ...oneClick, feePolicy: nightlyFeePolicy } } });
   });
   it('enables real NEAR bindings without mutating the public document or unrelated routes', () => {
     const original = document();
@@ -93,7 +99,6 @@ describe('nightly-only mainnet NEAR configuration', () => {
         ...before.swap,
         oneClick: {
           serviceUrl: 'https://1click.chaindefuser.com',
-          feePolicy: nightlyFeePolicy,
           midenAssets: [{ assetId: nativeAsset, faucetId: hex, decimals: 6 }],
           evmAssets: [
             { assetId: evmAsset, blockchain: 'arb', chainId: 42161, contractAddress: usdc, decimals: 6, symbol: 'USDC' }

@@ -27,6 +27,8 @@ import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from './mainnet
 import {
   prepareMainnetNearRoundTrip,
   selectMainnetNearNativeAsset,
+  signedMainnetNearFees,
+  usesMainnetNearSignedEconomics,
   type MainnetNearPlanningFacts
 } from './mainnet-near-plan';
 import {
@@ -295,7 +297,7 @@ export async function runMainnetNearStage(wallet: GuardianAwareWalletPage, mode:
     },
     async request => {
       try {
-        return await requestOneClickQuote(setup.config, request, true, fetcher);
+        return await requestOneClickQuote(setup.config, request, !usesMainnetNearSignedEconomics(setup.config), fetcher);
       } catch (error) {
         if (error instanceof OneClickHttpError && error.status === 400) return undefined;
         throw error;
@@ -395,6 +397,38 @@ export async function runMainnetNearForward(
     setup.config
   );
   const deadline = assertOneClickFundingDeadline(requestDeadline, quote.quote.deadline);
+  if (usesMainnetNearSignedEconomics(setup.config)) {
+    const nativePrice = BigInt(state.native.usdMicros);
+    const tokenPrice = BigInt(state.evm.tokenUsdMicros);
+    const reverseDeadline = new Date(Date.now() + 300_000).toISOString();
+    const reverse = await requestOneClickQuote(
+      setup.config,
+      {
+        originAsset: evm,
+        destinationAsset: native,
+        amount: quote.quote.minAmountOut,
+        refundTo: state.evm.account,
+        recipient: state.account,
+        deadline: reverseDeadline,
+        slippageTolerance: 100
+      },
+      false,
+      createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId)
+    );
+    assertOneClickFundingDeadline(reverseDeadline, reverse.quote.deadline);
+    const nativeInput = tokenValueUsdMicro(BigInt(state.principal), 6, nativePrice, true);
+    const evmMinimum = tokenValueUsdMicro(BigInt(quote.quote.minAmountOut), 6, tokenPrice, false);
+    const evmInput = tokenValueUsdMicro(BigInt(reverse.quote.amountIn), 6, tokenPrice, true);
+    const nativeMinimum = tokenValueUsdMicro(BigInt(reverse.quote.minAmountOut), 6, nativePrice, false);
+    const loss = (nativeInput > evmMinimum ? nativeInput - evmMinimum : 0n) +
+      (evmInput > nativeMinimum ? evmInput - nativeMinimum : 0n) +
+      signedMainnetNearFees(quote, nativePrice, tokenPrice) +
+      signedMainnetNearFees(reverse, tokenPrice, nativePrice) +
+      tokenValueUsdMicro(BigInt(state.feeBudget), 6, nativePrice, true) +
+      tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, BigInt(state.evm.nativeUsdMicros), true);
+    if (loss > BigInt(state.lossBudgetUsdMicros))
+      throw new Error('Native NEAR signed forward economics exceed the remaining shared allowance');
+  }
   state.forwardQuote = {
     quoteHash: hashOneClickQuote(quote),
     correlationId: quote.correlationId,
@@ -851,14 +885,24 @@ export async function runMainnetNearReverse(
       return current > BigInt(original) ? current : BigInt(original);
     };
     const nativePrice = ceil(prices.usdMicrosById[nativePriceId], state.native.usdMicros);
-    const tokenPrice = ceil(prices.usdMicrosById[tokenPriceId], state.evm.tokenUsdMicros);
+    const currentTokenPrice = prices.usdMicrosById[tokenPriceId];
+    const tokenPrice = ceil(currentTokenPrice, state.evm.tokenUsdMicros);
     const gasPrice = ceil(prices.usdMicrosById.ethereum, state.evm.nativeUsdMicros);
     const loss =
       BigInt(state.principal) > BigInt(quote.quote.minAmountOut)
         ? BigInt(state.principal) - BigInt(quote.quote.minAmountOut)
         : 0n;
+    let signedLoss = 0n;
+    if (usesMainnetNearSignedEconomics(setup.config)) {
+      if (!currentTokenPrice || currentTokenPrice <= 0n) throw new Error('Missing fresh native NEAR token valuation');
+      const originalTokenPrice = BigInt(state.evm.tokenUsdMicros);
+      const creditPrice = currentTokenPrice < originalTokenPrice ? currentTokenPrice : originalTokenPrice;
+      const credit = tokenValueUsdMicro(amount, 6, creditPrice, false);
+      const principal = tokenValueUsdMicro(BigInt(state.principal), 6, nativePrice, true);
+      signedLoss = signedMainnetNearFees(quote, tokenPrice, nativePrice) + (principal > credit ? principal - credit : 0n);
+    }
     if (
-      tokenValueUsdMicro(loss + BigInt(state.feeBudget), 6, nativePrice, true) +
+      tokenValueUsdMicro(loss + BigInt(state.feeBudget), 6, nativePrice, true) + signedLoss +
         tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, gasPrice, true) >
       BigInt(state.lossBudgetUsdMicros)
     )

@@ -1664,12 +1664,16 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '9007199254740993'
+        feeReserve: '9007199254740993',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
 
       await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
         outcome: 'measured',
-        reserve: 9007199254740993n
+        reserve: 9007199254740993n,
+        faucetId: 'native',
+        scope: 'source-scope'
       });
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
@@ -1682,12 +1686,16 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '0'
+        feeReserve: '0',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
 
       await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
         outcome: 'measured',
-        reserve: 0n
+        reserve: 0n,
+        faucetId: 'native',
+        scope: 'source-scope'
       });
     });
 

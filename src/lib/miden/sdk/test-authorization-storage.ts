@@ -1,3 +1,4 @@
+import { OFFSCREEN_FETCH_FAULTS_KEY } from '../../../../playwright/e2e/harness/fetch-instrumentation';
 import { getStorageProvider } from '../../platform/storage-adapter';
 import { isRecord } from '../../update/guards';
 import { OFFSCREEN_TEST_AUTHORIZATION_STORAGE, SW_TARGET } from '../back/offscreen-codec';
@@ -23,7 +24,13 @@ const publicFields = new Set([
 ]);
 function keysForRead(keys: string | string[]): string[] {
   const list = typeof keys === 'string' ? [keys] : keys;
-  if (!list.length || list.length > 4 || !list.every(key => readKeys.has(key)))
+  if (
+    !list.length ||
+    list.length > 4 ||
+    !list.every(
+      key => readKeys.has(key) || (process.env.MIDEN_E2E_TEST === 'true' && key === OFFSCREEN_FETCH_FAULTS_KEY)
+    )
+  )
     throw new Error('Invalid authorization storage keys');
   return list;
 }
