@@ -106,7 +106,7 @@ async function hostedGuardian(url: string): Promise<GuardianIdentity> {
  * `debits` all it took besides its fee.
  */
 export async function settleLedger(
-  wallet: IosWalletPage,
+  wallet: Pick<IosWalletPage, 'homeVaultBaseUnits' | 'navigateHome' | 'readVaultBaseUnits'>,
   native: IosNativeAsset,
   term: {
     name: string;

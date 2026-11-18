@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import type { IosNativeAsset, IosWalletPage } from './ios-wallet-page';
+import type { IosNativeAsset } from './ios-wallet-page';
 import { settleLedger } from './usdcx-live';
 
 it('charges recorded burn sponsorship once and reports verification separately', async () => {
@@ -8,7 +8,15 @@ it('charges recorded burn sponsorship once and reports verification separately',
     expect(matches(999_629n)).toBe(false);
     return 999_748n;
   });
-  const wallet = { homeVaultBaseUnits } as IosWalletPage;
+  const wallet = {
+    homeVaultBaseUnits,
+    navigateHome: jest.fn(async () => {
+      throw new Error('unexpected landed path');
+    }),
+    readVaultBaseUnits: jest.fn(async () => {
+      throw new Error('unexpected landed path');
+    })
+  };
   const native: IosNativeAsset = { tokenId: 'native', symbol: 'USDCX', decimals: 6, baseFee: 7 };
   const term = {
     name: 'f1',
