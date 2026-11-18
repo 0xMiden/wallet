@@ -3,10 +3,13 @@ import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { IconName } from 'app/icons/v2';
 import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
 import { earnWithdrawAmountFields, formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { EmptyState } from 'components/ui/EmptyState';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
@@ -47,6 +50,7 @@ interface EarnWithdrawStatusProps {
  */
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const { row, loaded } = useTransactionRow(txId);
   const { trigger, state } = useLocation();
   const mountedByReturn = usePageMountedByReturn();
@@ -70,11 +74,20 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
   const nativeFaucetId = useMidenFaucetId();
   const onDone = () => navigate('/');
 
-  if (!loaded || !row)
+  if (!loaded || (!row && !command))
     return (
       <div className="flex h-8 justify-center pt-5">
         <Spinner />
       </div>
+    );
+
+  if (!row)
+    return (
+      <EmptyState
+        icon={IconName.Earn}
+        title={t('historyDetailsLoadError')}
+        secondaryAction={{ label: t('viewInActivities'), onClick: () => navigate('/history') }}
+      />
     );
 
   const inputs: IEarnWithdrawExtraInputs = row.extraInputs;

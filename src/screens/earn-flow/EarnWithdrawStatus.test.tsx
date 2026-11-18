@@ -9,8 +9,8 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import type { NativeAssetChainMetadata } from 'lib/miden-chain/native-asset';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
-import { CommandOperation } from 'screens/command/CommandOperation';
 import { resolveCommandRoute } from 'screens/command/command-routes';
+import { CommandOperation } from 'screens/command/CommandOperation';
 import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import type { TransactionSuccessLayoutProps } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 
