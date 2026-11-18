@@ -507,11 +507,11 @@ it.each([
     const evidence = {
       attemptId: 'swap-attempt',
       capturedAt: 1,
-      source: 'stage',
+      source: 'stage' as const,
       refBlock: 4,
       refBlockCommitment: 'chain-id',
       outputNoteIds: [noteId]
-    } as const;
+    };
     const swap: ITransaction = {
       id: 'verified-swap',
       type: 'swap',
