@@ -155,8 +155,8 @@ jobs:
   # e2e-dapp-browser.yml and e2e-blockchain.yml use; each step's reason is kept with it.
   dapp-e2e-ios:
     name: dapp-e2e-ios (${{ matrix.network }}, ${{ matrix.axis }})
-    # A push has no inputs, so every surface runs.
-    if: ${{ inputs.surface != 'extension' }}
+    # Diagnostic branch only: run only the Android Guardian leg.
+    if: ${{ false }}
     runs-on: macos-26-xlarge
     # At most about 50 min of setup (a cold CLI compile, idb, the iOS build on a cache miss and the stagger), the
     # 95-minute run step, and 15 for the steps after it: a job cut here loses its records and its judge.
@@ -368,7 +368,7 @@ jobs:
         network:
           - "${{ github.event_name == 'workflow_dispatch' && inputs.network || (github.ref == 'refs/heads/next' && 'devnet' || 'testnet') }}"
         # One account kind per leg: one test under JOURNEY_TIMEOUT_MS.PL (85 min) inside the 95-minute run step.
-        axis: [offchain, guardian]
+        axis: [guardian]
     env:
       E2E_NETWORK: ${{ matrix.network }}
       MIDEN_E2E_TEST: 'true'
