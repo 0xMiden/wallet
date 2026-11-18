@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
       - name: Verify wallet source
         env:
-          EXPECTED_SOURCE: ${{ inputs.wallet_source || 'bbcbae711c48ab64d4afa889825f14625bc2189b' }}
+          EXPECTED_SOURCE: ${{ inputs.wallet_source || '7d9de53573dd88cfa5829674d0fc390af953237e' }}
         run: |
           [[ "$EXPECTED_SOURCE" =~ ^[a-f0-9]{40}$ ]]
           git merge-base --is-ancestor "$EXPECTED_SOURCE" HEAD
