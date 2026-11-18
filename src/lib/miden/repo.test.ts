@@ -23,6 +23,7 @@ import {
   importDb,
   readWalletStoreGeneration,
   restoreRecoveryTransfers,
+  serializeRecoveryTransfer,
   spendingLimits,
   transactions,
   Table,
@@ -2719,7 +2720,7 @@ describe('verified wallet storage generation', () => {
     await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
 
     const restored = await transactions.get(row.id);
-    expect(restored?.extraInputs.orderId).toBe(unchanged ? 42n : undefined);
+    expect(restored?.extraInputs.orderId?.toString()).toBe(unchanged ? '42' : undefined);
     expect(restored?.extraInputs.expiresAt).toBe(unchanged ? 30 : undefined);
     expect(restored?.outputNoteIds).toEqual(unchanged ? [noteId] : undefined);
   });
@@ -2744,10 +2745,13 @@ describe('verified wallet storage generation', () => {
       verifiedTransfers: new Map([[row.id, landing]])
     };
     await transactions.add(live);
-    const writeSnapshot = jest.fn().mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
+    const writeSnapshot = jest
+      .fn<Promise<void>, [string[]]>()
+      .mockResolvedValue(undefined)
+      .mockRejectedValueOnce(new DOMException('No space left', 'QuotaExceededError'));
     const rebuild = async () => {
       const restored = await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation);
-      await writeSnapshot(restored.transfers);
+      await writeSnapshot(restored.transfers.map(serializeRecoveryTransfer));
     };
 
     await expect(rebuild()).rejects.toThrow('No space left');
@@ -2756,7 +2760,7 @@ describe('verified wallet storage generation', () => {
 
     await rebuild();
 
-    expect(writeSnapshot).toHaveBeenLastCalledWith([committed]);
+    expect(writeSnapshot).toHaveBeenLastCalledWith([serializeRecoveryTransfer(committed!)]);
   });
 
   it('refuses to journal a completed live row from a different transaction attempt', async () => {
@@ -2770,9 +2774,11 @@ describe('verified wallet storage generation', () => {
     };
     await transactions.add(live);
 
-    await expect(restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation)).rejects.toThrow(
-      WalletStorageUnavailableError
+    const refused = await restoreRecoveryTransfers([verified], [], sameAccount, assertCurrent, generation).then(
+      () => false,
+      (error: unknown) => error instanceof WalletStorageUnavailableError
     );
+    expect(refused).toBe(true);
     await expect(transactions.get(row.id)).resolves.toEqual(live);
   });
 
