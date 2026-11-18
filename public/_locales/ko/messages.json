@@ -2599,6 +2599,14 @@
     "message": "유효기간",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "추정",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "검토된 만료일이 변경되었습니다. 전송하기 전에 다시 한 번 검토하십시오.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "그때까지 수락되지 않으면 $amount$는 보류 중인 이체로 돌아오며, 직접 수락하면 됩니다. 자금이 사라지지 않습니다.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

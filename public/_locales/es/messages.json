@@ -2599,6 +2599,14 @@
     "message": "Fecha de caducidad",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Estimado",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "La fecha de caducidad revisada ha cambiado. Revísala de nuevo antes de enviarla.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Si no se acepta para entonces, los $amount$ vuelven como una transferencia pendiente que aceptas tú. No se pierde ningún fondo.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

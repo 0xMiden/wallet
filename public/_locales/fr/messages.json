@@ -2599,6 +2599,14 @@
     "message": "Date d'expiration",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Estimé",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "La date d’expiration vérifiée a été modifiée. Vérifiez-la à nouveau avant l’envoi.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "S'il n'est pas accepté d'ici là, les $amount$ reviennent sous forme de transfert en attente que vous acceptez. Aucun fonds n'est perdu.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

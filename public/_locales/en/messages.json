@@ -2599,6 +2599,14 @@
     "message": "Expiration Date",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Estimated",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "The reviewed expiration changed. Review it again before sending.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

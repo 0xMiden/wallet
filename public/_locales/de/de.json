@@ -545,6 +545,8 @@
   "swapSuccessSourcingLiquidity": "Wir beschaffen Liquidität für Ihren Swap. Der Handel wird in der Regel innerhalb von etwa 30 Sekunden ausgeführt.",
   "swapSuccessTrackProgress": "Den Fortschritt können Sie unter „Aktivitäten“ verfolgen.",
   "expirationDate": "Ablaufdatum",
+  "recallEstimated": "Geschätzt",
+  "recallReviewChanged": "Der überprüfte Ablauftermin hat sich geändert. Überprüfen Sie ihn noch einmal, bevor Sie die Nachricht absenden.",
   "recallReturnsNote": "Wird sie bis dahin nicht akzeptiert, kommen die $amount$ als ausstehende Überweisung zurück, die Sie akzeptieren. Es gehen keine Mittel verloren.",
   "recallTimeInPast": "Dieser Zeitpunkt ist bereits vorbei – wählen Sie einen zukünftigen Zeitpunkt aus",
   "expiresInSeconds": "In $seconds$ Sekunden",

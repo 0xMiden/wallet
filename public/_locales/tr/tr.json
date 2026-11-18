@@ -546,6 +546,8 @@
   "swapSuccessSourcingLiquidity": "Swap işleminiz için likidite temin ediyoruz. İşlem genellikle yaklaşık 30 saniye içinde tamamlanır.",
   "swapSuccessTrackProgress": "İlerleme durumunu “Etkinlikler” bölümünden takip edebilirsiniz.",
   "expirationDate": "Son Kullanım Tarihi",
+  "recallEstimated": "Tahmini",
+  "recallReviewChanged": "İncelenen son kullanma tarihi değişti. Göndermeden önce tekrar gözden geçirin.",
   "recallReturnsNote": "O tarihe kadar kabul edilmezse $amount$ sizin kabul edeceğiniz bekleyen bir transfer olarak geri döner. Hiçbir fon kaybolmaz.",
   "recallTimeInPast": "Bu zaman çoktan geçti — gelecekte bir zaman seçin",
   "expiresInSeconds": "$seconds$ saniye içinde",

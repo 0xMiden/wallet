@@ -2599,6 +2599,14 @@
     "message": "有效期限",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "預估",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "已審核的到期日已變更。發送前請再次審核。",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "如果到那時仍未被接受，$amount$ 將作為待接受的轉帳退回，由您接受。資金不會遺失。",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

@@ -546,6 +546,8 @@
   "swapSuccessSourcingLiquidity": "Estamos buscando liquidez para tu intercambio. Suele completarse en unos 30 segundos.",
   "swapSuccessTrackProgress": "Puedes seguir su progreso en Actividad.",
   "expirationDate": "Fecha de caducidad",
+  "recallEstimated": "Estimado",
+  "recallReviewChanged": "La fecha de caducidad revisada ha cambiado. Revísala de nuevo antes de enviarla.",
   "recallReturnsNote": "Si no se acepta para entonces, los $amount$ vuelven como una transferencia pendiente que aceptas tú. No se pierde ningún fondo.",
   "recallTimeInPast": "El momento seleccionado ya ha pasado; elige uno futuro",
   "expiresInSeconds": "Dentro de $seconds$ segundos",

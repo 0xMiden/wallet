@@ -2599,6 +2599,14 @@
     "message": "Son Kullanım Tarihi",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Tahmini",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "İncelenen son kullanma tarihi değişti. Göndermeden önce tekrar gözden geçirin.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "O tarihe kadar kabul edilmezse $amount$ sizin kabul edeceğiniz bekleyen bir transfer olarak geri döner. Hiçbir fon kaybolmaz.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

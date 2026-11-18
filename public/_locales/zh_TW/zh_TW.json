@@ -546,6 +546,8 @@
   "swapSuccessSourcingLiquidity": "我們正在為您的掉期交易籌措流動性。通常約 30 秒內即可成交。",
   "swapSuccessTrackProgress": "您可以在「活動」中追蹤其進度。",
   "expirationDate": "有效期限",
+  "recallEstimated": "預估",
+  "recallReviewChanged": "已審核的到期日已變更。發送前請再次審核。",
   "recallReturnsNote": "如果到那時仍未被接受，$amount$ 將作為待接受的轉帳退回，由您接受。資金不會遺失。",
   "recallTimeInPast": "這個時間已經過去了 — 請選擇未來的時間",
   "expiresInSeconds": "$seconds$ 秒內",

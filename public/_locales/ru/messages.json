@@ -2599,6 +2599,14 @@
     "message": "Срок годности",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Ориентировочная оценка",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "Проверенный срок действия изменился. Проверьте его ещё раз перед отправкой.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Если к тому времени перевод не примут, $amount$ вернётся как ожидающий перевод, который вы примете. Средства не теряются.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

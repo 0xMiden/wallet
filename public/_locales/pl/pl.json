@@ -546,6 +546,8 @@
   "swapSuccessSourcingLiquidity": "Szukamy płynności dla Twojej transakcji swapowej. Zazwyczaj transakcja zostaje zrealizowana w ciągu około 30 sekund.",
   "swapSuccessTrackProgress": "Możesz śledzić postępy w sekcji „Działania”.",
   "expirationDate": "Data ważności",
+  "recallEstimated": "Szacunkowe",
+  "recallReviewChanged": "Sprawdzona data wygaśnięcia uległa zmianie. Sprawdź ją ponownie przed wysłaniem.",
   "recallReturnsNote": "Jeśli do tego czasu nie zostanie zaakceptowany, $amount$ wraca jako oczekujący transfer, który akceptujesz. Żadne środki nie przepadają.",
   "recallTimeInPast": "Ten czas już minął — wybierz termin w przyszłości",
   "expiresInSeconds": "W ciągu $seconds$ sekund",

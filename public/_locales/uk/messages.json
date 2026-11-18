@@ -2599,6 +2599,14 @@
     "message": "Термін придатності",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Орієнтовна",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "Переглянутий термін дії змінився. Перегляньте його ще раз перед відправленням.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Якщо до того часу його не приймуть, $amount$ повернеться як очікуваний переказ, який ви приймете. Кошти не втрачаються.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

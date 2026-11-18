@@ -2599,6 +2599,14 @@
     "message": "Data de validade",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Estimado",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "A data de validade revisada foi alterada. Revise-a novamente antes de enviar.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Se não for aceite até lá, os $amount$ regressam como uma transferência pendente que você aceita. Nenhum fundo é perdido.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

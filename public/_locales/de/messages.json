@@ -2600,6 +2600,14 @@
     "message": "Ablaufdatum",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Geschätzt",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "Der überprüfte Ablauftermin hat sich geändert. Überprüfen Sie ihn noch einmal, bevor Sie die Nachricht absenden.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Wird sie bis dahin nicht akzeptiert, kommen die $amount$ als ausstehende Überweisung zurück, die Sie akzeptieren. Es gehen keine Mittel verloren.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",

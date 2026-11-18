@@ -546,6 +546,8 @@
   "swapSuccessSourcingLiquidity": "我们正在为您这笔掉期交易匹配流动性。通常大约30秒内即可成交。",
   "swapSuccessTrackProgress": "您可以在“活动”中查看其进度。",
   "expirationDate": "有效期",
+  "recallEstimated": "估计",
+  "recallReviewChanged": "已审核的到期时间已更改。发送前请再次审核。",
   "recallReturnsNote": "如果到那时仍未被接受，$amount$ 将作为待接受的转账退回，由您接受。资金不会丢失。",
   "recallTimeInPast": "该时间已过——请选择未来的时间",
   "expiresInSeconds": "$seconds$秒内",

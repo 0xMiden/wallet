@@ -546,6 +546,8 @@
   "swapSuccessSourcingLiquidity": "お客様のスワップ取引のために流動性を確保しています。通常、約30秒で約定します。",
   "swapSuccessTrackProgress": "その進捗状況は「アクティビティ」で確認できます。",
   "expirationDate": "有効期限",
+  "recallEstimated": "推定",
+  "recallReviewChanged": "校正済みの有効期限が変更されました。送信する前に再度確認してください。",
   "recallReturnsNote": "それまでに受け取られなかった場合、$amount$ は保留中の送金として戻り、あなたが受け取ります。資金が失われることはありません。",
   "recallTimeInPast": "この時間はすでに過ぎています — 別の時間を選んでください",
   "expiresInSeconds": "$seconds$秒後",

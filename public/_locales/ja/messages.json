@@ -2599,6 +2599,14 @@
     "message": "有効期限",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "推定",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "校正済みの有効期限が変更されました。送信する前に再度確認してください。",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "それまでに受け取られなかった場合、$amount$ は保留中の送金として戻り、あなたが受け取ります。資金が失われることはありません。",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
