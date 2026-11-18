@@ -26,11 +26,10 @@ import {
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  directSwitchTriggerFor,
   GuardianWriteDiscardedError,
   isHotKeyRotatedOutError,
-  isGuardianAccountUnusable,
   isGuardianSwitchDiscardedError,
-  isGuardianUnreachableError,
   readChainAccountCommitment,
   readLastSyncedVerdict
 } from 'lib/miden/guardian/direct-switch';
@@ -53,6 +52,7 @@ import {
   isGuardianCommitmentMismatch,
   isGuardianPendingConflict,
   isGuardianRateLimited,
+  isNewGuardianAnswer,
   recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry
@@ -1481,8 +1481,12 @@ async function reconcileStructuralApplyFailure(
       // with. Completion handles the undefined service by registering on the new
       // guardian directly, which is exactly what a released operator leaves us
       // needing.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
-      console.warn('[Guardian] old guardian unusable during switch reconcile - finalizing directly', error);
+      //
+      // A refusal (any HTTP 4xx, a 401 included) is the same condition here: the
+      // old operator cannot help, and the switch is already submitted.
+      const reconcileTrigger = directSwitchTriggerFor(error);
+      if (reconcileTrigger === undefined) throw error;
+      console.warn(`[Guardian] old guardian ${reconcileTrigger} during switch reconcile - finalizing directly`, error);
     }
   }
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
@@ -3325,7 +3329,7 @@ const waitForStructuralCommit = async (
  * One-line description of a classified guardian failure, for the audit field on
  * the row. Length-capped because this is persisted: a wasm trap's message can run
  * to kilobytes, and a row is not the place to keep one. The HTTP status is
- * included when present - it is what the unreachability verdict turned on, so a
+ * included when present - it is what the classified verdict turned on, so a
  * later reader can judge whether that verdict was right.
  */
 const describeError = (error: unknown): string => {
@@ -4089,9 +4093,10 @@ const generateGuardianTransaction = async (
       // guardian's pubkey FIRST (`guardian/index.ts`), so a typo'd or down NEW
       // endpoint fails there - and reporting that as "outgoing guardian
       // unreachable" blames the wrong operator on the one path whose entire job
-      // is saying which one is down. The two are not separable from out here
-      // (one rejection, either origin), so the message widens rather than
-      // guesses; the direct path then re-fails on the new endpoint and names it.
+      // is saying which one is down. A rejection of the new guardian's own key
+      // fetch is marked, so its origin is known and the subject is 'new guardian'.
+      // An unmarked rejection of the proposal push has either origin, so the
+      // subject stays 'outgoing or new guardian' and does not guess.
       let unreachableSubject = 'outgoing guardian';
       let syncPhase: ProposalSyncPhase | undefined;
       try {
@@ -4125,7 +4130,6 @@ const generateGuardianTransaction = async (
         // When the guardian side is unreachable (down operator, DNS, proxy 5xx),
         // fall back to the direct on-chain switch - the whole point of
         // switch-guardian as a recovery path is escaping a dead guardian.
-        // Reachable-guardian errors (401/409/…) keep the normal handling.
         //
         // "It answered, and it cannot co-sign for this account" is the second
         // condition that has to route here, and leaving it out closed the escape
@@ -4145,20 +4149,36 @@ const generateGuardianTransaction = async (
         // AWAY both are exactly as unusable as one that is down, and the direct
         // path needs nothing from either: it signs locally with hot + cold and
         // submits on chain.
-        const directSwitchTrigger = isGuardianUnreachableError(error)
-          ? `${unreachableSubject} unreachable`
-          : isGuardianAccountUnusable(error)
-            ? // Attributed by PHASE, not hardcoded. Only the service load is
-              // account-scoped to the outgoing operator alone; once it has
-              // succeeded the new endpoint is in play too, and a user-typed URL
-              // answering its non-account-scoped `/pubkey` with
-              // `404 {"code":"data_unavailable"}` reaches this same branch. This
-              // reason string is the row's only record of which operator a
-              // verdict was about, so it widens rather than guessing - the same
-              // rule the block above states for unreachability.
-              `${unreachableSubject} cannot co-sign for this account`
-            : undefined;
-        if (directSwitchTrigger === undefined) throw error;
+        //
+        // A refusal (any HTTP 4xx: a 401, a 403, a 409 that did not clear, a 429)
+        // is the third condition. The user asked to leave this operator, so its
+        // refusal of the proposal must not block the switch. A refusal is the
+        // OUTGOING Guardian's answer: a 4xx from the NEW Guardian's key fetch is
+        // marked in `createSwitchGuardianProposal`, is not a refusal, and fails the
+        // row with the Guardian's own error, which gives the status and the reason
+        // and does not name the endpoint. An error that is not a Guardian answer
+        // (a local failure, a rejected signature prompt) has no trigger and fails
+        // the row.
+        const trigger = directSwitchTriggerFor(error);
+        if (trigger === undefined) throw error;
+        // Attributed by PHASE and by MARKER, not hardcoded. Only the service load
+        // is account-scoped to the outgoing operator alone. A user-typed new URL
+        // that answers its key fetch with `404 data_unavailable` is marked and has
+        // no trigger. A marked error that reaches here is an unreachable verdict of
+        // the new Guardian, so its subject is 'new guardian'. Only the outgoing
+        // push can give an account-scoped code after the service loaded.
+        //
+        // Known limit: the multisig client fetches the new Guardian's key again
+        // inside the proposal push (`buildSwitchGuardianSummary` and
+        // `verifyGuardianEndpointCommitment` in `@openzeppelin/miden-multisig-client`,
+        // `multisig.js` lines 1295-1323 and 268-281). Its error carries no URL and
+        // is not marked, so a 4xx from that second fetch looks like an outgoing
+        // refusal and starts the direct switch. The direct switch gives the switch
+        // the user asked for. A fix needs the multisig client to mark or expose the
+        // origin of that fetch. This is why an unmarked push refusal keeps the
+        // subject 'outgoing or new guardian'.
+        const subject = isNewGuardianAnswer(error) ? 'new guardian' : unreachableSubject;
+        const directSwitchTrigger = `${subject} ${trigger}`;
         console.warn(`[Guardian] ${directSwitchTrigger} - switching directly on-chain:`, error);
         await generateDirectSwitchGuardianTransaction(
           sgTx,
@@ -4607,8 +4627,14 @@ const generateGuardianTransaction = async (
       // verdict's timing changes what it means for the direct path, which asks the
       // outgoing operator for nothing; the pushed delta is retracted best-effort
       // just below, exactly as it is for an unreachable operator.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
-      console.warn('[Guardian] outgoing guardian unusable at cold co-sign - switching directly on-chain:', error);
+      //
+      // A refusal of the cold co-sign (any HTTP 4xx) goes to the direct path too.
+      const coldCoSignTrigger = directSwitchTriggerFor(error);
+      if (coldCoSignTrigger === undefined) throw error;
+      console.warn(
+        `[Guardian] outgoing guardian ${coldCoSignTrigger} at cold co-sign - switching directly on-chain:`,
+        error
+      );
       // Try to retract the pushed delta first, best-effort and swallowed - the
       // same idiom the submission failure path below uses. It will usually fail
       // (it needs the operator we just failed to reach), but "the call may fail"
@@ -4625,9 +4651,10 @@ const generateGuardianTransaction = async (
       // there is no co-signature the chain may be about to consume.
       //
       // Deadline-bounded like the calls above it, and for a sharper reason: one
-      // of the two verdicts that reach here is that this operator is unreachable,
-      // and the shape that most often produces that verdict is one that accepts
-      // the connection and never replies. Left to the fetch boundary's minute per
+      // of the three verdicts that reach here (unreachable, cannot co-sign and
+      // refused) is that this operator is unreachable, and the shape that most
+      // often produces that verdict is one that accepts the connection and never
+      // replies. Left to the fetch boundary's minute per
       // request, a best-effort call against it holds the row at `signing-proposal`
       // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
       // A cleanup step must not be able to cost more than the thing it cleans up.
@@ -4648,9 +4675,7 @@ const generateGuardianTransaction = async (
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian ${
-          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
-        } at cold co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${coldCoSignTrigger} at cold co-sign, after the proposal was pushed: ${describeError(error)}`
       );
       return;
     }
@@ -4982,7 +5007,7 @@ const generateGuardianTransaction = async (
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the
     // other three. A `switch-guardian` that reaches here because the operator is
-    // unreachable or cannot co-sign has no requeue and no user-facing Retry, so
+    // unreachable, cannot co-sign or refuses has no requeue and no user-facing Retry, so
     // rethrowing ends it Failed and leaves the user pointed at the very guardian
     // they were trying to escape - the exact dead end this feature exists to
     // remove.
@@ -5001,18 +5026,23 @@ const generateGuardianTransaction = async (
     //
     // The poison case above is deliberately excluded and still rethrows - an
     // evicted pipeline is abandoned rather than stopped, and may yet submit.
-    if (
-      transaction.type === 'switch-guardian' &&
-      !guardianCoSignReturned &&
-      (isGuardianUnreachableError(error) || isGuardianAccountUnusable(error))
-    ) {
+    //
+    // A refusal of the final co-sign (any HTTP 4xx) goes to the direct path too,
+    // under the same `guardianCoSignReturned` condition.
+    const finalCoSignTrigger =
+      transaction.type === 'switch-guardian' && !guardianCoSignReturned ? directSwitchTriggerFor(error) : undefined;
+    if (finalCoSignTrigger !== undefined) {
+      console.warn(
+        `[Guardian] outgoing guardian ${finalCoSignTrigger} at the final co-sign - switching directly on-chain:`,
+        error
+      );
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian ${
-          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
-        } at the final co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${finalCoSignTrigger} at the final co-sign, after the proposal was pushed: ${describeError(
+          error
+        )}`
       );
       return;
     }

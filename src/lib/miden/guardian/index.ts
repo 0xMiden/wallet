@@ -47,6 +47,7 @@ import {
   guardianRegisterBackoffMs,
   isGuardianPendingConflict,
   isGuardianStateNotOnChain,
+  markNewGuardianAnswer,
   NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
 } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -1281,8 +1282,14 @@ export class MultisigService {
         // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
         // nor length. Same boundary the direct-switch path applies.
         // Every probed check carries its own deadline: a caller's deadline abandons it without cancelling it.
+        // A rejection of this fetch is the NEW guardian's answer, not the outgoing one's. It is marked and
+        // rethrown as the same object, so the switch pipeline does not start the direct switch for its 4xx.
+        const pubkeyFetch = newGuardian.getPubkey('ecdsa').catch(error => {
+          markNewGuardianAnswer(error);
+          throw error;
+        });
         const answer = await withTimeout(
-          newGuardian.getPubkey('ecdsa'),
+          pubkeyFetch,
           NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
           `New guardian ${newGuardianEndpoint} pubkey fetch`
         );
