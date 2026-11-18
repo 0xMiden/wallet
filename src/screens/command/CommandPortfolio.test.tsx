@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { readPortfolioObservations, recordPortfolioObservation } from 'lib/miden/portfolio-observations';
 import { portfolioObservations } from 'lib/miden/repo';
@@ -21,7 +21,7 @@ const rows = [
     balance: 2,
     balanceBaseUnits: '2000000',
     fiatPrice: 3,
-    metadata: { name: 'ETH', symbol: 'ETH', decimals: 6 }
+    metadata: { name: 'Ethereum', symbol: 'ETH', decimals: 6 }
   },
   {
     tokenId: 'unpriced',
@@ -29,9 +29,10 @@ const rows = [
     balance: 4,
     balanceBaseUnits: '4000000',
     fiatPrice: 0,
-    metadata: { name: 'OTHER', symbol: 'OTHER', decimals: 6 }
+    metadata: { name: 'Voucher', symbol: 'OTHER', decimals: 6 }
   }
 ];
+let mockAssets: typeof rows = rows;
 let resolvePreference: (() => void) | undefined;
 let mockCanRecord = false;
 let mockMarketMove: { absolute: number; percentage: number } | null = null;
@@ -82,7 +83,7 @@ jest.mock('lib/miden/front/storage', () => ({
 }));
 jest.mock('./useCommandPortfolio', () => ({
   useCommandPortfolio: () => ({
-    assets: rows,
+    assets: mockAssets,
     tokenPrices: {},
     value: mockCurrent ? mockValue : null,
     priceMovement24h: mockMarketMove,
@@ -95,6 +96,7 @@ jest.mock('./useCommandPortfolio', () => ({
 }));
 
 beforeEach(async () => {
+  mockAssets = rows;
   store.hidden = true;
   store.pending = false;
   mockCanRecord = false;
@@ -334,6 +336,83 @@ it('positions samples by observation time, and mouse and keyboard inspect the sa
   expect(screen.getByRole('status').textContent).toContain('5.00 USD');
   fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
   expect(screen.getByRole('status').textContent).toContain('5.00 USD');
+});
+
+it('filters current holdings by trimmed name or symbol and restores their original order on clear', () => {
+  store.hidden = false;
+  render(<CommandPortfolio scope={scope} />);
+  const holdings = screen.getByLabelText('assets');
+  expect(within(holdings).getByText('Ethereum')).toBeInTheDocument();
+  expect(within(holdings).getByText('Voucher')).toBeInTheDocument();
+  expect(Array.from(holdings.children).map(row => row.textContent)).toEqual([
+    expect.stringContaining('Ethereum'),
+    expect.stringContaining('Voucher')
+  ]);
+
+  const search = screen.getByRole('textbox', { name: 'searchAssets' });
+  fireEvent.change(search, { target: { value: '  eThErEuM  ' } });
+  expect(within(holdings).getByText('Ethereum')).toBeInTheDocument();
+  expect(within(holdings).queryByText('Voucher')).not.toBeInTheDocument();
+  fireEvent.change(search, { target: { value: 'OtHeR' } });
+  expect(within(holdings).getByText('Voucher')).toBeInTheDocument();
+  expect(within(holdings).queryByText('Ethereum')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+  expect(search).toHaveValue('');
+  expect(Array.from(holdings.children).map(row => row.textContent)).toEqual([
+    expect.stringContaining('Ethereum'),
+    expect.stringContaining('Voucher')
+  ]);
+});
+
+it('distinguishes no matching names or symbols from a wallet with no current holdings', () => {
+  store.hidden = false;
+  const view = render(<CommandPortfolio scope={scope} />);
+  const search = screen.getByRole('textbox', { name: 'searchAssets' });
+  fireEvent.change(search, { target: { value: 'priced' } });
+  expect(screen.getByText('exploreNoResultsTitle')).toBeInTheDocument();
+  expect(screen.queryByText('Ethereum')).not.toBeInTheDocument();
+  expect(screen.queryByText('Voucher')).not.toBeInTheDocument();
+  mockAssets = [];
+  mockValue = '0';
+  view.rerender(<CommandPortfolio scope={scope} />);
+  expect(screen.getByText('noNoteAssets')).toBeInTheDocument();
+  expect(screen.queryByText('exploreNoResultsTitle')).not.toBeInTheDocument();
+});
+
+it('keeps known scoped identities but withholds their amounts and search while balance freshness is unavailable', () => {
+  store.hidden = false;
+  mockCurrent = false;
+  render(<CommandPortfolio scope={scope} />);
+  const holdings = screen.getByLabelText('assets');
+  expect(within(holdings).getByText('Ethereum')).toBeInTheDocument();
+  expect(within(holdings).getByText('Voucher')).toBeInTheDocument();
+  expect(within(holdings).getAllByText('commandBalanceUnavailable').length).toBeGreaterThan(1);
+  expect(within(holdings).queryByText('2.00 ETH')).not.toBeInTheDocument();
+  expect(within(holdings).queryByRole('textbox', { name: 'searchAssets' })).not.toBeInTheDocument();
+  expect(screen.queryByText('noNoteAssets')).not.toBeInTheDocument();
+  expect(screen.queryByText('exploreNoResultsTitle')).not.toBeInTheDocument();
+});
+
+it('does not describe unavailable current holdings as an empty wallet or a search miss', () => {
+  mockCurrent = false;
+  mockAssets = [];
+  render(<CommandPortfolio scope={scope} />);
+  const holdingsSection = screen.getByText('assets').closest('section');
+  if (!holdingsSection) throw new Error('Assets section missing');
+  expect(within(holdingsSection).getByText('commandBalanceUnavailable')).toBeInTheDocument();
+  expect(within(holdingsSection).queryByText('noNoteAssets')).not.toBeInTheDocument();
+  expect(within(holdingsSection).queryByText('exploreNoResultsTitle')).not.toBeInTheDocument();
+  expect(within(holdingsSection).queryByRole('textbox', { name: 'searchAssets' })).not.toBeInTheDocument();
+});
+
+it('keeps a searched holding masked while the privacy preference hides quantities', () => {
+  render(<CommandPortfolio scope={scope} />);
+  fireEvent.change(screen.getByRole('textbox', { name: 'searchAssets' }), { target: { value: 'voucher' } });
+  const holdings = screen.getByLabelText('assets');
+  expect(within(holdings).getByText('Voucher')).toBeInTheDocument();
+  expect(within(holdings).queryByText('Ethereum')).not.toBeInTheDocument();
+  expect(within(holdings).getAllByText('commandMaskedBalance').length).toBeGreaterThan(0);
+  expect(within(holdings).queryByText('4.00 OTHER')).not.toBeInTheDocument();
 });
 
 it('keeps balances usable when the optional history write fails, and refuses an old account scope', async () => {
