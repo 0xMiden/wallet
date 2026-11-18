@@ -19,6 +19,7 @@ const rows = [
     tokenId: 'priced',
     tokenSlug: 'ETH',
     balance: 2,
+    balanceBaseUnits: '2000000',
     fiatPrice: 3,
     metadata: { name: 'ETH', symbol: 'ETH', decimals: 6 }
   },
@@ -26,6 +27,7 @@ const rows = [
     tokenId: 'unpriced',
     tokenSlug: 'OTHER',
     balance: 4,
+    balanceBaseUnits: '4000000',
     fiatPrice: 0,
     metadata: { name: 'OTHER', symbol: 'OTHER', decimals: 6 }
   }

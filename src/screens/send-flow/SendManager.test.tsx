@@ -445,6 +445,9 @@ jest.mock('lib/miden/front', () => ({
   useAllBalances: (address: string) => ({ isLoading: mockBalancesLoading, ...useAllBalancesMock(address) }),
   useAllTokensBaseMetadata: () => useAllTokensBaseMetadataMock()
 }));
+jest.mock('lib/miden/front/claimable-notes', () => ({
+  useClaimableNotes: () => ({ data: undefined, isLoading: false })
+}));
 jest.mock('app/hooks/useHiddenTokens', () => ({
   useHiddenTokens: () => ({ loaded: mockHiddenTokensLoaded, isHidden: (id: string) => mockHiddenTokenIds.has(id) })
 }));

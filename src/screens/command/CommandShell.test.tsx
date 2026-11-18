@@ -74,6 +74,11 @@ jest.mock('lib/miden/front', () => ({
 jest.mock('lib/miden/front/claimable-notes', () => ({
   useClaimableNotes: () => ({ data: [], isFallback: false, mutate: jest.fn() })
 }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveRpcUrl: () => 'https://rpc.test'
+}));
 jest.mock('./useCommandPrivacy', () => ({ useCommandPrivacy: () => [mockHidden, jest.fn()] }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
