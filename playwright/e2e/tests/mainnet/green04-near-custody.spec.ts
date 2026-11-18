@@ -18,7 +18,11 @@ import { hashOneClickQuote } from '../../../../src/lib/one-click/signature';
 
 const checkpoint = 'test-results/near/roundtrip.json';
 const digest = () => createHash('sha256').update(readFileSync(checkpoint)).digest('hex');
+let stage = 'checkpoint';
 test.use({ injectFeeFaucet: false });
+test.afterEach(async ({}, info) => {
+  if (info.status !== 'passed') writeFileSync('test-results/green04-near-stage.json', JSON.stringify({ stage }));
+});
 test('bind the original NEAR deposit to the public payout and actual private custody', async ({ walletB }) => {
   test.setTimeout(300_000);
   const hash = digest();
@@ -31,9 +35,12 @@ test('bind the original NEAR deposit to the public payout and actual private cus
   assert.equal(state.reverseQuote, undefined);
   assert.equal(state.transactions, undefined);
   const note = state.sendAuthority.noteId;
+  stage = 'public-note-creator';
   const creator = await readMainnetMidenOwnNoteCreator(note, state.accountHex);
+  stage = 'public-note-inclusion';
   await verifyMainnetMidenNoteInclusion('https://rpc.mainnet.miden.io', note, creator.blockNumber, state.accountHex);
   const quote = state.forwardQuote;
+  stage = 'signed-provider-status';
   const status = await fetchOneClickStatus(
     { serviceUrl: state.serviceUrl, appFees: state.appFees, feePolicy: state.feePolicy,
       midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }] },
@@ -47,10 +54,12 @@ test('bind the original NEAR deposit to the public payout and actual private cus
   assert.equal(status.swapDetails.destinationChainTxHashes.length, 1);
   const payout = status.swapDetails.destinationChainTxHashes[0]?.hash.toLowerCase();
   assert.ok(payout && isHash(payout));
+  stage = 'evm-payout-receipt';
   const client = createPublicClient({ chain: mainnetChain(state.evm.chainId), transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
   const receipt = await client.getTransactionReceipt({ hash: payout });
   const received = inspectMainnetNearForwardReceipt(state, payout, receipt);
   const account = getAddress(state.evm.account);
+  stage = 'evm-holdings';
   const [token, gas, latest, pending] = await Promise.all([
     client.readContract({ address: getAddress(state.evm.token), abi: erc20Abi, functionName: 'balanceOf', args: [account] }),
     client.getBalance({ address: account }),
@@ -60,9 +69,11 @@ test('bind the original NEAR deposit to the public payout and actual private cus
   assert.equal(token, BigInt(state.evm.tokenBalance) + received);
   assert.equal(gas, BigInt(state.evm.nativeBalance));
   assert.equal(latest, pending);
+  stage = 'private-restore';
   await restoreMainnetLoopGuardian(walletB, process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
   assert.equal(await walletB.getAccountAddress(), state.account);
   const native = await vaultBalanceByFaucetId(walletB.page, state.native.faucetId);
+  stage = 'private-fee-evidence';
   const rows: TransactionRowSnapshot[] = (await readTransactionRowsWithBytes(walletB.page, 'send')).filter(
     row => row.outputNoteIds?.includes(note) && row.status === TxStatus.Completed
   );
@@ -70,6 +81,7 @@ test('bind the original NEAR deposit to the public payout and actual private cus
   assert.ok(rows.length === 1 && row?.feeAmount && /^[1-9]\d*$/.test(row.feeAmount) && row.feeFaucetId);
   assert.equal(canonicalMainnetLoopFaucet(row.feeFaucetId), state.native.hex);
   if (row.transactionId) assert.equal(row.transactionId.toLowerCase(), creator.transactionId);
+  stage = 'private-balance';
   assert.equal(native, BigInt(state.native.balance) - BigInt(state.principal) - BigInt(row.feeAmount));
   assert.equal(digest(), hash);
   writeFileSync('test-results/green04-near-custody.json', JSON.stringify({
