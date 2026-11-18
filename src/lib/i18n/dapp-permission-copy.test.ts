@@ -213,3 +213,30 @@ describe('dApp login signature note', () => {
     for (const shipped of notes) expect(shipped).not.toBe(RETIRED_LOGIN_NOTE);
   });
 });
+
+/**
+ * The connect window lists what a standing private-data grant lets the site do. Its title is a capability, never an
+ * instruction: the Korean bundle once read "허락 없이 개인 데이터를 읽지 마십시오" (do not read private data
+ * without permission), which says the opposite of the grant the user is about to give.
+ */
+describe('dApp connect fact: standing private-data access', () => {
+  const FACT_KEY = 'connectFactReadPrivateTitle';
+  const readJson = (file: string): Record<string, unknown> =>
+    JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, file), 'utf8'));
+  const koTitles = (): string[] => {
+    const entry = readJson('ko/messages.json')[FACT_KEY];
+    const flat = readJson('ko/ko.json')[FACT_KEY];
+    return [
+      typeof entry === 'object' && entry !== null && 'message' in entry ? String(entry.message) : '',
+      typeof flat === 'string' ? flat : ''
+    ];
+  };
+
+  it('states the Korean capability in both shipped bundles, without the prohibitive ending', () => {
+    for (const title of koTitles()) {
+      expect(title).toMatch(/개인 데이터/);
+      expect(title).toMatch(/읽기$/);
+      expect(title).not.toMatch(/마십시오|마세요|않습니다/);
+    }
+  });
+});

@@ -9135,7 +9135,7 @@
     "englishSource": "See your balance and history"
   },
   "connectFactReadPrivateTitle": {
-    "message": "허락 없이 개인 데이터를 읽지 마십시오",
+    "message": "묻지 않고 개인 데이터 읽기",
     "englishSource": "Read private data without asking"
   },
   "connectFactReadPrivateDescription": {

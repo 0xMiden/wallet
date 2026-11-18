@@ -1999,7 +1999,7 @@
   "bridgeWithdrawalUseSlow": "대신 '슬로우 브리지(Slow bridge)'를 사용하십시오.",
   "connectFactsTitle": "이 사이트는 다음과 같은 기능을 제공할 예정입니다.",
   "connectFactSeeBalanceTitle": "잔액 및 내역 확인하기",
-  "connectFactReadPrivateTitle": "허락 없이 개인 데이터를 읽지 마십시오",
+  "connectFactReadPrivateTitle": "묻지 않고 개인 데이터 읽기",
   "connectFactReadPrivateDescription": "$scopes$에 대한 접근 권한이 부여됩니다.",
   "connectFactAskPrivateTitle": "개인 정보를 열람하기 전에 반드시 확인하십시오",
   "connectFactTxRequestsTitle": "거래 요청을 보내드립니다",
