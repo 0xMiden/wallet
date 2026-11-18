@@ -1,0 +1,77 @@
+name: Fresh wallet storage browser proof
+
+on:
+  push:
+    branches: [ci/fresh-wallet-storage-browser]
+  workflow_dispatch:
+    inputs:
+      web_run:
+        description: Exact linked Web SDK CI run containing the browser package
+        required: false
+        type: string
+      wallet_source:
+        description: Exact wallet source SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Verify wallet source
+        env:
+          EXPECTED_SOURCE: ${{ inputs.wallet_source || 'bbcbae711c48ab64d4afa889825f14625bc2189b' }}
+        run: |
+          [[ "$EXPECTED_SOURCE" =~ ^[a-f0-9]{40}$ ]]
+          git merge-base --is-ancestor "$EXPECTED_SOURCE" HEAD
+          git diff --exit-code "$EXPECTED_SOURCE" HEAD -- . ':!.github/workflows/fresh-wallet-storage-browser.yml'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Use browser SDK from the linked source build
+        if: inputs.web_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WEB_RUN: ${{ inputs.web_run }}
+        run: |
+          [[ "$WEB_RUN" =~ ^[0-9]+$ ]]
+          gh run download "$WEB_RUN" -R 0xMiden/web-sdk -n linked-storage-recovery-sdk -D "$RUNNER_TEMP/linked-sdk"
+          mapfile -t packages < <(find "$RUNNER_TEMP/linked-sdk" -name '*.tgz')
+          [[ "${#packages[@]}" == 1 ]]
+          tar -xzf "${packages[0]}" -C node_modules/@miden-sdk/miden-sdk --strip-components=1
+          test -s node_modules/@miden-sdk/miden-sdk/dist/st/index.js
+          test -s node_modules/@miden-sdk/miden-sdk/dist/mt/index.js
+      - uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
+      - name: Build and verify extension
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+        run: |
+          yarn build:chrome
+          node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
+          node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install disposable Chromium
+        timeout-minutes: 12
+        run: yarn playwright install --with-deps chromium
+      - name: Prove loss is visible and wallet actions stay paused
+        run: xvfb-run -a yarn playwright test playwright/tests/wallet-storage-recovery.spec.ts --retries=0
+      - name: Upload recovery screen
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wallet-storage-recovery-screen
+          path: test-results/**/wallet-access-storage-recovery.png
+          retention-days: 7
+          if-no-files-found: error
