@@ -3155,7 +3155,7 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Parolanız ve Guardian'ınızın yedeği, hesabınızı geri yükler. Parolanızı güvenli bir yerde saklayın.",
+    "message": "Kurtarma ifadeniz ve Guardian'ınızın yedeği hesabınızı geri yükler. İfadeyi güvenli bir yerde saklayın.",
     "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
