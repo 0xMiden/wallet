@@ -55,7 +55,7 @@ export function CommandBridge(): React.ReactElement {
   const footer = bridge.operationId ? (
     <Button
       type="button"
-      className="w-full max-w-none"
+      className="w-full max-w-none sm:w-auto sm:min-w-40"
       onClick={() => {
         hapticLight();
         navigate(stoppedBeforeSource ? '/history' : `/history-details/${bridge.operationId}`);
@@ -67,7 +67,7 @@ export function CommandBridge(): React.ReactElement {
     <Button
       type="submit"
       form={formId}
-      className="w-full max-w-none"
+      className="w-full max-w-none sm:w-auto sm:min-w-40"
       disabled={locked || (bridge.review ? false : !bridge.canReview)}
       isLoading={bridge.isSubmitting}
     >
@@ -149,7 +149,7 @@ export function CommandBridge(): React.ReactElement {
             </DetailRow>
           </DetailCard>
         ) : (
-          <fieldset disabled={locked} className="flex min-w-0 flex-col gap-4">
+          <fieldset disabled={locked} className="grid min-w-0 items-start gap-4 lg:grid-cols-2">
             <SegmentedControl
               aria-label={t('commandBridgeDirection')}
               value={bridge.direction}
@@ -159,17 +159,20 @@ export function CommandBridge(): React.ReactElement {
               ]}
               onChange={bridge.setDirection}
               layout="fill"
+              className="lg:col-span-2 lg:max-w-sm"
             />
-            <DetailCard>
-              <DetailRow
-                label={t('commandBridgeEnvironment')}
-                action={{ label: t('commandBridgeChangeNetwork'), onClick: () => navigate('/settings/networks') }}
-              >
-                {bridge.environment}
-              </DetailRow>
-              <DetailRow label={t('commandBridgeFrom')}>{route?.source.network ?? t('unavailable')}</DetailRow>
-              <DetailRow label={t('commandBridgeTo')}>{route?.destination.network ?? t('unavailable')}</DetailRow>
-            </DetailCard>
+            <div className="lg:col-span-2">
+              <DetailCard>
+                <DetailRow
+                  label={t('commandBridgeEnvironment')}
+                  action={{ label: t('commandBridgeChangeNetwork'), onClick: () => navigate('/settings/networks') }}
+                >
+                  {bridge.environment}
+                </DetailRow>
+                <DetailRow label={t('commandBridgeFrom')}>{route?.source.network ?? t('unavailable')}</DetailRow>
+                <DetailRow label={t('commandBridgeTo')}>{route?.destination.network ?? t('unavailable')}</DetailRow>
+              </DetailCard>
+            </div>
             <ChoiceCardGroup
               aria-label={t('commandBridgeRoute')}
               value={route?.id ?? null}
@@ -186,17 +189,19 @@ export function CommandBridge(): React.ReactElement {
               onChange={bridge.selectRoute}
             />
             {route && (
-              <AmountInput
-                aria-label={t('amount')}
-                label={t('amount')}
-                value={bridge.amount}
-                onValueChange={value => bridge.setAmount(value ?? '')}
-                preservePrecision
-                maxLength={128}
-                decimalsLimit={route.source.decimals}
-                formatValueOnBlur={false}
-                tokenSelector={route.source.symbol}
-              />
+              <div className="min-w-0 rounded-2xl border border-hairline bg-fill/40 p-4 sm:p-5">
+                <AmountInput
+                  aria-label={t('amount')}
+                  label={t('amount')}
+                  value={bridge.amount}
+                  onValueChange={value => bridge.setAmount(value ?? '')}
+                  preservePrecision
+                  maxLength={128}
+                  decimalsLimit={route.source.decimals}
+                  formatValueOnBlur={false}
+                  tokenSelector={route.source.symbol}
+                />
+              </div>
             )}
             <TextField
               label={t('commandBridgeExternalAccount')}
