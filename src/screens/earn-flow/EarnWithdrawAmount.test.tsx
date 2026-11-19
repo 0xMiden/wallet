@@ -11,6 +11,11 @@ import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import EarnWithdrawAmount from './EarnWithdrawAmount';
 
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, args?: { amount?: string; asset?: string }) =>

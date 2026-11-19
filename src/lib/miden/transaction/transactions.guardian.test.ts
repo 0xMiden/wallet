@@ -6322,8 +6322,13 @@ describe('generateTransaction - Guardian routing', () => {
         const { tx, abandonCandidate, client } = arrangeSend(txId, delegateTransaction);
         failingAt(client, step);
         const { initiatedAt } = stored(txId);
-
-        await run(tx);
+        const nowMs = Date.now();
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(nowMs);
+        try {
+          await run(tx);
+        } finally {
+          clock.mockRestore();
+        }
 
         expect(stored(txId)).toMatchObject({
           status: ITransactionStatus.Queued,
@@ -6332,7 +6337,7 @@ describe('generateTransaction - Guardian routing', () => {
           requeueStreak: { arm: 'node-unreachable', count: 1 },
           initiatedAt
         });
-        expect(Number(stored(txId).nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(30);
+        expect(Number(stored(txId).nextEligibleAt) - Math.floor(nowMs / 1000)).toBe(30);
         expect(stored(txId).processingStartedAt).toBeUndefined();
         expect(stored(txId).attemptId).toBeUndefined();
         expect(stored(txId).error).toBeUndefined();

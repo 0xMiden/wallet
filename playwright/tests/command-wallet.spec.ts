@@ -245,4 +245,31 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(sidebar.locator('html')).not.toHaveClass(/dark/);
   await expect(sidebarLauncher).toBeVisible();
   await captureCommand(sidebar, info, 'command-sidebar-light-reduced-motion-360x800');
+
+  await command.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
+  await command.evaluate(() => localStorage.setItem('theme_setting', 'light'));
+  await command.reload({ waitUntil: 'domcontentloaded' });
+  await expect(command.locator('html')).not.toHaveClass(/dark/);
+  await command.getByRole('navigation', { name: 'Wallet actions' }).getByRole('button', { name: 'Send' }).click();
+  await composer.getByTestId('send-token-selector').click();
+  const tokenDrawer = command.getByRole('dialog', { name: 'Select a token' });
+  await expect(tokenDrawer).toBeVisible();
+  await expect(tokenDrawer).toHaveCSS('background-color', 'rgb(25, 25, 25)');
+  await captureCommand(command, info, 'command-send-token-picker-light-wallet-1440x1000');
+  await tokenDrawer.getByRole('button', { name: 'Close' }).click();
+  await expect(tokenDrawer).toHaveCount(0);
+
+  await command.setViewportSize({ width: 640, height: 420 });
+  await command.keyboard.press('Control+k');
+  await expect(search).toBeFocused();
+  const options = palette.getByRole('option');
+  await expect(options.last()).not.toBeInViewport({ ratio: 1 });
+  const optionCount = await options.count();
+  for (let index = 0; index < optionCount; index++) await search.press('ArrowDown');
+  await expect(palette.getByRole('option', { selected: true })).toHaveText('Explore');
+  await expect(options.last()).toBeInViewport({ ratio: 1 });
+  await expect(search).toBeFocused();
+  await captureCommand(command, info, 'command-palette-keyboard-scroll-640x420');
+  await search.press('Enter');
+  await expect(command).toHaveURL(/#\/browser$/);
 });

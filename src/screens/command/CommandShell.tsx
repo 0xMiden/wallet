@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState } from 'react';
+import React, { Suspense, useEffect, useLayoutEffect, useState } from 'react';
 
 import * as Dialog from '@radix-ui/react-dialog';
 
@@ -22,6 +22,19 @@ import { CommandWorkbench } from './CommandWorkbench';
 
 function makeInert(node: HTMLDivElement | null) {
   node?.setAttribute('inert', '');
+}
+
+// A decorative portfolio must not replace an active workbench with wallet loading or error UI.
+class BackdropBoundary extends React.Component<{ children: React.ReactNode }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
 }
 
 function CommandDashboard({ scope }: { scope: AccountScope }): React.ReactElement {
@@ -55,6 +68,7 @@ export function CommandShell({
 }): React.ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [portalHost, setPortalHost] = useState<HTMLDivElement | null>(null);
+  const scopeKey = JSON.stringify([scope.accountId, scope.network, scope.rpcUrl]);
 
   useLayoutEffect(() => {
     const html = document.documentElement;
@@ -101,12 +115,7 @@ export function CommandShell({
             >
               <CommandHeader scope={scope} />
               <main className="relative min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,rgba(231,117,55,0.08),transparent_55%)] pb-28">
-                {route.kind === 'dashboard' && (
-                  <CommandDashboard
-                    key={JSON.stringify([scope.accountId, scope.network, scope.rpcUrl])}
-                    scope={scope}
-                  />
-                )}
+                {route.kind === 'dashboard' && <CommandDashboard key={scopeKey} scope={scope} />}
                 {route.kind === 'flow' && (
                   <div
                     ref={makeInert}
@@ -114,7 +123,11 @@ export function CommandShell({
                     data-testid="command-workbench-backdrop"
                     className="pointer-events-none absolute inset-0 overflow-hidden opacity-35 [filter:blur(5px)]"
                   >
-                    <CommandPortfolio scope={scope} backdrop />
+                    <BackdropBoundary key={`${scopeKey}:${route.action}`}>
+                      <Suspense fallback={null}>
+                        <CommandPortfolio scope={scope} backdrop />
+                      </Suspense>
+                    </BackdropBoundary>
                   </div>
                 )}
                 <div

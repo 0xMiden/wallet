@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import * as Dialog from '@radix-ui/react-dialog';
 import { useTranslation } from 'react-i18next';
@@ -26,11 +26,16 @@ export function CommandPalette({
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
+  const activeOption = useRef<HTMLButtonElement>(null);
   const matches = ACTIONS.filter(([action]) =>
     t(action === 'bridge' ? 'commandBridge' : action)
       .toLowerCase()
       .includes(query.toLowerCase())
   );
+  const activeId = matches[selected]?.[0];
+  useLayoutEffect(() => {
+    if (open && activeId !== undefined) activeOption.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeId]);
   useEffect(() => {
     if (!open) {
       setQuery('');
@@ -62,7 +67,7 @@ export function CommandPalette({
             aria-label={t('commandSearch')}
             aria-expanded="true"
             aria-controls="command-palette-options"
-            aria-activedescendant={selected >= 0 ? `command-palette-${matches[selected]?.[0]}` : undefined}
+            aria-activedescendant={activeId === undefined ? undefined : `command-palette-${activeId}`}
             value={query}
             onChange={event => {
               setQuery(event.target.value);
@@ -98,6 +103,7 @@ export function CommandPalette({
           {matches.map(([action, icon], index) => (
             <button
               id={`command-palette-${action}`}
+              ref={index === selected ? activeOption : undefined}
               role="option"
               aria-selected={index === selected}
               key={action}
