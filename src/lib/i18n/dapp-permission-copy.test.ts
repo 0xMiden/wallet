@@ -6,8 +6,8 @@ import path from 'path';
  * Connect-approval sheet's private-data risk copy must describe the grant the wallet
  * actually issues.
  *
- * `ConfirmPage` renders `confirmPrivateDataPermissionDescription` above a mandatory
- * "I understand the risk" checkbox whenever a dApp asks for Automatic private-data
+ * The connect window (`confirm/ConnectRequest`) shows `confirmPrivateDataPermissionDescription` under the
+ * "I understand the risk" title of its mandatory consent box whenever a dApp asks for Automatic private-data
  * access on a private account, and it was the ONLY security explanation of that
  * grant. It claimed the access "cannot be revoked" — which is false: Settings →
  * Authorized DApps lists the session and `removeDAppSession(origin)` →

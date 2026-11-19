@@ -50,7 +50,7 @@ describe('GuardianIntroScreen', () => {
     });
   });
 
-  it('opens the Guardian explainer from More about Guardians, which is closed until asked for', () => {
+  it('opens the Guardian explainer from Learn more about the Guardian, which is closed until asked for', () => {
     render(<GuardianIntroScreen />);
     expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'false');
     const more = screen.getByTestId('guardian-intro-more-about');
