@@ -348,10 +348,8 @@ export async function runMeasuredCustomSubmit(
   const requestStartedAt = performance.now();
   const result = await submit();
   const afterStartedAt = performance.now();
-  const trailing = await readBefore(sync, measured?.trailingCutoff ?? expiresAt, expired).then(
-    ({ height }) => ({ afterHeight: height }),
-    () => ({ trailingReadFailed: true })
-  );
+  const { height: afterHeight } = await readBefore(sync, measured?.trailingCutoff ?? expiresAt, expired);
+  const trailing = { afterHeight };
   return {
     result,
     timing: {
