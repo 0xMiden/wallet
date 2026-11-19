@@ -31,7 +31,7 @@ export function WorkbenchLayout({
   const { t } = useTranslation();
   return (
     <section
-      className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[1.625rem] border border-accent-tint-ink/35 bg-page bg-linear-to-br from-fill via-page to-fill/70 text-ink shadow-2xl ring-1 ring-inset ring-ink/5"
+      className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[1.625rem] border border-accent-tint-ink/30 border-t-accent-tint-ink/55 bg-page bg-linear-to-br from-fill via-page to-fill/70 text-ink shadow-2xl ring-1 ring-inset ring-ink/5"
       data-testid="command-workbench"
     >
       <header className="flex shrink-0 items-center gap-3 border-b border-hairline bg-fill/40 px-4 py-3 sm:px-7 sm:py-5">
@@ -45,7 +45,9 @@ export function WorkbenchLayout({
         {(summary || summaryOutlet) && (
           <details className="mt-5 border-t border-hairline pt-3 text-body-sm text-ink" data-testid="command-details">
             <summary className="min-h-10 cursor-pointer py-2 text-muted">{t('commandDetails')}</summary>
-            <div ref={summaryOutlet} className="pt-2">{summary}</div>
+            <div ref={summaryOutlet} className="pt-2">
+              {summary}
+            </div>
           </details>
         )}
       </div>

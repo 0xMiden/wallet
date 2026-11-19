@@ -152,7 +152,7 @@ export function CommandPortfolio({
   }));
   const activePoint = chartPoints[sampleIndex];
   return (
-    <div className="mx-auto grid w-full max-w-[90rem] gap-y-8 px-4 py-8 sm:px-8 lg:grid-cols-12 lg:gap-x-10 lg:px-[5vw] lg:py-12">
+    <div className="mx-auto grid w-full min-w-0 max-w-[90rem] grid-cols-1 gap-y-8 px-4 py-8 sm:px-8 lg:grid-cols-12 lg:gap-x-10 lg:px-[5vw] lg:py-12">
       <section className="min-w-0 lg:col-span-9" aria-label={t('commandPortfolio')}>
         <div className="flex items-center justify-between gap-3">
           <SectionHeader size="xl">{t('commandPortfolio')}</SectionHeader>

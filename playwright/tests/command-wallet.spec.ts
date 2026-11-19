@@ -90,13 +90,16 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   test.setTimeout(330_000);
   await importWallet(extensionContext, extensionId);
   const popup = await openPopup(extensionContext, extensionId);
-  const launcher = popup.getByRole('button', { name: 'Open fullscreen' });
+  const balanceAction = popup.getByTestId('balance-card-action');
+  const launcher = balanceAction.getByRole('button', { name: 'Open fullscreen' });
   await expect(launcher).toBeVisible();
   const launcherBox = await launcher.boundingBox();
-  const homeActionsBox = await popup.locator('[data-home-actions="true"]').boundingBox();
+  const balanceLabelBox = await popup.getByTestId('balance-card-label').boundingBox();
   expect(launcherBox).not.toBeNull();
-  expect(homeActionsBox).not.toBeNull();
-  expect(launcherBox!.y + launcherBox!.height).toBeLessThanOrEqual(homeActionsBox!.y);
+  expect(balanceLabelBox).not.toBeNull();
+  expect(launcherBox!.height).toBeGreaterThanOrEqual(48);
+  expect(launcherBox!.x).toBeGreaterThan(balanceLabelBox!.x);
+  await expect(popup.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(1);
   await expect(popup.getByTestId('command-shell')).toHaveCount(0);
   await captureCommand(popup, info, 'command-compact-launcher-360x600');
 
@@ -156,6 +159,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   const workbench = command.getByTestId('command-workbench');
   const composer = workbench.getByTestId('command-send-composer');
   await expect(composer).toBeVisible();
+  await expect(command.getByRole('dialog', { name: 'Send' })).toHaveCSS('transform', 'none');
   const backdrop = command.getByTestId('command-workbench-backdrop');
   await expect(backdrop).toHaveAttribute('inert', '');
   await expect(backdrop).toHaveAttribute('aria-hidden', 'true');
@@ -196,13 +200,14 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await sidebar.setViewportSize({ width: 360, height: 800 });
   await sidebar.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
   await sidebar.goto(`chrome-extension://${extensionId}/sidepanel.html#/`, { waitUntil: 'domcontentloaded' });
-  await expect(sidebar.getByRole('button', { name: 'Open fullscreen' })).toBeVisible({ timeout: 30_000 });
+  const sidebarLauncher = sidebar.getByTestId('balance-card-action').getByRole('button', { name: 'Open fullscreen' });
+  await expect(sidebarLauncher).toBeVisible({ timeout: 30_000 });
   await expect(sidebar.locator('html')).toHaveClass(/dark/);
   await captureCommand(sidebar, info, 'command-sidebar-dark-reduced-motion-360x800');
   await sidebar.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
   await sidebar.evaluate(() => localStorage.setItem('theme_setting', 'light'));
   await sidebar.reload({ waitUntil: 'domcontentloaded' });
   await expect(sidebar.locator('html')).not.toHaveClass(/dark/);
-  await expect(sidebar.getByRole('button', { name: 'Open fullscreen' })).toBeVisible();
+  await expect(sidebarLauncher).toBeVisible();
   await captureCommand(sidebar, info, 'command-sidebar-light-reduced-motion-360x800');
 });

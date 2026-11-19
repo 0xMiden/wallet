@@ -343,7 +343,15 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
 });
 
 describe('TabLayout — compact fullscreen launcher placement', () => {
-  it.each(['/', '/send', '/receive', '/earn', '/swap'])('places the launcher ahead of Home actions on %s', pathname => {
+  it('leaves the Overview launcher to the balance card without a second launcher above the tabs', () => {
+    mockLocation.pathname = '/';
+    mockPlatform.isExtension = true;
+    mockEnv.sidePanel = true;
+    renderLayout();
+    expect(screen.queryByTestId('command-launcher')).not.toBeInTheDocument();
+  });
+
+  it.each(['/send', '/receive', '/earn', '/swap'])('places the launcher ahead of Home actions on %s', pathname => {
     mockLocation.pathname = pathname;
     mockPlatform.isExtension = true;
     mockEnv.sidePanel = true;

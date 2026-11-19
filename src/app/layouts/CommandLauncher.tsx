@@ -9,7 +9,7 @@ import { ErrorLine } from 'components/ui/ErrorLine';
 import { isExtension } from 'lib/platform';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
-export default function CommandLauncher(): ReactElement | null {
+export default function CommandLauncher({ inBalanceCard = false }: { inBalanceCard?: boolean }): ReactElement | null {
   const { t } = useTranslation();
   const { popup, sidePanel, confirmWindow } = useAppEnv();
   const { config } = useBridgeConfigSnapshot({ load: false });
@@ -36,14 +36,15 @@ export default function CommandLauncher(): ReactElement | null {
   };
 
   return (
-    <div className="shrink-0 px-4 py-2">
+    <div className={inBalanceCard ? 'min-w-0' : 'shrink-0 px-4 py-2'}>
       <Button
         variant={ButtonVariant.Launcher}
+        className={inBalanceCard ? 'h-auto min-h-12 w-auto max-w-full gap-2 px-3 py-2 text-cta-sm' : undefined}
         isLoading={opening}
         aria-describedby="command-fullscreen-new-tab-description"
         onClick={open}
       >
-        <Icon name={IconName.Fullscreen} className="h-5 w-5" fill="currentColor" aria-hidden="true" />
+        <Icon name={IconName.Fullscreen} className="h-5 w-5 shrink-0" fill="currentColor" aria-hidden="true" />
         <span>{t('commandOpenFullscreen')}</span>
       </Button>
       <span id="command-fullscreen-new-tab-description" className="sr-only">
