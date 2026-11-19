@@ -102,6 +102,7 @@ before(async () => {
   pageCommon = await import(imports.get('./page-common.js'));
   imports.set('./custom-scripts.js', await pageModule('custom-scripts.ts'));
   imports.set('./script-request.js', await pageModule('script-request.ts'));
+  imports.set('./protocol.js', await pageModule('protocol.ts'));
   globalThis.window = { midenWallet: { on: () => undefined }, location: { host: 'fixture-unit' } };
   globalThis.document = { getElementById: () => null, querySelectorAll: () => [] };
   globalThis.fetch = async () => ({ json: async () => ({ version: '0.17.3' }) });
