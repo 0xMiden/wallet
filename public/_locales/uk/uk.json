@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "Відкриває ваш гаманець у новій вкладці.",
   "commandFullscreenOpenFailed": "Не вдалося відкрити у повноекранному режимі. Спробуйте ще раз.",
   "commandPortfolio": "Портфель",
+  "commandAllocation": "Розподіл",
+  "commandPricedAssets": "Активи гаманця з визначеною ціною",
   "commandRecentActions": "Останні дії",
   "commandNoRecentActions": "Немає останніх дій для показу",
   "commandWalletBalance": "Баланс гаманця",

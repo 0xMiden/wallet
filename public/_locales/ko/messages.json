@@ -3534,6 +3534,14 @@
     "message": "포트폴리오",
     "englishSource": "Portfolio"
   },
+  "commandAllocation": {
+    "message": "할당",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "가격이 책정된 지갑 자산",
+    "englishSource": "Priced wallet assets"
+  },
   "commandRecentActions": {
     "message": "최근 활동",
     "englishSource": "Recent actions"

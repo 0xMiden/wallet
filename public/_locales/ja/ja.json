@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "新しいタブでウォレットを開きます。",
   "commandFullscreenOpenFailed": "全画面表示できませんでした。もう一度お試しください。",
   "commandPortfolio": "ポートフォリオ",
+  "commandAllocation": "割り当て",
+  "commandPricedAssets": "価格付けされたウォレット資産",
   "commandRecentActions": "最近のアクション",
   "commandNoRecentActions": "表示する最近のアクションはありません",
   "commandWalletBalance": "ウォレットの残高",

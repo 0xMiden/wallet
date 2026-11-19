@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "Opens your wallet in a new tab.",
   "commandFullscreenOpenFailed": "Couldn’t open fullscreen. Try again.",
   "commandPortfolio": "Portfolio",
+  "commandAllocation": "Allocation",
+  "commandPricedAssets": "Priced wallet assets",
   "commandRecentActions": "Recent actions",
   "commandNoRecentActions": "No recent actions to show",
   "commandWalletBalance": "Wallet balance",

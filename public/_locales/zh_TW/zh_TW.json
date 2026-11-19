@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "在新的分頁中開啟您的錢包。",
   "commandFullscreenOpenFailed": "無法開啟全螢幕模式。請重試。",
   "commandPortfolio": "投資組合",
+  "commandAllocation": "分配",
+  "commandPricedAssets": "已定價的錢包資產",
   "commandRecentActions": "近期操作",
   "commandNoRecentActions": "無近期操作可顯示",
   "commandWalletBalance": "錢包餘額",

@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "Cüzdanınızı yeni bir sekmede açar.",
   "commandFullscreenOpenFailed": "Tam ekran açılmadı. Lütfen tekrar deneyin.",
   "commandPortfolio": "Portföy",
+  "commandAllocation": "Tahsis",
+  "commandPricedAssets": "Fiyatlandırılmış cüzdan varlıkları",
   "commandRecentActions": "Son işlemler",
   "commandNoRecentActions": "Gösterilecek son eylem yok",
   "commandWalletBalance": "Cüzdan bakiyesi",

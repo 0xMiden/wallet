@@ -3534,6 +3534,14 @@
     "message": "Portefeuille",
     "englishSource": "Portfolio"
   },
+  "commandAllocation": {
+    "message": "Allocation",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Actifs du portefeuille évalués",
+    "englishSource": "Priced wallet assets"
+  },
   "commandRecentActions": {
     "message": "Actions récentes",
     "englishSource": "Recent actions"

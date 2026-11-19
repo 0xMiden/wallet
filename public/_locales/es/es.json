@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "Abre tu monedero en una nueva pestaña.",
   "commandFullscreenOpenFailed": "No se ha podido abrir en pantalla completa. Inténtalo de nuevo.",
   "commandPortfolio": "Cartera",
+  "commandAllocation": "Asignación",
+  "commandPricedAssets": "Activos de la cartera con precio",
   "commandRecentActions": "Acciones recientes",
   "commandNoRecentActions": "No hay acciones recientes que mostrar",
   "commandWalletBalance": "Saldo de la cartera",

@@ -3534,6 +3534,14 @@
     "message": "Portföy",
     "englishSource": "Portfolio"
   },
+  "commandAllocation": {
+    "message": "Tahsis",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Fiyatlandırılmış cüzdan varlıkları",
+    "englishSource": "Priced wallet assets"
+  },
   "commandRecentActions": {
     "message": "Son işlemler",
     "englishSource": "Recent actions"

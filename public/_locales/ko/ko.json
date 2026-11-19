@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "새 탭에서 지갑을 엽니다.",
   "commandFullscreenOpenFailed": "전체 화면으로 열 수 없습니다. 다시 시도해 주세요.",
   "commandPortfolio": "포트폴리오",
+  "commandAllocation": "할당",
+  "commandPricedAssets": "가격이 책정된 지갑 자산",
   "commandRecentActions": "최근 활동",
   "commandNoRecentActions": "표시할 최근 작업이 없습니다",
   "commandWalletBalance": "지갑 잔액",

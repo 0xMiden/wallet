@@ -3534,6 +3534,14 @@
     "message": "Cartera",
     "englishSource": "Portfolio"
   },
+  "commandAllocation": {
+    "message": "Asignación",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Activos de la cartera con precio",
+    "englishSource": "Priced wallet assets"
+  },
   "commandRecentActions": {
     "message": "Acciones recientes",
     "englishSource": "Recent actions"

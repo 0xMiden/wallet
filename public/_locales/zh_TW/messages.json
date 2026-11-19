@@ -3534,6 +3534,14 @@
     "message": "投資組合",
     "englishSource": "Portfolio"
   },
+  "commandAllocation": {
+    "message": "分配",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "已定價的錢包資產",
+    "englishSource": "Priced wallet assets"
+  },
   "commandRecentActions": {
     "message": "近期操作",
     "englishSource": "Recent actions"

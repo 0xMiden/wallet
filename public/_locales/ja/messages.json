@@ -3534,6 +3534,14 @@
     "message": "ポートフォリオ",
     "englishSource": "Portfolio"
   },
+  "commandAllocation": {
+    "message": "割り当て",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "価格付けされたウォレット資産",
+    "englishSource": "Priced wallet assets"
+  },
   "commandRecentActions": {
     "message": "最近のアクション",
     "englishSource": "Recent actions"

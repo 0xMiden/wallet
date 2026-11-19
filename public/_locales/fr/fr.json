@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "Ouvre votre portefeuille dans un nouvel onglet.",
   "commandFullscreenOpenFailed": "Impossible d’afficher en plein écran. Veuillez réessayer.",
   "commandPortfolio": "Portefeuille",
+  "commandAllocation": "Allocation",
+  "commandPricedAssets": "Actifs du portefeuille évalués",
   "commandRecentActions": "Actions récentes",
   "commandNoRecentActions": "Aucune action récente à afficher",
   "commandWalletBalance": "Solde du portefeuille",

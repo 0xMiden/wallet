@@ -764,6 +764,8 @@
   "commandFullscreenNewTab": "Öffnet Ihre Wallet in einem neuen Tab.",
   "commandFullscreenOpenFailed": "Vollbildmodus konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.",
   "commandPortfolio": "Portfolio",
+  "commandAllocation": "Zuteilung",
+  "commandPricedAssets": "Bewertete Wallet-Vermögenswerte",
   "commandRecentActions": "Jüngste Aktionen",
   "commandNoRecentActions": "Es sind keine aktuellen Aktionen vorhanden",
   "commandWalletBalance": "Wallet-Guthaben",

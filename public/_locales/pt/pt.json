@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "Abre sua carteira em uma nova aba.",
   "commandFullscreenOpenFailed": "Não foi possível abrir em tela cheia. Tente novamente.",
   "commandPortfolio": "Portfólio",
+  "commandAllocation": "Alocação",
+  "commandPricedAssets": "Ativos da carteira com preço definido",
   "commandRecentActions": "Ações recentes",
   "commandNoRecentActions": "Nenhuma ação recente a ser exibida",
   "commandWalletBalance": "Saldo da carteira",

@@ -3534,6 +3534,14 @@
     "message": "Портфель",
     "englishSource": "Portfolio"
   },
+  "commandAllocation": {
+    "message": "Розподіл",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Активи гаманця з визначеною ціною",
+    "englishSource": "Priced wallet assets"
+  },
   "commandRecentActions": {
     "message": "Останні дії",
     "englishSource": "Recent actions"

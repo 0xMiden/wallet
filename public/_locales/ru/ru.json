@@ -765,6 +765,8 @@
   "commandFullscreenNewTab": "Открывает ваш кошелек в новой вкладке.",
   "commandFullscreenOpenFailed": "Не удалось перейти в полноэкранный режим. Попробуйте ещё раз.",
   "commandPortfolio": "Портфель",
+  "commandAllocation": "Распределение",
+  "commandPricedAssets": "Активы кошелька с установленной ценой",
   "commandRecentActions": "Недавние действия",
   "commandNoRecentActions": "Нет недавних действий для отображения",
   "commandWalletBalance": "Баланс кошелька",
