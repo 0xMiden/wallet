@@ -96,6 +96,24 @@ interface FakePage {
 }
 
 describe('command server', () => {
+  it('retains the leading node failure when a measured retry stalls', async () => {
+    const base = await start();
+    const outcome = commandChannel(live(), 'A', 'one')
+      .send('submitCustomMeasured', {}, 2_000)
+      .catch((error: unknown) => error);
+    const command: unknown = await (await poll(base, 'A', 'one')).json();
+    const receipt = await fetch(`${base}/event?device=A&dapp=one`, {
+      method: 'POST',
+      body: JSON.stringify({
+        kind: 'leading-node-failure',
+        data: { id: idOf(command), name: 'ChainUnavailableError', message: 'leading node unavailable' }
+      })
+    });
+    expect(receipt.status).toBe(204);
+    await expect(outcome).resolves.toBeInstanceOf(ChainUnavailable);
+    await expect(outcome).resolves.toHaveProperty('message', expect.stringContaining('leading node unavailable'));
+  });
+
   it('settles a pending command as HarnessFault after a delayed result-undelivered event', async () => {
     const base = await start();
     const outcome = commandChannel(live(), 'A', 'one')

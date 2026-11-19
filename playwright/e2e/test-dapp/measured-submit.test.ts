@@ -55,7 +55,10 @@ it('does not retry when there is no budget left for the leading read', async () 
 it('does not retry a failed trailing read or replay the submission', async () => {
   const sync = jest.fn().mockResolvedValueOnce({ height: 10 }).mockRejectedValueOnce(nodeFailure);
   const submit = jest.fn(async () => refusal);
-  await expect(runMeasuredCustomSubmit(sync, submit, Date.now() + NODE_RETRY_MS * 2)).rejects.toBe(nodeFailure);
+  await expect(runMeasuredCustomSubmit(sync, submit, Date.now() + 30_000)).resolves.toMatchObject({
+    result: refusal,
+    timing: { beforeHeight: 10, trailingReadFailed: true }
+  });
   expect(sync).toHaveBeenCalledTimes(2);
   expect(submit).toHaveBeenCalledTimes(1);
 });
