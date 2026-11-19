@@ -31,7 +31,6 @@ import {
   toSerializedSpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
-import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
@@ -1324,11 +1323,6 @@ export const selectIsIdle = (state: WalletStore) => state.status === WalletStatu
  * lock that lands mid-pass queues nothing. Every page realm keeps this store's status in step with the backend's lock.
  */
 export const isWalletReadyNow = (): boolean => selectIsReady(useWalletStore.getState());
-
-// Mock browser tests need the registry fixture, not the transaction test hooks.
-if (process.env.MIDEN_USE_MOCK_CLIENT === 'true' || process.env.MIDEN_E2E_TEST === 'true') {
-  Reflect.set(globalThis, '__TEST_SET_SWAP_TOKENS__', _setSwapTokensForTest);
-}
 
 // Expose store and intercom for E2E test introspection (only in E2E builds).
 // Use globalThis (not window) so this works in both extension pages and the
