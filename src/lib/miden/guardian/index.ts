@@ -946,7 +946,6 @@ export class MultisigService {
     // Signing syncs and previews with the same shared client as account creation.
     await withWasmClientLock(async hold => {
       if (known) {
-        await this.multisig.importProposal(exportedProposalJson(known));
         assertWasmHoldCurrent(hold, 'guardian proposal signing: after adopting the known proposal');
       }
       await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(id));
