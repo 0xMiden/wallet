@@ -58,13 +58,17 @@ export function CommandSendComposer({
           if (canReview) onReview();
         }}
       >
-        <SelectRecipient
-          {...recipient}
-          embedded
-          onAddressChange={event => onRecipientChange(event.target.value)}
-          onConfirm={onReview}
-        />
-        <SendAmount {...amount} embedded onConfirm={onReview} />
+        <div className="min-w-0">
+          <SelectRecipient
+            {...recipient}
+            embedded
+            onAddressChange={event => onRecipientChange(event.target.value)}
+            onConfirm={onReview}
+          />
+        </div>
+        <div className="min-w-0 rounded-2xl border border-hairline bg-fill/40 p-4 sm:p-5">
+          <SendAmount {...amount} embedded onConfirm={onReview} />
+        </div>
       </form>
       {outlets}
     </div>

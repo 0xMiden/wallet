@@ -20,6 +20,10 @@ import { CommandPortfolio } from './CommandPortfolio';
 import { CommandRecentActions } from './CommandRecentActions';
 import { CommandWorkbench } from './CommandWorkbench';
 
+function makeInert(node: HTMLDivElement | null) {
+  node?.setAttribute('inert', '');
+}
+
 function CommandDashboard({ scope }: { scope: AccountScope }): React.ReactElement {
   const account = useAccount();
   const scopeCurrent =
@@ -103,11 +107,23 @@ export function CommandShell({
                     scope={scope}
                   />
                 )}
+                {route.kind === 'flow' && (
+                  <div
+                    ref={makeInert}
+                    aria-hidden="true"
+                    data-testid="command-workbench-backdrop"
+                    className="pointer-events-none absolute inset-0 overflow-hidden opacity-35 [filter:blur(5px)]"
+                  >
+                    <CommandPortfolio scope={scope} backdrop />
+                  </div>
+                )}
                 <div
                   ref={setPortalHost}
                   data-command-portals="true"
                   className={
-                    route.kind === 'dashboard' ? '' : 'grid h-full min-h-0 place-items-center px-3 py-3 sm:px-7 sm:py-6'
+                    route.kind === 'dashboard'
+                      ? ''
+                      : 'relative grid h-full min-h-0 place-items-center px-3 py-3 sm:px-7 sm:py-6'
                   }
                 />
                 {route.kind !== 'dashboard' && portalHost && (

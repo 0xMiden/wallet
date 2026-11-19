@@ -36,6 +36,54 @@ async function captureCommand(page: Page, info: TestInfo, name: string): Promise
   await info.attach(name, { path: screenshot, contentType: 'image/png' });
 }
 
+async function seedChartPreview(page: Page, accountId: string) {
+  // Only the isolated, imported mock wallet receives these illustrative observations.
+  await page.evaluate(
+    id =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('TridentMain');
+        open.onupgradeneeded = () => open.transaction?.abort();
+        open.onerror = () => reject(new Error('Could not open the mock wallet observation database'));
+        open.onsuccess = () => {
+          const db = open.result;
+          try {
+            const txn = db.transaction('portfolioObservations', 'readwrite');
+            txn.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            txn.onabort = () => {
+              db.close();
+              reject(new Error('Could not seed mock wallet observations'));
+            };
+            const store = txn.objectStore('portfolioObservations');
+            const bucketMs = 15 * 60_000;
+            const latest = Math.floor(Date.now() / bucketMs) * bucketMs;
+            for (let offset = 660; offset >= 0; offset--) {
+              if (offset > 160 && offset < 500) continue;
+              const bucket = latest - offset * bucketMs;
+              store.put({
+                accountId: id,
+                network: 'testnet',
+                rpcUrl: 'https://rpc.testnet.miden.io',
+                currency: 'USD',
+                bucket,
+                capturedAt: bucket,
+                value: (24_860 - offset * 11 + 550 * Math.sin(offset / 21)).toFixed(2),
+                coverage: 'complete',
+                coverageKey: 'mock-preview'
+              });
+            }
+          } catch (error) {
+            db.close();
+            reject(error);
+          }
+        };
+      }),
+    accountId
+  );
+}
+
 test('compact launcher opens the real Command workspace and preserves a minimized unsigned Send draft', async ({
   extensionContext,
   extensionId
@@ -64,6 +112,20 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await command.setViewportSize({ width: 1440, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-1440x1000');
 
+  const dock = command.getByRole('navigation', { name: 'Wallet actions' });
+  await dock.getByRole('button', { name: 'Receive', exact: true }).click();
+  await expect(command.getByTestId('receive-network')).toContainText(/testnet/i);
+  const address = (await command.getByTestId('receive-address-full').textContent())?.trim();
+  if (!address) throw new Error('Mock wallet receive address is missing');
+  await seedChartPreview(command, address);
+  await command.getByTestId('command-workbench').getByRole('button', { name: 'Minimize' }).click();
+  await command.getByRole('radio', { name: '1W', exact: true }).click();
+  await expect(command.locator('[data-command-chart-area]')).toHaveAttribute('d', /^M /);
+  await captureCommand(command, info, 'command-dashboard-chart-1440x1000');
+  await command.setViewportSize({ width: 1600, height: 1000 });
+  await captureCommand(command, info, 'command-dashboard-chart-1600x1000');
+  await command.setViewportSize({ width: 1440, height: 1000 });
+
   await command.keyboard.press('Control+k');
   const search = command.getByRole('combobox', { name: 'Search wallet actions' });
   await expect(search).toBeFocused();
@@ -74,6 +136,11 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   const workbench = command.getByTestId('command-workbench');
   const composer = workbench.getByTestId('command-send-composer');
   await expect(composer).toBeVisible();
+  const backdrop = command.getByTestId('command-workbench-backdrop');
+  await expect(backdrop).toHaveAttribute('inert', '');
+  await expect(backdrop).toHaveAttribute('aria-hidden', 'true');
+  await expect(backdrop).toHaveCSS('filter', 'blur(5px)');
+  await expect(backdrop.locator('[data-command-chart-area]')).toHaveAttribute('d', /^M /);
   await composer.getByTestId('send-amount-input').fill('1.234500');
   await captureCommand(command, info, 'command-send-1440x1000');
   await workbench.getByRole('button', { name: 'Minimize' }).click();

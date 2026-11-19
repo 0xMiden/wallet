@@ -34,11 +34,13 @@ const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
 export function CommandPortfolio({
   scope,
   prompts,
-  recentActions
+  recentActions,
+  backdrop = false
 }: {
   scope: AccountScope;
   prompts?: React.ReactNode;
   recentActions?: React.ReactNode;
+  backdrop?: boolean;
 }): React.ReactElement {
   const { t } = useTranslation();
   const displayOptions = {
@@ -64,6 +66,7 @@ export function CommandPortfolio({
 
   useEffect(() => {
     if (
+      backdrop ||
       !canRecord ||
       capturedAt === undefined ||
       value === null ||
@@ -97,7 +100,7 @@ export function CommandPortfolio({
     return () => {
       cancelled = true;
     };
-  }, [accountId, canRecord, capturedAt, coverage, coverageKey, key, ready, stableScope, value]);
+  }, [accountId, backdrop, canRecord, capturedAt, coverage, coverageKey, key, ready, stableScope, value]);
 
   useEffect(() => {
     let cancelled = false;
