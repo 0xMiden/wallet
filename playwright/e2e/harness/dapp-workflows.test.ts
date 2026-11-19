@@ -266,8 +266,18 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(acceptance).toContain('timeout 15s adb logcat');
   });
 
+  const inactivity = 'swipe-reply-started-no-injected: socket-inactivity';
+  const firstSwipeEligible = `${inactivity}: first-swipe-eligible`;
+  const nativeMilestones = [
+    'native-enter-only',
+    'native-swipe-succeeded',
+    'native-reply-built',
+    'native-write-returned'
+  ];
+
   it.each([
     { scenario: 'success', marker: 'result-checks\n', status: 0, verdict: 'PASS' },
+    { scenario: 'success ignores the internal marker', marker: `${firstSwipeEligible}\n`, status: 0, verdict: 'PASS' },
     { scenario: 'gesture case', marker: 'capsule-commit\n', status: 23, verdict: 'FAIL (capsule-commit)' },
     { scenario: 'gesture case with extra data', marker: 'capsule-commit\nunexpected-marker-data\n', status: 37 },
     { scenario: 'device phase', marker: 'device-webview-select\n', status: 41, verdict: 'FAIL (device-webview-select)' },
@@ -312,6 +322,21 @@ describe('the mobile legs of the dApp E2E workflow', () => {
       marker: 'swipe-reply-started-no-injected: socket-inactivity\nunexpected-marker-data\n',
       status: 95
     },
+    {
+      scenario: 'eligible first swipe without native detail prints only the coarse label',
+      marker: `${firstSwipeEligible}\n`,
+      status: 97,
+      verdict: `FAIL (${inactivity})`
+    },
+    { scenario: 'eligible marker without LF', marker: firstSwipeEligible, status: 98 },
+    { scenario: 'eligible marker with junk', marker: `${firstSwipeEligible}\nsynthetic junk\n`, status: 99 },
+    ...nativeMilestones.flatMap((milestone, index) => {
+      const label = `${inactivity}: ${milestone}`;
+      return [
+        { scenario: milestone, marker: `${label}\n`, status: 100 + index, verdict: `FAIL (${label})` },
+        { scenario: `${milestone} with junk`, marker: `${label}\nsynthetic junk\n`, status: 110 + index }
+      ];
+    }),
     { scenario: 'missing marker', status: 59 }
   ])('prints only the private API36 gesture verdict: $scenario', ({ marker, status, verdict = 'FAIL (unknown)' }) => {
     const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
@@ -330,9 +355,9 @@ describe('the mobile legs of the dApp E2E workflow', () => {
           'printf "%s\\n" "fake child stdout"',
           'printf "%s\\n" "fake child stderr" >&2',
           'if [ -n "$FAKE_MARKER" ]; then',
-          '  printf "%s" "$FAKE_MARKER" > "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
+          '  printf "%s" "$FAKE_MARKER" > "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 125',
           'else',
-          '  rm -f -- "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
+          '  rm -f -- "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 125',
           'fi',
           'exit "$FAKE_STATUS"'
         ].join('\n')
