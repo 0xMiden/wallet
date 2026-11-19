@@ -2,6 +2,7 @@ import React, { useId } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { RECOVER_FUNDS_PATH } from 'app/pages/recover-funds-paths';
 import { AmountInput } from 'components/AmountInput';
 import { useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { Button, ButtonVariant } from 'components/ui/Button';
@@ -10,6 +11,7 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
+import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import { TokenAmount } from 'components/ui/TokenAmount';
 import { quoteAmounts } from 'lib/bridge/core/quote';
@@ -260,6 +262,11 @@ export function CommandBridge(): React.ReactElement {
           {bridge.error && !stoppedBeforeSource ? t('bridgeReviewChanged') : undefined}
         </ErrorLine>
       </form>
+      {!bridge.review && !locked && (
+        <TextAction className="self-start" onClick={() => navigate(RECOVER_FUNDS_PATH)}>
+          {t('recoverLockedFunds')}
+        </TextAction>
+      )}
       {outlets}
     </div>
   );
