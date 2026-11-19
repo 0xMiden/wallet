@@ -21,6 +21,11 @@
 - [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
 - [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [FIX][ci] Create only the deposit wallet in the live iOS USDCx tests.
+
+- [FIX][all] Register the account again when its Guardian rejects both the everyday key and the recovery key. The repair runs only when this device is still the account's signer, the operator serves the Guardian key the account names, and the chain holds this device's state.
+- [FIX][ci] Keep polling the same faucet note after an interrupted limits read, within the existing deadline.
+
 - [FIX][ci] Wait for the Guardian to settle the funding claim before testing candidate abandonment.
 
 - [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.

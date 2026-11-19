@@ -70,11 +70,15 @@ describe('waitForPublicNoteCommitment', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps polling the same queued note after a read transport error', async () => {
-    const calls = sdkResponds([
-      new Error("failed to get notes by ID: grpc request failed for get_notes_by_id: unknown error: transport error"),
-      [{ id: NOTE_ID, public: true }]
-    ]);
+  it.each([
+    ['note read', 'grpc request failed for get_notes_by_id: unknown error: transport error'],
+    [
+      'limits read',
+      "grpc request failed for get_limits: Miden node returned an internal error; this is likely a node-side issue: code: 'Internal error', " +
+        'message: "h2 protocol error: error reading a body from connection"'
+    ]
+  ])('keeps polling the same queued note after a %s transport error', async (_operation, message) => {
+    const calls = sdkResponds([new Error(`failed to get notes by ID: ${message}`), [{ id: NOTE_ID, public: true }]]);
     const waiting = waitForPublicNoteCommitment('https://rpc.testnet.miden.io', NOTE_ID);
     const outcome = waiting.catch(error => error);
     await jest.runAllTimersAsync();
