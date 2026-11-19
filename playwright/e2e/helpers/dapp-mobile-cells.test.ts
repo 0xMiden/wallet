@@ -287,6 +287,7 @@ describe('mobile cell assertions', () => {
       message: `NOT_GRANTED: ${pinned.notSimulatedRefusal.text} ${pinned.notSimulatedRefusal.reasonPrefix}${pinned.texts.R5.offchain.error}`
     };
     const f = fixture('R5', error);
+    jest.mocked(waitForNodeHeight).mockResolvedValue(103);
     const originalSend = f.send.getMockImplementation()!;
     const timing = { beforeHeight: 10, afterHeight: 10 + blocks, beforeSyncMs: 1, requestMs: 2, afterSyncMs: 3 };
     f.send.mockImplementation(command =>
