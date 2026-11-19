@@ -13,6 +13,7 @@ import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeaderAction, TabRootHeader } from 'components/ui';
 import { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useAccount } from 'lib/miden/front';
+import { useMidenContext } from 'lib/miden/front/client';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { setActivityView, useActivityView } from 'lib/settings/activity-view';
 import type { ActivityView } from 'lib/settings/constants';
@@ -70,6 +71,15 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     flowRef.current?.cancel();
     flowRef.current = null;
   }, [pageActive]);
+  // Activity coming on screen reads the peers' history from the encrypted backup (architecture doc
+  // 7.3, with `since`). The tab stays mounted, so the page turning active is the event, not the mount.
+  const { refreshBackup } = useMidenContext();
+  useEffect(() => {
+    if (!pageActive) return;
+    refreshBackup('activity-open').catch(error =>
+      console.warn('[AllHistory] the backup history refresh failed:', error)
+    );
+  }, [pageActive, refreshBackup]);
 
   // Clearing the ref keeps this to one terminal call per visit, and keeps the
   // unmount above from re-reporting a view that already completed.

@@ -84,7 +84,7 @@ import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
-import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
+import { guardianHistoryIcon, guardianRecoveredActionKey } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
@@ -448,7 +448,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
           message: tx.recovered
-            ? t(guardianHistoryActionKey(tx.type, tx.recovery?.reclaimed))
+            ? t(
+                guardianRecoveredActionKey(tx.type, {
+                  reclaimed: tx.recovery?.reclaimed,
+                  hotKeyAdded: hotKeyExtra?.mode === 'add',
+                  revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment
+                })
+              )
             : (tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,
@@ -493,6 +499,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           guardianRecovered: tx.recovered === true,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
+          hotKeyAdded: hotKeyExtra?.mode === 'add',
+          revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment,
           errorMessage:
             submission !== undefined && !isUnconfirmed ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
           rawErrorMessage: submission?.details ?? tx.rawError,
@@ -1002,6 +1010,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {/* A rotation's whole subject: the guardian above is unchanged, the key is what moved. */}
+                  {entry.revokedSignerCommitment && (
+                    <DetailRow label={t('deviceSignerCommitment')}>
+                      <HashChip hash={entry.revokedSignerCommitment} trimHash className="ml-2" />
+                    </DetailRow>
+                  )}
                   {isHotKeyRotation && entry.newHotPublicKey && (
                     <DetailRow label={t('newDeviceKey')} data-testid="history-detail-new-device-key">
                       <HashChip hash={entry.newHotPublicKey} trimHash className="ml-2" />

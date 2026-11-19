@@ -1,12 +1,13 @@
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
+import { restoreHistoryFromBackup } from 'lib/backup/refresh';
 import {
   clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
   type GuardianNoteRecoveryProgress,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
+import { findOwnSignerCommitment, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
@@ -14,7 +15,11 @@ import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
+import {
+  getAllUncompletedTransactions,
+  hasRestoredTransactionsOf,
+  isRotationAwaitingFunding
+} from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -191,8 +196,16 @@ async function createGuardianClientContext(account: WalletAccount, endpoint?: st
   const commitment = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
     if (!sdkAccount) throw new Error(`Recovered Guardian account ${account.publicKey} is unavailable locally`);
-    const details = await getSignerDetailsFromAccount(sdkAccount, useCold);
-    return details.commitment;
+    // Find this device's own signer by membership. Its slot is not fixed: a
+    // membership change moves the slots.
+    const own = await findOwnSignerCommitment(sdkAccount, signerPublicKey);
+    if (own === undefined) {
+      throw new Error(
+        `Recovered Guardian account ${account.publicKey}: no on-chain signer holds this device's ` +
+          `${useCold ? 'cold' : 'hot'} key`
+      );
+    }
+    return own.startsWith('0x') ? own.slice(2) : own;
   });
 
   const guardianEndpoint = endpoint ?? resolveGuardianEndpoint(account);
@@ -944,6 +957,19 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       });
       reservations.delete(account.publicKey);
       console.log(`[GuardianRecovery] Notes recovered for ${account.publicKey}; history waits for the key rotation`);
+      return;
+    }
+    // The encrypted backup is the record of history once it holds another device's
+    // rows OF THIS ACCOUNT: a Guardian operator retains only proposals and note ids, so
+    // its history pass runs only when the backup gives this account nothing. The backup's
+    // own answer is wallet-wide, and an account the peer never held, or history from
+    // before the backup existed, is recovered only by the Guardian pass. The notes pass
+    // above always runs.
+    if ((await restoreHistoryFromBackup()) && (await hasRestoredTransactionsOf(account.publicKey))) {
+      console.log(`[GuardianRecovery] History for ${account.publicKey} restored from the encrypted backup`);
+      if ((await clearPendingFlag(account, generation)) !== 'cleared') return;
+      await clearGuardianNoteRecoveryProgress(account.publicKey);
+      keepReservation(account.publicKey, { generation, failed: false });
       return;
     }
     // History shares the seed-restore flag: the flag clears once every Guardian

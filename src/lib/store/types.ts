@@ -18,6 +18,8 @@ import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-a
 import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
+  BackupRefreshOutcome,
+  BackupRefreshReason,
   GuardianSyncStatus,
   ImportedAccountBackup,
   GuardianRecoveryAction,
@@ -241,6 +243,13 @@ export interface WalletActions {
    * flag the account for the rotation `HotKeyRotationGate` runs.
    */
   retireRotatedOutHotKey: (accountPublicKey: string, expectedHotPubKey: string) => Promise<void>;
+  /**
+   * Ask the backend for the encrypted-backup refresh of one event. The backend
+   * holds the keys; this only names the event and returns what it did.
+   */
+  refreshBackup: (reason: BackupRefreshReason) => Promise<BackupRefreshOutcome>;
+  /** Delete the encrypted-backup profile on the server and the local backup records. */
+  deleteBackup: () => Promise<BackupRefreshOutcome>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
   applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<ApplyUserEndpointOutcome>;
   startGuardianRecovery: (accountPublicKey: string) => Promise<boolean>;

@@ -1,6 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { createIntercomClient, type IIntercomClient } from 'lib/intercom/client';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -308,6 +309,9 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     if (tx.type === 'swap' && status === ITransactionStatus.Completed) {
       logOperationEnd('swap', 'completed', elapsedMsSince(tx.initiatedAt));
     }
+    // A Completed row of this device goes to the encrypted backup at once (architecture doc 6.4).
+    // A restored row is a peer's and is never uploaded again.
+    if (status === ITransactionStatus.Completed && !tx.restoredFromBackup) signalTransactionCompleted();
   }
 };
 
@@ -870,6 +874,10 @@ export const applyVerifiedLanding = (
  */
 export const reportVerifiedLanding = (tx: ITransaction): void => {
   reportOperation({ operation: operationOfType(tx.type), result: 'completed' });
+  // Every caller reports after its landing write committed, so this is the one place a row of this
+  // device that reached Completed on node evidence reaches the encrypted backup, as one that reached it
+  // through `updateTransactionStatus` does.
+  if (!tx.restoredFromBackup) signalTransactionCompleted();
 };
 
 /**

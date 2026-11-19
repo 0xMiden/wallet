@@ -814,6 +814,16 @@ describe('HistoryDetails', () => {
     }
   );
 
+  it.each([
+    { name: 'a revocation', extraInputs: { revokedSignerCommitment: `0x${'ab'.repeat(32)}` }, title: 'deviceRevoked' },
+    { name: 'an added device', extraInputs: { mode: 'add' }, title: 'guardianHistoryDeviceAdded' },
+    { name: 'a replaced device', extraInputs: { mode: 'replace' }, title: 'guardianHistoryDeviceReplaced' }
+  ])('titles a recovered device change that is $name', async ({ extraInputs, title }) => {
+    const view = await renderRecovered({ ...recoveredRow('replace-hot-key'), extraInputs });
+    expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-message', title);
+    view.unmount();
+  });
+
   it('titles a local consume that gained recovery data with its own message and icon', async () => {
     await renderRecovered({
       ...recoveredRow('consume'),

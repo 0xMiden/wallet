@@ -77,6 +77,20 @@ export const getAllUncompletedTransactions = async () => {
 export const isRotationAwaitingFunding = async (accountPublicKey: string): Promise<boolean> =>
   (await findAdoptableShortfallRow(accountPublicKey)) !== undefined;
 
+/**
+ * True when the encrypted backup restored at least one row of this account from another device, so
+ * the backup, not the Guardian, is the record of this account's history. A Guardian-recovered receipt
+ * carries `restoredFromBackup` too, with `recovered`, and is excluded: it is the Guardian pass's own
+ * (possibly partial) work, not the backup's.
+ */
+export const hasRestoredTransactionsOf = async (accountPublicKey: string): Promise<boolean> =>
+  (await Repo.transactions
+    .filter(
+      tx =>
+        tx.restoredFromBackup === true && tx.recovered !== true && sameWalletAccountId(tx.accountId, accountPublicKey)
+    )
+    .first()) !== undefined;
+
 export const getFailedTransactions = async () => {
   const transactions = await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Failed).toArray();
   transactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);

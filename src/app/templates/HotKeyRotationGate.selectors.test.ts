@@ -25,8 +25,10 @@ import {
   claimNoteIds,
   describeRotationFailure,
   GateRow,
+  isActivationRow,
   isBelowBaseFee,
   resolveRotationGateView,
+  resumableActivationMode,
   RotationFailureRow,
   RotationGateViewInput,
   rotationFundingMinimum
@@ -110,6 +112,49 @@ describe('resolveRotationGateView: the view table', () => {
 
   it('keeps the shortfall trigger while the fee is unknown', () => {
     expect(resolveRotationGateView(input({ baseFee: null, trackedRow: shortfall })).view).toBe('funding');
+  });
+});
+
+describe('resolveRotationGateView: the device-role screen', () => {
+  it('shows first while a role is necessary and nothing exists to adopt, ahead of funding', () => {
+    expect(resolveRotationGateView(input({ roleChoicePending: true })).view).toBe('choose-role');
+    expect(resolveRotationGateView(input({ roleChoicePending: true, belowBaseFee: true })).view).toBe('choose-role');
+    // A finished rotation or claim is nothing to adopt.
+    expect(
+      resolveRotationGateView(
+        input({
+          roleChoicePending: true,
+          rotationRows: [row('old', { status: ITransactionStatus.Failed })],
+          fundingRows: [claim('claim-1', { status: ITransactionStatus.Completed })]
+        })
+      ).view
+    ).toBe('choose-role');
+  });
+
+  it('does not show without a pending choice', () => {
+    expect(resolveRotationGateView(input({ roleChoicePending: false })).view).toBe('rotating');
+    expect(resolveRotationGateView(input()).view).toBe('rotating');
+  });
+
+  it('gives way to a tracked row, a live rotation or a live claim, so a reload never asks twice', () => {
+    expect(resolveRotationGateView(input({ roleChoicePending: true, trackedRow: row('rotation-1') })).view).toBe(
+      'rotating'
+    );
+    expect(resolveRotationGateView(input({ roleChoicePending: true, trackedRow: shortfall })).view).toBe('funding');
+    expect(resolveRotationGateView(input({ roleChoicePending: true, rotationRows: [row('rotation-1')] })).view).toBe(
+      'rotating'
+    );
+    expect(resolveRotationGateView(input({ roleChoicePending: true, fundingRows: [claim('claim-1')] })).view).toBe(
+      'funding'
+    );
+  });
+
+  it('gives way to the recovery-seed prompt and to an init error', () => {
+    const awaitingSeed = row('rotation-1', { awaitingRecoverySeed: true });
+    expect(resolveRotationGateView(input({ roleChoicePending: true, trackedRow: awaitingSeed })).view).toBe(
+      'recovery-seed'
+    );
+    expect(resolveRotationGateView(input({ roleChoicePending: true, initError: 'lock failed' })).view).toBe('failed');
   });
 });
 
@@ -447,5 +492,30 @@ describe('isUnconfirmedFailureReason', () => {
     WALLET_REASONS.forEach(reason => expect(isUnconfirmedFailureReason(reason)).toBe(false));
     expect(isUnconfirmedFailureReason(GUARDIAN_UNREACHABLE_ERROR)).toBe(false);
     expect(isUnconfirmedFailureReason('')).toBe(false);
+  });
+});
+
+describe('activation rows (review A1, A3)', () => {
+  const commitment = `0x${'ab'.repeat(32)}`;
+  const row = (extra: Partial<ITransaction> = {}) => ({
+    type: 'replace-hot-key' as const,
+    accountId: 'account-1',
+    status: ITransactionStatus.Failed,
+    initiatedAt: 100,
+    ...extra
+  });
+
+  it('counts a replace-hot-key row of the account that is not a revocation', () => {
+    expect(isActivationRow(row({ extraInputs: { mode: 'add' } }), 'account-1')).toBe(true);
+    expect(isActivationRow(row(), 'account-1')).toBe(true);
+    expect(isActivationRow(row({ extraInputs: { revokedSignerCommitment: commitment } }), 'account-1')).toBe(false);
+    expect(isActivationRow(row(), 'account-2')).toBe(false);
+    expect(isActivationRow({ ...row(), type: 'consume' }, 'account-1')).toBe(false);
+  });
+
+  it('resumes no role from a row restored from a backup, and the newest local row otherwise', () => {
+    const restored = row({ initiatedAt: 200, restoredFromBackup: true, extraInputs: { mode: 'replace' } });
+    expect(resumableActivationMode([restored])).toBeNull();
+    expect(resumableActivationMode([row({ extraInputs: { mode: 'add' } }), restored])).toBe('add');
   });
 });

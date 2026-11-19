@@ -8,6 +8,7 @@ import {
   type ExpectedEarnDepositIntent,
   type ExpectedEarnWithdrawIntent
 } from 'lib/epoch/intent-key';
+import { getMessage } from 'lib/i18n/core';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import {
@@ -44,6 +45,7 @@ import {
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
+import { hotKeyActivationMessage } from './hot-key-rotation-residual';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { orderFromSavedRequest } from './pinned-replay-check';
 import {
@@ -572,11 +574,11 @@ export const completeReplaceHotKeyTransaction = async (
   let storedAccountId = tx.accountId;
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
-    if (!newHotPublicKey) {
+    if (!newHotPublicKey && !tx.extraInputs.revokedSignerCommitment) {
       throw new Error('Replace-hot-key tx is missing newHotPublicKey in extraInputs');
     }
 
-    if (!guardianProvider.swapHotKey) {
+    if (!guardianProvider.swapHotKey && !tx.extraInputs.revokedSignerCommitment) {
       throw new Error('swapHotKey not implemented in this provider');
     }
 
@@ -590,7 +592,8 @@ export const completeReplaceHotKeyTransaction = async (
     // `signerCommitments`. `buildColdMultisigService` loads that field from the
     // guardian's stored blob (which can still be pre-rotation), so
     // `reRegisterCurrentStateOnGuardian` re-derives it from the freshly-synced
-    // on-chain account (now [new-hot, cold]) right before registering (#619 gap
+    // on-chain account (now [new-hot, cold] after a replace, or the earlier set
+    // plus new-hot after an add) right before registering (#619 gap
     // 3) - otherwise this could re-push the OLD allowlist, the historical
     // permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s hot-sync.
     // Best-effort: an on-chain-successful rotation must not be failed by a
@@ -672,7 +675,9 @@ export const completeReplaceHotKeyTransaction = async (
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
-    await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
+    // A revocation installs no new key, so it has nothing to swap.
+    if (newHotPublicKey && guardianProvider.swapHotKey)
+      await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
   } catch (error) {
     retireLandedTrap(error, tx.id, result);
     console.error('Error completing replace-hot-key transaction:', error);
@@ -696,7 +701,9 @@ export const completeReplaceHotKeyTransaction = async (
     tx.id,
     {
       ...feeFieldsFromResult(result, tx.id),
-      displayMessage: 'Everyday key rotated',
+      displayMessage: tx.extraInputs.revokedSignerCommitment
+        ? getMessage('deviceRevoked')
+        : hotKeyActivationMessage(tx.extraInputs.mode),
       completedAt: Math.floor(Date.now() / 1000),
       // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
@@ -709,7 +716,8 @@ export const completeReplaceHotKeyTransaction = async (
     'everyday key rotation'
   );
 
-  // The account now has both signers on-chain, so bring it up to the same
+  // The account now has its new hot signer and the cold signer on-chain (and,
+  // after an add, the other devices' hot signers too), so bring it up to the same
   // hardening a freshly-created 3-key account has (update_guardian threshold
   // 2, which the update_signers rotation above can't carry). Best-effort and
   // idempotent; never affects the rotation's success. After an eviction during

@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/sync-backoff';
 import { WalletType } from 'screens/onboarding/types';
 
+import { HotKeySignerMissingError } from './guardian-manager';
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD, SELF_HEAL_COOLDOWN_MS, SELF_HEAL_MAX_ATTEMPTS } from './guardian-selfheal';
 import {
   __resetGuardianSyncOutageForTest,
@@ -90,6 +91,7 @@ jest.mock('lib/store', () => ({
 const mockGetOrCreateMultisigService = jest.fn();
 const mockClearGuardianServiceFor = jest.fn();
 jest.mock('./guardian-manager', () => ({
+  ...jest.requireActual('./guardian-manager'),
   getOrCreateMultisigService: (...args: unknown[]) => mockGetOrCreateMultisigService(...args),
   clearGuardianServiceFor: (...args: unknown[]) => mockClearGuardianServiceFor(...args)
 }));
@@ -181,14 +183,15 @@ jest.mock('lib/miden/guardian', () => {
   };
 });
 
-// The "am I still this account's signer?" guard. `getSignerDetailsFromAccount`
-// reads signer slot 0 (hot) off the on-chain account; `commitmentFromPublicKeyHex`
-// turns the locally-stored hot PUBLIC KEY into the commitment that slot holds.
-// `sameCommitment` is pure, so it runs for real.
+// The "am I still this account's signer?" guard. `getSignerCommitmentsFromAccount`
+// reads the FULL signer set off the on-chain account; `commitmentFromPublicKeyHex`
+// turns the locally-stored hot PUBLIC KEY into the commitment a slot holds. The
+// device is still a signer when ANY slot holds it. `sameCommitment` is pure, so it
+// runs for real. An empty set is an unread set.
 // `getGuardianCommitmentFromAccount` reads a DIFFERENT slot — the guardian
 // operator's key — which is how the missing-registration heal decides whether
 // this device's account state describes the rotation it is about to register.
-const mockGetSignerDetails = jest.fn();
+const mockGetSignerCommitments = jest.fn((..._args: unknown[]): string[] => []);
 const mockGetGuardianCommitmentFromAccount = jest.fn();
 // The operator the sync actually binds: the per-account field when set, otherwise
 // the network default. The rotation detector keys on THIS rather than on the raw
@@ -203,8 +206,7 @@ const mockResolveGuardianEndpoint = jest.fn(resolveEndpointDefault);
 const resolveChosenDefault = (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
 const mockResolveChosenGuardianEndpoint = jest.fn(resolveChosenDefault);
 jest.mock('lib/miden/guardian/account', () => ({
-  getSignerCommitmentsFromAccount: () => [],
-  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
+  getSignerCommitmentsFromAccount: (...args: unknown[]) => mockGetSignerCommitments(...args),
   getGuardianCommitmentFromAccount: (...args: unknown[]) => mockGetGuardianCommitmentFromAccount(...args),
   // The fuse key carries the endpoint, so the loop resolves it per account per lap.
   resolveGuardianEndpoint: (account: { guardianEndpoint?: string }) => mockResolveGuardianEndpoint(account),
@@ -1078,9 +1080,9 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       onPushStart?.();
     });
     // Default: this device IS still the account's on-chain hot signer.
-    mockGetSignerDetails.mockClear();
+    mockGetSignerCommitments.mockClear();
     mockCommitmentFromPublicKeyHex.mockClear();
-    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockGetSignerCommitments.mockReturnValue(['aabb', '0xc01d']);
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
     // Default: no Failed rotation of this device's (#1233).
     mockFindFailedHotKeyRotations.mockReset();
@@ -1316,7 +1318,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // revoke the device that now legitimately owns the account — and that device
     // would heal right back, livelocking both (a successful sync in between
     // clears selfHealState, so the attempt cap never accumulates).
-    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+    mockGetSignerCommitments.mockReturnValue(['0xsomeotherdeviceshotkey', '0xc01d']);
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
@@ -1333,6 +1335,40 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // rotated out without asking. What must not happen is the WRITE.
     expect(mockAdoptGuardianState).toHaveBeenCalled();
     expect(mockReRegister).not.toHaveBeenCalled();
+  });
+
+  it.each(['local', 'intercom'])('marks rotated out after persistent %s build refusals', async mode => {
+    const account = {
+      publicKey: `acct-build-refused-${mode}`,
+      type: WalletType.Guardian,
+      hotPublicKey: 'hot',
+      coldPublicKey: 'cold'
+    };
+    storeState.accounts = [account];
+    storeState.markHotKeyRotatedOut.mockClear();
+    mockGetSignerCommitments.mockReturnValue(['0xotherhot', '0xc01d']);
+    const error = new HotKeySignerMissingError(account.publicKey);
+    mockGetOrCreateMultisigService.mockRejectedValue(
+      mode === 'local' ? error : { name: error.name, message: error.message }
+    );
+    const clock = useFakeClocks(9_000_000);
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalled();
+
+    await syncGuardianAccounts();
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith(account.publicKey);
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+    expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledWith(account.publicKey, 'hot', 'otherhot');
+    expect(mockReRegister).not.toHaveBeenCalled();
+
+    // A permanent refusal closes the same repair budget the 401 path uses.
+    clock.advance(SELF_HEAL_COOLDOWN_MS + 1);
+    await syncGuardianAccounts();
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledTimes(1);
+    clock.restore();
   });
 
   it('does not re-register when the guardian state could not be read at all', async () => {
@@ -1358,7 +1394,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     }
 
     expect(mockReRegister).not.toHaveBeenCalled();
-    expect(mockGetSignerDetails).not.toHaveBeenCalled();
+    expect(mockGetSignerCommitments).not.toHaveBeenCalled();
   });
 
   // The SDK refusing to import a guardian state that is NOT AHEAD of local is an
@@ -1440,7 +1476,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   });
 
   it('still re-registers when the on-chain hot signer is this device (0x/case differences aside)', async () => {
-    mockGetSignerDetails.mockResolvedValue({ commitment: 'AABB' });
+    mockGetSignerCommitments.mockReturnValue(['AABB', '0xc01d']);
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xaabb');
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
@@ -1454,6 +1490,30 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
 
     expect(mockReRegister).toHaveBeenCalledTimes(1);
+  });
+
+  // N hot keys: `[hot_dev1, cold, hot_dev2]`. This device is dev2, so its key is at slot 2, not
+  // slot 0. Membership, not position, decides: it is still a signer and is not rotated out.
+  it('still re-registers, and records no rotated-out verdict, when this device holds slot 2', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xd0e1', '0xc01d', '0xAABB']);
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xaabb');
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-second-device', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalledWith(
+      'acct-second-device',
+      expect.anything(),
+      expect.anything()
+    );
   });
 
   it('does not self-heal on a non-auth (network) error', async () => {
@@ -1515,7 +1575,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   // prevents, charging those runs would disable the repair permanently after
   // three unlucky local reads.
   it('does not spend the bounded budget on runs that never reached the guardian', async () => {
-    mockGetSignerDetails.mockRejectedValue(new Error('storage read failed'));
+    // The real reader swallows a storage failure into an empty set, which reads as "unread".
+    mockGetSignerCommitments.mockReturnValue([]);
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
@@ -1536,7 +1597,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).not.toHaveBeenCalled();
 
     // The read recovers: the repair must still be available.
-    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockGetSignerCommitments.mockReturnValue(['aabb', '0xc01d']);
     clock.set(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
     await syncGuardianAccounts();
     expect(mockReRegister).toHaveBeenCalledTimes(1);
@@ -1880,7 +1941,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   // permanent answer, so it closes the budget instead of re-asking the guardian
   // for its state once a cooldown forever.
   it('closes the budget once it has established this device was rotated out', async () => {
-    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+    mockGetSignerCommitments.mockReturnValue(['0xsomeotherdeviceshotkey', '0xc01d']);
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
@@ -1901,13 +1962,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
-    // The verdict is persisted against the key it was judged on. A repeat from a later heal attempt
-    // (the cold service's adopt is once per service) is a no-op in the vault, so the count is not pinned.
-    expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledWith(
-      'acct-closed-budget',
-      'hot',
-      '0xsomeotherdeviceshotkey'
-    );
+    // The verdict is persisted against the key it was judged on, with the first signer the chain
+    // names as evidence. A repeat from a later heal attempt (the cold service's adopt is once per
+    // service) is a no-op in the vault, so the count is not pinned.
+    expect(storeState.markHotKeyRotatedOut).toHaveBeenCalledWith('acct-closed-budget', 'hot', 'someotherdeviceshotkey');
     nowSpy.mockRestore();
     perfSpy.mockRestore();
   });
@@ -1920,7 +1978,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     storeState.markHotKeyRotatedOut.mockImplementationOnce(() => {
       throw new Error('no store');
     });
-    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+    mockGetSignerCommitments.mockReturnValue(['0xsomeotherdeviceshotkey', '0xc01d']);
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
@@ -2062,7 +2120,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     storeState.accounts = [
       { publicKey, type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
     ] as never;
-    mockGetSignerDetails.mockResolvedValue({ commitment: '0xbeef' });
+    mockGetSignerCommitments.mockReturnValue(['0xbeef', '0xc01d']);
     mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
       publicKeyHex === 'new-hot-pub' ? '0xbeef' : '0xAABB'
     );
@@ -2270,7 +2328,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     beforeEach(() => {
       __resetGuardianSyncOutageForTest();
       mockGetOrCreateMultisigService.mockClear();
-      mockGetSignerDetails.mockResolvedValue({ commitment: '0xbeef' });
+      mockGetSignerCommitments.mockReturnValue(['0xbeef', '0xc01d']);
       mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
         publicKeyHex === 'new-hot-pub' ? '0xbeef' : '0xAABB'
       );
@@ -2310,6 +2368,12 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     it("finishes a rotation-pending account's own rotation when its record names the cold key as hot (#1233)", async () => {
       storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'cold' }] as never;
       mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+      // The cold key derives to the cold signer the chain holds, as it does on a real account, so
+      // the record's "hot" key is a member through the recovery slot alone.
+      mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+        publicKeyHex === 'new-hot-pub' ? '0xbeef' : publicKeyHex === 'cold' ? '0xc01d' : '0xAABB'
+      );
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
 
       await syncGuardianAccounts();
 
@@ -2395,14 +2459,21 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // Nothing of its own to finish and no 401 asking for a repair, so the finisher must not push.
     it('does not re-register a pending account whose slot 0 is its own recorded key (#1233)', async () => {
       storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'cold' }] as never;
-      mockGetSignerDetails.mockResolvedValue({ commitment: '0xAABB' });
+      mockGetSignerCommitments.mockReturnValue(['0xAABB', '0xc01d']);
       mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
 
       await syncGuardianAccounts();
 
       expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
       expect(mockReRegister).not.toHaveBeenCalled();
       expect(storeState.swapHotKey).not.toHaveBeenCalled();
+      // Its "hot" key is the recovery key, which no rotation removes: waiting, not rotated out.
+      expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalledWith(
+        'acct-activation',
+        expect.anything(),
+        expect.anything()
+      );
     });
 
     // Each clock from its own base at the same offsets, as in a live realm, so a cooldown stamped on
@@ -2766,6 +2837,20 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
     sync.mockRejectedValue(Object.assign(new Error('nope'), { __authRejection: true }));
     await runSyncs(1);
     expect(isGuardianSyncOutage(pk)).toBe(false);
+  });
+
+  it('a local missing-signer build refusal leaves an armed outage in place', async () => {
+    const pk = 'outage-local-missing-signer';
+    storeState.accounts = [guardianAccount(pk)];
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn().mockRejectedValue(new Error('Failed to fetch'))
+    });
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+
+    mockGetOrCreateMultisigService.mockRejectedValue(new HotKeySignerMissingError(pk));
+    await runSyncs(1);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
   });
 
   // The module's invariant is "the server ANSWERED, so it is alive, so the
@@ -3285,7 +3370,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
     mockGetGuardianCommitmentFromAccount.mockReturnValue('newguardiankey');
     mockCheckEndpointCommitment.mockResolvedValue('match');
-    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockGetSignerCommitments.mockReturnValue(['aabb', '0xc01d']);
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
     mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
     mockResolveChosenGuardianEndpoint.mockImplementation(resolveChosenDefault);
@@ -3343,7 +3428,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     expect(mockAssertWasmHoldCurrent).toHaveBeenCalledWith(expect.anything(), where);
     expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
-    expect(mockGetSignerDetails).not.toHaveBeenCalled();
+    expect(mockGetSignerCommitments).not.toHaveBeenCalled();
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
   });
 
@@ -3431,15 +3516,67 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
   });
 
+  it('a local missing-signer build refusal preserves the unknown-account streak', async () => {
+    for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    mockGetOrCreateMultisigService.mockRejectedValueOnce(new HotKeySignerMissingError(account.publicKey));
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+  });
+
   it('does not register once this device is no longer the account\u2019s on-chain hot signer', async () => {
     // Rotated out to another device. `/configure` is account-wide, so pushing a
     // registration here would revoke the device that now owns the account.
-    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+    mockGetSignerCommitments.mockReturnValue(['0xsomeotherdeviceshotkey', '0xc01d']);
 
     await runUntilPersistent();
     await syncGuardianAccounts();
 
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  // N hot keys: this device's key is at slot 2 of `[hot_dev1, cold, hot_dev2]`. It is a member,
+  // so it is still a signer and the registration goes ahead.
+  it('registers when this device holds a later slot of the signer set, not slot 0', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xd0e1', '0xc01d', 'aabb']);
+
+    await runUntilPersistent();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a hot-is-cold record without spending attempts or marking it rotated out', async () => {
+    const clock = useFakeClocks(1_000_000);
+    storeState.accounts = [{ ...account, hotPublicKey: 'C01D', coldPublicKey: '0xc01d' }] as never;
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xc01d');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await runUntilPersistent();
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS; i++) {
+      clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+    }
+
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    expect(storeState.markHotKeyRotatedOut).not.toHaveBeenCalled();
+    // The refusal names its own reason: nothing failed to read.
+    const messages = warn.mock.calls.map(call => String(call[0]));
+    expect(messages.some(message => message.includes('names its recovery key as its everyday key'))).toBe(true);
+    expect(messages.some(message => message.includes('could not read the hot-signer'))).toBe(false);
+
+    // A distinct everyday key can still use the unspent budget from slot 2.
+    storeState.accounts = [{ ...account, coldPublicKey: '0xc01d' }] as never;
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
+    mockGetSignerCommitments.mockReturnValue(['0xd0e1', '0xc01d', 'aabb']);
+    clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
+    await syncGuardianAccounts();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    clock.restore();
   });
 
   // The guard above protects write AUTHORITY, so an unreadable commitment has to
@@ -3449,7 +3586,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   // device could then revoke the device that now owns the account, on the strength
   // of a read error.
   it('does not register when the on-chain hot-signer commitment cannot be read', async () => {
-    mockGetSignerDetails.mockRejectedValue(new Error('signer slot unreadable'));
+    mockGetSignerCommitments.mockReturnValue([]);
 
     await runUntilPersistent();
     await syncGuardianAccounts();
@@ -3472,13 +3609,13 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   // recover, the full budget is still there.
   it('spends no attempt on a refusal, so the push still lands once the reads recover', async () => {
     const clock = useFakeClocks(1_000_000);
-    mockGetSignerDetails.mockRejectedValue(new Error('signer slot unreadable'));
+    mockGetSignerCommitments.mockReturnValue([]);
 
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
 
     // A refusal DID stamp the clock, so the same instant buys nothing…
-    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockGetSignerCommitments.mockReturnValue(['aabb', '0xc01d']);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
 
@@ -3576,7 +3713,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       await runUntilPersistent();
 
       expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
-      expect(mockGetSignerDetails).not.toHaveBeenCalled();
+      expect(mockGetSignerCommitments).not.toHaveBeenCalled();
       // And the eviction is still booked and the pass still stopped, exactly as
       // for a rejecting read.
       expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
@@ -5134,8 +5271,8 @@ describe('syncGuardianAccounts - guards a mutation probe found unexercised', () 
     mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
     mockGetAccount.mockReset();
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
-    mockGetSignerDetails.mockReset();
-    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockGetSignerCommitments.mockReset();
+    mockGetSignerCommitments.mockReturnValue(['aabb', '0xc01d']);
     mockCommitmentFromPublicKeyHex.mockReset();
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
     mockPreRegisterHold.mockReset();
@@ -5178,7 +5315,7 @@ describe('syncGuardianAccounts - guards a mutation probe found unexercised', () 
     });
   };
 
-  // The cold re-register's snapshot hold. `getSignerDetailsFromAccount` reads the
+  // The cold re-register's snapshot hold. `getSignerCommitmentsFromAccount` reads the
   // signer set off the SAME `Account` handle the line above returned, and that
   // handle is a borrow of the client's RefCell rather than a snapshot - so with
   // the mutex already handed on, reading it is the double borrow. The guard also

@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+
+import type { BackupRefreshOutcome, BackupRefreshReason } from 'lib/shared/types';
 
 import AddressBook from './AddressBook';
 
@@ -9,6 +11,11 @@ const contactsMock = jest.fn();
 jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => navigateMock(...args) }));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => ({ allContacts: contactsMock() })
+}));
+// The page asks the backend for a backup contacts read when it opens; the backup is off here.
+const mockRefreshBackup = jest.fn<Promise<BackupRefreshOutcome>, [BackupRefreshReason]>();
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ refreshBackup: mockRefreshBackup })
 }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/Button', () => ({
@@ -33,6 +40,36 @@ const MINE = { name: 'Main', address: 'mtst1mine', accountInWallet: true, isPubl
 beforeEach(() => {
   navigateMock.mockReset();
   contactsMock.mockReturnValue([ZED, ALICE, MINE]);
+  mockRefreshBackup.mockReset().mockResolvedValue('disabled');
+});
+
+// The address book opening is the one event that reads the backup's contacts.
+it('asks for the backup contacts once when it opens, not on a re-render', () => {
+  const { rerender } = render(<AddressBook />);
+
+  expect(mockRefreshBackup).toHaveBeenCalledTimes(1);
+  expect(mockRefreshBackup).toHaveBeenCalledWith('address-book');
+
+  fireEvent.change(screen.getByTestId('address-book-search'), { target: { value: 'ali' } });
+  rerender(<AddressBook />);
+  expect(mockRefreshBackup).toHaveBeenCalledTimes(1);
+});
+
+it('logs a failed backup contacts read and still shows the contacts', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const failure = new Error('offline');
+  mockRefreshBackup.mockRejectedValueOnce(failure);
+  try {
+    render(<AddressBook />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(warn).toHaveBeenCalledWith('[AddressBook] the backup contacts refresh failed:', failure);
+    expect(screen.getByTestId('address-book-contact-mtst1alice')).toBeInTheDocument();
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 it('lists saved contacts by name, then my accounts', () => {

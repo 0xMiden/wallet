@@ -19,7 +19,13 @@ import { isWalletReadyNow } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
-import { claimNoteIds, GateRow, RotationFundingReason, RotationFundingStatus } from './HotKeyRotationGate.selectors';
+import {
+  claimNoteIds,
+  GateRow,
+  isActivationRow,
+  RotationFundingReason,
+  RotationFundingStatus
+} from './HotKeyRotationGate.selectors';
 
 /** The driver's cadence, the one `NativeNoteAutoConsumeManager` uses. */
 const FUNDING_CLAIM_INTERVAL_MS = 3_000;
@@ -44,7 +50,7 @@ export function useRotationGateRows(accountPublicKey: string): RotationGateRows 
         {
           next: all =>
             setRows({
-              rotationRows: all.filter(r => r.type === 'replace-hot-key'),
+              rotationRows: all.filter(r => isActivationRow(r, accountPublicKey)),
               fundingRows: all.filter(r => r.type === 'consume'),
               loaded: true
             }),
