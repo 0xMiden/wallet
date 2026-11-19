@@ -1050,7 +1050,7 @@ export const finalizeDirectGuardianSwitch = async (
     );
   }
   // Read the node outside the WASM hold. Ordinary registration accepts a first state for an unused account.
-  if (stateOnChain === 'require-landed' || (!firstState && stateOnChain === 'require')) {
+  if (!firstState && stateOnChain !== 'await') {
     const onChain = await readChainAccountCommitment(accountIdHex, LANDED_COMMITMENT_READ_TIMEOUT_MS);
     if (onChain === undefined || !sameCommitment(onChain, stateCommitment)) {
       throw new GuardianStateOffChainRefusal(
