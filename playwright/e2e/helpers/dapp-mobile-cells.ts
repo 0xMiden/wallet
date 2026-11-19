@@ -577,11 +577,11 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
               { requestId: built.requestId, recipientAddress: j.addressB, importNotes: false },
               ctx.deadline
             );
-            if (!measured.result.ok) ctx.evidence.dappError = measured.result.error;
             return measured;
           },
           ctx
         );
+        if (!result.ok) ctx.evidence.dappError = result.error;
         assertRefusalBlocks(timing, ctx);
         expectRefusal(result, NOT_SIMULATED, ctx);
         if (!result.ok && !notSimulatedFor(result.error.message, pinned.texts.R5[j.axis.label].error)) {
