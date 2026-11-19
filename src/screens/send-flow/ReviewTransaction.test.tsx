@@ -26,6 +26,7 @@ import { isExtension } from 'lib/platform';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
+import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
@@ -1299,6 +1300,26 @@ describe('Command Send review controller', () => {
       expect(reopenedExpiration).toMatch(/2030/);
       expect(reopenedExpiration).toMatch(/14:00|2:00/);
       expect(reopenedExpiration).toMatch(/estim/i);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows fresh-review copy when calendar admission can no longer reserve a block', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 3, 13, 59, 59));
+      openSession();
+      dateTimeToRecallBlocksMock.mockReturnValue(1);
+      initiateMock.mockRejectedValueOnce(new CalendarRecallReviewRequiredError());
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+
+      expect(await screen.findByTestId('review-error')).toHaveTextContent('recallReviewChanged');
+      expect(initiateMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('saved-send-admission')).toBeEmptyDOMElement();
     } finally {
       jest.useRealTimers();
     }

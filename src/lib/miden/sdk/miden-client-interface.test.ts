@@ -1321,6 +1321,52 @@ describe('MidenClientInterface', () => {
     }));
   };
 
+  it('replays the calendar Send request when local fallback starts after the target', async () => {
+    mockSendSdk();
+    const { buildSendTransactionRequest } = await import('./helpers');
+    const { TransactionRequest } = await import('@miden-sdk/miden-sdk/lazy');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T12:00:00.000Z'));
+    const firstBytes = Uint8Array.of(1);
+    jest
+      .mocked(buildSendTransactionRequest)
+      .mockReturnValueOnce({ serialize: () => firstBytes } as any)
+      .mockReturnValueOnce({ serialize: () => Uint8Array.of(2) } as any);
+    const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+    const prove = jest.fn(async (options?: { prover?: unknown }) => {
+      if (!options?.prover) {
+        clock.mockReturnValue(Date.parse('2030-01-01T12:00:31.000Z'));
+        throw new Error('remote prover deadline exceeded');
+      }
+      return { submit };
+    });
+    const executeRequest = jest.fn(async () => ({ id: 'tx-id', result: fakeTransactionResult, prove }));
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest } }) as any,
+      'testnet'
+    );
+
+    try {
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public',
+        amount: 1n,
+        extraInputs: { recallBlocks: 25, calendarRecallTarget: '2030-01-01T12:00:30.000Z' },
+        delegateTransaction: true
+      } as any);
+    } finally {
+      clock.mockRestore();
+    }
+
+    expect(executeRequest).toHaveBeenCalledTimes(2);
+    expect(prove).toHaveBeenCalledTimes(2);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(TransactionRequest.deserialize).mock.calls).toEqual([[firstBytes], [firstBytes]]);
+    expect(buildSendTransactionRequest).toHaveBeenCalledTimes(1);
+  });
+
   // A delegated send whose 'submitting' stamp throws the crossing error, itself or wrapped as a cause.
   const sendWithFailingCrossing = async (
     wrapped: boolean,
