@@ -1535,7 +1535,7 @@ async function attemptMissingRegistrationSelfHeal(
       },
       // One chain read, and a preflight refusal when the node does not hold this device's state: on a device whose
       // copy is ahead of the chain, every lap would otherwise post a state a 0.19 Guardian refuses.
-      'require'
+      cause === 'signers-rejected' ? 'require-landed' : 'require'
     );
     noteSyncSuccess(fuseKey);
     pushAttempt.settle('charged');
