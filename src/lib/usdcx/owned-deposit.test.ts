@@ -7,6 +7,7 @@ import {
   parseUnits,
   slice,
   toHex,
+  TransactionReceiptNotFoundError,
   type Hash,
   type Hex,
   type EIP1193Provider
@@ -15,9 +16,17 @@ import {
 import { bindTransferQuote, quoteAmounts } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type ReviewedTransfer } from 'lib/bridge/core/review';
 import type { SourceRpcTransaction } from 'lib/bridge/evm/source-transaction';
-import { bridgeOperationOf, type BridgeOperationSnapshot } from 'lib/bridge/operation';
+import {
+  bridgeOperationOf,
+  captureBridgeWalletScope,
+  claimBridgeSourceAttempt,
+  findAdmittedBridgeOperation,
+  recordBridgeSourceAttempt,
+  type BridgeOperationSnapshot
+} from 'lib/bridge/operation';
 import type { XReserveClient } from 'lib/bridge/providers/xreserve/deposit';
 import { runXReserveReceive } from 'lib/bridge/providers/xreserve/flows';
+import { captureCctpExecution } from 'lib/bridge/providers/xreserve/manual-execute';
 import {
   cctpSourceMessage,
   cctpSourceReceipt,
@@ -28,7 +37,7 @@ import {
 import { reviewedOwnedCircleTransfer, TEST_CCTP_TRANSMITTER } from 'lib/bridge/testing/circle-fixtures';
 import { accounts, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { createBridgeReceiveReconciler } from 'lib/miden/activity/bridge-receive';
-import type { ITransaction } from 'lib/miden/db/types';
+import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/transaction/initiate';
@@ -705,6 +714,193 @@ it('recovers only the original owned CCTP source proof from its saved hash and r
   expect(row?.extraInputs.phase).toBe('ready');
   expect(row?.extraInputs.evmTxHash).toBe(sourceHash);
   expect(signed).toHaveLength(1);
+});
+
+async function interruptedForward() {
+  const review = reviewFor(true);
+  const { route, quote } = review;
+  const source = getUsdcxSourceChain(11155111);
+  if (source.route !== 'cctp-executor' || quote?.kind !== 'cctp' || route.destination.kind !== 'miden')
+    throw new Error('Missing owned forwarding fixture');
+  const id = await initiateBridgedReceiveTransaction({
+    accountId: review.accounts.midenAccount,
+    amount: parseUnits(quote.received, route.destination.decimals),
+    faucetId: route.destination.faucetId,
+    provider: 'usdcx',
+    sourceAddress: review.accounts.evmAddress,
+    sourceChainId: source.chain.id,
+    sourceAmount: quoteAmounts(route, quote).sourceTotal,
+    sourceSymbol: 'USDC',
+    usdcxSource: source,
+    operation: { operationId: 'interrupted-forward', review }
+  });
+  const admitted = bridgeOperationOf((await Repo.transactions.get(id))!);
+  if (!admitted) throw new Error('Missing admitted operation');
+  expect(await claimBridgeSourceAttempt(admitted.operationId, admitted.revision)).toBe('claimed');
+  const claimed = bridgeOperationOf((await Repo.transactions.get(id))!);
+  if (!claimed) throw new Error('Missing claimed operation');
+  expect(await recordBridgeSourceAttempt(claimed.operationId, claimed.revision, { hash: sourceHash })).toBe(true);
+  // Persist the historical interruption shape even if new burns start saving `forwarded` with their hash.
+  await Repo.transactions.update(id, {
+    'extraInputs.cctp': { sourceDomain: source.domain, messageTransmitter: TEST_CCTP_TRANSMITTER }
+  });
+  const before = (await Repo.transactions.get(id))!;
+  expect(before.extraInputs).toMatchObject({
+    phase: 'submitting',
+    evmTxHash: sourceHash,
+    bridgeOperation: { revision: claimed.revision, sourceAttempt: { phase: 'known', hash: sourceHash } }
+  });
+  expect(before.extraInputs.cctp?.forwarded).toBeUndefined();
+  expect(before.extraInputs.cctp?.sourceMessage).toBeUndefined();
+  return { id, before, source, claimed, ...createBridgeReceiveReconciler({ getLocks: () => undefined }) };
+}
+
+function completedBurn(message: Hex, forwardState?: string) {
+  const body = { messages: [{ status: 'complete', message, attestation: '0xabcd', forwardState }] };
+  return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+}
+
+it.each(['PENDING', undefined])(
+  'keeps a recovered owned burn off the manual Execute path with no Arc hash and forward state %s',
+  async forwardState => {
+    const { id, source, reconcile } = await interruptedForward();
+    const raw = cctpSourceMessage(source);
+    const message = cctpSourceMessage(source, { executed: 1000 });
+    receiptReader.mockResolvedValue(cctpSourceReceipt(sourceHash, raw));
+    fetchMock.mockResolvedValue(completedBurn(message, forwardState));
+
+    await reconcile();
+    await reconcile();
+
+    expect(receiptReader).toHaveBeenCalledWith({ hash: sourceHash });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/v2/messages/${source.domain}?transactionHash=${sourceHash}`),
+      expect.anything()
+    );
+    const row = await Repo.transactions.get(id);
+    const leg = row?.extraInputs.cctp;
+    expect(leg?.sourceMessage).toBe(raw.toLowerCase());
+    expect(leg?.executeTxHash).toBeUndefined();
+    expect(leg).not.toMatchObject({ message, attestation: '0xabcd' });
+    expect(leg?.forwarded).toBe(true);
+    expect(adapterWallet).not.toHaveBeenCalled();
+  }
+);
+
+it('permits the manual leg after the matching recovered burn is explicitly reported as failed by Circle', async () => {
+  const { id, source, reconcile } = await interruptedForward();
+  receiptReader.mockResolvedValue(cctpSourceReceipt(sourceHash, cctpSourceMessage(source)));
+  const message = cctpSourceMessage(source, { executed: 1000 });
+  fetchMock.mockResolvedValue(completedBurn(message, 'FAILED'));
+
+  await reconcile();
+  await reconcile();
+
+  const row = await Repo.transactions.get(id);
+  const leg = row?.extraInputs.cctp;
+  expect(leg).toMatchObject({ forwardState: 'FAILED', message, attestation: '0xabcd' });
+  expect(captureCctpExecution(row, source.chain.id, leg!, captureBridgeWalletScope())).toMatchObject({
+    rowId: id,
+    sourceHash
+  });
+  expect(adapterWallet).not.toHaveBeenCalled();
+});
+
+it('does not write a forwarding failure or grant Execute from a status read for an old revision', async () => {
+  const { id, source, reconcile } = await interruptedForward();
+  receiptReader.mockResolvedValue(cctpSourceReceipt(sourceHash, cctpSourceMessage(source)));
+  await reconcile();
+  fetchMock.mockImplementationOnce(async () => {
+    await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.revision': 'new-owner' });
+    return completedBurn(cctpSourceMessage(source, { executed: 1000 }), 'FAILED');
+  });
+
+  await reconcile();
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.bridgeOperation.revision).toBe('new-owner');
+  expect(row?.extraInputs.cctp?.attestation).toBeUndefined();
+  expect(row?.extraInputs.cctp?.forwardState).not.toBe('FAILED');
+  expect(adapterWallet).not.toHaveBeenCalled();
+});
+
+it('fails the original only on an exact revert after missing, unreadable and mismatched receipts', async () => {
+  const { id, before, claimed, reconcile } = await interruptedForward();
+  jest.spyOn(Date, 'now').mockReturnValue(now + 8 * 24 * 60 * 60 * 1000);
+  receiptReader
+    .mockRejectedValueOnce(new TransactionReceiptNotFoundError({ hash: sourceHash }))
+    .mockRejectedValueOnce(new Error('Source receipt unreadable'))
+    .mockResolvedValueOnce({ transactionHash: FORWARD_HASH, status: 'reverted', logs: [] })
+    .mockResolvedValue({ transactionHash: sourceHash, status: 'reverted', logs: [] });
+
+  for (let tick = 0; tick < 3; tick += 1) {
+    await reconcile();
+    expect(await Repo.transactions.get(id)).toEqual(before);
+  }
+  await reconcile();
+  await reconcile();
+
+  const original = await findAdmittedBridgeOperation(claimed);
+  expect(original).toMatchObject({
+    id,
+    status: ITransactionStatus.Completed,
+    extraInputs: {
+      phase: 'failed',
+      evmTxHash: sourceHash,
+      bridgeOperation: {
+        operationId: claimed.operationId,
+        revision: claimed.revision,
+        sourceAttempt: { phase: 'known', hash: sourceHash }
+      }
+    }
+  });
+  expect(original?.extraInputs.cctp?.attestation).toBeUndefined();
+  expect(receiptReader.mock.calls).toEqual(Array.from({ length: 4 }, () => [{ hash: sourceHash }]));
+  expect(await claimBridgeSourceAttempt(claimed.operationId, claimed.revision)).toBe('already-running');
+  expect(await Repo.transactions.count()).toBe(1);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(adapterWallet).not.toHaveBeenCalled();
+});
+
+it.each([
+  { change: 'revision', outcome: 'reverted' },
+  { change: 'source hash', outcome: 'reverted' },
+  { change: 'row', outcome: 'reverted' },
+  { change: 'recovered', outcome: 'reverted' },
+  { change: 'source hash', outcome: 'success' }
+])('discards a $outcome receipt when the original $change changes in flight', async ({ change, outcome }) => {
+  const { id, before, source, reconcile } = await interruptedForward();
+  const currentId = change === 'row' ? 'replacement-row' : id;
+  let afterChange: ITransaction | undefined;
+  receiptReader.mockImplementationOnce(async () => {
+    if (change === 'row') {
+      await Repo.transactions.delete(id);
+      await Repo.transactions.add({ ...before, id: currentId });
+    } else if (change === 'source hash') {
+      await Repo.transactions.update(id, {
+        'extraInputs.evmTxHash': FORWARD_HASH,
+        'extraInputs.bridgeOperation.sourceAttempt.hash': FORWARD_HASH
+      });
+    } else if (change === 'revision') {
+      await Repo.transactions.update(id, { 'extraInputs.bridgeOperation.revision': 'new-owner' });
+    } else {
+      await Repo.transactions.update(id, { recovered: true });
+    }
+    afterChange = await Repo.transactions.get(currentId);
+    return outcome === 'success'
+      ? cctpSourceReceipt(sourceHash, cctpSourceMessage(source))
+      : { transactionHash: sourceHash, status: 'reverted', logs: [] };
+  });
+
+  await reconcile();
+
+  expect(receiptReader).toHaveBeenCalledWith({ hash: sourceHash });
+  expect(afterChange).toBeDefined();
+  expect(await Repo.transactions.get(currentId)).toEqual(afterChange);
+  expect(await Repo.transactions.count()).toBe(1);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(adapterWallet).not.toHaveBeenCalled();
 });
 
 it.each([
