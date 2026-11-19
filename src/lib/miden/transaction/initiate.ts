@@ -63,7 +63,12 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
+import {
+  assertValidRecallBlocks,
+  CalendarRecallReviewRequiredError,
+  resolveSendReclaimHeight,
+  toNoteTypeString
+} from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -1066,7 +1071,8 @@ export const initiateSendTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
   dappOrigin?: string,
-  oneClick?: IOneClickTrackingData
+  oneClick?: IOneClickTrackingData,
+  calendarRecallTarget?: string
 ): Promise<string> => {
   // Every send funnels through here - the wallet's own review screen and the
   // dApp boundary both - so this is where the reclaim window has to be sound.
@@ -1077,6 +1083,10 @@ export const initiateSendTransaction = async (
   // `parseInt`ing a date the user picked from a calendar, so an out-of-range
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
+  if (calendarRecallTarget !== undefined) {
+    if (dappOrigin !== undefined || oneClick !== undefined) throw new CalendarRecallReviewRequiredError();
+    resolveSendReclaimHeight(0, recallBlocks, calendarRecallTarget);
+  }
 
   if (oneClick) {
     assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
@@ -1120,6 +1130,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  if (calendarRecallTarget !== undefined) dbTransaction.extraInputs.calendarRecallTarget = calendarRecallTarget;
   if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(

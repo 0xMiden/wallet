@@ -150,7 +150,8 @@ import {
   isPrivateNoteType,
   mayConsume,
   noteConsumeRestriction,
-  reclaimDisabledP2ideTarget
+  reclaimDisabledP2ideTarget,
+  resolveSendReclaimHeight
 } from '../helpers';
 
 export interface GuardianAccountCreationResult {
@@ -1910,22 +1911,20 @@ export class MidenClientInterface {
       : undefined;
     const assertQuotedDeadline = fundingDeadline ? () => assertOneClickDeadline(fundingDeadline) : undefined;
 
-    // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
-    // producer — send UI, dApp path, epoch bridge — passes an offset). This is
-    // the ONE place it becomes an absolute reclaim height; the SDK bakes
-    // `reclaimAfter` verbatim into the P2IDE note inputs. Adding an
-    // already-absolute value here doubles the chain height and makes recall
-    // fail for days (#308).
-    let reclaimAfter: number | undefined;
-    if (extraInputs?.recallBlocks) {
+    const { recallBlocks, calendarRecallTarget } = extraInputs ?? {};
+    let recallSyncHeight = 0;
+    if (recallBlocks || calendarRecallTarget !== undefined) {
       try {
-        const syncResult = await this.syncState();
-        reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
+        recallSyncHeight = (await this.syncState()).blockNum();
       } catch (error) {
         // Before any request exists, so the attempt provably never crossed (#1081).
         throw markErrorBeforeSubmit(error);
       }
     }
+    // Resolve after the awaited builder inputs; a prover fallback keeps the first request's height.
+    let reclaimAfter: number | undefined;
+    const resolveReclaimAfter = () =>
+      (reclaimAfter ??= resolveSendReclaimHeight(recallSyncHeight, recallBlocks, calendarRecallTarget));
 
     return proveWithFallback(
       async (prover, attempt) => {
@@ -1940,7 +1939,7 @@ export class MidenClientInterface {
                 faucetId,
                 noteType,
                 amount,
-                reclaimAfter
+                resolveReclaimAfter
               );
               await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), args.request);
               return args;
@@ -1972,7 +1971,7 @@ export class MidenClientInterface {
             faucetId,
             noteType,
             amount,
-            reclaimAfter
+            resolveReclaimAfter
           );
           return request.serialize();
         });
@@ -2964,7 +2963,7 @@ async function buildSendExecuteArgs(
   faucetId: string,
   noteType: NoteType | string,
   amount: string | bigint,
-  reclaimAfter: number | undefined
+  resolveReclaimAfter: () => number | undefined
 ): Promise<{ accountId: any; request: TransactionRequest }> {
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
@@ -2985,7 +2984,7 @@ async function buildSendExecuteArgs(
     typeof amount === 'string' ? BigInt(amount) : amount,
     nt,
     EXPIRATION_DELTA_BLOCKS,
-    reclaimAfter
+    resolveReclaimAfter()
   );
   const senderIdForExec = resolveAccountId(wasm, senderAccountId);
   return { accountId: senderIdForExec, request };

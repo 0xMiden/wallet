@@ -206,7 +206,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
+import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType, resolveSendReclaimHeight } from '../helpers';
 import { applyAfterSubmit, isLandedTailError, LandedTailError, landedTailErrorIn } from '../sdk/apply-after-submit';
 import {
   accountRefToSdk,
@@ -2678,10 +2678,8 @@ const consumeServiceFor = async (
  * restart reuses them, which is also what lets the node reject the duplicate note
  * while the first copy is in flight (the reused serial pins the note id); Retry asks
  * before it reuses them. A retry only rebuilds them when the row
- * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. `recallBlocks` is a RELATIVE
- * blocks-until-recall offset, converted to an absolute reclaim height here
- * (`syncHeight + recallBlocks`) - the guardian-path counterpart of the
- * relative→absolute conversion in `MidenClientInterface.sendTransaction`.
+ * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. Like the single-key
+ * builder, Guardian resolves the approved recall term only when building fresh bytes.
  */
 const ensureGuardianRecallableSendRequestBytes = async (
   transaction: ITransaction,
@@ -2689,8 +2687,9 @@ const ensureGuardianRecallableSendRequestBytes = async (
   faucetId: string,
   amount: bigint,
   noteType: NoteType,
-  recallBlocks: number,
-  expirationDelta: number
+  recallBlocks: number | undefined,
+  expirationDelta: number,
+  calendarRecallTarget?: string
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) {
     // Pre-built bytes still need the fee auth. This early return used to hand back a request with
@@ -2762,7 +2761,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       amount,
       noteType,
       expirationDelta,
-      syncHeight + recallBlocks,
+      resolveSendReclaimHeight(syncHeight, recallBlocks, calendarRecallTarget),
       baseBuilder
     );
     // Serialization is its own step: a wasm-bindgen panic arrives as a bare
@@ -4019,8 +4018,8 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      const recallBlocks = sendTx.extraInputs?.recallBlocks;
-      if (recallBlocks) {
+      const { recallBlocks, calendarRecallTarget } = sendTx.extraInputs ?? {};
+      if (recallBlocks || calendarRecallTarget !== undefined) {
         // TEMP WORKAROUND (OpenZeppelin/guardian#366): the multisig client's
         // P2ID send proposal has no reclaim support, so the expiration the
         // user picked used to be silently dropped on Guardian accounts -
@@ -4049,7 +4048,8 @@ const generateGuardianTransaction = async (
           // send screens always set it.
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks,
-          GUARDIAN_EXPIRATION_DELTA_BLOCKS
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS,
+          calendarRecallTarget
         );
         proposalResult = await proposeRebased(
           service,

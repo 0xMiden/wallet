@@ -216,6 +216,8 @@ export interface IOneClickTrackingData {
 
 export interface ISendExtraInputs {
   recallBlocks?: number;
+  /** Exact ISO date approved by Command Send; authoritative for the first request build. */
+  calendarRecallTarget?: string;
   oneClick?: IOneClickTrackingData;
 }
 

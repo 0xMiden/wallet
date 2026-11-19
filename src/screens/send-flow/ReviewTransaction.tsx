@@ -42,7 +42,7 @@ import { IConsumedAssetTotal, type IUsdcxNetworkFeeBudget } from 'lib/miden/db/t
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { MAX_RECALL_BLOCKS } from 'lib/miden/helpers';
+import { MAX_RECALL_BLOCKS, parseCalendarRecallTarget } from 'lib/miden/helpers';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
@@ -106,12 +106,6 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
     </p>
   );
 };
-
-function parseCalendarRecallTarget(target: string | undefined): Date | undefined {
-  if (!target) return undefined;
-  const date = new Date(target);
-  return Number.isFinite(date.getTime()) && date.toISOString() === target ? date : undefined;
-}
 
 /**
  * Full-screen send review page (`/send/review?amount=…&to=…&tokenId=…`).
@@ -656,10 +650,20 @@ export const ReviewTransaction: React.FC = () => {
           queueRecallBlocks,
           isDelegateProofEnabled()
         ] as const;
-        txId =
-          authorization === undefined
-            ? await initiateSendTransaction(...commonArguments)
-            : await initiateSendTransaction(...commonArguments, authorization);
+        if (command && approvedCalendarTarget !== undefined) {
+          txId = await initiateSendTransaction(
+            ...commonArguments,
+            authorization,
+            undefined,
+            undefined,
+            approvedCalendarTarget
+          );
+        } else {
+          txId =
+            authorization === undefined
+              ? await initiateSendTransaction(...commonArguments)
+              : await initiateSendTransaction(...commonArguments, authorization);
+        }
         if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
         if (isExtension()) {
           try {

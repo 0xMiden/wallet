@@ -20,6 +20,7 @@ import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -530,6 +531,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     // tag itself.
     if (resp.errorName === 'StaleProofError') {
       reject(new StaleProofError());
+      return;
+    }
+    if (resp.errorName === 'CalendarRecallReviewRequiredError') {
+      reject(new CalendarRecallReviewRequiredError());
       return;
     }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
@@ -1848,7 +1853,7 @@ export const midenClientProxy = {
    * The minimal DTO carries EXACTLY the fields `MidenClientInterface.sendTransaction`
    * reads off the row — `accountId`, `secondaryAccountId`, `faucetId`, `noteType`,
    * `amount` (BigInt → decimal string), `delegateTransaction`, and
-   * `extraInputs.recallBlocks`, no more. `completeSendTransaction` (SW-side)
+   * the approved recall term and any 1Click cutoff. `completeSendTransaction` (SW-side)
    * consumes the round-tripped `TransactionResult` identically; any private-note
    * relay it does runs on the SW's own inline client (no further offscreen call).
    *
@@ -1882,6 +1887,7 @@ export const midenClientProxy = {
       delegateTransaction: transaction.delegateTransaction,
       extraInputs: {
         recallBlocks: transaction.extraInputs?.recallBlocks,
+        calendarRecallTarget: transaction.extraInputs?.calendarRecallTarget,
         ...(transaction.extraInputs?.oneClick
           ? {
               oneClick: {
