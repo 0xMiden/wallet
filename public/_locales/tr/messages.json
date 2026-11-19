@@ -3542,6 +3542,14 @@
     "message": "Fiyatlandırılmış cüzdan varlıkları",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Cüzdanınız boş.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Gösterilecek fiyatlı varlık yok.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Son işlemler",
     "englishSource": "Recent actions"

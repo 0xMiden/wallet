@@ -3542,6 +3542,14 @@
     "message": "Activos de la cartera con precio",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Tu monedero está vacío.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "No hay activos valorados que mostrar.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Acciones recientes",
     "englishSource": "Recent actions"

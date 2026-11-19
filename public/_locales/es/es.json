@@ -767,6 +767,8 @@
   "commandPortfolio": "Cartera",
   "commandAllocation": "Asignación",
   "commandPricedAssets": "Activos de la cartera con precio",
+  "commandWalletEmpty": "Tu monedero está vacío.",
+  "commandAllocationUnavailable": "No hay activos valorados que mostrar.",
   "commandRecentActions": "Acciones recientes",
   "commandNoRecentActions": "No hay acciones recientes que mostrar",
   "commandWalletBalance": "Saldo de la cartera",

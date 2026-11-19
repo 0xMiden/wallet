@@ -767,6 +767,8 @@
   "commandPortfolio": "포트폴리오",
   "commandAllocation": "할당",
   "commandPricedAssets": "가격이 책정된 지갑 자산",
+  "commandWalletEmpty": "지갑이 비어 있습니다.",
+  "commandAllocationUnavailable": "표시할 가격 책정된 자산이 없습니다.",
   "commandRecentActions": "최근 활동",
   "commandNoRecentActions": "표시할 최근 작업이 없습니다",
   "commandWalletBalance": "지갑 잔액",

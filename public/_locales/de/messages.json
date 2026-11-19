@@ -3543,6 +3543,14 @@
     "message": "Bewertete Wallet-Vermögenswerte",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Ihre Wallet ist leer.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Es sind keine bewerteten Vermögenswerte zu verzeichnen.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Jüngste Aktionen",
     "englishSource": "Recent actions"

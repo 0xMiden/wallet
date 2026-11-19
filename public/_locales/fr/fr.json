@@ -767,6 +767,8 @@
   "commandPortfolio": "Portefeuille",
   "commandAllocation": "Allocation",
   "commandPricedAssets": "Actifs du portefeuille évalués",
+  "commandWalletEmpty": "Votre portefeuille est vide.",
+  "commandAllocationUnavailable": "Aucun actif coté à afficher.",
   "commandRecentActions": "Actions récentes",
   "commandNoRecentActions": "Aucune action récente à afficher",
   "commandWalletBalance": "Solde du portefeuille",

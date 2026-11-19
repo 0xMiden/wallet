@@ -767,6 +767,8 @@
   "commandPortfolio": "ポートフォリオ",
   "commandAllocation": "割り当て",
   "commandPricedAssets": "価格付けされたウォレット資産",
+  "commandWalletEmpty": "あなたのウォレットは空です。",
+  "commandAllocationUnavailable": "表示すべき価格付き資産はありません。",
   "commandRecentActions": "最近のアクション",
   "commandNoRecentActions": "表示する最近のアクションはありません",
   "commandWalletBalance": "ウォレットの残高",

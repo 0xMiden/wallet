@@ -767,6 +767,8 @@
   "commandPortfolio": "Портфель",
   "commandAllocation": "Розподіл",
   "commandPricedAssets": "Активи гаманця з визначеною ціною",
+  "commandWalletEmpty": "Ваш гаманець порожній.",
+  "commandAllocationUnavailable": "Немає активів із зазначеною ціною для відображення.",
   "commandRecentActions": "Останні дії",
   "commandNoRecentActions": "Немає останніх дій для показу",
   "commandWalletBalance": "Баланс гаманця",

@@ -766,6 +766,8 @@
   "commandPortfolio": "Portfolio",
   "commandAllocation": "Zuteilung",
   "commandPricedAssets": "Bewertete Wallet-Vermögenswerte",
+  "commandWalletEmpty": "Ihre Wallet ist leer.",
+  "commandAllocationUnavailable": "Es sind keine bewerteten Vermögenswerte zu verzeichnen.",
   "commandRecentActions": "Jüngste Aktionen",
   "commandNoRecentActions": "Es sind keine aktuellen Aktionen vorhanden",
   "commandWalletBalance": "Wallet-Guthaben",

@@ -3542,6 +3542,14 @@
     "message": "Aktywa portfela wycenione",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Twój portfel jest pusty.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Brak aktywów z wyceną do wyświetlenia.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Ostatnie działania",
     "englishSource": "Recent actions"

@@ -3542,6 +3542,14 @@
     "message": "価格付けされたウォレット資産",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "あなたのウォレットは空です。",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "表示すべき価格付き資産はありません。",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "最近のアクション",
     "englishSource": "Recent actions"

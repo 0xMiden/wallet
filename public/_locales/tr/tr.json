@@ -767,6 +767,8 @@
   "commandPortfolio": "Portföy",
   "commandAllocation": "Tahsis",
   "commandPricedAssets": "Fiyatlandırılmış cüzdan varlıkları",
+  "commandWalletEmpty": "Cüzdanınız boş.",
+  "commandAllocationUnavailable": "Gösterilecek fiyatlı varlık yok.",
   "commandRecentActions": "Son işlemler",
   "commandNoRecentActions": "Gösterilecek son eylem yok",
   "commandWalletBalance": "Cüzdan bakiyesi",

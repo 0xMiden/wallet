@@ -3542,6 +3542,14 @@
     "message": "Активи гаманця з визначеною ціною",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Ваш гаманець порожній.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Немає активів із зазначеною ціною для відображення.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Останні дії",
     "englishSource": "Recent actions"

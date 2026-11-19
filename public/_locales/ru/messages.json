@@ -3542,6 +3542,14 @@
     "message": "Активы кошелька с установленной ценой",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Ваш кошелек пуст.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Нет активов с указанной ценой для отображения.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Недавние действия",
     "englishSource": "Recent actions"

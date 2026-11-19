@@ -3542,6 +3542,14 @@
     "message": "가격이 책정된 지갑 자산",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "지갑이 비어 있습니다.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "표시할 가격 책정된 자산이 없습니다.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "최근 활동",
     "englishSource": "Recent actions"

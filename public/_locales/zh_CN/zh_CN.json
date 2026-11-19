@@ -767,6 +767,8 @@
   "commandPortfolio": "投资组合",
   "commandAllocation": "分配",
   "commandPricedAssets": "已定价的钱包资产",
+  "commandWalletEmpty": "您的钱包是空的。",
+  "commandAllocationUnavailable": "无定价资产可显示。",
   "commandRecentActions": "近期操作",
   "commandNoRecentActions": "无近期操作可显示",
   "commandWalletBalance": "钱包余额",

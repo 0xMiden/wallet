@@ -3542,6 +3542,14 @@
     "message": "已定價的錢包資產",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "您的錢包是空的。",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "無定價資產可顯示。",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "近期操作",
     "englishSource": "Recent actions"

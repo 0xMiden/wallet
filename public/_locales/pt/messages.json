@@ -3542,6 +3542,14 @@
     "message": "Ativos da carteira com preço definido",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Sua carteira está vazia.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Não há ativos com preço a serem exibidos.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Ações recentes",
     "englishSource": "Recent actions"

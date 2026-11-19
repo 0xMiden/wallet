@@ -767,6 +767,8 @@
   "commandPortfolio": "Portfel",
   "commandAllocation": "Alokacja",
   "commandPricedAssets": "Aktywa portfela wycenione",
+  "commandWalletEmpty": "Twój portfel jest pusty.",
+  "commandAllocationUnavailable": "Brak aktywów z wyceną do wyświetlenia.",
   "commandRecentActions": "Ostatnie działania",
   "commandNoRecentActions": "Brak ostatnich działań do wyświetlenia",
   "commandWalletBalance": "Saldo portfela",

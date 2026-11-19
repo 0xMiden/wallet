@@ -767,6 +767,8 @@
   "commandPortfolio": "Portfólio",
   "commandAllocation": "Alocação",
   "commandPricedAssets": "Ativos da carteira com preço definido",
+  "commandWalletEmpty": "Sua carteira está vazia.",
+  "commandAllocationUnavailable": "Não há ativos com preço a serem exibidos.",
   "commandRecentActions": "Ações recentes",
   "commandNoRecentActions": "Nenhuma ação recente a ser exibida",
   "commandWalletBalance": "Saldo da carteira",

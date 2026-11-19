@@ -3542,6 +3542,14 @@
     "message": "Actifs du portefeuille évalués",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Votre portefeuille est vide.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Aucun actif coté à afficher.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Actions récentes",
     "englishSource": "Recent actions"
