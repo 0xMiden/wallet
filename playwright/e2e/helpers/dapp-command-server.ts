@@ -396,7 +396,7 @@ export async function startCommandServer(options: CommandServerOptions): Promise
         const index = queue.findIndex(item => item.id === id);
         if (index >= 0) queue.splice(index, 1);
         const result = entry === undefined ? { status: 'timeout' as const, enqueuedAt, deliveredAt: null } : deadlineResult(entry);
-        write({ type: 'result', key, id, command, status: 'timeout', at: Date.now() });
+        write({ type: 'result', key, id, command, status: result.status, at: Date.now() });
         resolve(result);
       }, timeoutMs);
       pending.set(id, {

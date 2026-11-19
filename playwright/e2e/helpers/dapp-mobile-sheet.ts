@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 
-import { CellDeadlineExceeded, HarnessFault, type CellContext, type Deadline } from './dapp-cells';
+import { CellDeadlineExceeded, HarnessFault, InfrastructureFault, type CellContext, type Deadline } from './dapp-cells';
 import { callOn, type DappChannel } from './dapp-channel';
 import { evalOf } from './dapp-mobile-wallet';
 import type { DappDriverTarget } from '../harness/dapp-browser-driver';
@@ -361,10 +361,14 @@ const REFUSAL_BLOCKS = 2;
 
 export function assertRefusalBlocks(timing: NonNullable<CellContext['evidence']['refusalTiming']>, ctx: CellContext): void {
   ctx.evidence.refusalTiming = timing;
+  if (timing.trailingReadFailed) {
+    throw new InfrastructureFault('Trailing chain-height read failed; refusal timing could not be measured', {
+      abortsLeg: false
+    });
+  }
+  if (timing.afterHeight === undefined) throw new HarnessFault('Measured refusal has no trailing chain height');
   expect(
-    timing.trailingReadFailed || timing.afterHeight === undefined
-      ? Number.POSITIVE_INFINITY
-      : timing.afterHeight - timing.beforeHeight,
+    timing.afterHeight - timing.beforeHeight,
     'blocks the dApp saw while a refusal before enqueue was pending'
   ).toBeLessThanOrEqual(REFUSAL_BLOCKS);
 }
