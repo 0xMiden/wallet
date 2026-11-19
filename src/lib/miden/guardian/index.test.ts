@@ -3775,6 +3775,27 @@ describe('MultisigService', () => {
       expect(multisig.signProposal).not.toHaveBeenCalled();
     });
 
+    it('does not start cold adoption after its caller stops waiting', async () => {
+      const importProposal = jest.fn(async () => ({}));
+      const multisig = makeMultisig({ importProposal });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const proposal = {
+        id: '0xprop',
+        accountId: 'acc-id',
+        nonce: 7,
+        txSummary: 'txs-b64',
+        signatures: [],
+        metadata: { proposalType: 'switch_guardian' }
+      };
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: true };
+
+      await expect(Reflect.apply(service.signProposal, service, [proposal.id, undefined, proposal, phase])).rejects.toThrow(
+        'abandoned'
+      );
+      expect(importProposal).not.toHaveBeenCalled();
+      expect(multisig.signProposal).not.toHaveBeenCalled();
+    });
+
     it('signs an imported switch proposal from the SDK cache without listing pending proposals', async () => {
       const { Multisig } = jest.requireActual<typeof import('@openzeppelin/miden-multisig-client')>(
         '../../../../node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js'
