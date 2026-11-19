@@ -52,8 +52,20 @@ it.each([
   expect(button).toHaveClass('h-12', 'w-full', 'bg-launcher-fill', 'text-launcher-ink');
   expect(button).not.toHaveClass('max-w-92.5');
   expect(button).toHaveAccessibleDescription('commandFullscreenNewTab');
+  expect(button).toHaveTextContent(/^$/);
+  expect(button.querySelector('svg[aria-hidden="true"]')).toBeInTheDocument();
   fireEvent.click(button);
   expect(mockOpen).toHaveBeenCalledWith(source);
+});
+
+it('uses a square icon-only launcher in the balance card', () => {
+  mockEnv.popup = false;
+  mockEnv.sidePanel = true;
+  render(<CommandLauncher inBalanceCard />);
+  const button = screen.getByRole('button', { name: 'commandOpenFullscreen' });
+  expect(button).toHaveTextContent(/^$/);
+  expect(button).toHaveClass('h-12', 'w-12');
+  expect(button).toHaveAccessibleDescription('commandFullscreenNewTab');
 });
 
 it('hides only the sidebar launcher when wallet-config turns it off, and restores it when enabled', () => {

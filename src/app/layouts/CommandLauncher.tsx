@@ -1,4 +1,4 @@
-import React, { ReactElement, useRef, useState } from 'react';
+import React, { ReactElement, useId, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -16,6 +16,7 @@ export default function CommandLauncher({ inBalanceCard = false }: { inBalanceCa
   const [error, setError] = useState(false);
   const [opening, setOpening] = useState(false);
   const openingRef = useRef(false);
+  const descriptionId = useId();
 
   if (!isExtension() || confirmWindow || (!popup && !sidePanel)) return null;
   if (sidePanel && config?.features.openFullscreen === false) return null;
@@ -39,15 +40,15 @@ export default function CommandLauncher({ inBalanceCard = false }: { inBalanceCa
     <div className={inBalanceCard ? 'min-w-0' : 'shrink-0 px-4 py-2'}>
       <Button
         variant={ButtonVariant.Launcher}
-        className={inBalanceCard ? 'h-auto min-h-12 w-auto max-w-full gap-2 px-3 py-2 text-cta-sm' : undefined}
+        className={inBalanceCard ? 'w-12 px-0' : undefined}
         isLoading={opening}
-        aria-describedby="command-fullscreen-new-tab-description"
+        aria-label={t('commandOpenFullscreen')}
+        aria-describedby={descriptionId}
         onClick={open}
       >
         <Icon name={IconName.Fullscreen} className="h-5 w-5 shrink-0" fill="currentColor" aria-hidden="true" />
-        <span>{t('commandOpenFullscreen')}</span>
       </Button>
-      <span id="command-fullscreen-new-tab-description" className="sr-only">
+      <span id={descriptionId} className="sr-only">
         {t('commandFullscreenNewTab')}
       </span>
       <ErrorLine errorId="commandFullscreenOpenFailed">{error && t('commandFullscreenOpenFailed')}</ErrorLine>
