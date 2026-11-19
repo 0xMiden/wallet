@@ -512,7 +512,7 @@ describe('connect payload', () => {
 
       await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(2));
       expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
-      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument();
     } finally {
       ctx.confirmDAppPermission.mockReset();
     }
@@ -561,6 +561,22 @@ describe('connect payload', () => {
 
     expect(screen.getByTestId('connect-fact-private-ask')).toHaveTextContent('confirmationRequired');
     expect(screen.queryByTestId('connect-fact-balance')).not.toBeInTheDocument();
+  });
+
+  it('shows the standing private-data scopes for Auto and asks when Auto allows no private data', () => {
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    setPayload(connectPayload({ privateDataPermission: AUTO, allowedPrivateData: 1 | 2 | 4 }));
+    const { unmount } = render(<ConfirmPage />);
+
+    expect(screen.getByTestId('connect-fact-private-auto')).toBeInTheDocument();
+    expect(t).toHaveBeenCalledWith('connectFactReadPrivateDescription', { scopes: 'Assets, Notes, Storage' });
+    unmount();
+
+    setPayload(connectPayload({ privateDataPermission: AUTO, allowedPrivateData: 0 }));
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('connect-fact-private-ask')).toBeInTheDocument();
+    expect(screen.queryByTestId('connect-fact-private-auto')).not.toBeInTheDocument();
   });
 
   it('confirms the connection via onConfirm when the confirm button is clicked', async () => {
@@ -1105,13 +1121,6 @@ describe('sign payload — signingInputs', () => {
       toBech32: () => `bech32:${typeof id === 'string' ? id : id.toString()}`
     }));
 
-  // Pixel-level rendering (asset rows, amount/symbol formatting, storage
-  // warning) is owned by `TransactionAssetView` and covered in
-  // `TransactionAssetView.test.tsx`. `TransactionAssetView` is stubbed here
-  // (see the `jest.mock` above) so these tests assert only that the
-  // sign->TransactionSummary branch routes through it with the correct
-  // mode/view/onDownload wiring, i.e. that ConfirmPage shows the holdings the
-  // background measured (`signingEffects`) and never measures the summary itself.
   // The background measures the summary (`signingEffects`); the window lays that measure out and never measures
   // the summary itself.
   it('renders a measured TransactionSummary: the account, note counts, storage and the note flow', () => {
@@ -1704,9 +1713,8 @@ describe('ConfirmPage custom transaction', () => {
 });
 
 // ---------------------------------------------------------------------------
-// opaque-signature hardening — kind:'word' and SigningInputs
-// Arbitrary/Blind leaves get a warning banner + raw value under advanced
-// details (also exercised inline in the 'sign payload' describes above).
+// opaque-signature hardening — kind:'word' and SigningInputs Arbitrary/Blind: the caution heading, then the
+// raw value shown open (also exercised inline in the 'sign payload' describes above).
 // ---------------------------------------------------------------------------
 
 describe('ConfirmPage opaque signature', () => {
