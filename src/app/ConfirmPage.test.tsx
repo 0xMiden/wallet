@@ -958,6 +958,21 @@ describe('privateNotes payload', () => {
 
     await waitFor(() => expect(ctx.confirmDAppPrivateNotes).toHaveBeenCalledWith('req-1', true));
   });
+
+  // The notice says the request is still there and the action reads Try again, so the request stays in view.
+  it('keeps the request and its download action in view above a failed Confirm', async () => {
+    ctx.confirmDAppPrivateNotes.mockRejectedValue(new Error('share failed'));
+    setPayload(pnPayload());
+    render(<ConfirmPage />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.RequestPrivateNotes_AcceptButton));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('confirm-tx-error')).toBeInTheDocument());
+    expect(screen.getByText('sharePrivateNoteDataForAccount', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('downloadPrivateNoteData').closest('button')).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

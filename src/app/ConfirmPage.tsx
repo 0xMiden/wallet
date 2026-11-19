@@ -660,11 +660,9 @@ const ConfirmDAppForm: FC = () => {
               {content.want}
             </div>
 
-            {error ? (
-              <FailureNotice message={error?.message ?? t('smthWentWrong')} errorId={errorId} />
-            ) : (
-              <PayloadContent payload={payload} error={payloadError} />
-            )}
+            {/* A failed answer sits above the request, which stays, so Try again is taken with it in view. */}
+            {error && <FailureNotice message={error.message ?? t('smthWentWrong')} errorId={errorId} />}
+            <PayloadContent payload={payload} error={payloadError} />
           </div>
         )}
       </div>
