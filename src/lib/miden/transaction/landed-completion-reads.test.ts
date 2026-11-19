@@ -4,6 +4,7 @@ import { installLandedTrapRetirement } from 'lib/miden/sdk/landed-trap-retiremen
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
 import {
+  bridgedSendCompletionRead,
   consumeCompletionRead,
   customCompletionRead,
   forgetLandedCompletion,
@@ -13,7 +14,7 @@ import {
   swapCompletionRead
 } from './landed-completion-reads';
 import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
-import type { ITransaction, SendTransaction, SwapTransaction } from '../db/types';
+import type { BridgedSendTransaction, ITransaction, SendTransaction, SwapTransaction } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
@@ -236,5 +237,26 @@ describe("a consume's read", () => {
     expect(reads.slice(reads.indexOf('serialize'))).toEqual(['serialize']);
     expect(read).toMatchObject({ sender: 'sender', transactionId: 'landed-id', amount: 5n });
     expect(read.bytes).toEqual({ error: failure });
+  });
+});
+
+describe("a USDCx burn's read", () => {
+  it('reads its fee against the burn it completes, so a budgeted burn with no approved fee context records no fee', () => {
+    const burn = (id: string, usdcxBurn: Record<string, unknown>) =>
+      row(id, 'bridged-send', { extraInputs: { provider: 'usdcx', usdcxBurn } }) as BridgedSendTransaction;
+    const budget = { faucetId: 'native', maxAmount: '100', scope: 'reviewed' };
+
+    const plain = keptOrThrow(
+      bridgedSendCompletionRead(burn('row-burn-plain', {}), recordingResult(NoteType.Public).result)
+    );
+    const budgeted = keptOrThrow(
+      bridgedSendCompletionRead(
+        burn('row-burn-budgeted', { networkFeeBudget: budget }),
+        recordingResult(NoteType.Public).result
+      )
+    );
+
+    expect(plain.feeFields).toEqual({ feeAmount: 100n, feeFaucetId: 'native' });
+    expect(budgeted.feeFields).toEqual({});
   });
 });
