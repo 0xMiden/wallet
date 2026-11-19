@@ -50,7 +50,14 @@ export function CommandAssets({
     <section>
       <SectionHeader size="xl">{t('assets')}</SectionHeader>
       {current && assets.length > 0 && (
-        <SearchInput value={query} onChange={setQuery} placeholder={t('searchAssets')} inputMode="search" size="sm" />
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder={t('searchAssets')}
+          inputMode="search"
+          size="sm"
+          className="mb-3"
+        />
       )}
       {!current && assets.length === 0 ? (
         <Notice tone="neutral" variant="inline">

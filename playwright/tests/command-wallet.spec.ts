@@ -116,6 +116,11 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await captureCommand(command, info, 'command-dashboard-1600x1000');
   await command.setViewportSize({ width: 1440, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-1440x1000');
+  const assetSearch = await command.getByRole('textbox', { name: 'Search assets...' }).boundingBox();
+  const assetList = await command.getByRole('main').locator('[aria-label="Assets"]').boundingBox();
+  expect(assetSearch).not.toBeNull();
+  expect(assetList).not.toBeNull();
+  expect(assetList!.y - (assetSearch!.y + assetSearch!.height)).toBeGreaterThanOrEqual(10);
 
   const dock = command.getByRole('navigation', { name: 'Wallet actions' });
   await dock.getByRole('button', { name: 'Receive', exact: true }).click();
@@ -195,6 +200,13 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(command.locator('html')).toHaveClass(/dark/);
   await expect(workbench.getByTestId('command-bridge')).toBeVisible();
   await captureCommand(command, info, 'command-bridge-dark-reduced-motion-1440x1000');
+  const routes = await workbench.getByRole('radiogroup', { name: 'Asset, network and provider' }).boundingBox();
+  const externalAccount = await workbench.getByText('External account', { exact: true }).boundingBox();
+  expect(routes).not.toBeNull();
+  expect(externalAccount).not.toBeNull();
+  const accountGap = externalAccount!.y - (routes!.y + routes!.height);
+  expect(accountGap).toBeGreaterThanOrEqual(12);
+  expect(accountGap).toBeLessThanOrEqual(24);
 
   const sidebar = await extensionContext.newPage();
   await sidebar.setViewportSize({ width: 360, height: 800 });

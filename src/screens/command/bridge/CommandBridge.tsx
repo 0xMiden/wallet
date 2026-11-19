@@ -181,21 +181,51 @@ export function CommandBridge(): React.ReactElement {
                 {route?.destination.network ?? t('unavailable')}
               </DetailRow>
             </DetailCard>
-            <ChoiceCardGroup
-              aria-label={t('commandBridgeRoute')}
-              value={route?.id ?? null}
-              items={bridge.routes.map(item => ({
-                id: item.id,
-                'data-testid': `command-bridge-route-${item.id}`,
-                title: t('commandBridgeRouteLabel', {
-                  source: item.source.symbol,
-                  destination: item.destination.symbol,
-                  network: item.mode === 'receive' ? item.source.network : item.destination.network
-                }),
-                subtitle: t(`commandBridgeProvider_${item.provider}`)
-              }))}
-              onChange={bridge.selectRoute}
-            />
+            <div className="flex min-w-0 flex-col gap-4">
+              <ChoiceCardGroup
+                aria-label={t('commandBridgeRoute')}
+                value={route?.id ?? null}
+                items={bridge.routes.map(item => ({
+                  id: item.id,
+                  'data-testid': `command-bridge-route-${item.id}`,
+                  title: t('commandBridgeRouteLabel', {
+                    source: item.source.symbol,
+                    destination: item.destination.symbol,
+                    network: item.mode === 'receive' ? item.source.network : item.destination.network
+                  }),
+                  subtitle: t(`commandBridgeProvider_${item.provider}`)
+                }))}
+                onChange={bridge.selectRoute}
+              />
+              <TextField
+                label={t('commandBridgeExternalAccount')}
+                value={bridge.externalAccountId}
+                readOnly={bridge.direction === 'in'}
+                onChange={event => bridge.setExternalAccountId(event.target.value)}
+              />
+              <Button
+                type="button"
+                variant={ButtonVariant.Secondary}
+                onClick={() => {
+                  hapticLight();
+                  void bridge.connectWallet();
+                }}
+              >
+                {t(bridge.connected ? 'connectAnotherWallet' : 'connectEvmWallet')}
+              </Button>
+              {bridge.direction === 'in' && bridge.connected && (
+                <Button
+                  type="button"
+                  variant={ButtonVariant.Secondary}
+                  onClick={() => {
+                    hapticLight();
+                    void bridge.switchSource();
+                  }}
+                >
+                  {t('commandBridgeSwitchSource')}
+                </Button>
+              )}
+            </div>
             {route && (
               <div className="min-w-0 rounded-2xl border border-hairline bg-fill/40 p-4 sm:p-5">
                 <AmountInput
@@ -215,34 +245,6 @@ export function CommandBridge(): React.ReactElement {
                   </DetailRow>
                 </div>
               </div>
-            )}
-            <TextField
-              label={t('commandBridgeExternalAccount')}
-              value={bridge.externalAccountId}
-              readOnly={bridge.direction === 'in'}
-              onChange={event => bridge.setExternalAccountId(event.target.value)}
-            />
-            <Button
-              type="button"
-              variant={ButtonVariant.Secondary}
-              onClick={() => {
-                hapticLight();
-                void bridge.connectWallet();
-              }}
-            >
-              {t(bridge.connected ? 'connectAnotherWallet' : 'connectEvmWallet')}
-            </Button>
-            {bridge.direction === 'in' && bridge.connected && (
-              <Button
-                type="button"
-                variant={ButtonVariant.Secondary}
-                onClick={() => {
-                  hapticLight();
-                  void bridge.switchSource();
-                }}
-              >
-                {t('commandBridgeSwitchSource')}
-              </Button>
             )}
           </fieldset>
         )}
