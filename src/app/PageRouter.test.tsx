@@ -403,8 +403,12 @@ describe('Command routing', () => {
     ['confirmation', { ready: true, hydrated: true, fullPage: true, confirmWindow: true }]
   ])('does not mount Command when %s', (_case, ctx) => {
     mockExtension.value = _case !== 'native';
-    renderAt('/send', ctx);
+    renderAt('/bridge/deposit', ctx);
     expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('command-bridge')).not.toBeInTheDocument();
+    if (ctx.ready && ctx.hydrated && !('locked' in ctx)) {
+      expect(screen.getByTestId('bridge-deposit')).toBeInTheDocument();
+    }
   });
 
   it('defers Command until the onboarding finishing hold releases', () => {
@@ -436,6 +440,20 @@ describe('Command routing', () => {
     act(() => backgroundLockPending.set(true));
     renderAt('/send', { ...ready, fullPage: true });
     expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
+  });
+
+  it('routes the recovery list to the original Settings page even in an eligible fullscreen tab', () => {
+    mockExtension.value = true;
+    renderAt('/settings/recover-funds', { ...ready, fullPage: true });
+    expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', 'recover-funds');
+    expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
+  });
+
+  it('keeps the recovery list behind unlock in a fullscreen tab', () => {
+    mockExtension.value = true;
+    renderAt('/settings/recover-funds', { ...ready, fullPage: true, locked: true });
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
   });
 
   it.each(['/settings/general', '/me', '/browser', '/activity/group/swap'])('leaves %s in legacy', path => {

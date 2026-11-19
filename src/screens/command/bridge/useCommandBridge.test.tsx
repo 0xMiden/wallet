@@ -8,6 +8,12 @@ import type { BridgeReviewContext } from 'lib/bridge/core/review';
 import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { submitReviewedBridge } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
+import {
+  cancelLockWithdrawal,
+  finishLockWithdrawal,
+  retryLockedDeposit,
+  startLockWithdrawal
+} from 'lib/epoch/bridge-in-recovery';
 import { switchWebWalletChain } from 'lib/epoch/client';
 import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
@@ -15,6 +21,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
+import { createLocationState, HistoryAction } from 'lib/woozie';
 
 import { CommandDraftProvider, useCommandDrafts } from '../command-drafts';
 import { CommandWorkbench } from '../CommandWorkbench';
@@ -72,6 +79,12 @@ jest.mock('lib/bridge/wallet-transport', () => ({ quoteBridgeTransfer: jest.fn()
 jest.mock('lib/bridge/wallet-submit', () => ({
   ...jest.requireActual('lib/bridge/wallet-submit'),
   submitReviewedBridge: jest.fn()
+}));
+jest.mock('lib/epoch/bridge-in-recovery', () => ({
+  cancelLockWithdrawal: jest.fn(),
+  finishLockWithdrawal: jest.fn(),
+  retryLockedDeposit: jest.fn(),
+  startLockWithdrawal: jest.fn()
 }));
 jest.mock('lib/epoch/client', () => ({
   buildEpochWalletClient: jest.fn(),
@@ -379,6 +392,36 @@ it('invalidates actual Circle review on a changed displayed native cap, not same
   expect(result.current.bridge.review).toBeUndefined();
 });
 
+it('opens the wallet recovery list from Bridge entry without starting a recovery or a transfer', () => {
+  const previousUrl = window.location.href;
+  const previousState: unknown = window.history.state;
+  window.history.replaceState(null, '', '#/bridge/deposit');
+  try {
+    render(
+      <CommandDraftProvider scope={scope}>
+        <CommandWorkbench route={{ kind: 'flow', action: 'bridge' }} container={null}>
+          <CommandBridge />
+        </CommandWorkbench>
+      </CommandDraftProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'recoverLockedFunds' }));
+    expect(createLocationState()).toMatchObject({
+      pathname: '/settings/recover-funds',
+      search: '',
+      trigger: HistoryAction.Push
+    });
+    expect(screen.queryByRole('button', { name: 'confirm' })).not.toBeInTheDocument();
+    expect(quoteBridgeTransfer).not.toHaveBeenCalled();
+    expect(submitReviewedBridge).not.toHaveBeenCalled();
+    expect(startLockWithdrawal).not.toHaveBeenCalled();
+    expect(finishLockWithdrawal).not.toHaveBeenCalled();
+    expect(cancelLockWithdrawal).not.toHaveBeenCalled();
+    expect(retryLockedDeposit).not.toHaveBeenCalled();
+  } finally {
+    window.history.replaceState(previousState, '', previousUrl);
+  }
+});
+
 it('shows the exact reviewed native maximum in the actual Command Bridge workbench disclosure', async () => {
   render(
     <CommandDraftProvider scope={scope}>
@@ -425,6 +468,7 @@ it('shows the exact reviewed native maximum in the actual Command Bridge workben
   if (!form) throw new Error('Missing real Command Bridge form');
   fireEvent.submit(form);
   expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'recoverLockedFunds' })).not.toBeInTheDocument();
   expect(screen.getByText('networkFeeMax')).toBeVisible();
   expect(screen.getByText('0.0003 USDCx')).toBeVisible();
 });
@@ -698,6 +742,7 @@ it('keeps the rejected admitted workbench readonly with original disclosure and 
   expect(screen.getByRole('button', { name: 'commandBridgeViewStatus' })).toHaveAttribute('type', 'button');
   expect(screen.getByText('bridgeReviewChanged')).toBeVisible();
   expect(screen.getByText('commandBridgeAdmitted')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'recoverLockedFunds' })).not.toBeInTheDocument();
   expect(screen.queryByRole('textbox', { name: 'amount' })).toBeNull();
   mockFee = { ...mockFee, reserve: 301n };
   removeCircleWithdrawals();
