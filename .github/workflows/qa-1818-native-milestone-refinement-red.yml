@@ -1,0 +1,28 @@
+name: QA 1818 milestone refinement RED
+
+on:
+  push:
+    branches: [qa/1818-native-milestone-refinement-red]
+
+permissions:
+  contents: read
+
+jobs:
+  runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - name: Verify source and run only the device-free runner fixture
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git show -s --format=%P HEAD)" = 8ea6851406f98dcbf61aa2d19df9d7181e755a21
+          test "$(git hash-object --no-filters -- .github/scripts/run-dapp-presentation-gesture-api36.sh)" = 3552335764278a93fdec3f70ecae9fc0b69f108f
+          test "$(git hash-object --no-filters -- .github/scripts/run-dapp-presentation-gesture-api36.test.mjs)" = 48efc29a61792ea4729b9e0aed281ec0c949c5f5
+          node --test .github/scripts/run-dapp-presentation-gesture-api36.test.mjs
