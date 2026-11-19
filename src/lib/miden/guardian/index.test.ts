@@ -3652,6 +3652,95 @@ describe('MultisigService', () => {
       expect(multisig.executeProposal).not.toHaveBeenCalled();
       expect(multisig.createTransactionProposalRequest).not.toHaveBeenCalled();
     });
+
+    // #2225: the SDK looks for a proposal that is not in its cache in the Guardian's full pending list, and
+    // one pending proposal that does not parse (a signature from a replaced hot key) fails that read.
+    it('adopts a known proposal before it signs, so the SDK finds it in its cache', async () => {
+      const calls: string[] = [];
+      const imported: string[] = [];
+      const importProposal = jest.fn(async (json: string) => {
+        imported.push(json);
+        calls.push('import');
+      });
+      const multisig = makeMultisig({
+        importProposal,
+        signProposal: jest.fn(async () => {
+          calls.push('sign');
+          return { signatures: [] };
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const known = {
+        id: '0xprop',
+        accountId: 'acc-id',
+        nonce: 7,
+        txSummary: 'txs-b64',
+        signatures: [
+          {
+            signerId: '0xhot',
+            signature: { scheme: 'ecdsa', signature: '0xsig', publicKey: '0xpub' },
+            timestamp: '2026-11-19T00:00:00.000Z'
+          },
+          {
+            signerId: '0xfalcon',
+            signature: { scheme: 'falcon', signature: '0xfsig' },
+            timestamp: '2026-11-19T00:00:01.000Z'
+          }
+        ],
+        metadata: { proposalType: 'switch_guardian' }
+      };
+
+      await service.signProposal('0xprop', undefined, known as never);
+
+      expect(calls).toEqual(['import', 'sign']);
+      expect(imported.map(json => JSON.parse(json))).toEqual([
+        {
+          accountId: 'acc-id',
+          nonce: 7,
+          commitment: '0xprop',
+          txSummaryBase64: 'txs-b64',
+          signatures: [
+            {
+              commitment: '0xhot',
+              signatureHex: '0xsig',
+              scheme: 'ecdsa',
+              publicKey: '0xpub',
+              timestamp: '2026-11-19T00:00:00.000Z'
+            },
+            {
+              commitment: '0xfalcon',
+              signatureHex: '0xfsig',
+              scheme: 'falcon',
+              timestamp: '2026-11-19T00:00:01.000Z'
+            }
+          ],
+          metadata: { proposalType: 'switch_guardian' }
+        }
+      ]);
+      expect(multisig.signProposal).toHaveBeenCalledWith('0xprop');
+    });
+
+    it('does not sign when the known proposal fails its adoption', async () => {
+      const multisig = makeMultisig({
+        importProposal: jest.fn(async () => {
+          throw new Error('Invalid proposal: metadata salt does not match');
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const known = {
+        id: '0xprop',
+        accountId: 'acc-id',
+        nonce: 7,
+        txSummary: 'txs-b64',
+        signatures: [],
+        metadata: { proposalType: 'switch_guardian' }
+      };
+
+      await expect(service.signProposal('0xprop', undefined, known as never)).rejects.toThrow(
+        'metadata salt does not match'
+      );
+      expect(multisig.signProposal).not.toHaveBeenCalled();
+    });
   });
 
   describe('buildColdMultisigService', () => {

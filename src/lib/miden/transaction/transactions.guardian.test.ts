@@ -11253,10 +11253,16 @@ describe('generateTransaction - Guardian routing', () => {
         label: 'switch-guardian cold service load'
       }
     );
-    expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch', {
-      watchdogMs: 30_000,
-      label: 'switch-guardian cold co-sign'
-    });
+    // The cold service gets the proposal itself, so the SDK does not read the outgoing guardian's pending
+    // list, which one pending proposal that does not parse fails (#2225).
+    expect(coldService.signProposal).toHaveBeenCalledWith(
+      'prop-switch',
+      {
+        watchdogMs: 30_000,
+        label: 'switch-guardian cold co-sign'
+      },
+      expect.objectContaining({ id: 'prop-switch' })
+    );
     // After the multisigService/signingService consolidation, the hot service IS
     // the only service for non-replace-hot-key types - it drives the final
     // signAndCreateTransactionRequest.
@@ -12710,10 +12716,14 @@ describe('generateTransaction - Guardian routing', () => {
       ).catch(() => undefined);
 
       expect(mockBuildColdMultisigService).toHaveBeenCalled();
-      expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch', {
-        watchdogMs: 30_000,
-        label: 'switch-guardian cold co-sign'
-      });
+      expect(coldService.signProposal).toHaveBeenCalledWith(
+        'prop-switch',
+        {
+          watchdogMs: 30_000,
+          label: 'switch-guardian cold co-sign'
+        },
+        expect.objectContaining({ id: 'prop-switch' })
+      );
     });
 
     it('update-procedure-threshold reaches the cold service and its proposal', async () => {
@@ -16898,7 +16908,11 @@ describe('generateTransaction - direct switch audit marker', () => {
     // Pin that the coordinated path was actually walked - otherwise an early
     // throw for an unrelated reason would satisfy the assertion below.
     expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian', expect.any(Object));
-    expect(signProposal).toHaveBeenCalledWith('prop-1', { watchdogMs: 30_000, label: 'switch-guardian cold co-sign' });
+    expect(signProposal).toHaveBeenCalledWith(
+      'prop-1',
+      { watchdogMs: 30_000, label: 'switch-guardian cold co-sign' },
+      expect.objectContaining({ id: 'prop-1' })
+    );
     expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
 
     expect(markerExtraInputs(txId).switchedDirectly).toBeUndefined();

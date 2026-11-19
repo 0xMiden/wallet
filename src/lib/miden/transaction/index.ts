@@ -4580,7 +4580,14 @@ const generateGuardianTransaction = async (
       // though the hot proposal already landed.
       await withGuardianConflictRetry(() =>
         withOutgoingGuardianDeadline(
-          () => coldService.signProposal(proposalResult.id, outgoingGuardianHold('switch-guardian cold co-sign')),
+          // The cold service gets the proposal itself. Without it the SDK reads the outgoing guardian's full
+          // pending list to find it, and one pending proposal that does not parse fails that read (#2225).
+          () =>
+            coldService.signProposal(
+              proposalResult.id,
+              outgoingGuardianHold('switch-guardian cold co-sign'),
+              proposalResult
+            ),
           'cold co-signing the switch-guardian proposal'
         )
       );

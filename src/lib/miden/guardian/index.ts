@@ -40,6 +40,7 @@ import {
   OUTGOING_GUARDIAN_DEADLINE_MS,
   withTimeout
 } from './discover';
+import { exportedProposalJson } from './exported-proposal';
 import { abandonCandidateByNonce, guardianPredatesProposalAbandon, legacyAbandonStatus } from './legacy-abandon';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import {
@@ -929,10 +930,25 @@ export class MultisigService {
    *
    * The WASM hold spans the guardian round trip, so a caller with its own deadline
    * passes `lockOptions` to bound the hold by it.
+   *
+   * `known` is the proposal as the service that created it returned it. This service
+   * adopts it before it signs, so the SDK finds the proposal in its cache. Without it the
+   * SDK reads the Guardian's full pending list, and one pending proposal that does not
+   * parse (a signature from a hot key that a rotation replaced) fails the read and thus
+   * the signature (#2225). The adoption and the signature each check that the proposal's
+   * metadata binds its summary.
    */
-  async signProposal(id: string, lockOptions?: Parameters<typeof withWasmClientLock>[1]): Promise<void> {
+  async signProposal(
+    id: string,
+    lockOptions?: Parameters<typeof withWasmClientLock>[1],
+    known?: Proposal
+  ): Promise<void> {
     // Signing syncs and previews with the same shared client as account creation.
     await withWasmClientLock(async hold => {
+      if (known) {
+        await this.multisig.importProposal(exportedProposalJson(known));
+        assertWasmHoldCurrent(hold, 'guardian proposal signing: after adopting the known proposal');
+      }
       await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(id));
       assertWasmHoldCurrent(hold, 'guardian proposal signing');
     }, lockOptions);
