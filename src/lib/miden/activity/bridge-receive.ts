@@ -474,7 +474,8 @@ async function reconcileUsdcxExecutorRow(
     );
     return;
   }
-  if (!cctpAllowsManualExecution({ ...leg, forwardState: attested.forwardState })) {
+  const keepStagedProof = forwardRefused && leg.attestation !== undefined;
+  if (keepStagedProof || !cctpAllowsManualExecution({ ...leg, forwardState: attested.forwardState })) {
     if (attested.forwardState !== leg.forwardState) {
       const progress = { cctp: { sourceDomain: leg.sourceDomain, forwardState: attested.forwardState } };
       if (canUpdate) await updateBridgedReceivePhase(row.id, 'delivering', progress, undefined, { canUpdate });
