@@ -282,32 +282,53 @@ export interface DappCommands {
 export type DappCommandName = keyof DappCommands;
 export type DappInput<K extends DappCommandName> = DappCommands[K]['input'];
 export type DappOutput<K extends DappCommandName> = DappCommands[K]['output'];
-export type DappHandlers = { [K in DappCommandName]: (input: DappInput<K>, expiresAt?: number) => Promise<DappOutput<K>> };
+export interface MeasuredSubmitContext {
+  reportLeadingNode(error?: DappError): Promise<boolean>;
+  trailingCutoff?: number;
+}
+
+export type DappHandlers = {
+  [K in DappCommandName]: (input: DappInput<K>, expiresAt?: number, measured?: MeasuredSubmitContext) => Promise<DappOutput<K>>;
+};
 
 export interface TestDappWindowApi {
   readonly ready: true;
-  call<K extends DappCommandName>(command: K, input: DappInput<K>, expiresAt?: number): Promise<DappOutput<K>>;
+  call<K extends DappCommandName>(command: K, input: DappInput<K>, expiresAt?: number, measured?: MeasuredSubmitContext): Promise<DappOutput<K>>;
 }
 
 export const NODE_RETRY_MS = 2_000;
 
+async function readBefore<T>(read: () => Promise<T>, cutoff: number | undefined, timeoutError: Error): Promise<T> {
+  if (cutoff === undefined) return read();
+  const remaining = cutoff - Date.now();
+  if (remaining <= 0) throw timeoutError;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(timeoutError), remaining);
+  });
+  try {
+    return await Promise.race([read(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function runMeasuredCustomSubmit(
   sync: () => Promise<DappOutput<'syncHeight'>>,
   submit: () => Promise<DappOutput<'submitCustom'>>,
-  expiresAt?: number
+  expiresAt?: number,
+  measured?: MeasuredSubmitContext
 ): Promise<DappOutput<'submitCustomMeasured'>> {
-  const checkExpiry = () => {
-    if (expiresAt !== undefined && Date.now() >= expiresAt) {
-      throw Object.assign(new Error('Measured submission expired before reaching the wallet'), { name: 'CommandExpiredError' });
-    }
-  };
+  const expired = Object.assign(new Error('Measured submission expired before reaching the wallet'), {
+    name: 'CommandExpiredError'
+  });
+  let leadingError: Error | undefined;
   const beforeStartedAt = performance.now();
   let beforeHeight: number;
   for (;;) {
-    checkExpiry();
     const startedAt = Date.now();
     try {
-      ({ height: beforeHeight } = await sync());
+      ({ height: beforeHeight } = await readBefore(sync, expiresAt, leadingError ?? expired));
       break;
     } catch (error) {
       if (
@@ -315,19 +336,27 @@ export async function runMeasuredCustomSubmit(
         expiresAt === undefined ||
         expiresAt - Date.now() <= NODE_RETRY_MS + (Date.now() - startedAt)
       ) throw error;
+      if (measured !== undefined && !(await measured.reportLeadingNode({ name: error.name, message: error.message }))) {
+        throw error;
+      }
+      leadingError = error;
       await new Promise(resolve => setTimeout(resolve, NODE_RETRY_MS));
     }
   }
-  checkExpiry();
+  if (leadingError !== undefined && measured !== undefined && !(await measured.reportLeadingNode())) throw leadingError;
+  if (expiresAt !== undefined && Date.now() >= expiresAt) throw expired;
   const requestStartedAt = performance.now();
   const result = await submit();
   const afterStartedAt = performance.now();
-  const { height: afterHeight } = await sync();
+  const trailing = await readBefore(sync, measured?.trailingCutoff ?? expiresAt, expired).then(
+    ({ height }) => ({ afterHeight: height }),
+    () => ({ trailingReadFailed: true })
+  );
   return {
     result,
     timing: {
       beforeHeight,
-      afterHeight,
+      ...trailing,
       beforeSyncMs: Math.round(requestStartedAt - beforeStartedAt),
       requestMs: Math.round(afterStartedAt - requestStartedAt),
       afterSyncMs: Math.round(performance.now() - afterStartedAt)

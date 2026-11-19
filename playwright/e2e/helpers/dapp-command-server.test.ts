@@ -114,6 +114,24 @@ describe('command server', () => {
     await expect(outcome).resolves.toHaveProperty('message', expect.stringContaining('leading node unavailable'));
   });
 
+  it('clears the leading error only for the matching live measured command', async () => {
+    const base = await start();
+    const outcome = commandChannel(live(), 'A', 'one')
+      .send('submitCustomMeasured', {}, 4_000)
+      .catch((error: unknown) => error);
+    const id = idOf(await (await poll(base, 'A', 'one')).json());
+    const report = (device: string, kind: string, data: object) =>
+      fetch(`${base}/event?device=${device}&dapp=one`, { method: 'POST', body: JSON.stringify({ kind, data }) });
+    const failure = { id, name: 'ChainUnavailableError', message: 'leading node unavailable' };
+    expect((await report('B', 'leading-node-failure', failure)).status).toBe(404);
+    expect((await report('A', 'leading-node-recovered', { id })).status).toBe(409);
+    expect((await report('A', 'leading-node-failure', failure)).status).toBe(204);
+    expect((await report('B', 'leading-node-recovered', { id })).status).toBe(404);
+    expect((await report('A', 'leading-node-recovered', { id })).status).toBe(204);
+    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+    expect((await report('A', 'leading-node-recovered', { id })).status).toBe(404);
+  });
+
   it('settles a pending command as HarnessFault after a delayed result-undelivered event', async () => {
     const base = await start();
     const outcome = commandChannel(live(), 'A', 'one')

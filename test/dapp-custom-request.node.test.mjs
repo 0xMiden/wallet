@@ -16,6 +16,33 @@ const globals = new Map(
 let api;
 let pageCommon;
 
+test('keeps measured leading reports bound to the real page invocation', async () => {
+  let reads = 0;
+  window.testSyncChain = async () => {
+    if (++reads <= 2) throw new Error('fixture node unavailable');
+  };
+  const reports = [[], []];
+  const input = { requestId: 'not-built', recipientAddress: '', importNotes: false };
+  try {
+    const commands = reports.map(events =>
+      api.call('submitCustomMeasured', input, Date.now() + 10_000, {
+        reportLeadingNode: async error => {
+          events.push(error?.name ?? 'recovered');
+          return true;
+        }
+      })
+    );
+    const results = await Promise.allSettled(commands);
+    assert.deepEqual(results.map(result => result.status), ['rejected', 'rejected']);
+    assert.deepEqual(reports, [
+      ['ChainUnavailableError', 'recovered'],
+      ['ChainUnavailableError', 'recovered']
+    ]);
+  } finally {
+    delete window.testSyncChain;
+  }
+});
+
 before(async () => {
   const imports = new Map([
     [
@@ -25,7 +52,7 @@ before(async () => {
         export * from ${JSON.stringify(sdkUrl)};
         export const MidenClient = {
           create: async () => ({
-            syncChain: async () => undefined,
+            syncChain: async () => globalThis.window.testSyncChain?.(),
             getSyncHeight: async () => 42,
             feeFaucetId: async () => sdk.AccountId.fromHex(${JSON.stringify(faucetHex)})
           })

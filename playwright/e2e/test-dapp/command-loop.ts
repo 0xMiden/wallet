@@ -7,6 +7,8 @@
 // A module, though it exports nothing: as a script its top-level names would be globals across the whole program.
 export {};
 
+import type { MeasuredSubmitContext } from './protocol';
+
 interface PageCommand {
   id: string;
   command: string;
@@ -81,7 +83,7 @@ function report(kind: string, data: Record<string, unknown> = {}, keepalive = fa
 
 function testDapp(): {
   ready: boolean;
-  call: ((command: string, input: unknown, expiresAt?: number) => Promise<unknown>) | undefined;
+  call: ((command: string, input: unknown, expiresAt?: number, measured?: MeasuredSubmitContext) => Promise<unknown>) | undefined;
 } {
   const api: unknown = Reflect.get(window, 'testDapp');
   if (typeof api !== 'object' || api === null) return { ready: false, call: undefined };
@@ -90,7 +92,8 @@ function testDapp(): {
     ready: Reflect.get(api, 'ready') === true,
     call:
       typeof call === 'function'
-        ? (name, input, expiresAt) => Promise.resolve(Reflect.apply(call, api, [name, input, expiresAt]))
+        ? (name, input, expiresAt, measured) =>
+            Promise.resolve(Reflect.apply(call, api, measured ? [name, input, expiresAt, measured] : [name, input, expiresAt]))
         : undefined
   };
 }
@@ -165,7 +168,16 @@ async function run(command: PageCommand): Promise<unknown> {
   if (command.command === '__fetchLog') return Reflect.get(window, '__dappFetchLog') ?? [];
   const api = testDapp();
   if (!api.ready || api.call === undefined) throw new Error('window.testDapp is not ready');
-  return api.call(command.command, command.input, command.expiresAt);
+  const measured = command.command === 'submitCustomMeasured' && command.expiresAt !== undefined
+    ? {
+        trailingCutoff: command.expiresAt - (2 * POST_ATTEMPT_MS + RETRY_MS + 1_000),
+        reportLeadingNode: (error?: { name: string; message: string }) => post('/event', JSON.stringify({
+          kind: error === undefined ? 'leading-node-recovered' : 'leading-node-failure',
+          data: { id: command.id, ...error }
+        }))
+      }
+    : undefined;
+  return api.call(command.command, command.input, command.expiresAt, measured);
 }
 
 function answerBody(command: PageCommand, answer: Answer): string {

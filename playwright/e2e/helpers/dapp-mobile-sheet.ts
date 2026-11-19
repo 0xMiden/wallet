@@ -362,7 +362,9 @@ const REFUSAL_BLOCKS = 2;
 export function assertRefusalBlocks(timing: NonNullable<CellContext['evidence']['refusalTiming']>, ctx: CellContext): void {
   ctx.evidence.refusalTiming = timing;
   expect(
-    timing.afterHeight - timing.beforeHeight,
+    timing.trailingReadFailed || timing.afterHeight === undefined
+      ? Number.POSITIVE_INFINITY
+      : timing.afterHeight - timing.beforeHeight,
     'blocks the dApp saw while a refusal before enqueue was pending'
   ).toBeLessThanOrEqual(REFUSAL_BLOCKS);
 }

@@ -305,6 +305,31 @@ describe('mobile cell assertions', () => {
     expect(f.ctx.evidence.refusalTiming).toEqual(timing);
   });
 
+  it('retains the R5 refusal when the sheet latch is lost after receiving it', async () => {
+    const error = { name: 'WalletTransactionError', message: 'refused' };
+    const f = fixture('R5', error);
+    jest.mocked(waitForNodeHeight).mockResolvedValue(103);
+    const originalSend = f.send.getMockImplementation()!;
+    f.send.mockImplementation(command =>
+      command === 'submitCustomMeasured'
+        ? Promise.resolve({
+            result: { ok: false, error },
+            timing: { beforeHeight: 10, beforeSyncMs: 1, requestMs: 2, afterSyncMs: 3, trailingReadFailed: true }
+          })
+        : originalSend(command)
+    );
+    const lost = new Error('sheet latch lost');
+    jest.mocked(expectNoSheet).mockImplementationOnce(async (_host, start) => {
+      await start();
+      throw lost;
+    });
+
+    await expect(f.run()).rejects.toBe(lost);
+    expect(f.ctx.evidence.dappError).toEqual(error);
+    expect(f.send.mock.calls.map(([command]) => command)).toEqual(['buildCustom', 'submitCustomMeasured']);
+    expect(expectNoNewMobileRows).not.toHaveBeenCalled();
+  });
+
   it.each(refusalCases)('records the plain Error in $id and reaches its remaining claims', async entry => {
     const error = {
       name: entry.causeName === undefined ? 'Error' : entry.name,

@@ -79,7 +79,8 @@ import type {
   NoteView,
   RawArg,
   SessionEvent,
-  TestDappWindowApi
+  TestDappWindowApi,
+  MeasuredSubmitContext
 } from './protocol';
 import { runMeasuredCustomSubmit } from './protocol.js';
 import { buildScriptRequest } from './script-request.js';
@@ -673,8 +674,8 @@ const handlers: Partial<DappHandlers> = {
   // (R3), which a test drives through `raw` instead.
   submitCustom,
   // Keep the real sync samples adjacent to the request, without driver transport between them.
-  submitCustomMeasured: (input, expiresAt) =>
-    runMeasuredCustomSubmit(() => syncHeight({}), () => submitCustom(input), expiresAt),
+  submitCustomMeasured: (input, expiresAt, measured) =>
+    runMeasuredCustomSubmit(() => syncHeight({}), () => submitCustom(input), expiresAt, measured),
 
   waitForTransaction: ({ txId }) =>
     outcome(async () => {
@@ -858,11 +859,12 @@ const handlers: Partial<DappHandlers> = {
 async function call<K extends DappCommandName>(
   command: K,
   input: DappInput<K>,
-  expiresAt?: number
+  expiresAt?: number,
+  measured?: MeasuredSubmitContext
 ): Promise<DappOutput<K>> {
   const handler = handlers[command];
   if (handler === undefined) throw new HarnessCheckError(`command ${command} is not implemented`);
-  return handler(input, expiresAt);
+  return handler(input, expiresAt, command === 'submitCustomMeasured' ? measured : undefined);
 }
 
 // Published only once every handler above exists, so a driver that waits for `ready` never calls a half-loaded page.

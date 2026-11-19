@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { PAGE_RETRY_MS } from '../helpers/dapp-command-server';
+import type { MeasuredSubmitContext } from './protocol';
 
 // The loop runs on import (command-loop.ts exports nothing), against a fetch that stands in for the command server.
 interface PollAnswer {
@@ -66,7 +67,9 @@ function installFetch(): void {
   Object.defineProperty(window, 'fetch', { value: fakeFetch, configurable: true, writable: true });
 }
 
-function installPage(call: (command: string, input: unknown) => Promise<unknown>): void {
+function installPage(
+  call: (command: string, input: unknown, expiresAt?: number, measured?: MeasuredSubmitContext) => Promise<unknown>
+): void {
   Object.defineProperty(window, 'testDapp', { value: { ready: true, call }, configurable: true, writable: true });
 }
 
@@ -186,13 +189,26 @@ test('answers a command with the value the page returned', async () => {
 });
 
 test('forwards the measured submission expiry to the page', async () => {
-  const expiresAt = Date.now() + 4_000;
-  const answer = jest.fn(async () => ({}));
+  const expiresAt = Date.now() + 30_000;
+  const answer = jest.fn(async (_name: string, _input: unknown, _expiry?: number, measured?: MeasuredSubmitContext) => {
+    await measured?.reportLeadingNode({ name: 'ChainUnavailableError', message: 'node failure' });
+    await measured?.reportLeadingNode();
+    return {};
+  });
   installPage(answer);
-  pollAnswers = [() => Promise.resolve({ status: 200, body: { id: 'c1', command: 'submitCustomMeasured', input: {}, expiresAt } })];
+  pollAnswers = [
+    () => Promise.resolve({ status: 200, body: { id: 'c1', command: 'submitCustomMeasured', input: {}, expiresAt } })
+  ];
   startLoop();
   await jest.advanceTimersByTimeAsync(100);
-  expect(answer).toHaveBeenCalledWith('submitCustomMeasured', {}, expiresAt);
+  expect(answer).toHaveBeenCalledWith('submitCustomMeasured', {}, expiresAt, {
+    reportLeadingNode: expect.any(Function),
+    trailingCutoff: expiresAt - (2 * POST_ATTEMPT_MS + PAGE_RETRY_MS + 1_000)
+  });
+  expect(eventsOf('leading-node-failure')).toEqual([
+    { kind: 'leading-node-failure', data: { id: 'c1', name: 'ChainUnavailableError', message: 'node failure' } }
+  ]);
+  expect(eventsOf('leading-node-recovered')).toEqual([{ kind: 'leading-node-recovered', data: { id: 'c1' } }]);
 });
 
 test('answers a result JSON cannot carry with an error naming the command', async () => {

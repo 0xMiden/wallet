@@ -571,15 +571,17 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
         // (CustomTransactionNotSimulatedError) and queues nothing.
         const { result, timing } = await expectNoSheet(
           j.dapp,
-          () =>
-            j.call(
+          async () => {
+            const measured = await j.call(
               'submitCustomMeasured',
               { requestId: built.requestId, recipientAddress: j.addressB, importNotes: false },
               ctx.deadline
-            ),
+            );
+            if (!measured.result.ok) ctx.evidence.dappError = measured.result.error;
+            return measured;
+          },
           ctx
         );
-        if (!result.ok) ctx.evidence.dappError = result.error;
         assertRefusalBlocks(timing, ctx);
         expectRefusal(result, NOT_SIMULATED, ctx);
         if (!result.ok && !notSimulatedFor(result.error.message, pinned.texts.R5[j.axis.label].error)) {
