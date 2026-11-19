@@ -40,7 +40,6 @@ import {
   OUTGOING_GUARDIAN_DEADLINE_MS,
   withTimeout
 } from './discover';
-import { exportedProposalJson } from './exported-proposal';
 import { abandonCandidateByNonce, guardianPredatesProposalAbandon, legacyAbandonStatus } from './legacy-abandon';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import {
@@ -938,17 +937,18 @@ export class MultisigService {
    * The WASM hold spans the guardian round trip, so a caller with its own deadline
    * passes `lockOptions` to bound the hold by it.
    *
-   * `known` is the proposal as the service that created it returned it. This service
-   * adopts it before it signs, so the SDK finds the proposal in its cache. Without it the
-   * SDK reads the Guardian's full pending list, and one pending proposal that does not
-   * parse (a signature from a hot key that a rotation replaced) fails the read and thus
-   * the signature (#2225). The adoption and the signature each check that the proposal's
-   * metadata binds its summary.
+   * `exportedProposal` is the JSON `exportProposalToJson` returned under the hold that created the
+   * proposal. This service imports that string before it signs, and signs the id the import
+   * returned, so the SDK finds the proposal in its cache. Without the export the SDK reads the
+   * Guardian's full pending list, and one pending proposal that does not parse (a signature from a
+   * hot key that a rotation replaced) fails the read and thus the signature (#2225). A call with
+   * only an id signs that id and does not import. The adoption and the signature each check that
+   * the proposal's metadata binds its summary.
    */
   async signProposal(
     id: string,
     lockOptions?: Parameters<typeof withWasmClientLock>[1],
-    known?: Proposal,
+    exportedProposal?: string,
     phase?: ProposalSyncPhase
   ): Promise<void> {
     const abandoned = (when: string) => {
@@ -957,10 +957,12 @@ export class MultisigService {
     // Signing syncs and previews with the same shared client as account creation.
     await withWasmClientLock(async hold => {
       abandoned('while it waited for the hold');
-      if (known) {
+      let signedId = id;
+      if (exportedProposal !== undefined) {
         if (phase) phase.syncing = true;
         try {
-          await this.multisig.importProposal(exportedProposalJson(known));
+          const imported = await this.multisig.importProposal(exportedProposal);
+          signedId = imported.id;
         } catch (error) {
           if (error instanceof WebAssembly.RuntimeError) {
             retireWasmClientForCaughtTrap(hold, error);
@@ -974,7 +976,7 @@ export class MultisigService {
         assertWasmHoldCurrent(hold, 'guardian proposal signing: after adopting the known proposal');
         abandoned('after adopting the known proposal');
       }
-      await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(id));
+      await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(signedId));
       assertWasmHoldCurrent(hold, 'guardian proposal signing');
     }, lockOptions);
   }
@@ -1313,7 +1315,7 @@ export class MultisigService {
   async createSwitchGuardianProposal(
     newGuardianEndpoint: string,
     syncPhase?: ProposalSyncPhase
-  ): Promise<{ proposal: Proposal; newEndpoint: string }> {
+  ): Promise<{ proposal: Proposal; exportedProposal: string; newEndpoint: string }> {
     try {
       // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
       const commitment = await withGuardianProbe(newGuardianEndpoint, async () => {
@@ -1338,17 +1340,23 @@ export class MultisigService {
       });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
-      const proposal = await this.withChainSyncedHold(
+      // The export is read on this same hold, before the callback returns: the SDK cache that
+      // `exportProposalToJson` reads belongs to the multisig that just created the proposal.
+      const { proposal, exportedProposal } = await this.withChainSyncedHold(
         'switch-guardian proposal',
-        () =>
-          this.proposalStep(
+        async hold => {
+          const created = await this.proposalStep(
             'proposal_create',
             () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
             'switch-guardian'
-          ),
+          );
+          assertWasmHoldCurrent(hold, 'switch-guardian proposal: after creating the proposal');
+          const exported = this.multisig.exportProposalToJson(created.id);
+          return { proposal: created, exportedProposal: exported };
+        },
         syncPhase
       );
-      return { proposal, newEndpoint: newGuardianEndpoint };
+      return { proposal, exportedProposal, newEndpoint: newGuardianEndpoint };
     } catch (error) {
       console.error('Error creating switch-guardian proposal:', error);
       throw error;

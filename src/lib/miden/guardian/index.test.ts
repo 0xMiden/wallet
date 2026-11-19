@@ -375,10 +375,13 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   })),
   getConsumableNotes: jest.fn(async () => ['note-a']),
   createSwitchGuardianProposal: jest.fn(async () => ({
+    id: 'switch-proposal',
     nonce: 7,
     txSummary: 'txs-b64',
     metadata: { proposalType: 'switch-guardian' }
   })),
+  exportProposalToJson: jest.fn((proposalId: string) => JSON.stringify({ commitment: proposalId })),
+  importProposal: jest.fn(async () => ({ id: 'imported' })),
   setGuardianClient: jest.fn(),
   registerOnGuardian: jest.fn(async () => {}),
   guardianPublicKey: 'old-pubkey',
@@ -3409,7 +3412,12 @@ describe('MultisigService', () => {
         callOrder.push('createSwitchGuardianProposal');
         multisigHold = currentWasmHold;
         expect(currentWasmHold).not.toBeNull();
-        return { nonce: 7, txSummary: 'txs-b64', metadata: { proposalType: 'switch-guardian' } };
+        return {
+          id: 'switch-proposal',
+          nonce: 7,
+          txSummary: 'txs-b64',
+          metadata: { proposalType: 'switch-guardian' }
+        };
       });
       const multisig = makeMultisig({ createSwitchGuardianProposal });
       return {
@@ -3682,6 +3690,7 @@ describe('MultisigService', () => {
       await service.signProposal('p-3');
 
       expect(multisig.signProposal).toHaveBeenCalledWith('p-3');
+      expect(multisig.importProposal).not.toHaveBeenCalled();
       expect(multisig.executeProposal).not.toHaveBeenCalled();
       expect(multisig.createTransactionProposalRequest).not.toHaveBeenCalled();
     });
@@ -3690,10 +3699,33 @@ describe('MultisigService', () => {
     // one pending proposal that does not parse (a signature from a replaced hot key) fails that read.
     it('adopts a known proposal before it signs, so the SDK finds it in its cache', async () => {
       const calls: string[] = [];
-      const imported: string[] = [];
+      const importedId = `0x${'cd'.repeat(32)}`;
+      const exported = JSON.stringify({
+        accountId: 'acc-id',
+        nonce: 7,
+        commitment: '0xPROP',
+        txSummaryBase64: 'txs-b64',
+        signatures: [
+          {
+            commitment: '0xhot',
+            signatureHex: '0xsig',
+            scheme: 'ecdsa',
+            publicKey: '0xpub',
+            messageFormat: 'eip712',
+            timestamp: '2026-11-19T00:00:00.000Z'
+          },
+          {
+            commitment: '0xfalcon',
+            signatureHex: '0xfsig',
+            scheme: 'falcon',
+            timestamp: '2026-11-19T00:00:01.000Z'
+          }
+        ],
+        metadata: { proposalType: 'switch_guardian' }
+      });
       const importProposal = jest.fn(async (json: string) => {
-        imported.push(json);
         calls.push('import');
+        return { id: json === exported ? importedId : 'other-spelling' };
       });
       const multisig = makeMultisig({
         importProposal,
@@ -3703,54 +3735,12 @@ describe('MultisigService', () => {
         })
       });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
-      const known = {
-        id: '0xprop',
-        accountId: 'acc-id',
-        nonce: 7,
-        txSummary: 'txs-b64',
-        signatures: [
-          {
-            signerId: '0xhot',
-            signature: { scheme: 'ecdsa', signature: '0xsig', publicKey: '0xpub' },
-            timestamp: '2026-11-19T00:00:00.000Z'
-          },
-          {
-            signerId: '0xfalcon',
-            signature: { scheme: 'falcon', signature: '0xfsig' },
-            timestamp: '2026-11-19T00:00:01.000Z'
-          }
-        ],
-        metadata: { proposalType: 'switch_guardian' }
-      };
 
-      await service.signProposal('0xprop', undefined, known as never);
+      await service.signProposal('0xPROP', undefined, exported);
 
       expect(calls).toEqual(['import', 'sign']);
-      expect(imported.map(json => JSON.parse(json))).toEqual([
-        {
-          accountId: 'acc-id',
-          nonce: 7,
-          commitment: '0xprop',
-          txSummaryBase64: 'txs-b64',
-          signatures: [
-            {
-              commitment: '0xhot',
-              signatureHex: '0xsig',
-              scheme: 'ecdsa',
-              publicKey: '0xpub',
-              timestamp: '2026-11-19T00:00:00.000Z'
-            },
-            {
-              commitment: '0xfalcon',
-              signatureHex: '0xfsig',
-              scheme: 'falcon',
-              timestamp: '2026-11-19T00:00:01.000Z'
-            }
-          ],
-          metadata: { proposalType: 'switch_guardian' }
-        }
-      ]);
-      expect(multisig.signProposal).toHaveBeenCalledWith('0xprop');
+      expect(importProposal).toHaveBeenCalledWith(exported);
+      expect(multisig.signProposal).toHaveBeenCalledWith(importedId);
     });
 
     it('does not sign when the known proposal fails its adoption', async () => {
@@ -3760,16 +3750,8 @@ describe('MultisigService', () => {
         })
       });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
-      const known = {
-        id: '0xprop',
-        accountId: 'acc-id',
-        nonce: 7,
-        txSummary: 'txs-b64',
-        signatures: [],
-        metadata: { proposalType: 'switch_guardian' }
-      };
 
-      await expect(service.signProposal('0xprop', undefined, known as never)).rejects.toThrow(
+      await expect(service.signProposal('0xprop', undefined, '{"commitment":"0xprop"}')).rejects.toThrow(
         'metadata salt does not match'
       );
       expect(multisig.signProposal).not.toHaveBeenCalled();
@@ -3779,17 +3761,9 @@ describe('MultisigService', () => {
       const importProposal = jest.fn(async () => ({}));
       const multisig = makeMultisig({ importProposal });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
-      const proposal = {
-        id: '0xprop',
-        accountId: 'acc-id',
-        nonce: 7,
-        txSummary: 'txs-b64',
-        signatures: [],
-        metadata: { proposalType: 'switch_guardian' }
-      };
       const phase: ProposalSyncPhase = { syncing: false, abandoned: true };
 
-      await expect(Reflect.apply(service.signProposal, service, [proposal.id, undefined, proposal, phase])).rejects.toThrow(
+      await expect(service.signProposal('0xprop', undefined, '{"commitment":"0xprop"}', phase)).rejects.toThrow(
         'abandoned'
       );
       expect(importProposal).not.toHaveBeenCalled();
@@ -3855,10 +3829,18 @@ describe('MultisigService', () => {
         'https://node.test'
       );
       const service = new MultisigService(multisig, {} as never, 'https://old.test');
+      const exportedProposal = JSON.stringify({
+        accountId: proposal.accountId,
+        nonce: proposal.nonce,
+        commitment: proposal.id,
+        txSummaryBase64: proposal.txSummary,
+        signatures: [],
+        metadata: proposal.metadata
+      });
 
       let outcome: PromiseSettledResult<void>;
       try {
-        await service.signProposal(commitment, undefined, proposal);
+        await service.signProposal(commitment, undefined, exportedProposal);
         outcome = { status: 'fulfilled', value: undefined };
       } catch (reason) {
         outcome = { status: 'rejected', reason };

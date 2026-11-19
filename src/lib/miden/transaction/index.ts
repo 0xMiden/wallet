@@ -3934,6 +3934,7 @@ const generateGuardianTransaction = async (
   // write leaves measures its retry window from here (#1317).
   const proposalStamps: ProposalStamps = { proposedAt: Date.now(), proposedAtMono: monotonicNowMs() };
   let proposalResult: Proposal;
+  let switchProposalExport: string | undefined;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
   // structural ops (replace-hot-key / update-procedure-threshold) and, per
@@ -4080,7 +4081,7 @@ const generateGuardianTransaction = async (
         );
         await releaseUnabandonedCandidate(transaction, service);
         unreachableSubject = 'outgoing or new guardian';
-        const { proposal } = await withGuardianConflictRetry(() => {
+        const { proposal, exportedProposal } = await withGuardianConflictRetry(() => {
           const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
           syncPhase = phase;
           return withOutgoingGuardianDeadline(
@@ -4089,6 +4090,7 @@ const generateGuardianTransaction = async (
           );
         });
         proposalResult = proposal;
+        switchProposalExport = exportedProposal;
       } catch (error) {
         // The arm awaits this attempt no longer, whatever rejected it, so its hold must push nothing in any phase.
         if (syncPhase) syncPhase.abandoned = true;
@@ -4582,13 +4584,14 @@ const generateGuardianTransaction = async (
       await withGuardianConflictRetry(() => {
         const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
         return withOutgoingGuardianDeadline(
-          // The cold service gets the proposal itself. Without it the SDK reads the outgoing guardian's full
-          // pending list to find it, and one pending proposal that does not parse fails that read (#2225).
+          // The cold service imports the export captured under the hot creation hold and signs the imported
+          // id. Without that export the SDK reads the outgoing guardian's full pending list, and one pending
+          // proposal that does not parse fails that read (#2225).
           () =>
             coldService.signProposal(
               proposalResult.id,
               outgoingGuardianHold('switch-guardian cold co-sign'),
-              proposalResult,
+              switchProposalExport,
               phase
             ),
           'cold co-signing the switch-guardian proposal'
