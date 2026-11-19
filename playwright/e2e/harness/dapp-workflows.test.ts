@@ -275,7 +275,7 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     'native-write-returned'
   ];
 
-  it.each([
+  it.each<{ scenario: string; status: number; marker?: string; verdict?: string }>([
     { scenario: 'success', marker: 'result-checks\n', status: 0, verdict: 'PASS' },
     { scenario: 'success ignores the internal marker', marker: `${firstSwipeEligible}\n`, status: 0, verdict: 'PASS' },
     { scenario: 'gesture case', marker: 'capsule-commit\n', status: 23, verdict: 'FAIL (capsule-commit)' },
