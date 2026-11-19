@@ -1,0 +1,51 @@
+name: QA 1818 verdict tests RED
+
+on:
+  push:
+    branches: [qa/1818-verdict-test-red]
+
+permissions:
+  contents: read
+
+jobs:
+  producer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - name: Verify source and run host verdict regression
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = 07464be9a39849089b50a91ff40f04b65ccbefd6
+          test "$(git hash-object --no-filters -- playwright/e2e/android/tests/dapp-browser.gesture.android.spec.ts)" = bb3c9558cc7a4922f6831b7d95104f69b9aff969
+          test "$(git hash-object --no-filters -- playwright/e2e/android/tests/dapp-browser.gesture.android.test.mjs)" = a7be7f7b69419c9e2301b7a49e00da162da57b1c
+          node --test playwright/e2e/android/tests/dapp-browser.gesture.android.test.mjs
+  wrapper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - name: Verify source and install frozen dependencies without lifecycle scripts
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = 07464be9a39849089b50a91ff40f04b65ccbefd6
+          test "$(git hash-object --no-filters -- .github/workflows/e2e-dapp-browser.yml)" = aff72ef0791800ecdd30f9c2407b2fb8d1c3f4a8
+          test "$(git hash-object --no-filters -- playwright/e2e/harness/dapp-workflows.test.ts)" = 52afda2909f6e4682e5d7bd3738bea74d1fdca0b
+          test "$(git hash-object --no-filters -- package.json)" = d708fe0a610d8e8109f6964af8b5e483097e585d
+          test "$(git hash-object --no-filters -- yarn.lock)" = 681b2e41cd299a72b5ace65fea08fd236b07f5a5
+          test "$(yarn --version)" = 1.22.22
+          yarn install --frozen-lockfile --ignore-scripts --non-interactive
+      - name: Run only private wrapper verdict cases
+        run: yarn jest --runInBand --runTestsByPath playwright/e2e/harness/dapp-workflows.test.ts --testNamePattern='prints only the private API36 gesture verdict' --watch=false --coverage=false

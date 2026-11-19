@@ -266,7 +266,54 @@ describe('the mobile legs of the dApp E2E workflow', () => {
     expect(acceptance).toContain('timeout 15s adb logcat');
   });
 
-  it('prints only the private API36 gesture verdict and preserves the child exit status', () => {
+  it.each([
+    { scenario: 'success', marker: 'result-checks\n', status: 0, verdict: 'PASS' },
+    { scenario: 'gesture case', marker: 'capsule-commit\n', status: 23, verdict: 'FAIL (capsule-commit)' },
+    { scenario: 'gesture case with extra data', marker: 'capsule-commit\nunexpected-marker-data\n', status: 37 },
+    { scenario: 'device phase', marker: 'device-webview-select\n', status: 41, verdict: 'FAIL (device-webview-select)' },
+    { scenario: 'device phase with extra data', marker: 'device-webview-select\nunexpected-marker-data\n', status: 43 },
+    { scenario: 'handoff', marker: 'swipe-handoff\n', status: 47, verdict: 'FAIL (swipe-handoff)' },
+    { scenario: 'handoff with extra data', marker: 'swipe-handoff\nunexpected-marker-data\n', status: 53 },
+    { scenario: 'no started reply', marker: 'swipe-reply-no-started\n', status: 61, verdict: 'FAIL (swipe-reply-no-started)' },
+    { scenario: 'no started reply with extra data', marker: 'swipe-reply-no-started\nunexpected-marker-data\n', status: 67 },
+    {
+      scenario: 'coarse started-without-injected fallback',
+      marker: 'swipe-reply-started-no-injected\n',
+      status: 71,
+      verdict: 'FAIL (swipe-reply-started-no-injected)'
+    },
+    { scenario: 'coarse marker with trailing space', marker: 'swipe-reply-started-no-injected \n', status: 73 },
+    {
+      scenario: 'framing-protocol',
+      marker: 'swipe-reply-started-no-injected: framing-protocol\n',
+      status: 77,
+      verdict: 'FAIL (swipe-reply-started-no-injected: framing-protocol)'
+    },
+    {
+      scenario: 'socket-error-or-close',
+      marker: 'swipe-reply-started-no-injected: socket-error-or-close\n',
+      status: 79,
+      verdict: 'FAIL (swipe-reply-started-no-injected: socket-error-or-close)'
+    },
+    {
+      scenario: 'socket-inactivity',
+      marker: 'swipe-reply-started-no-injected: socket-inactivity\n',
+      status: 81,
+      verdict: 'FAIL (swipe-reply-started-no-injected: socket-inactivity)'
+    },
+    { scenario: 'unlisted kind', marker: 'swipe-reply-started-no-injected: synthetic private detail\n', status: 83 },
+    { scenario: 'kind on the wrong phase', marker: 'swipe-reply-no-started: socket-inactivity\n', status: 85 },
+    { scenario: 'kind with no LF', marker: 'swipe-reply-started-no-injected: socket-inactivity', status: 87 },
+    { scenario: 'kind with CRLF', marker: 'swipe-reply-started-no-injected: socket-inactivity\r\n', status: 89 },
+    { scenario: 'kind with extra LF', marker: 'swipe-reply-started-no-injected: socket-inactivity\n\n', status: 91 },
+    { scenario: 'kind with trailing space', marker: 'swipe-reply-started-no-injected: socket-inactivity \n', status: 93 },
+    {
+      scenario: 'exact kind followed by an extra line',
+      marker: 'swipe-reply-started-no-injected: socket-inactivity\nunexpected-marker-data\n',
+      status: 95
+    },
+    { scenario: 'missing marker', status: 59 }
+  ])('prints only the private API36 gesture verdict: $scenario', ({ marker, status, verdict = 'FAIL (unknown)' }) => {
     const browser = readFileSync(resolve(__dirname, '../../../.github/workflows/e2e-dapp-browser.yml'), 'utf8');
     const steps: { name: string; with?: { script?: unknown } }[] =
       YAML.parse(browser).jobs['android-presentation-gesture'].steps;
@@ -283,49 +330,33 @@ describe('the mobile legs of the dApp E2E workflow', () => {
           'printf "%s\\n" "fake child stdout"',
           'printf "%s\\n" "fake child stderr" >&2',
           'if [ -n "$FAKE_MARKER" ]; then',
-          '  printf "%s\\n" "$FAKE_MARKER" > "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
+          '  printf "%s" "$FAKE_MARKER" > "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
           'else',
           '  rm -f -- "${PRESENTATION_GESTURE_STAGE_FILE:?}" || exit 99',
           'fi',
           'exit "$FAKE_STATUS"'
         ].join('\n')
       );
-      for (const { marker, status, verdict } of [
-        { marker: 'result-checks', status: 0, verdict: 'PASS' },
-        { marker: 'capsule-commit', status: 23, verdict: 'FAIL (capsule-commit)' },
-        { marker: 'capsule-commit\nunexpected-marker-data', status: 37, verdict: 'FAIL (unknown)' },
-        { marker: 'device-webview-select', status: 41, verdict: 'FAIL (device-webview-select)' },
-        { marker: 'device-webview-select\nunexpected-marker-data', status: 43, verdict: 'FAIL (unknown)' },
-        { marker: 'swipe-handoff', status: 47, verdict: 'FAIL (swipe-handoff)' },
-        { marker: 'swipe-handoff\nunexpected-marker-data', status: 53, verdict: 'FAIL (unknown)' },
-        { marker: 'swipe-reply-no-started', status: 61, verdict: 'FAIL (swipe-reply-no-started)' },
-        { marker: 'swipe-reply-no-started\nunexpected-marker-data', status: 67, verdict: 'FAIL (unknown)' },
-        { marker: 'swipe-reply-started-no-injected', status: 71, verdict: 'FAIL (swipe-reply-started-no-injected)' },
-        { marker: 'swipe-reply-started-no-injected ', status: 73, verdict: 'FAIL (unknown)' },
-        { marker: '', status: 59, verdict: 'FAIL (unknown)' }
-      ]) {
-        const result = spawnSync('/bin/sh', ['-c', script], {
-          cwd,
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            PATH: '/usr/bin:/bin',
-            NODE_ENV: 'test',
-            PUBLIC_URL: '',
-            RUNNER_TEMP: cwd,
-            PRESENTATION_GESTURE_PRIVATE_OUTPUT: 'true',
-            FAKE_MARKER: marker,
-            FAKE_STATUS: String(status)
-          },
-          timeout: 5_000
-        });
-        expect(result.error).toBeUndefined();
-        expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
-          status,
-          stdout: `Android API36 presentation gestures: ${verdict}\n`,
-          stderr: ''
-        });
-      }
+      const result = spawnSync('/bin/sh', ['-c', script], {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          PATH: '/usr/bin:/bin',
+          NODE_ENV: 'test',
+          PUBLIC_URL: '',
+          RUNNER_TEMP: cwd,
+          PRESENTATION_GESTURE_PRIVATE_OUTPUT: 'true',
+          FAKE_MARKER: marker ?? '',
+          FAKE_STATUS: String(status)
+        },
+        timeout: 5_000
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(status);
+      expect(result.stderr).toBe('');
+      expect(readdirSync(cwd)).toEqual(['.github']);
+      expect(result.stdout).toBe(`Android API36 presentation gestures: ${verdict}\n`);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

@@ -17,76 +17,106 @@ function extract(from, to) {
 }
 
 const parser = extract('function input(', 'async function footprint(');
+const writer = extract('async function markStage(', '\ninterface Point');
 const body = extract('// A started reply precedes injection', '\n      });');
-const code = stripTypeScriptTypes(`let commandId = 0; ${parser}\n(async () => { ${body} })()`);
+const caseName = 'capsule-cancel';
 
-test('classifies host swipe failures only after settlement, with confirmation taking precedence', { timeout: 5_000 }, async () => {
-  const caseName = 'capsule-cancel';
-  for (const { scenario, phases = [], reply, stage, error = /synthetic reply failure/ } of [
-    { scenario: 'no started reply', stage: 'swipe-reply-no-started' },
-    {
-      scenario: 'wrong-ID started reply',
-      reply: { id: 2, phase: 'started' },
-      stage: 'swipe-reply-no-started',
-      error: /command identity mismatch/
+async function assertSwipeMarker({ phases = [], reply, inactive, kindFallback, privateOutput = true, stage, error }) {
+  const overrideKind = kindFallback
+    ? `const realInput = input; input = (command, phase, sink) => realInput(command, phase).catch(error => {
+      if (sink && kindFallback === 'unrecognized') sink.kind = 'synthetic-unrecognized-kind';
+      throw error;
+    });`
+    : '';
+  const code = stripTypeScriptTypes(`let commandId = 0; ${writer}\n${parser}\n${overrideKind}\n(async () => { ${body} })()`);
+  const writes = [];
+  let onInactivity;
+  let destroyError;
+  const socket = Object.assign(new EventEmitter(), {
+    setTimeout(_, callback) {
+      onInactivity = callback;
     },
-    { scenario: 'matching started reply', phases: ['started'], stage: 'swipe-reply-started-no-injected' },
-    { scenario: 'matching injected then rejection', phases: ['started', 'injected'], stage: caseName },
-    {
-      scenario: 'matching done then failed count assertion',
-      reply: { id: 1, phase: 'done', executed: 3 },
-      stage: caseName,
-      error: /execution count/
+    end() {},
+    destroy(error) {
+      destroyError = error;
     }
+  });
+  const atPoll = Promise.withResolvers();
+  const releasePoll = Promise.withResolvers();
+  const expect = actual => ({ toBe: expected => assert.equal(actual, expected, 'execution count') });
+  expect.poll = () => ({
+    toBe: async () => {
+      atPoll.resolve();
+      await releasePoll.promise;
+      throw new Error('synthetic poll failure');
+    }
+  });
+
+  const outcome = runInNewContext(code, {
+    stagePath: privateOutput ? 'in-memory-only' : undefined,
+    kindFallback,
+    writeFile: async (_, bytes) => {
+      writes.push(bytes);
+    },
+    createConnection: () => socket,
+    points: [],
+    name: caseName,
+    bounds: { executed: 3 },
+    expect
+  }).then(
+    () => assert.fail('expected the case to fail'),
+    failure => failure
+  );
+  const send = frame => socket.emit('data', JSON.stringify(frame) + '\n');
+
+  await atPoll.promise;
+  for (const phase of phases) send({ id: 1, phase });
+  releasePoll.resolve();
+  // Let the failed poll reach the pending swipe await before settling the fake socket.
+  await new Promise(setImmediate);
+  const handoff = privateOutput ? ['swipe-handoff\n'] : [];
+  assert.deepEqual(writes, handoff, 'pending must not replace the handoff marker');
+
+  if (reply) send(reply);
+  if (inactive) onInactivity();
+  if (reply?.phase === 'done') {
+    assert.match((await outcome).message, error);
+  } else {
+    if (reply) assert.equal(destroyError?.message, 'Native gesture command identity mismatch');
+    if (inactive) assert.equal(destroyError?.message, 'Native gesture input timed out');
+    // Use the same message for real inactivity and a plain socket error: origin, not text, decides.
+    const original = destroyError ?? new Error('Native gesture input timed out');
+    assert.deepEqual(writes, handoff, 'destroy must not mark before settlement');
+    socket.emit('error', original);
+    socket.emit('close');
+    assert.equal(await outcome, original, 'first rejection must be rethrown unchanged');
+  }
+  assert.deepEqual(writes, stage ? [...handoff, `${stage}\n`] : handoff, 'exact stage marker bytes');
+}
+
+test('keeps coarse host swipe markers and gives confirmation precedence', { timeout: 5_000 }, async () => {
+  for (const scenario of [
+    { stage: 'swipe-reply-no-started' },
+    { reply: { id: 2, phase: 'started' }, stage: 'swipe-reply-no-started' },
+    { phases: ['started'], kindFallback: 'missing', stage: 'swipe-reply-started-no-injected' },
+    { phases: ['started'], kindFallback: 'unrecognized', stage: 'swipe-reply-started-no-injected' },
+    { phases: ['started', 'injected'], stage: caseName },
+    { reply: { id: 1, phase: 'done', executed: 3 }, stage: caseName, error: /execution count/ },
+    { phases: ['started'], privateOutput: false }
   ]) {
-    const marks = [];
-    const socket = Object.assign(new EventEmitter(), {
-      setTimeout() {},
-      end() {},
-      destroy(error) {
-        socket.emit('error', error);
-      }
-    });
-    const atPoll = Promise.withResolvers();
-    const releasePoll = Promise.withResolvers();
-    const expect = actual => ({ toBe: expected => assert.equal(actual, expected, 'execution count') });
-    expect.poll = () => ({
-      toBe: async () => {
-        atPoll.resolve();
-        await releasePoll.promise;
-        throw new Error('synthetic poll failure');
-      }
-    });
-
-    const outcome = runInNewContext(code, {
-      stagePath: 'in-memory-only',
-      markStage: async (_, label) => {
-        marks.push(label);
-      },
-      createConnection: () => socket,
-      points: [],
-      name: caseName,
-      bounds: { executed: 3 },
-      expect
-    }).then(
-      () => assert.fail(`${scenario}: expected the case to fail`),
-      failure => failure
-    );
-    const send = frame => socket.emit('data', JSON.stringify(frame) + '\n');
-
-    await atPoll.promise;
-    for (const phase of phases) send({ id: 1, phase });
-    releasePoll.resolve();
-    // Let the failed poll reach the pending swipe await before settling the fake socket.
-    await new Promise(setImmediate);
-    assert.deepEqual(marks, ['swipe-handoff'], `${scenario}: pending must not replace the handoff marker`);
-
-    if (reply) send(reply);
-    else socket.emit('error', new Error('synthetic reply failure'));
-    assert.match((await outcome).message, error, scenario);
-    assert.deepEqual(marks, ['swipe-handoff', stage], scenario);
+    await assertSwipeMarker(scenario);
   }
 });
+
+for (const { kind, ...stimulus } of [
+  { kind: 'framing-protocol', reply: { id: 2, phase: 'injected' } },
+  { kind: 'socket-error-or-close' },
+  { kind: 'socket-inactivity', inactive: true }
+]) {
+  test(`marks caught started-without-injected swipe as ${kind}`, { timeout: 5_000 }, () =>
+    assertSwipeMarker({ ...stimulus, phases: ['started'], stage: `swipe-reply-started-no-injected: ${kind}` })
+  );
+}
 
 test('classifies the first swipe rejection at settlement without replacing its error', async () => {
   const code = stripTypeScriptTypes(`let commandId = 0; ${parser}\ninput({ op: 'swipe' }, undefined, rejection)`);
