@@ -29,7 +29,7 @@ export function CommandDock(): React.ReactElement {
   return (
     <nav
       aria-label={t('commandActions')}
-      className="pointer-events-auto absolute inset-x-0 bottom-4 z-20 mx-auto flex w-[calc(100%-1.5rem)] max-w-md gap-1 rounded-[1.625rem] border border-white/25 bg-[#302820] p-2 shadow-2xl supports-backdrop-filter:bg-[#302820]/85 supports-backdrop-filter:backdrop-blur-xl sm:bottom-6"
+      className="pointer-events-auto absolute inset-x-0 bottom-4 z-20 mx-auto flex w-[calc(100%-1.5rem)] max-w-md gap-1 rounded-[1.625rem] border border-white/25 bg-[#302820] p-2 shadow-2xl supports-backdrop-filter:bg-[#302820]/85 [backdrop-filter:blur(24px)_saturate(1.4)] [-webkit-backdrop-filter:blur(24px)_saturate(1.4)] sm:bottom-6"
     >
       {ACTIONS.map(([action, icon]) => (
         <Button

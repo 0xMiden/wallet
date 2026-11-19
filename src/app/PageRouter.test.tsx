@@ -158,7 +158,12 @@ jest.mock('components/MainnetCountdownBanner', () => ({
 }));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
 jest.mock('screens/command/CommandPortfolio', () => ({
-  CommandPortfolio: () => <div data-testid="command-portfolio" />
+  CommandPortfolio: ({ prompts, recentActions }: { prompts: React.ReactNode; recentActions: React.ReactNode }) => (
+    <div data-testid="command-portfolio">
+      {prompts}
+      {recentActions}
+    </div>
+  )
 }));
 jest.mock('screens/command/CommandRecentActions', () => ({
   CommandRecentActions: ({ scope }: { scope: { accountId: string } }) => (

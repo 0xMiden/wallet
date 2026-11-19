@@ -68,7 +68,7 @@ const buttonVariants = cva(
           'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted',
         [ButtonVariant.Launcher]: 'bg-launcher-fill text-launcher-ink',
         [ButtonVariant.CommandShortcut]:
-          'min-w-0 flex-1 flex-col gap-1 rounded-xl text-white hover:bg-white/10 motion-reduce:transition-none'
+          'min-w-0 flex-1 flex-col gap-1 rounded-xl text-ink hover:bg-fill-pressed motion-reduce:transition-none'
       },
       size: {
         // 48px, not 52: a pinned CTA (often with a secondary under it) was eating the page.
