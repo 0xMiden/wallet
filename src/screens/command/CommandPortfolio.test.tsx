@@ -38,6 +38,7 @@ let resolvePreference: (() => void) | undefined;
 let mockCanRecord = false;
 let mockMarketMove: { absolute: number; percentage: number } | null = null;
 let mockCurrent = true;
+let mockEmpty = false;
 let mockValue = '6';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -97,6 +98,7 @@ jest.mock('./useCommandPortfolio', () => ({
     coverageKey: 'priced:priced|unpriced:unpriced',
     capturedAt,
     current: mockCurrent,
+    empty: mockEmpty,
     canRecord: mockCanRecord
   })
 }));
@@ -109,6 +111,7 @@ beforeEach(async () => {
   mockCanRecord = false;
   mockMarketMove = null;
   mockCurrent = true;
+  mockEmpty = false;
   mockValue = '6';
   useWalletStore.setState({ status: WalletStatus.Idle, currentAccount: null, tokenPricesStatus: 'ready' });
   await portfolioObservations.clear();
@@ -444,6 +447,26 @@ it('keeps a searched holding masked while the privacy preference hides quantitie
   expect(within(holdings).queryByText('Ethereum')).not.toBeInTheDocument();
   expect(within(holdings).getAllByText('commandMaskedBalance').length).toBeGreaterThan(0);
   expect(within(holdings).queryByText('4.00 OTHER')).not.toBeInTheDocument();
+});
+
+it('keeps Allocation visible for an empty wallet without showing an allocation strip', () => {
+  store.hidden = false;
+  mockEmpty = true;
+  render(<CommandPortfolio scope={scope} />);
+  const allocation = screen.getByRole('region', { name: 'commandAllocation' });
+  expect(within(allocation).getByText('commandWalletEmpty')).toBeInTheDocument();
+  expect(within(allocation).queryByTestId('command-allocation-strip')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'commandHideBalances' }));
+  expect(screen.queryByRole('region', { name: 'commandAllocation' })).not.toBeInTheDocument();
+});
+
+it('does not describe unavailable valuations as an empty wallet', () => {
+  store.hidden = false;
+  mockCurrent = false;
+  render(<CommandPortfolio scope={scope} />);
+  const allocation = screen.getByRole('region', { name: 'commandAllocation' });
+  expect(within(allocation).getByText('commandAllocationUnavailable')).toBeInTheDocument();
+  expect(within(allocation).queryByText('commandWalletEmpty')).not.toBeInTheDocument();
 });
 
 it('shows priced-subset allocation independent of holdings search and masks all allocation geometry', () => {

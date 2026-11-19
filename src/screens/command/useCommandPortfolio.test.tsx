@@ -51,6 +51,7 @@ function Probe({ requested = scope }: { requested?: typeof scope }) {
         coverageKey: portfolio.coverageKey,
         assets: portfolio.assets.map(asset => asset.tokenId),
         canRecord: portfolio.canRecord,
+        empty: portfolio.empty,
         allocation: 'allocation' in portfolio ? portfolio.allocation : undefined
       })}
     </output>
@@ -136,6 +137,31 @@ it('refuses a zero placeholder even if a provenance proof was attached before na
   );
   render(<Probe />);
   expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+  expect(screen.getByRole('status').textContent).toContain('"empty":false');
+});
+
+it('reports empty only for verified zero raw balances in the current scope', () => {
+  const proof = {
+    network: 'testnet',
+    effectiveNetwork: 'testnet',
+    rpcUrl: scope.rpcUrl,
+    accountNonce: '1',
+    capturedAt: Date.now()
+  };
+  rows = [row('priced', 0, true)];
+  tagBalanceSnapshot(rows, proof, scope.accountId);
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPricesStatus: 'loading' });
+  const { rerender } = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"empty":true');
+  rerender(<Probe requested={{ ...scope, rpcUrl: 'https://node-b' }} />);
+  expect(screen.getByRole('status').textContent).toContain('"empty":false');
+
+  rows = [row('hidden', 1, true)];
+  hidden = true;
+  tagBalanceSnapshot(rows, proof, scope.accountId);
+  act(() => useWalletStore.setState({ balances: { 'account-a': rows } }));
+  rerender(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"empty":false');
 });
 
 it('requires a successful current RPC read and a ready quote before publishing a USD observation', () => {

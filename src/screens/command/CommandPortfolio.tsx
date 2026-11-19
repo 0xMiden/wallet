@@ -249,43 +249,56 @@ export function CommandPortfolio({
           <p className="text-caption text-muted">{t('commandObservedOnDevice')}</p>
         </div>
       </section>
-      {!hidden && portfolio.current && portfolio.allocation.length > 0 && (
+      {!hidden && (
         <section className="min-w-0 lg:col-span-3" aria-label={t('commandAllocation')}>
-          <Card surface="outline" className="flex flex-col gap-3 bg-fill/40">
+          <Card
+            surface="outline"
+            className="flex flex-col gap-3 border-accent-tint-ink/25 bg-linear-to-br from-fill to-page shadow-lg"
+          >
             <div className="flex flex-wrap items-baseline justify-between gap-x-2">
               <SectionHeader>{t('commandAllocation')}</SectionHeader>
               <p className="text-caption text-muted">{t('commandPricedAssets')}</p>
             </div>
-            <div aria-hidden="true" className="flex h-1.5 gap-1" data-testid="command-allocation-strip">
-              {portfolio.allocation.map((entry, index) => (
-                <span
-                  key={entry.tokenId}
-                  className={`min-w-0 basis-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
-                  style={{ flexGrow: entry.percentage }}
-                />
-              ))}
-            </div>
-            {coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
-            {portfolio.allocation.map((entry, index) => {
-              const asset = portfolio.assets.find(row => row.tokenId === entry.tokenId);
-              if (!asset) return null;
-              return (
-                <div key={entry.tokenId} className="flex items-center justify-between gap-3 text-body-sm text-ink">
-                  <span className="flex min-w-0 items-center gap-2">
+            {portfolio.allocation.length === 0 ? (
+              <p className="border-t border-hairline py-4 text-body-sm text-muted">
+                {t(portfolio.empty ? 'commandWalletEmpty' : 'commandAllocationUnavailable')}
+              </p>
+            ) : (
+              <>
+                <div aria-hidden="true" className="flex h-1.5 gap-1" data-testid="command-allocation-strip">
+                  {portfolio.allocation.map((entry, index) => (
                     <span
-                      aria-hidden="true"
-                      className={`size-1.5 shrink-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
+                      key={entry.tokenId}
+                      className={`min-w-0 basis-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
+                      style={{ flexGrow: entry.percentage }}
                     />
-                    <span className="truncate">{asset.metadata.name || asset.metadata.symbol}</span>
-                  </span>
-                  <span className="shrink-0 text-muted">{formatAmountDisplay(entry.value, displayOptions)} USD</span>
-                  <span className="shrink-0">
-                    {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}
-                    {t('percentSign')}
-                  </span>
+                  ))}
                 </div>
-              );
-            })}
+                {coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
+                {portfolio.allocation.map((entry, index) => {
+                  const asset = portfolio.assets.find(row => row.tokenId === entry.tokenId);
+                  if (!asset) return null;
+                  return (
+                    <div key={entry.tokenId} className="flex items-center justify-between gap-3 text-body-sm text-ink">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span
+                          aria-hidden="true"
+                          className={`size-1.5 shrink-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
+                        />
+                        <span className="truncate">{asset.metadata.name || asset.metadata.symbol}</span>
+                      </span>
+                      <span className="shrink-0 text-muted">
+                        {formatAmountDisplay(entry.value, displayOptions)} USD
+                      </span>
+                      <span className="shrink-0">
+                        {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}
+                        {t('percentSign')}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </Card>
         </section>
       )}

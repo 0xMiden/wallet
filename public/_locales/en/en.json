@@ -767,6 +767,8 @@
   "commandPortfolio": "Portfolio",
   "commandAllocation": "Allocation",
   "commandPricedAssets": "Priced wallet assets",
+  "commandWalletEmpty": "Your wallet is empty.",
+  "commandAllocationUnavailable": "No priced assets to show.",
   "commandRecentActions": "Recent actions",
   "commandNoRecentActions": "No recent actions to show",
   "commandWalletBalance": "Wallet balance",

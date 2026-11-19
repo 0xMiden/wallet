@@ -29,18 +29,20 @@ export function CommandDock(): React.ReactElement {
   return (
     <nav
       aria-label={t('commandActions')}
-      className="pointer-events-auto absolute inset-x-0 bottom-4 z-20 mx-auto flex w-[calc(100%-1.5rem)] max-w-md gap-1 rounded-[1.625rem] border border-white/25 bg-[#302820] p-2 shadow-2xl supports-backdrop-filter:bg-[#302820]/85 [backdrop-filter:blur(24px)_saturate(1.4)] [-webkit-backdrop-filter:blur(24px)_saturate(1.4)] sm:bottom-6"
+      className="pointer-events-auto absolute inset-x-0 bottom-4 z-20 mx-auto flex w-[calc(100%-1.5rem)] max-w-[29rem] items-stretch gap-1 rounded-[1.625rem] border border-ink/25 bg-fill bg-linear-to-b from-ink/10 to-transparent p-2 shadow-2xl ring-1 ring-inset ring-ink/5 supports-backdrop-filter:bg-fill/85 [backdrop-filter:blur(24px)_saturate(1.4)] [-webkit-backdrop-filter:blur(24px)_saturate(1.4)] sm:bottom-6 sm:gap-2 sm:p-2.5"
     >
       {COMMAND_ACTION_ICONS.map(([action, icon]) => (
         <Button
           key={action}
           size="sm"
           variant={ButtonVariant.CommandShortcut}
-          className="h-14 px-1.5"
+          className="h-auto min-h-14 gap-1.5 rounded-2xl px-1 py-2 text-caption hover:bg-accent-tint hover:text-accent-tint-ink focus-visible:ring-offset-0 sm:px-2"
           onClick={() => navigate(COMMAND_DESTINATIONS[action])}
         >
           <Icon name={icon} aria-hidden="true" className="h-5 w-5 shrink-0" />
-          <span className="truncate">{t(action === 'bridge' ? 'commandBridge' : action)}</span>
+          <span className="w-full wrap-anywhere text-center leading-tight">
+            {t(action === 'bridge' ? 'commandBridge' : action)}
+          </span>
         </Button>
       ))}
     </nav>

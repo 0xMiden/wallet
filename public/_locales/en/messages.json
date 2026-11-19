@@ -3542,6 +3542,14 @@
     "message": "Priced wallet assets",
     "englishSource": "Priced wallet assets"
   },
+  "commandWalletEmpty": {
+    "message": "Your wallet is empty.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "No priced assets to show.",
+    "englishSource": "No priced assets to show."
+  },
   "commandRecentActions": {
     "message": "Recent actions",
     "englishSource": "Recent actions"

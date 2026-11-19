@@ -101,6 +101,7 @@ export function useCommandPortfolio(scope: AccountScope) {
     coverageKey: `priced:${priced.sort().join(',')}|unpriced:${unpriced.sort().join(',')}`,
     capturedAt: proof?.capturedAt,
     current: current && !isLoading,
+    empty: current && !isLoading && hiddenReady && rows.length > 0 && rows.every(row => row.balanceBaseUnits === '0'),
     canRecord:
       current &&
       rows.length > 0 &&

@@ -106,6 +106,9 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await command.waitForURL(/\/fullpage\.html#\//);
   await expect(command.getByTestId('command-shell')).toBeVisible({ timeout: 30_000 });
   await expect(command.getByTestId('command-workbench')).toHaveCount(0);
+  const allocation = command.getByRole('region', { name: 'Allocation' });
+  await expect(allocation.getByText('Your wallet is empty.')).toBeVisible();
+  await expect(allocation.getByTestId('command-allocation-strip')).toHaveCount(0);
   await command.setViewportSize({ width: 1600, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-1600x1000');
   await command.setViewportSize({ width: 1440, height: 1000 });
@@ -132,9 +135,9 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await command.setViewportSize({ width: 1600, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-chart-1600x1000');
   await command.setViewportSize({ width: 390, height: 844 });
+  await captureCommand(command, info, 'command-dashboard-chart-390x844');
   await expect(week).toBeInViewport({ ratio: 1 });
   await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
-  await captureCommand(command, info, 'command-dashboard-chart-390x844');
   await command.emulateMedia({ reducedMotion: null });
   await command.setViewportSize({ width: 1440, height: 1000 });
 
