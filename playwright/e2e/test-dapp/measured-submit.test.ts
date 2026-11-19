@@ -8,14 +8,18 @@ beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
 it('samples distinct heights on either side of the refusal', async () => {
-  const sync = jest.fn().mockResolvedValueOnce({ height: 10 }).mockResolvedValueOnce({ height: 13 });
-  const submit = jest.fn(async () => refusal);
+  const order: string[] = [];
+  const sync = jest.fn(async () => {
+    order.push('sync');
+    return { height: order.length === 1 ? 10 : 13 };
+  });
+  const submit = jest.fn(async () => {
+    order.push('submit');
+    return refusal;
+  });
   const result = await runMeasuredCustomSubmit(sync, submit);
   expect(result).toMatchObject({ result: refusal, timing: { beforeHeight: 10, afterHeight: 13 } });
-  expect(sync).toHaveBeenCalledTimes(2);
-  expect(submit).toHaveBeenCalledTimes(1);
-  expect(sync.mock.invocationCallOrder[0]).toBeLessThan(submit.mock.invocationCallOrder[0]);
-  expect(submit.mock.invocationCallOrder[0]).toBeLessThan(sync.mock.invocationCallOrder[1]);
+  expect(order).toEqual(['sync', 'submit', 'sync']);
 });
 
 it('does not submit when the leading read returns at expiry', async () => {
