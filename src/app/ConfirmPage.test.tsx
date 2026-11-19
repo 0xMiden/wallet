@@ -1555,7 +1555,13 @@ describe('ConfirmPage custom transaction', () => {
   // sign stays on screen but outside the marked element, as the view before the redesign kept it.
   it('marks each simulated row on its unsigned amount, the shape the E2E preview reads', async () => {
     mockFetchTokenMetadata.mockResolvedValue({ symbol: 'TST', name: 'Test', decimals: 0 });
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1acct') });
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({
+      view: {
+        ...verifiedView('mtst1acct'),
+        outgoing: [{ faucetId: 'marker-out', amount: 10n }],
+        incoming: [{ faucetId: 'marker-in', amount: 3n }]
+      }
+    });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
