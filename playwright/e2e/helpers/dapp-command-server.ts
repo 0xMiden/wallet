@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 
-import { CellDeadlineExceeded, HarnessFault } from './dapp-cells';
+import { CellDeadlineExceeded, HarnessFault, type DappError } from './dapp-cells';
 import { ChainUnavailable, type DappChannel } from './dapp-channel';
 import { createDappServer, serveTestDappOnLoopback, type DappLabel, type DappServer } from './test-dapp-server';
 
@@ -198,7 +198,15 @@ interface PendingCommand {
   key: string;
   enqueuedAt: number;
   deliveredAt: number | null;
+  measuredExpiresAt?: number;
+  leadingError?: DappError;
   settle(result: CommandResult): void;
+}
+
+function deadlineResult({ enqueuedAt, deliveredAt, leadingError }: PendingCommand): CommandResult {
+  return leadingError === undefined || deliveredAt === null
+    ? { status: 'timeout', enqueuedAt, deliveredAt }
+    : { status: 'error', error: leadingError, enqueuedAt, deliveredAt, receivedAt: Date.now() };
 }
 
 export async function startCommandServer(options: CommandServerOptions): Promise<CommandServer> {
@@ -209,7 +217,7 @@ export async function startCommandServer(options: CommandServerOptions): Promise
     fs.appendFileSync(options.logFile, `${JSON.stringify(line)}\n`);
 
   const events: PageEvent[] = [];
-  const queues = new Map<string, Array<{ id: string; command: string; input: unknown }>>();
+  const queues = new Map<string, Array<{ id: string; command: string; input: unknown; expiresAt?: number }>>();
   const held = new Map<string, HeldPoll>();
   const pending = new Map<string, PendingCommand>();
   const eventWaiters = new Set<{ predicate: (event: PageEvent) => boolean; resolve: (event: PageEvent) => void }>();
@@ -282,6 +290,33 @@ export async function startCommandServer(options: CommandServerOptions): Promise
       visibility: text(body, 'visibility'),
       data: object(body, 'data')
     };
+    if (event.kind === 'leading-node-failure' || event.kind === 'leading-node-recovered') {
+      const entry = pending.get(text(event.data, 'id'));
+      if (
+        entry === undefined || entry.key !== key || entry.deliveredAt === null ||
+        entry.measuredExpiresAt === undefined || Date.now() >= entry.measuredExpiresAt
+      ) {
+        reply(response, 404);
+        return;
+      }
+      if (event.kind === 'leading-node-recovered') {
+        if (entry.leadingError === undefined) {
+          reply(response, 409);
+          return;
+        }
+        delete entry.leadingError;
+      } else {
+        const name = text(event.data, 'name');
+        const message = text(event.data, 'message');
+        if (name !== 'ChainUnavailableError' || message === '') {
+          reply(response, 400);
+          return;
+        }
+        entry.leadingError = { name, message };
+      }
+      reply(response, 204);
+      return;
+    }
     events.push(event);
     write({ type: 'event', ...event });
     if (event.kind === 'result-undelivered') {
@@ -297,7 +332,7 @@ export async function startCommandServer(options: CommandServerOptions): Promise
         write({ type: 'result', key, id, status: 'error', at: receivedAt });
         entry.settle({
           status: 'error',
-          error: { name: 'HarnessCheckError', message: `command ${id} result could not be delivered after 3 attempts` },
+          error: entry.leadingError ?? { name: 'HarnessCheckError', message: `command ${id} result could not be delivered after 3 attempts` },
           enqueuedAt: entry.enqueuedAt,
           deliveredAt: entry.deliveredAt ?? receivedAt,
           receivedAt
@@ -360,20 +395,24 @@ export async function startCommandServer(options: CommandServerOptions): Promise
         const queue = queues.get(key) ?? [];
         const index = queue.findIndex(item => item.id === id);
         if (index >= 0) queue.splice(index, 1);
-        const result: CommandResult = { status: 'timeout', enqueuedAt, deliveredAt: entry?.deliveredAt ?? null };
-        write({ type: 'result', key, id, command, status: 'timeout', at: Date.now() });
+        const result = entry === undefined ? { status: 'timeout' as const, enqueuedAt, deliveredAt: null } : deadlineResult(entry);
+        write({ type: 'result', key, id, command, status: result.status, at: Date.now() });
         resolve(result);
       }, timeoutMs);
       pending.set(id, {
         key,
         enqueuedAt,
         deliveredAt: null,
+        ...(command === 'submitCustomMeasured' ? { measuredExpiresAt: enqueuedAt + timeoutMs } : {}),
         settle: result => {
           clearTimeout(timer);
           resolve(result);
         }
       });
-      queues.set(key, [...(queues.get(key) ?? []), { id, command, input }]);
+      queues.set(key, [
+        ...(queues.get(key) ?? []),
+        { id, command, input, ...(command === 'submitCustomMeasured' ? { expiresAt: enqueuedAt + timeoutMs } : {}) }
+      ]);
       write({ type: 'enqueue', key, id, command, at: enqueuedAt });
       deliver(key);
     });
@@ -405,7 +444,7 @@ export async function startCommandServer(options: CommandServerOptions): Promise
     stop: async () => {
       for (const key of [...held.keys()]) endPoll(key, 204);
       for (const entry of [...pending.values()]) {
-        entry.settle({ status: 'timeout', enqueuedAt: entry.enqueuedAt, deliveredAt: entry.deliveredAt });
+        entry.settle(deadlineResult(entry));
       }
       pending.clear();
       await stopListener();
@@ -428,6 +467,7 @@ export function commandChannel(server: CommandServer, device: DeviceKey, dapp: D
       if (result.status === 'ok') return result.value;
       if (result.status === 'error') {
         const what = `${result.error.name}: ${result.error.message}`;
+        if (result.error.name === 'CommandExpiredError') throw new CellDeadlineExceeded(`dApp ${label} ${command}: ${what}`);
         if (result.error.name === 'ChainUnavailableError')
           throw new ChainUnavailable(`dApp ${label} ${command}: ${what}`);
         throw new HarnessFault(`dApp ${label} ${command} threw: ${what}`);
