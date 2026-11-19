@@ -20,8 +20,11 @@ async function seedPreparedFailure(page: Page, id: string, accountId: string) {
   } catch {
     throw new Error('Could not decode the mock wallet receive address');
   }
-  const delivery = preparedAllocation('22', true);
-  delivery.requestJson = delivery.requestJson.replace(PREPARED_RECIPIENT, recipient);
+  const preparedDelivery = preparedAllocation('22', true);
+  const delivery = {
+    ...preparedDelivery,
+    requestJson: preparedDelivery.requestJson.replace(PREPARED_RECIPIENT, recipient)
+  };
   const attemptId = 'mock-original-attempt';
   const row = new EarnWithdrawTransaction(
     accountId,
@@ -106,16 +109,29 @@ test('cold FullPage history opens the original failed Earn withdrawal with Retry
   const id = 'mock-original-earn-withdrawal';
   const fullpage = `chrome-extension://${extensionId}/fullpage.html`;
   const url = `${fullpage}#/history-details/${id}`;
-  const empty = await extensionContext.newPage();
-  await empty.goto(url, { waitUntil: 'domcontentloaded' });
-  await expect(empty.getByTestId('command-workbench').getByText('Failed to load transaction')).toBeVisible({
-    timeout: 30_000
-  });
-  await empty.goto(`${fullpage}#/receive`);
-  const accountId = (await empty.getByTestId('receive-address-full').textContent())?.trim();
+  const seedPage = await extensionContext.newPage();
+  await seedPage.goto(`${fullpage}#/receive`, { waitUntil: 'domcontentloaded' });
+  const address = seedPage.getByTestId('receive-address-full');
+  await expect(address).toBeVisible({ timeout: 30_000 });
+  const accountId = (await address.textContent())?.trim();
   if (!accountId) throw new Error('Mock wallet receive address is missing');
-  await seedPreparedFailure(empty, id, accountId);
+
+  const empty = await extensionContext.newPage();
+  let emptyReact185 = false;
+  empty.on('console', message => {
+    if (message.type() === 'error' && message.text().includes('Minified React error #185')) emptyReact185 = true;
+  });
+  await empty.goto(url, { waitUntil: 'domcontentloaded' });
+  const missing = await empty
+    .getByTestId('command-workbench')
+    .getByText('Failed to load transaction')
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .then(() => true, () => false);
   await empty.close();
+  const emptyOutcome = emptyReact185 ? 'React #185' : missing ? 'missing row' : 'not ready';
+
+  await seedPreparedFailure(seedPage, id, accountId);
+  await seedPage.close();
 
   const cold = await extensionContext.newPage();
   let react185 = false;
@@ -139,7 +155,7 @@ test('cold FullPage history opens the original failed Earn withdrawal with Retry
         return 'not ready';
       },
       {
-        message: 'The cold prepared/failed receipt should reach Retry delivery without React #185',
+        message: `The cold prepared/failed receipt should reach Retry delivery (empty control: ${emptyOutcome})`,
         timeout: 30_000
       }
     )
@@ -149,4 +165,5 @@ test('cold FullPage history opens the original failed Earn withdrawal with Retry
   await expect(retry).toBeVisible();
   await expect(retry).toBeEnabled();
   expect(react185).toBe(false);
+  expect(emptyOutcome, 'the cold empty receipt should show the missing row without crashing').toBe('missing row');
 });
