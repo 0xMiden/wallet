@@ -67,10 +67,10 @@ export interface ChoiceCardGroupProps<T extends string = string> {
 
 const card = cva(
   [
-    'group flex h-full w-full min-h-18 items-center gap-3 rounded-2xl px-4 py-3 text-left',
-    'select-none transition-[background-color,box-shadow] duration-150 ease-hover motion-reduce:transition-none',
-    // The selection is the inset ring, so focus draws outside the card instead of fighting it.
-    'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary/30',
+    'group relative flex h-full w-full min-h-18 items-center gap-3 rounded-2xl px-4 py-3 text-left',
+    'select-none transition-colors duration-150 ease-hover motion-reduce:transition-none',
+    // Keep focus inside scrollable panes and separated from the selected edge.
+    'outline-none focus-visible:outline-2 focus-visible:-outline-offset-[5px] focus-visible:outline-ink/75',
     'disabled:cursor-not-allowed'
   ],
   {
@@ -79,7 +79,7 @@ const card = cva(
       // `outline`: an unchosen card is `page` inside a hairline edge, so only the chosen one is a filled block.
       surface: { fill: 'bg-fill', outline: 'border' },
       selected: {
-        true: 'ring-2 ring-inset ring-accent-primary',
+        true: 'before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:border-2 before:border-accent-primary',
         false: ''
       }
     },
@@ -95,18 +95,18 @@ const card = cva(
         class: 'border-hairline bg-page hover:bg-fill active:bg-fill disabled:hover:bg-page disabled:active:bg-page'
       },
       // The edge stays as a transparent border so choosing a card does not move its content by 1px.
-      { surface: 'outline', selected: true, class: 'border-transparent bg-fill' }
+      { surface: 'outline', selected: true, class: 'border-transparent bg-fill before:-inset-px' }
     ],
     defaultVariants: { selected: false, layout: 'row', surface: 'fill' }
   }
 );
 
-const FLOW_RING: Record<FlowAccent, string> = {
-  brand: 'ring-accent-primary',
-  receive: 'ring-accent-receive',
-  send: 'ring-accent-send',
-  earn: 'ring-accent-earn',
-  swap: 'ring-accent-swap'
+const FLOW_BORDER: Record<FlowAccent, string> = {
+  brand: 'before:border-accent-primary',
+  receive: 'before:border-accent-receive',
+  send: 'before:border-accent-send',
+  earn: 'before:border-accent-earn',
+  swap: 'before:border-accent-swap'
 };
 
 interface OptionProps<T extends string> {
@@ -190,7 +190,7 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, surface, f
       {...(item.disabled ? {} : motionTokens.press)}
       className={cn(
         card({ selected, surface, layout: item.details ? 'detail' : 'row' }),
-        selected && accent && FLOW_RING[accent]
+        selected && accent && FLOW_BORDER[accent]
       )}
     >
       {item.details ? (
@@ -209,10 +209,10 @@ function ChoiceCardOption<T extends string>({ item, selected, accent, surface, f
 
 /**
  * One choice out of a set of cards (a guardian operator, a recovery method, an import type): each
- * option a flat `fill` card with 16px corners and no border, a leading logo or icon, a `text-row-title` title,
+ * option a flat `fill` card with 16px corners, a leading logo or icon, a `text-row-title` title,
  * a `muted` subtitle, an optional badge and a trailing radio mark.
  *
- * The chosen card takes an inset `accent` ring and the mark fills with a check. Not the raised
+ * The chosen card draws an accent edge without changing layout and the mark fills with a check. Not the raised
  * bubble: raised is for compact toggles, and cards stay flat (design-system.md, "Elevation"). The
  * behaviour is the `SegmentedControl`'s: ChoiceCardGroup and SegmentedControl, which share
  * `radioGroupKeyTarget`, answer the same way:

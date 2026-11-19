@@ -200,13 +200,23 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(command.locator('html')).toHaveClass(/dark/);
   await expect(workbench.getByTestId('command-bridge')).toBeVisible();
   await captureCommand(command, info, 'command-bridge-dark-reduced-motion-1440x1000');
-  const routes = await workbench.getByRole('radiogroup', { name: 'Asset, network and provider' }).boundingBox();
+  const routePicker = workbench.getByRole('radiogroup', { name: 'Asset, network and provider' });
+  const routes = await routePicker.boundingBox();
   const externalAccount = await workbench.getByText('External account', { exact: true }).boundingBox();
   expect(routes).not.toBeNull();
   expect(externalAccount).not.toBeNull();
   const accountGap = externalAccount!.y - (routes!.y + routes!.height);
   expect(accountGap).toBeGreaterThanOrEqual(12);
   expect(accountGap).toBeLessThanOrEqual(24);
+  await routePicker.getByRole('radio', { checked: true }).focus();
+  await command.keyboard.press('ArrowDown');
+  const focusedRoute = routePicker.getByRole('radio', { checked: true });
+  await expect(focusedRoute).toHaveFocus();
+  await expect(focusedRoute).toHaveCSS('outline-offset', '-5px');
+  await expect
+    .poll(() => focusedRoute.evaluate(card => getComputedStyle(card, '::before').borderLeftWidth))
+    .toBe('2px');
+  await captureCommand(command, info, 'command-bridge-route-keyboard-focus-1440x1000');
 
   const sidebar = await extensionContext.newPage();
   await sidebar.setViewportSize({ width: 360, height: 800 });
