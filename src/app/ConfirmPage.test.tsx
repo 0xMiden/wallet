@@ -976,7 +976,7 @@ describe('privateNotes payload', () => {
 });
 
 // ---------------------------------------------------------------------------
-// sign payload (+ PayloadContent word / SigningInputsPayloadContent)
+// sign payload (word and signing-inputs signatures)
 // ---------------------------------------------------------------------------
 
 describe('sign payload — word', () => {
@@ -998,7 +998,7 @@ describe('sign payload — word', () => {
     expect(screen.getByTestId('confirm-request-origin')).toBeInTheDocument();
     expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('0xdeadbeefcafe');
     expect(screen.getByTestId('confirm-sign-opaque')).toHaveTextContent('opaqueSignatureTitle');
-    expect(screen.queryByTestId('confirm-sign-raw-value-copy')).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('confirm-sign-raw-value').parentElement!).queryByRole('button')).toBeNull();
     expect(screen.getByTestId('opaque-signature-not-a-transaction')).toHaveTextContent(
       'opaqueSignatureNotATransaction'
     );
@@ -1016,7 +1016,7 @@ describe('sign payload — word', () => {
     expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();
     expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('invalidPayload');
-    expect(screen.queryByTestId('confirm-sign-raw-value-copy')).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('confirm-sign-raw-value').parentElement!).queryByRole('button')).toBeNull();
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
@@ -1422,13 +1422,11 @@ describe('assets payload', () => {
     await waitFor(() => expect(ctx.confirmDAppAssets).toHaveBeenCalledWith('req-1', true));
   });
 
-  it('hides the Payload header when the header label is empty', () => {
-    // Drive the falsy side of the `t('Payload') && <h2>` branch.
-    t.mockImplementation((key: string) => (key === 'Payload' ? '' : key));
+  it('heads the request card with the payload title', () => {
     setPayload(assetsPayload());
     render(<ConfirmPage />);
 
-    expect(screen.queryByText('Payload')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'payload' })).toBeInTheDocument();
   });
 });
 
