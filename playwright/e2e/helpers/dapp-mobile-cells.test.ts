@@ -280,7 +280,12 @@ describe('mobile cell assertions', () => {
     return { run, record, ctx, softFail, send, j };
   }
 
-  it.each([2, 3])('measures R5 in one WebView command and enforces the two-block limit (%i)', async blocks => {
+  it.each([
+    { label: 'two blocks', afterHeight: 12, trailingReadFailed: false, passes: true },
+    { label: 'three blocks', afterHeight: 13, trailingReadFailed: false, passes: false },
+    { label: 'trailing read failed', afterHeight: undefined, trailingReadFailed: true, passes: false },
+    { label: 'failed read with a height', afterHeight: 12, trailingReadFailed: true, passes: false }
+  ])('enforces the R5 two-block limit with $label', async ({ afterHeight, trailingReadFailed, passes }) => {
     const error = {
       name: 'WalletTransactionError',
       causeName: 'NotGrantedMidenWalletError',
@@ -289,7 +294,14 @@ describe('mobile cell assertions', () => {
     const f = fixture('R5', error);
     jest.mocked(waitForNodeHeight).mockResolvedValue(103);
     const originalSend = f.send.getMockImplementation()!;
-    const timing = { beforeHeight: 10, afterHeight: 10 + blocks, beforeSyncMs: 1, requestMs: 2, afterSyncMs: 3 };
+    const timing = {
+      beforeHeight: 10,
+      ...(afterHeight === undefined ? {} : { afterHeight }),
+      ...(trailingReadFailed ? { trailingReadFailed } : {}),
+      beforeSyncMs: 1,
+      requestMs: 2,
+      afterSyncMs: 3
+    };
     f.send.mockImplementation(command =>
       command === 'submitCustomMeasured'
         ? Promise.resolve({ result: { ok: false, error }, timing })
@@ -298,9 +310,10 @@ describe('mobile cell assertions', () => {
 
     const failure = await f.run().catch((reason: unknown) => reason);
 
-    expect(failure === undefined).toBe(blocks === 2);
-    expect(failure instanceof Error && /Expected: <= 2/.test(failure.message)).toBe(blocks === 3);
-    expect(expectNoNewMobileRows).toHaveBeenCalledTimes(blocks === 2 ? 1 : 0);
+    expect(failure === undefined).toBe(passes);
+    expect(failure instanceof Error && /Expected: <= 2/.test(failure.message)).toBe(!passes);
+    expect(f.ctx.evidence.dappError).toEqual(error);
+    expect(expectNoNewMobileRows).toHaveBeenCalledTimes(passes ? 1 : 0);
     expect(f.send.mock.calls.map(([command]) => command)).toEqual(['buildCustom', 'submitCustomMeasured']);
     expect(f.ctx.evidence.refusalTiming).toEqual(timing);
   });

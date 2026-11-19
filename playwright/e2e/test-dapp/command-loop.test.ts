@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { PAGE_RETRY_MS } from '../helpers/dapp-command-server';
-import type { MeasuredSubmitContext } from './protocol';
+import { runMeasuredCustomSubmit, type DappOutput, type MeasuredSubmitContext } from './protocol';
 
 // The loop runs on import (command-loop.ts exports nothing), against a fetch that stands in for the command server.
 interface PollAnswer {
@@ -296,6 +296,26 @@ test('abandons a never-settling first result POST after the bound and delivers t
   expect(resultAttempts).toBe(2);
   expect(resultSignals.map(signal => signal?.aborted)).toEqual([true, false]);
   expect(eventsOf('result-undelivered')).toEqual([]);
+});
+
+test('delivers the measured refusal on retry when the trailing read stalls', async () => {
+  const expiresAt = Date.now() + 30_000;
+  const refusal: DappOutput<'submitCustom'> = { ok: false, error: { name: 'Refused', message: 'refused' } };
+  const sync = jest.fn().mockResolvedValueOnce({ height: 10 }).mockImplementation(() => new Promise(() => undefined));
+  const submit = jest.fn(async () => refusal);
+  installPage((_name, _input, expiry, context) => runMeasuredCustomSubmit(sync, submit, expiry, context));
+  resultReplies = [neverPosted, () => new Promise(resolve => setTimeout(() => resolve(204), POST_ATTEMPT_MS - 100))];
+  pollAnswers = [
+    () => Promise.resolve({ status: 200, body: { id: 'measured', command: 'submitCustomMeasured', input: {}, expiresAt } })
+  ];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(29_500);
+  expect(Date.now()).toBeLessThan(expiresAt);
+  expect(resultAttempts).toBe(2);
+  expect(resultsPosted()).toEqual([
+    { id: 'measured', ok: true, value: { result: refusal, timing: expect.objectContaining({ trailingReadFailed: true }) } }
+  ]);
+  expect(submit).toHaveBeenCalledTimes(1);
 });
 
 test('reports result-undelivered after three never-settling result POST attempts', async () => {
