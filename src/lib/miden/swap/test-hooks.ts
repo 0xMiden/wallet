@@ -6,7 +6,6 @@ import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/m
 import { remoteProver } from 'lib/miden/sdk/miden-client-interface';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
-import { _setSwapTokensForTest, type SwapToken } from './tokens';
 import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 
 const LINEAGE_STATE = ['active', 'filled', 'reclaimed'] as const;
@@ -90,7 +89,6 @@ const safe = (fn: () => any) => {
 
 /** PAGE hooks: the token-registry override read by the swap-create UI. */
 export function installSwapTestHooks(): void {
-  (globalThis as any).__TEST_SET_SWAP_TOKENS__ = (tokens: SwapToken[]) => _setSwapTokensForTest(tokens);
 }
 
 /** SERVICE-WORKER hooks: taker discovery + fill, signed by the realm signer (#878). */

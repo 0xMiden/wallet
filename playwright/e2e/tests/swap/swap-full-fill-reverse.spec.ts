@@ -3,11 +3,11 @@ import {
   createSwapOrder,
   fillSwapOrder,
   fundSwapPair,
-  installSwapTestTokens,
   readLineage,
   tokenBalance,
   triggerSwapAutoConsume
 } from '../../helpers/swap';
+import { openSwapDocument } from '../../helpers/swap-document';
 
 /**
  * Scenario 3.2 — full fill, maker B → taker A (the reverse direction of 3.1).
@@ -42,8 +42,7 @@ test.describe('swap: full fill B→A', () => {
 
     // The compact Swap flow still supports exact receive editing; Command instead
     // types the matching pay and verifies its readonly receive quote before signing.
-    await walletB.page.goto(`chrome-extension://${walletB.extensionId}/sidepanel.html#/swap`);
-    await installSwapTestTokens(walletB.page, [pair.offer, pair.request]);
+    await openSwapDocument(walletB.page, walletB.extensionId, 'sidepanel', [pair.offer, pair.request]);
     const compactReceive = walletB.page.getByTestId('swap-flow').getByTestId('swap-receive-side');
     await expect(compactReceive.getByTestId('send-amount-input')).toBeVisible({ timeout: 30_000 });
     await walletB.page.getByTestId('send-token-selector').first().click();

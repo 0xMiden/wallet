@@ -4,6 +4,7 @@ import { hexFaucetToBech32 } from './faucet-address';
 import { forgetFixtureConfig, setEligibilityFixtureConfig } from './feature-eligibility';
 import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
+import { installSwapTestTokens, openSwapDocument, type SwapTokenDescriptor } from './swap-document';
 import type { ChromeWalletPageApi } from './wallet-page';
 import { IS_LOCALNET } from '../config/environments';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
@@ -47,13 +48,6 @@ const QUOTE_HEADERS = { 'access-control-allow-origin': '*', 'cross-origin-resour
 
 /** Default base-unit amount minted to each side's faucet. */
 export const DEFAULT_FUND_AMOUNT = 100_000_000_000;
-
-export interface SwapTokenDescriptor {
-  symbol: string;
-  /** bech32 faucet id, as the wallet keys balances. */
-  faucetId: string;
-  decimals: number;
-}
 
 export interface SwapPair {
   offer: SwapTokenDescriptor;
@@ -234,18 +228,6 @@ export async function fundSwapPair(
   return { offer, request, offerFaucetHex, requestFaucetHex };
 }
 
-export async function installSwapTestTokens(page: Page, tokens: SwapTokenDescriptor[]): Promise<void> {
-  await page.waitForFunction(
-    () => typeof (window as never as { __TEST_SET_SWAP_TOKENS__?: unknown }).__TEST_SET_SWAP_TOKENS__ === 'function',
-    undefined,
-    { timeout: 60_000 }
-  );
-  await page.evaluate(
-    t => (window as never as { __TEST_SET_SWAP_TOKENS__: (t: unknown) => void }).__TEST_SET_SWAP_TOKENS__(t),
-    tokens
-  );
-}
-
 export interface CreateOrderOptions {
   offerSymbol: string;
   requestSymbol: string;
@@ -265,8 +247,12 @@ export async function createSwapOrder(
   // when the same wallet has made earlier orders in a serial spec.
   const before = new Set(await readSwapOrderIds(page));
 
-  await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`);
-  if (freshDocumentPair) await installSwapTestTokens(page, [freshDocumentPair.offer, freshDocumentPair.request]);
+  await openSwapDocument(
+    page,
+    extensionId,
+    'fullpage',
+    freshDocumentPair ? [freshDocumentPair.offer, freshDocumentPair.request] : undefined
+  );
   const workbench = page.getByTestId('command-shell').getByTestId('command-workbench');
   await expect(workbench.getByTestId('swap-flow').getByTestId('command-swap-composer')).toBeVisible({ timeout: 30_000 });
   await expect(workbench.getByTestId('command-footer').getByTestId('swap-review-submit')).toBeVisible();

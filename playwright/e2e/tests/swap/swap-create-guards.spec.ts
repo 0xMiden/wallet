@@ -3,7 +3,8 @@ import sharp from 'sharp';
 import { IS_LOCALNET } from '../../config/environments';
 import { expect, test } from '../../fixtures/two-wallets';
 import { forgetFixtureConfig, setEligibilityFixtureConfig } from '../../helpers/feature-eligibility';
-import { fundSwapPair, installSwapTestTokens } from '../../helpers/swap';
+import { fundSwapPair } from '../../helpers/swap';
+import { openSwapDocument } from '../../helpers/swap-document';
 
 /** Exact receive and create-side guards, without submitting an order. */
 test.describe('swap: create-side guards', () => {
@@ -99,8 +100,7 @@ test.describe('swap: create-side guards', () => {
     );
 
     // Keep the editable exact-receive regression in the real compact layout.
-    await page.goto(`chrome-extension://${extensionId}/sidepanel.html#/swap`);
-    await installSwapTestTokens(page, [pair.offer, pair.request]);
+    await openSwapDocument(page, extensionId, 'sidepanel', [pair.offer, pair.request]);
     await expect(page.getByTestId('swap-flow').getByTestId('swap-receive-side')).toBeVisible({ timeout: 30_000 });
 
     await page.getByTestId('send-token-selector').first().click();
@@ -148,8 +148,7 @@ test.describe('swap: create-side guards', () => {
 
     // Command has one editable Pay field and a readonly quoted Receive; retain the
     // same no-price, balance and zero guards without granting a new submit path.
-    await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`);
-    await installSwapTestTokens(page, [pair.offer, pair.request]);
+    await openSwapDocument(page, extensionId, 'fullpage', [pair.offer, pair.request]);
     const workbench = page.getByTestId('command-shell').getByTestId('command-workbench');
     const composer = workbench.getByTestId('command-swap-composer');
     await expect(composer).toBeVisible({ timeout: 30_000 });
