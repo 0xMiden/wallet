@@ -229,17 +229,21 @@ export async function fundSwapPair(
     if (opts.stubQuoteService ?? true) await serveStubQuoteService(w.page, decimalsOf);
     else await w.page.route(`${TESTNET_QUOTE_URL}/**`, route => route.abort());
     // The override lives in the page realm's memory, so it is set after the reload, once the hook is back.
-    await w.page.waitForFunction(
-      () => typeof (window as never as { __TEST_SET_SWAP_TOKENS__?: unknown }).__TEST_SET_SWAP_TOKENS__ === 'function',
-      undefined,
-      { timeout: 60_000 }
-    );
-    await w.page.evaluate(
-      t => (window as never as { __TEST_SET_SWAP_TOKENS__: (t: unknown) => void }).__TEST_SET_SWAP_TOKENS__(t),
-      tokens
-    );
+    await installSwapTestTokens(w.page, tokens);
   }
   return { offer, request, offerFaucetHex, requestFaucetHex };
+}
+
+export async function installSwapTestTokens(page: Page, tokens: SwapTokenDescriptor[]): Promise<void> {
+  await page.waitForFunction(
+    () => typeof (window as never as { __TEST_SET_SWAP_TOKENS__?: unknown }).__TEST_SET_SWAP_TOKENS__ === 'function',
+    undefined,
+    { timeout: 60_000 }
+  );
+  await page.evaluate(
+    t => (window as never as { __TEST_SET_SWAP_TOKENS__: (t: unknown) => void }).__TEST_SET_SWAP_TOKENS__(t),
+    tokens
+  );
 }
 
 export interface CreateOrderOptions {
@@ -251,13 +255,18 @@ export interface CreateOrderOptions {
 }
 
 /** Drive the `#/swap` UI to create a maker order; returns the new on-chain orderId. */
-export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): Promise<string> {
+export async function createSwapOrder(
+  maker: Wallet,
+  opts: CreateOrderOptions,
+  freshDocumentPair?: SwapPair
+): Promise<string> {
   const { page, extensionId } = maker;
   // Capture pre-existing orders so we return the one THIS call creates, even
   // when the same wallet has made earlier orders in a serial spec.
   const before = new Set(await readSwapOrderIds(page));
 
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`);
+  if (freshDocumentPair) await installSwapTestTokens(page, [freshDocumentPair.offer, freshDocumentPair.request]);
   const workbench = page.getByTestId('command-shell').getByTestId('command-workbench');
   await expect(workbench.getByTestId('swap-flow').getByTestId('command-swap-composer')).toBeVisible({ timeout: 30_000 });
   await expect(workbench.getByTestId('command-footer').getByTestId('swap-review-submit')).toBeVisible();

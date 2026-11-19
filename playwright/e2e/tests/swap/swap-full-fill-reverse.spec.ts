@@ -3,6 +3,7 @@ import {
   createSwapOrder,
   fillSwapOrder,
   fundSwapPair,
+  installSwapTestTokens,
   readLineage,
   tokenBalance,
   triggerSwapAutoConsume
@@ -42,6 +43,7 @@ test.describe('swap: full fill B→A', () => {
     // The compact Swap flow still supports exact receive editing; Command instead
     // types the matching pay and verifies its readonly receive quote before signing.
     await walletB.page.goto(`chrome-extension://${walletB.extensionId}/sidepanel.html#/swap`);
+    await installSwapTestTokens(walletB.page, [pair.offer, pair.request]);
     const compactReceive = walletB.page.getByTestId('swap-flow').getByTestId('swap-receive-side');
     await expect(compactReceive.getByTestId('send-amount-input')).toBeVisible({ timeout: 30_000 });
     await walletB.page.getByTestId('send-token-selector').first().click();
@@ -51,12 +53,11 @@ test.describe('swap: full fill B→A', () => {
     await compactReceive.getByTestId('send-amount-input').fill('9');
     await expect(walletB.page.getByTestId('swap-pay-side').getByTestId('send-amount-input')).toHaveValue('9.00450226');
 
-    const orderId = await createSwapOrder(walletB, {
-      offerSymbol: 'SWPB',
-      requestSymbol: 'SWPA',
-      payAmount: '9.00450226',
-      receiveAmount: '9'
-    });
+    const orderId = await createSwapOrder(
+      walletB,
+      { offerSymbol: 'SWPB', requestSymbol: 'SWPA', payAmount: '9.00450226', receiveAmount: '9' },
+      pair
+    );
     expect(orderId, 'maker order id').not.toBe('');
 
     const fill = await fillSwapOrder({
