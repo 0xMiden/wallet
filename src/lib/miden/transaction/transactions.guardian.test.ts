@@ -2847,35 +2847,33 @@ describe('generateTransaction - Guardian routing', () => {
 
       const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T12:00:00.000Z'));
       try {
-        const sending = generateTransaction(
+        await generateTransaction(
           transaction,
           jest.fn(async () => new Uint8Array([2])),
           false,
           makeGuardianProvider(true)
         );
-        if (refused) {
-          await expect(sending).rejects.toMatchObject({ name: 'CalendarRecallReviewRequiredError' });
-          expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
-          expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
-          expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-          return;
-        }
-        await sending;
       } finally {
         clock.mockRestore();
       }
 
       expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
-      expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
-        undefined,
-        expect.objectContaining({ toString: expect.any(Function) }),
-        expect.objectContaining({ toString: expect.any(Function) }),
-        'faucet',
-        1000n,
-        expectedSdkNoteType,
-        180,
-        reclaimHeight,
-        FEE_AWARE_BUILDER
+      expect(mockBuildSendTransactionRequest.mock.calls).toEqual(
+        refused
+          ? []
+          : [
+              [
+                undefined,
+                expect.objectContaining({ toString: expect.any(Function) }),
+                expect.objectContaining({ toString: expect.any(Function) }),
+                'faucet',
+                1000n,
+                expectedSdkNoteType,
+                180,
+                reclaimHeight,
+                FEE_AWARE_BUILDER
+              ]
+            ]
       );
       // Asked for by the EXECUTING (guarded) account, with the salt this build drew.
       expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
@@ -2883,12 +2881,24 @@ describe('generateTransaction - Guardian routing', () => {
       });
       // The built bytes are proposed re-bound to the current sync height, and the bytes the
       // proposal was made from are what signing replays and what the row keeps.
-      expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send', 180);
+      expect(multisigService.createRebasedCustomProposal.mock.calls).toEqual(
+        refused ? [] : [[requestBytes, 'recallable_send', 180]]
+      );
       expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
       expect(multisigService.createSendProposal).not.toHaveBeenCalled();
-      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('recall-proposal', rebasedBytes);
-      expect(transaction.requestBytes).toBe(rebasedBytes);
-      expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebasedBytes);
+      expect(multisigService.signAndCreateTransactionRequest.mock.calls).toEqual(
+        refused ? [] : [['recall-proposal', rebasedBytes]]
+      );
+      expect(transaction.requestBytes).toBe(refused ? undefined : rebasedBytes);
+      expect(txStore.find(row => row.id === txId)).toMatchObject(
+        refused
+          ? {
+              status: ITransactionStatus.Failed,
+              error: getMessage('recallReviewChanged'),
+              rawError: expect.stringContaining('CalendarRecallReviewRequiredError')
+            }
+          : { requestBytes: rebasedBytes }
+      );
     }
   );
 

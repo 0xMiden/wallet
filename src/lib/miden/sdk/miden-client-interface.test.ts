@@ -3954,7 +3954,12 @@ describe('MidenClientInterface', () => {
       // The fake client syncs to block 5, so a 600-block window reclaims at 605 (#308).
       ['a reclaimable send', { recallBlocks: 600 }, 605, false],
       ['a delayed calendar send', { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:30.000Z' }, 15, false],
-      ['an expired calendar send', { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:00.000Z' }, undefined, true]
+      [
+        'an expired calendar send',
+        { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:00.000Z' },
+        undefined,
+        true
+      ]
     ] as const)(
       "honors %s's reviewed recall term when building its request",
       async (_label, extraInputs, reclaimAfter, refused) => {
@@ -4002,13 +4007,12 @@ describe('MidenClientInterface', () => {
             amount: BigInt(250),
             extraInputs
           } as any);
-          if (refused) {
-            await expect(sending).rejects.toMatchObject({ name: 'CalendarRecallReviewRequiredError' });
-            expect(buildSendTransactionRequest).not.toHaveBeenCalled();
-            expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
-            return;
-          }
-          await sending;
+          await expect(
+            sending.then(
+              () => null,
+              (error: Error) => error.name
+            )
+          ).resolves.toBe(refused ? 'CalendarRecallReviewRequiredError' : null);
         } finally {
           clock.mockRestore();
         }
@@ -4016,17 +4020,12 @@ describe('MidenClientInterface', () => {
         expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
         expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
         expect(inner.getAccount).toHaveBeenCalled();
-        expect(buildSendTransactionRequest).toHaveBeenCalledWith(
-          senderAccount,
-          expect.anything(),
-          expect.anything(),
-          'mtst1faucet',
-          250n,
-          'Private',
-          600,
-          reclaimAfter
+        expect(buildSendTransactionRequest.mock.calls).toEqual(
+          refused
+            ? []
+            : [[senderAccount, expect.anything(), expect.anything(), 'mtst1faucet', 250n, 'Private', 600, reclaimAfter]]
         );
-        expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+        expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(refused ? 0 : 1);
       }
     );
 
