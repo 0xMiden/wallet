@@ -185,6 +185,16 @@ test('answers a command with the value the page returned', async () => {
   expect(resultsPosted()).toEqual([{ id: 'c1', ok: true, value: { name: 'session', input: { a: 1 } } }]);
 });
 
+test('forwards the measured submission expiry to the page', async () => {
+  const expiresAt = Date.now() + 4_000;
+  const answer = jest.fn(async () => ({}));
+  installPage(answer);
+  pollAnswers = [() => Promise.resolve({ status: 200, body: { id: 'c1', command: 'submitCustomMeasured', input: {}, expiresAt } })];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(100);
+  expect(answer).toHaveBeenCalledWith('submitCustomMeasured', {}, expiresAt);
+});
+
 test('answers a result JSON cannot carry with an error naming the command', async () => {
   installPage(async () => ({ amount: BigInt(1) }));
   pollAnswers = [command('c2', 'chainAccount')];
