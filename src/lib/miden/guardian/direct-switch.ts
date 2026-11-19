@@ -1141,7 +1141,7 @@ export const finalizeDirectGuardianSwitch = async (
       lastError = error;
       console.warn(`Direct guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
       // The Guardian stored nothing, and the self-heal's next lap asks again.
-      if (stateOnChain !== 'await' && isGuardianStateNotOnChain(error)) break;
+      if (stateOnChain === 'require' && isGuardianStateNotOnChain(error)) break;
       if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
         await delay(guardianRegisterBackoffMs(error, attempt));
       }
