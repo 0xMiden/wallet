@@ -276,6 +276,26 @@ describe('mobile cell assertions', () => {
     return { run, record, ctx, softFail, send, j };
   }
 
+  it('measures R5 in one WebView command and still checks the row window', async () => {
+    const error = {
+      name: 'WalletTransactionError',
+      causeName: 'NotGrantedMidenWalletError',
+      message: `NOT_GRANTED: ${pinned.notSimulatedRefusal.text} ${pinned.notSimulatedRefusal.reasonPrefix}${pinned.texts.R5.offchain.error}`
+    };
+    const f = fixture('R5', error);
+    const originalSend = f.send.getMockImplementation()!;
+    const timing = { beforeHeight: 10, afterHeight: 12, beforeSyncMs: 1, requestMs: 2, afterSyncMs: 3 };
+    f.send.mockImplementation(command =>
+      command === 'submitCustomMeasured' ? Promise.resolve({ result: { ok: false, error }, timing }) : originalSend(command)
+    );
+
+    await f.run();
+
+    expect(f.send.mock.calls.map(([command]) => command)).toEqual(['buildCustom', 'submitCustomMeasured']);
+    expect(f.ctx.evidence.refusalTiming).toEqual(timing);
+    expect(expectNoNewMobileRows).toHaveBeenCalledTimes(1);
+  });
+
   it.each(refusalCases)('records the plain Error in $id and reaches its remaining claims', async entry => {
     const error = {
       name: entry.causeName === undefined ? 'Error' : entry.name,
