@@ -156,7 +156,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
         form="earn-deposit-amount-form"
         accent="earn"
         disabled={!isValidAmount}
-        className="max-w-none"
+        className="w-full max-w-none sm:w-auto sm:min-w-40"
       />
     ) : null
   );
@@ -186,7 +186,10 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-amount-page">
+    <div
+      className={command ? 'flex min-w-0 flex-col' : 'flex h-full flex-col overflow-hidden bg-app-bg'}
+      data-testid="earn-deposit-amount-page"
+    >
       <EarnFlowHeader subject={found} />
 
       {loadFailed && !found ? (
@@ -230,14 +233,14 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
                 className="mx-4 mt-4 w-auto shrink-0"
               />
             ))}
-          <div className={command ? 'pt-7' : 'min-h-0 flex-1'}>
+          <div className={command ? 'grid items-start gap-4 pt-4 md:grid-cols-2 md:gap-6' : 'min-h-0 flex-1'}>
             {command && found && (
               <SubPageSection
                 titleAs="h2"
                 titleSize="md"
                 title={earnSubjectTitle(found)}
                 description={<EarnSubjectSubtitle subject={found} />}
-                className="mb-5"
+                className="min-w-0 rounded-2xl border border-accent-tint-ink/25 bg-accent-tint p-4 md:col-start-2 md:row-start-1 sm:p-5"
               />
             )}
             {balanceReadFailed && balancesLoading ? (
@@ -253,6 +256,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
             ) : command ? (
               <form
                 id="earn-deposit-amount-form"
+                className="min-w-0 rounded-2xl border border-hairline bg-page p-4 sm:p-5 md:col-start-1 md:row-start-1"
                 onSubmit={event => {
                   event.preventDefault();
                   reviewDeposit();
