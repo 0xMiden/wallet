@@ -94,6 +94,8 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   const launcher = balanceAction.getByRole('button', { name: 'Open fullscreen' });
   await expect(launcher).toBeVisible();
   await expect(launcher).toHaveText('');
+  await expect(launcher).toHaveCSS('background-image', /^linear-gradient/);
+  await expect(launcher).not.toHaveCSS('box-shadow', 'none');
   const launcherBox = await launcher.boundingBox();
   const balanceLabelBox = await popup.getByTestId('balance-card-label').boundingBox();
   expect(launcherBox).not.toBeNull();
@@ -104,6 +106,9 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(popup.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(1);
   await expect(popup.getByTestId('command-shell')).toHaveCount(0);
   await captureCommand(popup, info, 'command-compact-launcher-360x600');
+  await launcher.hover();
+  await expect(launcher).toHaveCSS('translate', /-2px/);
+  await captureCommand(popup, info, 'command-compact-launcher-hover-360x600');
 
   const opened = extensionContext.waitForEvent('page');
   await launcher.click();
@@ -229,6 +234,9 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   const sidebarLauncher = sidebar.getByTestId('balance-card-action').getByRole('button', { name: 'Open fullscreen' });
   await expect(sidebarLauncher).toBeVisible({ timeout: 30_000 });
   await expect(sidebarLauncher).toHaveText('');
+  await sidebarLauncher.hover();
+  await expect(sidebarLauncher).toHaveCSS('translate', 'none');
+  await sidebar.mouse.move(0, 0);
   await expect(sidebar.locator('html')).toHaveClass(/dark/);
   await captureCommand(sidebar, info, 'command-sidebar-dark-reduced-motion-360x800');
   await sidebar.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });

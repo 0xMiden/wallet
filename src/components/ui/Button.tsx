@@ -66,7 +66,8 @@ const buttonVariants = cva(
           'bg-fill text-negative-ink hover:bg-fill-pressed disabled:bg-fill disabled:text-muted',
         [ButtonVariant.Ghost]:
           'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted',
-        [ButtonVariant.Launcher]: 'bg-launcher-fill text-launcher-ink',
+        [ButtonVariant.Launcher]:
+          'bg-launcher-fill bg-linear-to-br from-pure-white/40 via-pure-white/8 to-transparent text-launcher-ink inset-shadow-xs inset-shadow-pure-white/30 shadow-md shadow-pure-black/25 transition-[box-shadow,translate] hover:shadow-lg active:shadow-sm motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none',
         [ButtonVariant.CommandShortcut]:
           'min-w-0 flex-1 flex-col gap-1 rounded-xl text-ink hover:bg-fill-pressed motion-reduce:transition-none'
       },
