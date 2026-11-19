@@ -936,7 +936,7 @@ export const finalizeDirectGuardianSwitch = async (
    * `'require'`, the cadence self-heal's: one read, and a refusal as preflight unless it shows the state, so the
    * attempt is refunded and a later lap asks again.
    */
-  stateOnChain: 'await' | 'require' = 'await'
+  stateOnChain: 'await' | 'require' | 'require-landed' = 'await'
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {

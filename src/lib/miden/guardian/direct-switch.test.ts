@@ -1932,6 +1932,32 @@ describe('finalizeDirectGuardianSwitch', () => {
       warn.mockRestore();
     });
 
+    it('requires chain confirmation even for nonce zero during cold auth recovery', async () => {
+      mockProxyGetAccount.mockResolvedValue({ ...sdkAccount, nonce: () => ({ asInt: () => 0n }) });
+      mockGetAccountProof.mockResolvedValueOnce(chainProof(OTHER_COMMITMENT));
+      mockGuardianConfigure.mockResolvedValue({ success: true });
+      const onBeforeRegister = jest.fn();
+      const register = () =>
+        finalizeDirectGuardianSwitch(
+          '0xacct',
+          'https://new.guardian.test',
+          typedProvider(),
+          undefined,
+          onBeforeRegister,
+          'require-landed'
+        );
+
+      expect(isGuardianStateOffChainRefusal(await register().catch((error: unknown) => error))).toBe(true);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+      expect(onBeforeRegister).not.toHaveBeenCalled();
+      expect(mockGuardianConfigure).not.toHaveBeenCalled();
+
+      await register();
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+      expect(onBeforeRegister).toHaveBeenCalledTimes(1);
+      expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+    });
+
     // A Guardian stores a nonce-0 first state without a chain read, and a never-used account is not on chain.
     const modes: ('await' | 'require')[] = ['await', 'require'];
     it.each(modes)('registers a nonce-0 state without reading the node (%s)', async mode => {

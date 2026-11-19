@@ -1746,6 +1746,30 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       }
     });
 
+    it('rearms an expired heal fuse when the cold fallback refuses to register', async () => {
+      const publicKey = 'acct-overwritten-fuse-refused';
+      useAccount(publicKey);
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
+      mockBuildColdMultisigService.mockRejectedValue(authError);
+      mockCheckEndpointCommitment.mockResolvedValue('mismatch');
+      const key = guardianSelfHealFuseKey(publicKey, endpoint);
+      const clock = useFakeClocks(9_000_000);
+      try {
+        noteSyncParked(key);
+        clock.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+        expect(isSyncFused(key)).toBe(false);
+
+        for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+        expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+        expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(endpoint, 'guardiankey');
+        expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+        expect(isSyncFused(key)).toBe(true);
+      } finally {
+        clock.restore();
+      }
+    });
+
     it('does not start registration when the cold read retires its sync pass', async () => {
       useAccount('acct-overwritten-retired');
       storeState.checkGuardianDrift.mockResolvedValue(undefined);
