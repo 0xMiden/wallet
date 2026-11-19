@@ -15,6 +15,7 @@ import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { currentUsdcxFeeScope } from 'lib/usdcx/fee-scope';
+import { useCommandDrafts } from 'screens/command/command-drafts';
 import { CommandShell } from 'screens/command/CommandShell';
 import { MidenAddressError } from 'utils/miden';
 
@@ -841,6 +842,52 @@ describe('Command Send uses the real SendManager form', () => {
     expect(new URL(path, 'https://wallet.invalid').searchParams.get('commandReviewId')).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );
+  });
+
+  it('reopens the original pending bridge handoff instead of creating a new review', async () => {
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 }]
+    });
+    function Session() {
+      const drafts = useCommandDrafts();
+      const [back, setBack] = React.useState(false);
+      return back ? (
+        <SendFlow isLoading={false} />
+      ) : (
+        <button
+          onClick={() => {
+            drafts.writeDraft('send', {
+              reviewId: 'original-handoff',
+              amount: '2',
+              recipientAddress: '0xrecipient',
+              tokenId: 'T1',
+              bridgeNetwork: 'sepolia',
+              bridgeRoute: 'agglayer'
+            });
+            drafts.beginSendAdmission(
+              JSON.stringify(['original-handoff', '2', '0xrecipient', 'T1', 'sepolia', 'agglayer'])
+            );
+            setBack(true);
+          }}
+        >
+          Back from pending review
+        </button>
+      );
+    }
+    render(
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <Session />
+      </CommandShell>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Back from pending review' }));
+    await waitFor(() => expect(screen.getByTestId('command-send-review')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('commandReviewId=original-handoff'));
   });
 
   it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {

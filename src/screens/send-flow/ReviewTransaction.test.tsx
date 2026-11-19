@@ -854,6 +854,77 @@ describe('Command Send review controller', () => {
     expect(confirmMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['agglayer', 'usdcx'] as const)(
+    'resumes the pending Command %s review after Back and keeps its receipt when worker wake-up fails',
+    async route => {
+      mockDetectedChain = 'ethereum';
+      mockFullPage = true;
+      isExtensionMock.mockReturnValue(true);
+      const bridge =
+        route === 'agglayer'
+          ? { tokenId: 'tok1', network: 'sepolia', metadata: VALID_TOKEN.metadata }
+          : { tokenId: USDCX_FAUCET_ID_BECH32, network: 'arc-testnet', metadata: { symbol: 'USDCX', decimals: 6 } };
+      const amount = '5.000001';
+      const to = '0x1111111111111111111111111111111111111111';
+      const reviewId = 'original-handoff';
+      mockSearch = `amount=${amount}&to=${to}&tokenId=${bridge.tokenId}&network=${bridge.network}&route=${route}&commandReviewId=${reviewId}`;
+      mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: bridge.tokenId, metadata: bridge.metadata }];
+      const queue = route === 'agglayer' ? initiateB2AggBridgeMock : jest.mocked(initiateUsdcxBurn);
+      const queued = deferred<string>();
+      queue.mockReturnValueOnce(queued.promise);
+      requestSWMock.mockImplementationOnce(() => {
+        throw new Error('worker unavailable');
+      });
+      const scope = { accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' };
+      function Session({ reviewOpen }: { reviewOpen: boolean }) {
+        const drafts = useCommandDrafts();
+        const [prepared, setPrepared] = useState(false);
+        return (
+          <>
+            <button
+              onClick={() => {
+                drafts.writeDraft('send', {
+                  amount,
+                  recipientAddress: to,
+                  tokenId: bridge.tokenId,
+                  bridgeNetwork: bridge.network,
+                  bridgeRoute: route,
+                  reviewId
+                });
+                setPrepared(true);
+              }}
+            >
+              Prepare payment
+            </button>
+            {prepared && reviewOpen && <ReviewTransaction />}
+          </>
+        );
+      }
+      const shell = (reviewOpen: boolean) => (
+        <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+          <Session reviewOpen={reviewOpen} />
+        </CommandShell>
+      );
+      const view = render(shell(true));
+      fireEvent.click(screen.getByRole('button', { name: 'Prepare payment' }));
+      await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeEnabled());
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(queue).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole('button', { name: 'back' }));
+      view.rerender(shell(false));
+      view.rerender(shell(true));
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      await act(async () => queued.resolve('original-bridge-row'));
+      await waitFor(() =>
+        expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction-full/original-bridge-row')
+      );
+      expect(requestSWMock).toHaveBeenCalledTimes(1);
+      expect(queue).toHaveBeenCalledTimes(1);
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+    }
+  );
+
   function ReviewSession({ recall }: { recall?: CommandSendRecall }) {
     const drafts = useCommandDrafts();
     const [open, setOpen] = useState(false);

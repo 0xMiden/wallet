@@ -201,6 +201,8 @@ test('compact launcher opens the real Command workspace and preserves a minimize
     await captureCommand(command, info, `command-${action.toLowerCase()}-1440x1000`);
   }
 
+  await expect(workbench.getByRole('button', { name: 'Recover locked bridge funds' })).toBeInViewport({ ratio: 1 });
+
   await command.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
   await command.evaluate(() => localStorage.setItem('theme_setting', 'dark'));
   await command.reload({ waitUntil: 'domcontentloaded' });
