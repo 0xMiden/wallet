@@ -472,6 +472,11 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         } finally {
           if (diagnoseColdReceipt) survivorPage.off('console', onConsoleError);
         }
+        if (diagnoseColdReceipt && process.env.GITHUB_REF_NAME === 'feat/bread-command-earn-diagnostic') {
+          await expect(retryDelivery).toBeEnabled();
+          console.info(`Earn cold receipt browser events: ${[...receiptOrder].join(' -> ') || 'unobserved'}`);
+          test.skip(true, 'Diagnostic only: cold receipt reached enabled Retry without pressing it');
+        }
         await expect(survivorPage.getByText(/Max network fee/)).toHaveCount(0);
         await retryDelivery.scrollIntoViewIfNeeded();
         await captureWithdrawalScreen(survivor, testInfo, 'withdrawal-retry-delivery');
