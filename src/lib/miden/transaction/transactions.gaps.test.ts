@@ -1917,6 +1917,39 @@ describe('a throw after the leaf resolved', () => {
     });
   });
 
+  it('an offscreen private send whose applied result trapped serializing is Completed and owes the note its submit gate recorded', async () => {
+    const id = 'tx-offscreen-send-serialize-trap';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const sendTransaction = jest.fn(async (_tx: unknown, _signer: unknown, _onStage: unknown, gate?: unknown) => {
+      await askGate(gate, { transactionId: `0x${'cd'.repeat(32)}`, outputNoteIds: [owed] });
+      // As the proxy rebuilds the offscreen reply for a trap serializing a result its leaf applied.
+      throw Object.assign(new Error("Offscreen call 'sendTransaction' failed: unreachable"), {
+        errorCode: 'ApplyTransactionAfterSubmitFailed',
+        landed: { applied: true }
+      });
+    });
+
+    await runLoopAgainstOffscreen({ sendTransaction });
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [owed],
+      noteDelivery: 'undelivered',
+      secondaryAccountId: 'recipient'
+    });
+    expect(isRequeueableTransaction(row)).toBe(false);
+  });
+
   it("an offscreen execute whose applied result trapped serializing owes the private notes its submit gate recorded to its row's recipient", async () => {
     const id = 'tx-offscreen-execute-serialize-trap';
     queuedExecute(id, { secondaryAccountId: 'recipient' });

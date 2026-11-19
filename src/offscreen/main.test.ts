@@ -4924,7 +4924,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
   // The leaf submitted and applied before the serialize, so a trap there is the client failing past submit. It is
   // retired through the dispatch's own hold and replies as landed: an untagged reply fails a row the node holds.
-  it.each(['swapTransaction', 'newTransaction', 'guardianPipeline'])(
+  it.each(['sendTransaction', 'consumeNoteId', 'swapTransaction', 'newTransaction', 'guardianPipeline'])(
     "%s: a trap serializing the applied result retires through the dispatch's hold and replies landed",
     async method => {
       await loadModule();
@@ -4943,6 +4943,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
           }
         };
       };
+      G.__off.clientSendTransaction = jest.fn(async () => trappingResult());
+      G.__off.clientConsumeNoteId = jest.fn(async () => trappingResult());
       G.__off.clientSwapTransaction = jest.fn(async () => trappingResult());
       G.__off.clientNewTransaction = jest.fn(async () => trappingResult());
       const guardianExecute = G.__off.guardianExecuteRequest.getMockImplementation()!;
@@ -4951,6 +4953,17 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         result: trappingResult()
       }));
       const args: Record<string, unknown[]> = {
+        sendTransaction: [
+          {
+            accountId: 'a',
+            secondaryAccountId: 'b',
+            faucetId: 'f',
+            noteType: 'private',
+            amount: '1',
+            extraInputs: {}
+          }
+        ],
+        consumeNoteId: [{ accountId: 'a', noteId: 'n', noteIds: ['n'] }],
         swapTransaction: [
           {
             accountId: 'a',

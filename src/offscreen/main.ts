@@ -937,7 +937,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // consume may already be broadcast. Completing beats aborting past
     // a possible submit — refusing to serialize would abandon the applied result
     // of a write the network may have accepted.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   // The remaining non-guardian WRITES moved offscreen (issue #260, slice 5b),
@@ -964,7 +964,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
     // it returns, so the send may be broadcast — completing beats aborting.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   swapTransaction: async (
