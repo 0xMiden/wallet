@@ -119,11 +119,16 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   if (!address) throw new Error('Mock wallet receive address is missing');
   await seedChartPreview(command, address);
   await command.getByTestId('command-workbench').getByRole('button', { name: 'Minimize' }).click();
-  await command.getByRole('radio', { name: '1W', exact: true }).click();
+  // Capture the selected range, not an intermediate frame of the sliding indicator.
+  await command.emulateMedia({ reducedMotion: 'reduce' });
+  const week = command.getByRole('radio', { name: '1W', exact: true });
+  await week.click();
+  await expect(week).toHaveAttribute('aria-checked', 'true');
   await expect(command.locator('[data-command-chart-area]')).toHaveAttribute('d', /^M /);
   await captureCommand(command, info, 'command-dashboard-chart-1440x1000');
   await command.setViewportSize({ width: 1600, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-chart-1600x1000');
+  await command.emulateMedia({ reducedMotion: null });
   await command.setViewportSize({ width: 1440, height: 1000 });
 
   await command.keyboard.press('Control+k');

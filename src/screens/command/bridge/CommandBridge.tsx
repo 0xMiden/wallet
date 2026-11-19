@@ -209,6 +209,11 @@ export function CommandBridge(): React.ReactElement {
                   formatValueOnBlur={false}
                   tokenSelector={route.source.symbol}
                 />
+                <div className="mt-3 border-t border-hairline pt-3">
+                  <DetailRow label={t('commandBridgeReceiveEstimate')}>
+                    <TokenAmount amount={bridge.quote?.received} symbol={route.destination.symbol} rounding="down" />
+                  </DetailRow>
+                </div>
               </div>
             )}
             <TextField
@@ -238,13 +243,6 @@ export function CommandBridge(): React.ReactElement {
               >
                 {t('commandBridgeSwitchSource')}
               </Button>
-            )}
-            {route && (
-              <DetailCard>
-                <DetailRow label={t('commandBridgeReceiveEstimate')}>
-                  <TokenAmount amount={bridge.quote?.received} symbol={route.destination.symbol} rounding="down" />
-                </DetailRow>
-              </DetailCard>
             )}
           </fieldset>
         )}
