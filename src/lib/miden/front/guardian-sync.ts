@@ -61,7 +61,6 @@ import {
   guardianSelfHealFuseKey,
   guardianSyncFuseKey,
   isSyncFused,
-  noteLocalProbeFailure,
   noteNonEvictionSyncFailure,
   noteAbandonedSyncProbe,
   noteProbeFailure,
@@ -2668,7 +2667,6 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
             attempt.settle('refunded');
             if (!(await passMayRecord(generation, account.publicKey, endpoint))) continue;
             if (await attemptMissingRegistrationSelfHeal(account, healFuseKey, 'signers-rejected')) break;
-            noteLocalProbeFailure(healFuseKey);
           } else {
             attempt.settle(
               outcome === 'attempted' ? 'charged' : outcome === 'refused-permanently' ? 'closed' : 'refunded'
