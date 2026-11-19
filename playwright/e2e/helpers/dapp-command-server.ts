@@ -204,9 +204,7 @@ interface PendingCommand {
 }
 
 function deadlineResult({ enqueuedAt, deliveredAt, leadingError }: PendingCommand): CommandResult {
-  return leadingError === undefined || deliveredAt === null
-    ? { status: 'timeout', enqueuedAt, deliveredAt }
-    : { status: 'error', error: leadingError, enqueuedAt, deliveredAt, receivedAt: Date.now() };
+  return { status: 'timeout', enqueuedAt, deliveredAt };
 }
 
 export async function startCommandServer(options: CommandServerOptions): Promise<CommandServer> {
