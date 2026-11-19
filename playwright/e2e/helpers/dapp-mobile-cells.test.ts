@@ -296,12 +296,11 @@ describe('mobile cell assertions', () => {
         : originalSend(command)
     );
 
-    if (blocks === 2) {
-      await f.run();
-      expect(expectNoNewMobileRows).toHaveBeenCalledTimes(1);
-    } else {
-      await expect(f.run()).rejects.toThrow(/Expected: <= 2/);
-    }
+    const failure = await f.run().catch((reason: unknown) => reason);
+
+    expect(failure === undefined).toBe(blocks === 2);
+    expect(failure instanceof Error && /Expected: <= 2/.test(failure.message)).toBe(blocks === 3);
+    expect(expectNoNewMobileRows).toHaveBeenCalledTimes(blocks === 2 ? 1 : 0);
     expect(f.send.mock.calls.map(([command]) => command)).toEqual(['buildCustom', 'submitCustomMeasured']);
     expect(f.ctx.evidence.refusalTiming).toEqual(timing);
   });
