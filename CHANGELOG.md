@@ -21,6 +21,7 @@
 - [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
 - [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.0 clients.
 - [FIX][ci] Measure the mobile R5 refusal with adjacent WebView sync samples while retaining the two-block limit.
 - [FIX][ci] Create only the deposit wallet in the live iOS USDCx tests.
 
