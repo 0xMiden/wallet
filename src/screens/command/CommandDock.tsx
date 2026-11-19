@@ -16,7 +16,7 @@ export const COMMAND_DESTINATIONS: Record<CommandAction, string> = {
   bridge: '/bridge/deposit'
 };
 
-const ACTIONS = [
+export const COMMAND_ACTION_ICONS = [
   ['send', IconName.Send],
   ['receive', IconName.Receive],
   ['swap', IconName.Convert],
@@ -31,7 +31,7 @@ export function CommandDock(): React.ReactElement {
       aria-label={t('commandActions')}
       className="pointer-events-auto absolute inset-x-0 bottom-4 z-20 mx-auto flex w-[calc(100%-1.5rem)] max-w-md gap-1 rounded-[1.625rem] border border-white/25 bg-[#302820] p-2 shadow-2xl supports-backdrop-filter:bg-[#302820]/85 [backdrop-filter:blur(24px)_saturate(1.4)] [-webkit-backdrop-filter:blur(24px)_saturate(1.4)] sm:bottom-6"
     >
-      {ACTIONS.map(([action, icon]) => (
+      {COMMAND_ACTION_ICONS.map(([action, icon]) => (
         <Button
           key={action}
           size="sm"

@@ -3,15 +3,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
+import { Icon, IconName } from 'app/icons/v2';
 import { IconButton } from 'components/ui/IconButton';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
 import type { CommandAction } from './command-routes';
-import { COMMAND_DESTINATIONS } from './CommandDock';
+import { COMMAND_ACTION_ICONS, COMMAND_DESTINATIONS } from './CommandDock';
 
-const ACTIONS: Array<CommandAction | 'explore'> = ['send', 'receive', 'swap', 'earn', 'bridge', 'explore'];
+const ACTIONS = [...COMMAND_ACTION_ICONS, ['explore', IconName.Explore]] as const;
 
 export function CommandPalette({
   open,
@@ -26,7 +26,7 @@ export function CommandPalette({
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
-  const matches = ACTIONS.filter(action =>
+  const matches = ACTIONS.filter(([action]) =>
     t(action === 'bridge' ? 'commandBridge' : action)
       .toLowerCase()
       .includes(query.toLowerCase())
@@ -51,44 +51,51 @@ export function CommandPalette({
           event.preventDefault();
           input.current?.focus();
         }}
-        className="fixed left-1/2 top-1/4 z-80 flex w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-3 rounded-2xl bg-page p-4 text-ink shadow-lg"
+        className="fixed left-1/2 top-[15dvh] z-80 flex max-h-[75dvh] w-[min(35rem,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-3xl border border-accent-tint-ink/35 bg-page bg-linear-to-br from-fill to-page text-ink shadow-2xl"
       >
-        <div className="flex items-center justify-between">
-          <Dialog.Title className="text-title-tab">{t('commandSearch')}</Dialog.Title>
+        <Dialog.Title className="sr-only">{t('commandSearch')}</Dialog.Title>
+        <div className="flex shrink-0 items-center gap-3 border-b border-hairline p-4">
+          <Icon name={IconName.Search} size="sm" className="shrink-0 text-accent-tint-ink" aria-hidden="true" />
+          <input
+            ref={input}
+            role="combobox"
+            aria-label={t('commandSearch')}
+            aria-expanded="true"
+            aria-controls="command-palette-options"
+            aria-activedescendant={selected >= 0 ? `command-palette-${matches[selected]?.[0]}` : undefined}
+            value={query}
+            onChange={event => {
+              setQuery(event.target.value);
+              setSelected(-1);
+            }}
+            onKeyDown={event => {
+              if (event.key === 'ArrowDown' && matches.length) {
+                event.preventDefault();
+                setSelected((selected + 1) % matches.length);
+              }
+              if (event.key === 'ArrowUp' && matches.length) {
+                event.preventDefault();
+                setSelected((selected + matches.length - 1) % matches.length);
+              }
+              if (event.key === 'Enter' && matches.length) {
+                event.preventDefault();
+                choose(matches[Math.max(0, selected)]![0]);
+              }
+            }}
+            placeholder={t('commandSearch')}
+            className="min-w-0 flex-1 rounded-xl border border-hairline bg-page p-3 text-body text-ink outline-none placeholder:text-muted focus-visible:ring-2 focus-visible:ring-accent-primary"
+          />
           <Dialog.Close asChild>
             <IconButton icon={IconName.Close} label={t('close')} />
           </Dialog.Close>
         </div>
-        <input
-          ref={input}
-          role="combobox"
-          aria-label={t('commandSearch')}
-          aria-expanded="true"
-          aria-controls="command-palette-options"
-          aria-activedescendant={selected >= 0 ? `command-palette-${matches[selected]}` : undefined}
-          value={query}
-          onChange={event => {
-            setQuery(event.target.value);
-            setSelected(-1);
-          }}
-          onKeyDown={event => {
-            if (event.key === 'ArrowDown' && matches.length) {
-              event.preventDefault();
-              setSelected((selected + 1) % matches.length);
-            }
-            if (event.key === 'ArrowUp' && matches.length) {
-              event.preventDefault();
-              setSelected((selected + matches.length - 1) % matches.length);
-            }
-            if (event.key === 'Enter' && matches.length) {
-              event.preventDefault();
-              choose(matches[Math.max(0, selected)]!);
-            }
-          }}
-          className="w-full rounded-xl bg-fill p-3 text-body text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-        />
-        <div id="command-palette-options" role="listbox" aria-label={t('commandActions')}>
-          {matches.map((action, index) => (
+        <div
+          id="command-palette-options"
+          role="listbox"
+          aria-label={t('commandActions')}
+          className="min-h-0 overflow-y-auto p-2"
+        >
+          {matches.map(([action, icon], index) => (
             <button
               id={`command-palette-${action}`}
               role="option"
@@ -96,9 +103,12 @@ export function CommandPalette({
               key={action}
               type="button"
               onClick={() => choose(action)}
-              className="block w-full rounded-xl p-3 text-left text-body text-ink hover:bg-fill focus-visible:outline-2 focus-visible:outline-accent-primary"
+              className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left text-body text-ink hover:bg-fill aria-selected:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
             >
-              {t(action === 'bridge' ? 'commandBridge' : action)}
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-hairline bg-fill text-accent-tint-ink">
+                <Icon name={icon} size="sm" aria-hidden="true" />
+              </span>
+              <span>{t(action === 'bridge' ? 'commandBridge' : action)}</span>
             </button>
           ))}
         </div>
