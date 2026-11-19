@@ -256,7 +256,8 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
                   <span className="min-w-0 truncate">{asset.metadata.name || asset.metadata.symbol}</span>
                   <span className="shrink-0 text-muted">{formatAmountDisplay(entry.value, displayOptions)} USD</span>
                   <span className="shrink-0">
-                    {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}%
+                    {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}
+                    {t('percentSign')}
                   </span>
                 </div>
               );

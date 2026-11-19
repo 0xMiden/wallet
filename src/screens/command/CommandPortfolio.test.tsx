@@ -41,7 +41,10 @@ let mockCurrent = true;
 let mockValue = '6';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, string>) => (values ? `${key} ${Object.values(values).join(' ')}` : key)
+    t: (key: string, values?: Record<string, string>) => {
+      if (key === 'percentSign') return '%';
+      return values ? `${key} ${Object.values(values).join(' ')}` : key;
+    }
   })
 }));
 jest.mock('lib/miden/portfolio-observations', () => {
