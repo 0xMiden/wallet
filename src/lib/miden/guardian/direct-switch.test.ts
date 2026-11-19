@@ -1899,7 +1899,7 @@ describe('finalizeDirectGuardianSwitch', () => {
     const stateNotOnChain = () =>
       Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), { status: 409, code: 'state_not_on_chain' });
 
-    it("'require' stops at the first state_not_on_chain", async () => {
+    it.each(['require', 'require-landed'] as const)('%s stops at the first state_not_on_chain', async mode => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockGuardianConfigure.mockRejectedValue(stateNotOnChain());
 
@@ -1909,7 +1909,7 @@ describe('finalizeDirectGuardianSwitch', () => {
         typedProvider(),
         undefined,
         undefined,
-        'require'
+        mode
       ).catch((e: unknown) => e);
 
       expect(isGuardianStateNotOnChain(error)).toBe(true);
@@ -1930,6 +1930,32 @@ describe('finalizeDirectGuardianSwitch', () => {
       expect(mockGuardianConfigure).toHaveBeenCalledTimes(GUARDIAN_RETRY_MAX_ATTEMPTS);
       expect(mockRegisterBackoffMs).toHaveBeenCalledTimes(GUARDIAN_RETRY_MAX_ATTEMPTS - 1);
       warn.mockRestore();
+    });
+
+    it('requires chain confirmation even for nonce zero during cold auth recovery', async () => {
+      mockProxyGetAccount.mockResolvedValue({ ...sdkAccount, nonce: () => ({ asInt: () => 0n }) });
+      mockGetAccountProof.mockResolvedValueOnce(chainProof(OTHER_COMMITMENT));
+      mockGuardianConfigure.mockResolvedValue({ success: true });
+      const onBeforeRegister = jest.fn();
+      const register = () =>
+        finalizeDirectGuardianSwitch(
+          '0xacct',
+          'https://new.guardian.test',
+          typedProvider(),
+          undefined,
+          onBeforeRegister,
+          'require-landed'
+        );
+
+      expect(isGuardianStateOffChainRefusal(await register().catch((error: unknown) => error))).toBe(true);
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+      expect(onBeforeRegister).not.toHaveBeenCalled();
+      expect(mockGuardianConfigure).not.toHaveBeenCalled();
+
+      await register();
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+      expect(onBeforeRegister).toHaveBeenCalledTimes(1);
+      expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
     });
 
     // A Guardian stores a nonce-0 first state without a chain read, and a never-used account is not on chain.
