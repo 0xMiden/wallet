@@ -179,18 +179,20 @@ export function CommandPortfolio({
           </p>
         )}
         <Card surface="outline" className="mt-5" aria-busy={history?.key !== key} data-testid="command-history">
-          <SectionHeader>{t('commandObservedHistory')}</SectionHeader>
-          <SegmentedControl<HistoryRange>
-            aria-label={t('commandHistoryRange')}
-            size="sm"
-            layout="fill"
-            value={range}
-            items={RANGE_ITEMS}
-            onChange={next => {
-              setRange(next);
-              setSelected(null);
-            }}
-          />
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <SectionHeader>{t('commandObservedHistory')}</SectionHeader>
+            <SegmentedControl<HistoryRange>
+              aria-label={t('commandHistoryRange')}
+              size="sm"
+              className="min-w-0 max-w-full"
+              value={range}
+              items={RANGE_ITEMS}
+              onChange={next => {
+                setRange(next);
+                setSelected(null);
+              }}
+            />
+          </div>
           {hidden ? (
             <p className="text-body-sm text-muted">{t('commandMaskedBalance')}</p>
           ) : samples.length < 2 ? (
