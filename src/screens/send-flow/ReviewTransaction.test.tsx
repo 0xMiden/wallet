@@ -472,6 +472,7 @@ jest.mock('app/hooks/useBackWithFallback', () => ({
 jest.mock('screens/command/CommandDock', () => ({ CommandDock: () => null }));
 jest.mock('screens/command/CommandHeader', () => ({ CommandHeader: () => null }));
 jest.mock('screens/command/CommandPalette', () => ({ CommandPalette: () => null }));
+jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
 jest.mock('lib/woozie', () => ({
   createLocationState: () => ({ href: `/#/send/review?${mockSearch}`, historyPosition: mockHistoryPosition }),
   listen: () => () => undefined,

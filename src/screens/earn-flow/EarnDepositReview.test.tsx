@@ -48,6 +48,11 @@ let mockLoadState: { isLoading: boolean; vaultsPending?: boolean; error?: string
 };
 const mockRefetch = jest.fn();
 
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {

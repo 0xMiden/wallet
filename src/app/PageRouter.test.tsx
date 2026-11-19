@@ -406,9 +406,7 @@ describe('Command routing', () => {
     renderAt('/bridge/deposit', ctx);
     expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
     expect(screen.queryByTestId('command-bridge')).not.toBeInTheDocument();
-    if (ctx.ready && ctx.hydrated && !('locked' in ctx)) {
-      expect(screen.getByTestId('bridge-deposit')).toBeInTheDocument();
-    }
+    expect(Boolean(screen.queryByTestId('bridge-deposit'))).toBe(ctx.ready && ctx.hydrated && !('locked' in ctx));
   });
 
   it('defers Command until the onboarding finishing hold releases', () => {

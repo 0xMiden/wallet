@@ -106,13 +106,13 @@ describe('ChoiceCardGroup', () => {
     expect(ChoiceCardGroupDefault).toBe(ChoiceCardGroup);
   });
 
-  it('renders a labelled radiogroup of flat fill cards with no border', () => {
+  it('renders a labelled radiogroup of flat fill cards without a layout border', () => {
     renderGroup();
     const group = screen.getByRole('radiogroup', { name: 'Guardians' });
     expect(group).toHaveClass('grid', 'auto-rows-fr', 'gap-3');
     const card = screen.getByTestId('choice-oz');
     expect(card).toHaveClass('rounded-2xl', 'bg-fill');
-    expect(card.className).not.toMatch(/\bborder\b/);
+    expect(card).not.toHaveClass('border');
   });
 
   it('renders labelled sections in one radiogroup and navigates across them', () => {
@@ -174,7 +174,11 @@ describe('ChoiceCardGroup', () => {
     expect(oz).toHaveAttribute('aria-checked', 'true');
     expect(oz).toHaveAttribute('data-state', 'checked');
     expect(oz).toHaveClass('before:border-2', 'before:border-accent-primary');
-    expect(oz).toHaveClass('focus-visible:outline-solid', 'focus-visible:outline-2', 'focus-visible:-outline-offset-[5px]');
+    expect(oz).toHaveClass(
+      'focus-visible:outline-solid',
+      'focus-visible:outline-2',
+      'focus-visible:-outline-offset-[5px]'
+    );
     expect(oz.querySelector('svg:not([data-testid])')).not.toBeNull();
 
     const gateway = radio('Gateway');

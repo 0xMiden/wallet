@@ -182,6 +182,7 @@ const walletStoreState = {
 // Module mocks.
 // ---------------------------------------------------------------------------
 jest.mock('screens/command/CommandHomePrompts', () => ({ CommandHomePrompts: () => null }));
+jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
 jest.mock('screens/command/CommandRecentActions', () => ({ CommandRecentActions: () => null }));
 
 jest.mock('components/Navigator', () => {

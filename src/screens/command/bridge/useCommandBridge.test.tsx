@@ -28,6 +28,11 @@ import { CommandWorkbench } from '../CommandWorkbench';
 import { CommandBridge } from './CommandBridge';
 import { useCommandBridge } from './useCommandBridge';
 
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 let mockSnapshot: BridgeConfigSnapshot;
 let mockLocked = false;

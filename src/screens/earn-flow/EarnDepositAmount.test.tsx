@@ -38,6 +38,11 @@ jest.mock('lib/woozie', () => ({
 }));
 
 // i18n: assert on keys, not English copy.
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));

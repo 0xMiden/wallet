@@ -59,6 +59,11 @@ jest.mock('lib/epoch/earn-withdraw-quote', () => ({
   assertWithdrawalReviewCurrent: jest.fn()
 }));
 
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, args?: { amount?: string }) => (key === 'earnWithdrawApproxAmount' ? `≈ ${args?.amount}` : key)
