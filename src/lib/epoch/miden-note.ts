@@ -124,6 +124,7 @@ export async function createBridgeP2IDENote(
     spendingLimitAuthorization
   } = args;
   let ownedTxId: string | undefined;
+  let queuedSendId: string | undefined;
   try {
     const expectedWalletScope =
       args.expectedWalletScope === undefined
@@ -181,6 +182,8 @@ export async function createBridgeP2IDENote(
       args.operation,
       args.reviewedOutput
     );
+    // A regular Send insert returned its own durable row; reading it is still required before solving.
+    if (!args.operation) queuedSendId = txId;
     const admitted = await Repo.transactions.where({ id: txId }).first();
     const originalRequestBytes = admitted?.extraInputs?.epochCollateralRequestBytes;
     if (
@@ -190,7 +193,7 @@ export async function createBridgeP2IDENote(
       originalRequestBytes.length !== requestBytes.length ||
       !requestBytes.every((byte, index) => originalRequestBytes[index] === byte)
     )
-      return { success: false };
+      return queuedSendId ? { success: false, txId: queuedSendId } : { success: false };
     ownedTxId = txId;
 
     // Row exists now (Queued) - let the caller navigate to the progress screen
@@ -217,9 +220,10 @@ export async function createBridgeP2IDENote(
     }
     return { success: true, noteId, txId };
   } catch (err) {
-    if (spendingLimitAssessmentFromError(err) !== undefined || (!ownedTxId && err instanceof EpochReviewChangedError))
+    const originalId = ownedTxId ?? queuedSendId;
+    if (!originalId && (spendingLimitAssessmentFromError(err) !== undefined || err instanceof EpochReviewChangedError))
       throw err;
     console.error('[epoch] createBridgeP2IDENote threw', err);
-    return ownedTxId ? { success: false, txId: ownedTxId } : { success: false };
+    return originalId ? { success: false, txId: originalId } : { success: false };
   }
 }

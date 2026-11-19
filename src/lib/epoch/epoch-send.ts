@@ -289,6 +289,15 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   let bridgeTxId: string | undefined;
   let noteError: unknown;
   let observerError: unknown;
+  const reportRow = (txId: string) => {
+    if (bridgeTxId !== undefined) return;
+    bridgeTxId = txId;
+    try {
+      args.onRowCreated?.(txId);
+    } catch (error) {
+      observerError ??= error;
+    }
+  };
   let noteKey: string | undefined;
   let noteResult: ReturnType<NonNullable<SolveIntentParams['createMidenP2IDENote']>> | undefined;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
@@ -351,17 +360,10 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
               reviewedOutput && !args.operation ? { ...reviewedOutput, walletScope: originalScope } : reviewedOutput,
             expectedWalletScope: originalScope,
             checks: args.checks,
-            onRowCreated: txId => {
-              bridgeTxId = txId;
-              try {
-                args.onRowCreated?.(txId);
-              } catch (error) {
-                observerError ??= error;
-              }
-            },
+            onRowCreated: reportRow,
             spendingLimitAuthorization: args.spendingLimitAuthorization
           });
-          if (res.txId) bridgeTxId = res.txId;
+          if (res.txId) reportRow(res.txId);
           return { success: res.success, noteId: res.noteId };
         } catch (error) {
           noteError ??= error;

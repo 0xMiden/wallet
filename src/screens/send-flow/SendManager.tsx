@@ -65,7 +65,7 @@ import { CommandSendComposer } from './CommandSendComposer';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient, type SelectRecipientProps } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
-import { consumeSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { consumeSendDraft, setSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { canSendTokenToChain, sendTokenRoutes } from './send-token-routes';
 import { SendAmount, type SendAmountProps } from './SendAmount';
@@ -124,7 +124,7 @@ export interface SendManagerProps {
   isLoading: boolean;
   preselectedTokenId?: string | null;
   /** Values restored when the user backs out of the full-screen review page. */
-  draft?: SendDraft | null;
+  draft?: CommandDrafts['send'] | null;
   /** Recipient handed over by a contact's page, with its saved network for a `0x` contact. */
   preselectedRecipient?: string | null;
   preselectedNetwork?: string | null;
@@ -140,6 +140,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const { navigateTo, goBack, cardStack } = useNavigator();
   const command = useFlowPresentation() === 'command';
   const commandDrafts = useOptionalCommandDrafts();
+  const restoredSendIntent = draft?.reviewId
+    ? JSON.stringify([
+        draft.reviewId,
+        draft.amount,
+        draft.recipientAddress,
+        draft.tokenId,
+        draft.bridgeNetwork,
+        draft.bridgeRoute
+      ])
+    : undefined;
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
@@ -346,7 +356,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   const saveCommandDraft = useCallback(
     (changes: Partial<CommandDrafts['send']>) => {
-      if (!commandDrafts || commandDrafts.readSendAdmission()?.status === 'pending') return;
+      const admission = commandDrafts?.readSendAdmission();
+      if (!commandDrafts || (admission && (admission.status === 'pending' || admission.intent === restoredSendIntent)))
+        return;
       const previous = commandDrafts.readDraft('send');
       commandDrafts.writeDraft('send', {
         ...previous,
@@ -358,7 +370,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         ...changes
       });
     },
-    [commandDrafts, getValues]
+    [commandDrafts, getValues, restoredSendIntent]
   );
 
   const amount = watch('amount');
@@ -844,7 +856,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
     if (reviewHandoffRef.current) return;
-    if (commandDrafts?.readSendAdmission()?.status === 'pending') {
+    const admission = commandDrafts?.readSendAdmission();
+    if (command && admission?.status === 'admitted' && admission.intent === restoredSendIntent && admission.txId) {
+      reviewHandoffRef.current = true;
+      navigate(`/generating-transaction-full/${encodeURIComponent(admission.txId)}`);
+      return;
+    }
+    if (commandDrafts && admission?.status === 'pending') {
       const original = commandDrafts.readDraft('send');
       if (!original?.reviewId) return;
       reviewHandoffRef.current = true;
@@ -934,6 +952,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     payoutFeeShortfall,
     command,
     commandDrafts,
+    restoredSendIntent,
     saveCommandDraft,
     routeEligibility.blocked
   ]);
