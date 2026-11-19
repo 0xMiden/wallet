@@ -66,15 +66,19 @@ export function CommandSwap({
       accent="swap"
       data-testid="swap-review-submit"
       disabled={!canProceed}
-      className="w-full max-w-none"
+      className="w-full max-w-none sm:w-auto sm:min-w-40"
     >
       {quoteLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
     </Button>
   );
   return (
-    <div data-testid="command-swap-composer" className="flex flex-col gap-5">
+    <div
+      data-testid="command-swap-composer"
+      className="grid items-stretch gap-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+    >
       <form
         id={formId}
+        className="min-w-0 rounded-2xl border border-hairline bg-page p-4 sm:p-5"
         onSubmit={event => {
           event.preventDefault();
           if (canProceed) onConfirm();
@@ -121,7 +125,7 @@ export function CommandSwap({
       </form>
       <button
         type="button"
-        className="flex items-center self-center rounded-full bg-accent-swap p-2 text-accent-swap-on"
+        className="flex size-11 items-center justify-center self-center justify-self-center rounded-xl border border-hairline bg-accent-tint text-accent-tint-ink focus-visible:outline-2 focus-visible:outline-accent-tint-ink"
         onClick={() => {
           hapticLight();
           onSwapDirection();
@@ -130,7 +134,10 @@ export function CommandSwap({
       >
         <Icon name={IconName.Switch} size="sm" />
       </button>
-      <div data-testid="command-swap-receive">
+      <div
+        data-testid="command-swap-receive"
+        className="flex min-w-0 flex-col gap-3 rounded-2xl border border-accent-tint-ink/25 bg-accent-tint p-4 sm:p-5"
+      >
         {oneClickNetworks && requestNetwork && onRequestNetworkChange && (
           <OneClickNetworkPicker
             side="receive"
@@ -141,7 +148,13 @@ export function CommandSwap({
         )}
         <DetailCard surface="fill">
           <DetailRow label={t('youReceive')} stacked>
-            {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : requestAmount || t('calculatingQuote')}
+            {requestLoading ? (
+              <WaveDots label={t('calculatingQuote')} />
+            ) : requestAmount ? (
+              <span className="break-all text-title-tab tabular-nums text-ink">{requestAmount}</span>
+            ) : (
+              t('calculatingQuote')
+            )}
           </DetailRow>
           <button
             type="button"
@@ -160,7 +173,11 @@ export function CommandSwap({
       </div>
       {statusMessage && (
         <span
-          className={statusIsError ? 'text-body-sm text-negative-tint-ink' : 'text-body-sm text-muted'}
+          className={
+            statusIsError
+              ? 'text-body-sm text-negative-tint-ink md:col-span-3'
+              : 'text-body-sm text-muted md:col-span-3'
+          }
           data-testid="swap-status-message"
         >
           {statusMessage}

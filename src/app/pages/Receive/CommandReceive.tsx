@@ -59,7 +59,7 @@ export function CommandReceive({
 
   return (
     <div data-testid="command-receive" className="grid gap-6 lg:grid-cols-2">
-      <div className="min-w-0 space-y-4">
+      <section className="min-w-0 space-y-3 rounded-2xl border border-accent-tint-ink/25 bg-linear-to-br from-accent-tint via-fill/40 to-page p-4 sm:p-5">
         <SectionHeader size="lg">{t('receiveAt')}</SectionHeader>
         <AddressTab
           address={address}
@@ -68,7 +68,7 @@ export function CommandReceive({
           bridgeOffered={bridgeOffered}
           presentation="command"
         />
-      </div>
+      </section>
       <div className="min-w-0 space-y-4">
         <SectionHeader size="lg">{selectedNote ? t('activityAcceptTransfer') : t('transfersSection')}</SectionHeader>
         {hidden.failed && (
