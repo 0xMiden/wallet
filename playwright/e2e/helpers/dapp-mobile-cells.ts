@@ -18,7 +18,7 @@ import {
   type MobileCellState,
   type MobileJourney
 } from './dapp-mobile-journey';
-import { answerSheet, approveSheetIfShown, expectNoSheet } from './dapp-mobile-sheet';
+import { answerSheet, approveSheetIfShown, assertRefusalBlocks, expectNoSheet } from './dapp-mobile-sheet';
 import { selectAccount, vaultAssets } from './dapp-mobile-wallet';
 import {
   captureMobileBaseline,
@@ -569,17 +569,18 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
         const built = await buildPast(FUND_A * 10n, ctx);
         // The approval needs a simulation that succeeds, so the wallet refuses this request before any sheet
         // (CustomTransactionNotSimulatedError) and queues nothing.
-        const result = await expectNoSheet(
+        const { result, timing } = await expectNoSheet(
           j.dapp,
           () =>
             j.call(
-              'submitCustom',
+              'submitCustomMeasured',
               { requestId: built.requestId, recipientAddress: j.addressB, importNotes: false },
               ctx.deadline
             ),
-          ctx,
-          { refusal: true }
+          ctx
         );
+        if (!result.ok) ctx.evidence.dappError = result.error;
+        assertRefusalBlocks(timing, ctx);
         expectRefusal(result, NOT_SIMULATED, ctx);
         if (!result.ok && !notSimulatedFor(result.error.message, pinned.texts.R5[j.axis.label].error)) {
           ctx.softFail('refusal-reason', `the refusal gave ${JSON.stringify(result.error.message)}`);

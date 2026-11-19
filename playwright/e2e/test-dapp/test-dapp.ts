@@ -274,6 +274,26 @@ function toWire(value: unknown): RawArg {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null;
 }
 
+const syncHeight: DappHandlers['syncHeight'] = async () => {
+  const ownClient = client();
+  await fromNode('syncChain', () => ownClient.syncChain());
+  return { height: await ownClient.getSyncHeight() };
+};
+
+const submitCustom: DappHandlers['submitCustom'] = input =>
+  outcome(async () => {
+    const held = state.requests.get(input.requestId);
+    if (held === undefined) throw new HarnessCheckError(`no built request ${input.requestId}`);
+    const tx = Transaction.createCustomTransaction(
+      requireConnected().addressCanonical,
+      input.recipientAddress,
+      held.request,
+      input.inputNoteIds ?? [],
+      input.importNotes ? held.importNotes.map(bytes => b64ToU8(bytes)) : []
+    );
+    return { txId: await state.adapter.requestTransaction(tx) };
+  });
+
 const handlers: Partial<DappHandlers> = {
   // `autoSync: false` keeps the dApp's height its own, so a request binds the block the dApp saw, not the wallet's
   // (spec section 2.2). The fee faucet is passed because MidenClient.create says a non-mock client must name it. A
@@ -367,11 +387,7 @@ const handlers: Partial<DappHandlers> = {
     return runConformance([...getSurfaceCases(live), ...getBehaviorCases(live)]);
   },
 
-  syncHeight: async () => {
-    const ownClient = client();
-    await fromNode('syncChain', () => ownClient.syncChain());
-    return { height: await ownClient.getSyncHeight() };
-  },
+  syncHeight,
 
   // `reachedAtMs` is when the dApp first saw the target: the wallet's sync stamps must be later than this before the
   // request goes out (spec section 6, the "wallet synced past N" gate). A failed sync is tried again on the next lap,
@@ -654,19 +670,26 @@ const handlers: Partial<DappHandlers> = {
 
   // The sender is always the connected account: a custom request from any other address is refused before any popup
   // (R3), which a test drives through `raw` instead.
-  submitCustom: input =>
-    outcome(async () => {
-      const held = state.requests.get(input.requestId);
-      if (held === undefined) throw new HarnessCheckError(`no built request ${input.requestId}`);
-      const tx = Transaction.createCustomTransaction(
-        requireConnected().addressCanonical,
-        input.recipientAddress,
-        held.request,
-        input.inputNoteIds ?? [],
-        input.importNotes ? held.importNotes.map(bytes => b64ToU8(bytes)) : []
-      );
-      return { txId: await state.adapter.requestTransaction(tx) };
-    }),
+  submitCustom,
+  // Keep the real sync samples adjacent to the request, without driver transport between them.
+  submitCustomMeasured: async input => {
+    const beforeStartedAt = performance.now();
+    const { height: beforeHeight } = await syncHeight({});
+    const requestStartedAt = performance.now();
+    const result = await submitCustom(input);
+    const afterStartedAt = performance.now();
+    const { height: afterHeight } = await syncHeight({});
+    return {
+      result,
+      timing: {
+        beforeHeight,
+        afterHeight,
+        beforeSyncMs: Math.round(requestStartedAt - beforeStartedAt),
+        requestMs: Math.round(afterStartedAt - requestStartedAt),
+        afterSyncMs: Math.round(performance.now() - afterStartedAt)
+      }
+    };
+  },
 
   waitForTransaction: ({ txId }) =>
     outcome(async () => {

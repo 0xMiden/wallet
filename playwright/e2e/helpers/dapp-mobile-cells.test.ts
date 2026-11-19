@@ -37,7 +37,11 @@ jest.mock('@playwright/test', () => {
   };
 });
 
-jest.mock('./dapp-mobile-sheet', () => ({ answerSheet: jest.fn(), expectNoSheet: jest.fn() }));
+jest.mock('./dapp-mobile-sheet', () => ({
+  ...jest.requireActual<typeof import('./dapp-mobile-sheet')>('./dapp-mobile-sheet'),
+  answerSheet: jest.fn(),
+  expectNoSheet: jest.fn()
+}));
 jest.mock('./dapp-mobile-journey', () => ({
   ...jest.requireActual<typeof import('./dapp-mobile-journey')>('./dapp-mobile-journey'),
   sheetBlock: jest.fn(async () => undefined)
@@ -276,7 +280,7 @@ describe('mobile cell assertions', () => {
     return { run, record, ctx, softFail, send, j };
   }
 
-  it('measures R5 in one WebView command and still checks the row window', async () => {
+  it.each([2, 3])('measures R5 in one WebView command and enforces the two-block limit (%i)', async blocks => {
     const error = {
       name: 'WalletTransactionError',
       causeName: 'NotGrantedMidenWalletError',
@@ -284,16 +288,21 @@ describe('mobile cell assertions', () => {
     };
     const f = fixture('R5', error);
     const originalSend = f.send.getMockImplementation()!;
-    const timing = { beforeHeight: 10, afterHeight: 12, beforeSyncMs: 1, requestMs: 2, afterSyncMs: 3 };
+    const timing = { beforeHeight: 10, afterHeight: 10 + blocks, beforeSyncMs: 1, requestMs: 2, afterSyncMs: 3 };
     f.send.mockImplementation(command =>
-      command === 'submitCustomMeasured' ? Promise.resolve({ result: { ok: false, error }, timing }) : originalSend(command)
+      command === 'submitCustomMeasured'
+        ? Promise.resolve({ result: { ok: false, error }, timing })
+        : originalSend(command)
     );
 
-    await f.run();
-
+    if (blocks === 2) {
+      await f.run();
+      expect(expectNoNewMobileRows).toHaveBeenCalledTimes(1);
+    } else {
+      await expect(f.run()).rejects.toThrow(/Expected: <= 2/);
+    }
     expect(f.send.mock.calls.map(([command]) => command)).toEqual(['buildCustom', 'submitCustomMeasured']);
     expect(f.ctx.evidence.refusalTiming).toEqual(timing);
-    expect(expectNoNewMobileRows).toHaveBeenCalledTimes(1);
   });
 
   it.each(refusalCases)('records the plain Error in $id and reaches its remaining claims', async entry => {

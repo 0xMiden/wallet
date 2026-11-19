@@ -6,7 +6,7 @@
  * answer and otherwise records as an infrastructure failure of that cell alone.
  */
 import type { ScriptKind } from './custom-scripts';
-import type { DappError } from '../helpers/dapp-cells';
+import type { DappError, FailureEvidence } from '../helpers/dapp-cells';
 
 export type { DappError };
 export type NoteTypeName = 'public' | 'private';
@@ -228,6 +228,10 @@ export interface DappCommands {
     /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1985). */
     input: { requestId: string; recipientAddress: string; importNotes: boolean; inputNoteIds?: string[] };
     output: Outcome<{ txId: string }>;
+  };
+  submitCustomMeasured: {
+    input: DappCommands['submitCustom']['input'];
+    output: { result: Outcome<{ txId: string }>; timing: NonNullable<FailureEvidence['refusalTiming']> };
   };
   waitForTransaction: { input: { txId: string }; output: Outcome<{ txHash: string; outputNotes: OutputNoteView[] }> };
   signWord: { input: { wordHex: string }; output: Outcome<SignatureView> };
