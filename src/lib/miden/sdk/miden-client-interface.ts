@@ -1921,26 +1921,30 @@ export class MidenClientInterface {
         throw markErrorBeforeSubmit(error);
       }
     }
-    // Resolve after the awaited builder inputs; a prover fallback keeps the first request's height.
-    let reclaimAfter: number | undefined;
-    const resolveReclaimAfter = () =>
-      (reclaimAfter ??= resolveSendReclaimHeight(recallSyncHeight, recallBlocks, calendarRecallTarget));
+    const resolveReclaimAfter = () => resolveSendReclaimHeight(recallSyncHeight, recallBlocks, calendarRecallTarget);
+    // Local fallback must keep the original note, not build a new one using an expired approval.
+    let calendarRequestBytes: Uint8Array | undefined;
 
     return proveWithFallback(
       async (prover, attempt) => {
         if (this.shouldUseOffscreenProver(prover)) {
           return await this.proveLocallyViaOffscreen(
             async (wasm, inner) => {
-              const args = await buildSendExecuteArgs(
-                wasm,
-                inner,
-                accountId,
-                secondaryAccountId,
-                faucetId,
-                noteType,
-                amount,
-                resolveReclaimAfter
-              );
+              const args = calendarRequestBytes
+                ? {
+                    accountId: resolveAccountId(wasm, accountId),
+                    request: TransactionRequest.deserialize(calendarRequestBytes)
+                  }
+                : await buildSendExecuteArgs(
+                    wasm,
+                    inner,
+                    accountId,
+                    secondaryAccountId,
+                    faucetId,
+                    noteType,
+                    amount,
+                    resolveReclaimAfter
+                  );
               await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), args.request);
               return args;
             },
@@ -1962,19 +1966,22 @@ export class MidenClientInterface {
         const access = this.innerClientAccess();
         // The callback returns the serialized request bytes, which cross the lock
         // boundary safely (a live wasm-bindgen request can't).
-        const requestBytes = await access._withInnerWebClient(async inner => {
-          const { request } = await buildSendExecuteArgs(
-            wasm,
-            inner,
-            accountId,
-            secondaryAccountId,
-            faucetId,
-            noteType,
-            amount,
-            resolveReclaimAfter
-          );
-          return request.serialize();
-        });
+        const requestBytes =
+          calendarRequestBytes ??
+          (await access._withInnerWebClient(async inner => {
+            const { request } = await buildSendExecuteArgs(
+              wasm,
+              inner,
+              accountId,
+              secondaryAccountId,
+              faucetId,
+              noteType,
+              amount,
+              resolveReclaimAfter
+            );
+            return request.serialize();
+          }));
+        if (calendarRecallTarget !== undefined) calendarRequestBytes = requestBytes;
         await onStage?.('executing');
         await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), { serialize: () => requestBytes });
         // The canonical id, which is what `buildSendExecuteArgs` read the vault

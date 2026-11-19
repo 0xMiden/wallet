@@ -4066,11 +4066,9 @@ describe('MidenClientInterface', () => {
         expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
         expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
         expect(inner.getAccount).toHaveBeenCalled();
-        expect(buildSendTransactionRequest.mock.calls).toEqual(
-          refused
-            ? []
-            : [[senderAccount, expect.anything(), expect.anything(), 'mtst1faucet', 250n, 'Private', 600, reclaimAfter]]
-        );
+        const id = expect.anything();
+        const buildArgs = [senderAccount, id, id, 'mtst1faucet', 250n, 'Private', 600, reclaimAfter];
+        expect(buildSendTransactionRequest.mock.calls).toEqual(refused ? [] : [buildArgs]);
         expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(refused ? 0 : 1);
       }
     );

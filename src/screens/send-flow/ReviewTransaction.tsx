@@ -42,7 +42,7 @@ import { IConsumedAssetTotal, type IUsdcxNetworkFeeBudget } from 'lib/miden/db/t
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { MAX_RECALL_BLOCKS, parseCalendarRecallTarget } from 'lib/miden/helpers';
+import { CalendarRecallReviewRequiredError, MAX_RECALL_BLOCKS, parseCalendarRecallTarget } from 'lib/miden/helpers';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
@@ -698,7 +698,13 @@ export const ReviewTransaction: React.FC = () => {
           return;
         }
         settleSendFlow(flow => flow.fail(classifyError(error)));
-        setSubmitError(error instanceof Error ? error.message : String(error));
+        setSubmitError(
+          error instanceof CalendarRecallReviewRequiredError
+            ? t('recallReviewChanged')
+            : error instanceof Error
+              ? error.message
+              : String(error)
+        );
         setSubmitErrorId('raw_send_submit_failed');
         setIsSubmitting(false);
       }

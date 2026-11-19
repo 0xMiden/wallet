@@ -20,13 +20,13 @@ import { deserializeInternalError, serializeInternalError } from 'lib/intercom/h
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
-import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';

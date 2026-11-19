@@ -2858,23 +2858,19 @@ describe('generateTransaction - Guardian routing', () => {
       }
 
       expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
-      expect(mockBuildSendTransactionRequest.mock.calls).toEqual(
-        refused
-          ? []
-          : [
-              [
-                undefined,
-                expect.objectContaining({ toString: expect.any(Function) }),
-                expect.objectContaining({ toString: expect.any(Function) }),
-                'faucet',
-                1000n,
-                expectedSdkNoteType,
-                180,
-                reclaimHeight,
-                FEE_AWARE_BUILDER
-              ]
-            ]
-      );
+      const id = expect.objectContaining({ toString: expect.any(Function) });
+      const buildArgs = [
+        undefined,
+        id,
+        id,
+        'faucet',
+        1000n,
+        expectedSdkNoteType,
+        180,
+        reclaimHeight,
+        FEE_AWARE_BUILDER
+      ];
+      expect(mockBuildSendTransactionRequest.mock.calls).toEqual(refused ? [] : [buildArgs]);
       // Asked for by the EXECUTING (guarded) account, with the salt this build drew.
       expect(client.feeAwareTransactionRequestBuilder).toHaveBeenCalledWith('sdk-guardian-acc', {
         feeConversionSalt: 'SALT'
@@ -2890,15 +2886,12 @@ describe('generateTransaction - Guardian routing', () => {
         refused ? [] : [['recall-proposal', rebasedBytes]]
       );
       expect(transaction.requestBytes).toBe(refused ? undefined : rebasedBytes);
-      expect(txStore.find(row => row.id === txId)).toMatchObject(
-        refused
-          ? {
-              status: ITransactionStatus.Failed,
-              error: getMessage('recallReviewChanged'),
-              rawError: expect.stringContaining('CalendarRecallReviewRequiredError')
-            }
-          : { requestBytes: rebasedBytes }
-      );
+      const refusal = {
+        status: ITransactionStatus.Failed,
+        error: getMessage('recallReviewChanged'),
+        rawError: expect.stringContaining('CalendarRecallReviewRequiredError')
+      };
+      expect(txStore.find(row => row.id === txId)).toMatchObject(refused ? refusal : { requestBytes: rebasedBytes });
     }
   );
 
