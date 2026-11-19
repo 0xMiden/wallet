@@ -1899,7 +1899,7 @@ describe('finalizeDirectGuardianSwitch', () => {
     const stateNotOnChain = () =>
       Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), { status: 409, code: 'state_not_on_chain' });
 
-    it("'require' stops at the first state_not_on_chain", async () => {
+    it.each(['require', 'require-landed'] as const)('%s stops at the first state_not_on_chain', async mode => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockGuardianConfigure.mockRejectedValue(stateNotOnChain());
 
@@ -1909,7 +1909,7 @@ describe('finalizeDirectGuardianSwitch', () => {
         typedProvider(),
         undefined,
         undefined,
-        'require'
+        mode
       ).catch((e: unknown) => e);
 
       expect(isGuardianStateNotOnChain(error)).toBe(true);

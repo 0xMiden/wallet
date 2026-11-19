@@ -1687,7 +1687,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect(mockFinalizeDirectGuardianSwitch.mock.calls[0]?.[0]).toBe('acct-overwritten-load');
       expect(mockFinalizeDirectGuardianSwitch.mock.calls[0]?.[1]).toBe(endpoint);
       // The chain must hold this device's state before the push.
-      expect(mockFinalizeDirectGuardianSwitch.mock.calls[0]?.[5]).toBe('require');
+      expect(mockFinalizeDirectGuardianSwitch.mock.calls[0]?.[5]).toBe('require-landed');
     });
 
     it('registers without a Guardian read when the cold adopt read is rejected', async () => {
