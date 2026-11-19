@@ -7,10 +7,11 @@ import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { UsdAmount } from 'components/ui/TokenAmount';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from './components';
-import { formatApy, usdFigureFormatter } from './earn-mapping';
+import { formatApy } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnLoading } from './EarnLoading';
 import { ProviderLogo } from './ProviderLogo';
@@ -100,11 +101,11 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
         <EarnSubjectSubtitle subject={position} />
       </div>
 
-      <AnimatedNumber
+      <UsdAmount
         className="mt-4 block text-hero-value text-ink"
-        value={position.depositsUsd}
-        format={usdFigureFormatter(position.depositsUsd)}
+        amount={position.depositsUsd}
         placeholder={position.amount}
+        animated
       />
       <div className="mt-3 text-value text-positive-tint-ink">{position.rewards}</div>
 

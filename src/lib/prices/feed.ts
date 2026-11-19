@@ -1,10 +1,10 @@
 import {
-  fetchKlineData as fetchBinanceKlineData,
+  fetchKlineSeries as fetchBinanceKlineSeries,
   fetchTokenPrices as fetchBinancePrices,
   isListedSymbol
 } from './binance';
-import type { KlinePoint, Timeframe, TokenPrices } from './binance';
-import { fetchKrakenKlineData, fetchKrakenPrices, findKrakenUsdMarket } from './kraken';
+import type { KlinePoint, KlineSeries, Timeframe, TokenPrices } from './binance';
+import { fetchKrakenKlineData, fetchKrakenPrices, findKrakenUsdMarket, krakenCandleMs } from './kraken';
 
 const krakenMarkets = new Map<string, string | null>();
 const pendingMarkets = new Map<string, Promise<string | null>>();
@@ -75,14 +75,19 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
   }
 }
 
-/** Use the same provider selection for chart history and current prices. */
-export async function fetchKlineData(symbol: string, timeframe: Timeframe): Promise<KlinePoint[]> {
-  const points = await fetchBinanceKlineData(symbol, timeframe);
-  if (isListedSymbol(symbol)) return points;
+/** Use the same provider selection for chart history and current prices, with the candle length of that provider. */
+export async function fetchKlineSeries(symbol: string, timeframe: Timeframe): Promise<KlineSeries> {
+  const series = await fetchBinanceKlineSeries(symbol, timeframe);
+  if (isListedSymbol(symbol)) return series;
   try {
     const pair = await resolveKrakenMarket(symbol);
-    return pair ? await fetchKrakenKlineData(pair, timeframe) : [];
+    return { points: pair ? await fetchKrakenKlineData(pair, timeframe) : [], stepMs: krakenCandleMs(timeframe) };
   } catch {
-    return [];
+    return { points: [], stepMs: krakenCandleMs(timeframe) };
   }
+}
+
+/** Use the same provider selection for chart history and current prices. */
+export async function fetchKlineData(symbol: string, timeframe: Timeframe): Promise<KlinePoint[]> {
+  return (await fetchKlineSeries(symbol, timeframe)).points;
 }

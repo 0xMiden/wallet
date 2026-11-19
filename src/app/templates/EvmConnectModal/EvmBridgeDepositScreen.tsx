@@ -29,6 +29,7 @@ import { PageHeader } from 'components/PageHeader';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL, midenAddrToEvmAddr } from 'lib/agglayer';
 import { type Erc20Holding, readErc20Holdings } from 'lib/agglayer/token-holdings';
 import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { IBridgeProvider } from 'lib/miden/db/types';
@@ -108,6 +109,7 @@ import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types'
 
 import { depositTokenPrice, useBridgeInBalanceCap } from './bridge-in-balance-cap';
 import { type DepositToken, depositTokenKey, epochTokenKey, type OfferedErc20 } from './deposit-token';
+import { EpochWithdrawalGate } from './EpochWithdrawalGate';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
@@ -260,9 +262,7 @@ async function rpcRequest(
 }
 
 function formatBalance(value: bigint, decimals: number): string {
-  const [whole = '0', rawFraction = ''] = formatUnits(value, decimals).split('.');
-  const fraction = rawFraction.slice(0, 4).replace(/0+$/, '');
-  return fraction ? `${whole}.${fraction}` : whole;
+  return formatAmountDisplay(value, { decimals, minimumFractionDigits: 4, rounding: 'down' });
 }
 
 /** The amount step receives a value only when the balance read settled successfully. */
@@ -1045,7 +1045,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [debouncedUsdcxAmount] = useDebounce(route === 'usdcx' && isValidAmount(amount) ? amount.trim() : '', 500);
   const usdcxQuotedFeeUnits = usdcxQuote && usdcxQuote.amount === amount.trim() ? usdcxQuote.fee : undefined;
   const usdcxQuotedFee =
-    usdcxQuotedFeeUnits === undefined ? undefined : formatUnits(usdcxQuotedFeeUnits, CIRCLE_USDC_DECIMALS);
+    usdcxQuotedFeeUnits === undefined
+      ? undefined
+      : formatAmountDisplay(usdcxQuotedFeeUnits, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' });
   // Only an Epoch token on the Fast route is quoted; Slow (AggLayer) and Circle need no quote.
   const [debouncedAmount] = useDebounce(
     fastKey !== null && route === 'epoch' && isValidAmount(amount) ? amount.trim() : '',
@@ -1435,9 +1437,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const usdcxFeeAboveBalanceMessage = useCallback(
     ({ needed, fee, balance }: { needed: bigint; fee: bigint; balance: bigint }): string =>
       t('usdcxDepositFeeAboveBalance', {
-        total: formatUnits(needed, CIRCLE_USDC_DECIMALS),
-        fee: formatUnits(fee, CIRCLE_USDC_DECIMALS),
-        balance: formatUnits(balance, CIRCLE_USDC_DECIMALS),
+        // Exact: a one-unit shortfall must read as one, and the fee is the one Circle quoted.
+        total: formatAmountDisplay(needed, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' }),
+        fee: formatAmountDisplay(fee, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' }),
+        balance: formatAmountDisplay(balance, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' }),
         token: tokenLabel,
         network: (usdcxSource && getChain(usdcxSource.chain.id)?.name) ?? ''
       }),
@@ -2447,7 +2450,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     tokenSymbol
   ]);
 
-  const renderStep = useCallback(
+  const renderDepositStep = useCallback(
     (activeRoute: Route) => {
       switch (activeRoute.name) {
         case ReceiveStep.ShowBridgePageStatus:
@@ -2661,6 +2664,61 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       tokenSymbol,
       tokenLabel,
       arrivingName
+    ]
+  );
+
+  const renderStep = useCallback(
+    (step: Route) => {
+      const content = renderDepositStep(step);
+      const checksWithdrawal =
+        step.name === ReceiveStep.ShowBridgePageRoute || step.name === ReceiveStep.ShowBridgePageReview;
+      if (
+        !checksWithdrawal ||
+        route !== 'epoch' ||
+        fastAvailability.state !== 'available' ||
+        !evmUsdc ||
+        !allocatorUrl
+      ) {
+        return content;
+      }
+      const alternative = (() => {
+        if (token === 'CIRCLE_USDC' && usdcxAvailable) {
+          return { label: t('bridgeWithdrawalUseCircle'), onSelect: () => handleRouteChange('usdcx') };
+        }
+        if (slowAvailability.state === 'available') {
+          return { label: t('bridgeWithdrawalUseSlow'), onSelect: () => handleRouteChange('agglayer') };
+        }
+        return undefined;
+      })();
+      return (
+        <EpochWithdrawalGate
+          key={`${allocatorUrl}:${evmUsdc.chainId}:${evmUsdc.address}:${evmAddress}`}
+          chainId={evmUsdc.chainId}
+          tokenAddress={evmUsdc.address}
+          tokenLabel={tokenLabel}
+          sponsorAddress={evmAddress}
+          allocatorUrl={allocatorUrl}
+          onDisabled={requote}
+          alternative={alternative}
+        >
+          {content}
+        </EpochWithdrawalGate>
+      );
+    },
+    [
+      allocatorUrl,
+      evmAddress,
+      evmUsdc,
+      fastAvailability.state,
+      handleRouteChange,
+      renderDepositStep,
+      requote,
+      route,
+      slowAvailability.state,
+      t,
+      token,
+      tokenLabel,
+      usdcxAvailable
     ]
   );
 

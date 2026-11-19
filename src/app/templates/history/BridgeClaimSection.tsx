@@ -1,7 +1,6 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { formatUnits } from 'viem';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button } from 'components/ui/Button';
@@ -17,6 +16,7 @@ import {
   useBridgeTracker
 } from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import {
   initiateConsumeTransactionFromId,
   pinAgglayerDeposit,
@@ -34,7 +34,7 @@ import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { USDCX_DECIMALS } from 'lib/usdcx/constant';
 import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
-import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
+import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate } from 'lib/woozie';
 
@@ -320,13 +320,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
         console.error('[bridge-claim] claim failed', err);
         setStatus('failed');
         await updateBridgeClaimStatus(entry.txId, 'failed');
-        let id: UserErrorId = 'evmChainNotApproved';
-        const message = nativeSigningErrorMessage(err, t, e => {
-          id = 'raw_bridge_claim_failed';
-          return e instanceof Error ? e.message : 'Claim failed';
-        });
-        setError(message);
-        setErrorId(id);
+        setError(nativeSigningErrorMessage(err, t, e => (e instanceof Error ? e.message : 'Claim failed')));
+        setErrorId(nativeSigningErrorId(err) ?? 'raw_bridge_claim_failed');
       }
     } finally {
       setClaimInFlight(false);
@@ -428,12 +423,19 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
             )}
             {payout && (
               <DetailRow label={t('usdcxPayoutReceived')}>
-                {t('usdcxPayoutAmount', { amount: formatUnits(BigInt(payout.value), USDCX_DECIMALS) })}
+                {t('usdcxPayoutAmount', {
+                  amount: formatAmountDisplay(BigInt(payout.value), { decimals: USDCX_DECIMALS, rounding: 'down' })
+                })}
               </DetailRow>
             )}
             {payout && sentAmount !== undefined && sentAmount > BigInt(payout.value) && (
               <DetailRow label={t('usdcxCircleFee')}>
-                {t('usdcxPayoutAmount', { amount: formatUnits(sentAmount - BigInt(payout.value), USDCX_DECIMALS) })}
+                {t('usdcxPayoutAmount', {
+                  amount: formatAmountDisplay(sentAmount - BigInt(payout.value), {
+                    decimals: USDCX_DECIMALS,
+                    rounding: 'up'
+                  })
+                })}
               </DetailRow>
             )}
             <DetailRow label={t('usdcxBurnNoteId')}>

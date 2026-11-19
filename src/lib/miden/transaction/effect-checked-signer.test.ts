@@ -1,16 +1,19 @@
 import { SigningInputs } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
+import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
 import {
+  cacheScope,
   getVerificationBaseFee,
   getVerificationBaseFeeSync,
-  isVerificationBaseFeeKnownAbsent
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
 } from 'lib/miden-chain/native-asset';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import { withEffectCheckedSigner, type RawSigner } from './effect-checked-signer';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { IApprovedCustomEffects, ITransaction, ITransactionStatus } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -30,16 +33,21 @@ jest.mock('lib/miden/sdk/nft-asset', () => ({ toNft: jest.fn(), nftKey: jest.fn(
 jest.mock('lib/shared/helpers', () => ({ b64ToU8: jest.fn() }));
 // The chain charges a fee in its native asset, USDCX here as on testnet, so the fee note is told apart.
 jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: jest.fn(() => 'rpc-a|testnet'),
   getNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
   getVerificationBaseFeeSync: jest.fn(() => 2),
   getVerificationBaseFee: jest.fn(async () => 2),
+  refreshVerificationBaseFee: jest.fn(async () => 2),
   isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
 jest.mock('../sdk/miden-client', () => ({ withWasmClientLock: jest.fn() }));
+jest.mock('lib/miden/sdk/fee-sponsorship', () => ({ canonicalFeeSponsorshipNoteId: jest.fn(() => 'sponsor') }));
 jest.mock('lib/i18n/core', () => ({ getMessage: jest.fn((key: string) => `copy:${key}`) }));
 
 type Asset = { faucetId: () => { __faucet: string }; amount: () => bigint };
 type StubNote = {
+  id: () => { toString: () => string };
   assets: () => { fungibleAssets: () => Asset[]; nonFungibleAssets: () => never[] };
   metadata?: () => { tag: () => { asU32: () => number } };
 };
@@ -48,7 +56,10 @@ const fa = (faucet: string, amount: bigint): Asset => ({
   faucetId: () => ({ __faucet: faucet }),
   amount: () => amount
 });
-const note = (assets: Asset[]): StubNote => ({
+let stubNoteCount = 0;
+// A note keeps its id across reads, as a real note's id does.
+const note = (assets: Asset[], id = `stub-note-${++stubNoteCount}`): StubNote => ({
+  id: () => ({ toString: () => id }),
   assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
 });
 const feeNote = (amount: bigint): StubNote => ({
@@ -69,7 +80,10 @@ const summary = (
   return {
     vault,
     accountDelta: () => ({ id: () => account, vault, storage: () => ({ isEmpty: () => true }) }),
-    inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs.map(input => ({ note: () => input })) }),
+    inputNotes: () => ({
+      numNotes: () => inputs.length,
+      notes: () => inputs.map(input => ({ id: input.id, note: () => input }))
+    }),
     outputNotes: () => ({ numNotes: () => outputs.length, notes: () => outputs })
   };
 };
@@ -79,8 +93,8 @@ const pswapFill = (account: string) =>
   summary(account, {
     removed: [fa('fA', 500n), fa('usdcx', 2n)],
     added: [fa('fB', 100n)],
-    inputs: [note([fa('fB', 100n)])],
-    outputs: [note([fa('fA', 500n)]), feeNote(2n)]
+    inputs: [note([fa('fB', 100n)], 'offer')],
+    outputs: [note([fa('fA', 500n)], 'payback'), feeNote(2n)]
   });
 // A plain claim of 50 fB that pays only its fee.
 const tokenPayment = (account: string) =>
@@ -110,12 +124,28 @@ const row = (fields: Partial<ITransaction>): ITransaction => ({
 });
 // Spelled the other way from the summary's account on purpose.
 const claim = row({ id: 'claim', type: 'consume', accountId: 'hex:bech32:acct-a', noteId: 'note-1' });
+// Approved to fill the order: the offer brought in, the payback created.
+const executeEffects: IApprovedCustomEffects = {
+  shape: 'summary',
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  recipients: [],
+  inputNotesConsumed: 1,
+  outputNotesCreated: 1,
+  storageChanged: false,
+  introducedNoteIds: ['offer'],
+  approvedOutputNoteIds: ['payback']
+};
 const execute = row({
   id: 'execute',
   type: 'execute',
   accountId: 'bech32:acct-a',
   requestBytes: new Uint8Array([1]),
-  spentAssetTotals: [{ faucetId: 'bech32:fA', amount: 1000n }]
+  spentAssetTotals: [{ faucetId: 'bech32:fA', amount: 1000n }],
+  approvedEffects: executeEffects
 });
 
 const SIGNATURE = new Uint8Array([7]);
@@ -124,13 +154,18 @@ const refusalOf = (signer: RawSigner, hex: string) => signer('pk', hex).catch((e
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(canonicalFeeSponsorshipNoteId).mockReset().mockReturnValue('sponsor');
   jest.mocked(SigningInputs.deserialize).mockReset();
   jest.mocked(getVerificationBaseFee).mockReset();
   jest.mocked(getVerificationBaseFee).mockImplementation(async () => 2);
+  jest.mocked(refreshVerificationBaseFee).mockReset();
+  jest.mocked(refreshVerificationBaseFee).mockImplementation(async () => 2);
   jest.mocked(getVerificationBaseFeeSync).mockReset();
   jest.mocked(getVerificationBaseFeeSync).mockReturnValue(2);
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReset();
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
+  jest.mocked(cacheScope).mockReset();
+  jest.mocked(cacheScope).mockReturnValue('rpc-a|testnet');
 });
 
 afterEach(() => {
@@ -145,11 +180,73 @@ it('passes the base signer through untouched for an unchecked type', async () =>
   const incoming = row({ type: 'bridged-receive', faucetId: 'bech32:fA', amount: 500n });
   const run = jest.fn(async (signer: RawSigner) => signer);
   await expect(withEffectCheckedSigner(incoming, sign, run)).resolves.toBe(sign);
-  expect(getVerificationBaseFee).not.toHaveBeenCalled();
+  expect(refreshVerificationBaseFee).not.toHaveBeenCalled();
   expect(SigningInputs.deserialize).not.toHaveBeenCalled();
 });
 
-const guardedTransfers: ITransaction['type'][] = ['send', 'swap', 'earn-deposit'];
+describe('reviewed USDCx signing fee budget', () => {
+  const burn = (maximum = '5') =>
+    row({
+      type: 'bridged-send',
+      faucetId: 'bech32:usdcx',
+      amount: 100n,
+      approvedOutputNoteIds: ['burn'],
+      extraInputs: {
+        provider: 'usdcx',
+        usdcxBurn: {
+          noteId: 'burn',
+          destinationDomain: 6,
+          phase: 'pending',
+          networkFeeBudget: {
+            faucetId: 'bech32:usdcx',
+            maxAmount: maximum,
+            scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+          }
+        }
+      }
+    });
+  const sponsored = () =>
+    summary('acct-a', {
+      removed: [fa('usdcx', 105n)],
+      added: [],
+      inputs: [],
+      outputs: [note([fa('usdcx', 100n)], 'burn'), note([fa('usdcx', 3n)], 'sponsor'), feeNote(2n)]
+    });
+
+  it('signs the unchanged principal when both canonical native fees fit the reviewed cap', async () => {
+    givenSigning(summaryInputs(sponsored()));
+    const sign = baseSigner();
+    await expect(withEffectCheckedSigner(burn(), sign, signer => signer('pk', 'aa'))).resolves.toBe(SIGNATURE);
+    expect(sign.mock.calls).toEqual([['pk', 'aa']]);
+  });
+
+  it('does not delegate signing when the combined native fee exceeds the cap', async () => {
+    givenSigning(summaryInputs(sponsored()));
+    const sign = baseSigner();
+    await expect(withEffectCheckedSigner(burn('4'), sign, signer => signer('pk', 'aa'))).rejects.toBeInstanceOf(
+      ProposalEffectRefusedError
+    );
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it('preserves a reconstruction trap even when the SDK replaces it with an ordinary callback error', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    givenSigning(summaryInputs(sponsored()));
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
+      throw trap;
+    });
+    const sign = baseSigner();
+    await expect(
+      withEffectCheckedSigner(burn(), sign, async signer => {
+        await refusalOf(signer, 'aa');
+        throw new Error('SDK callback failed');
+      })
+    ).rejects.toBe(trap);
+    expect(sign).not.toHaveBeenCalled();
+  });
+});
+
+const guardedTransfers: ITransaction['type'][] = ['send', 'swap'];
 
 it.each(guardedTransfers)('refuses %s signing above its persisted approval', async type => {
   const sign = baseSigner();
@@ -169,6 +266,59 @@ it.each(guardedTransfers)('passes %s signing within its persisted approval', asy
   expect(sign).toHaveBeenCalledTimes(1);
 });
 
+// A bridged send or Earn deposit signs its pre-built request, so it may also create only the note that request built.
+const prebuiltTransfers: ITransaction['type'][] = ['bridged-send', 'earn-deposit'];
+const builtNote = (id: string) => ({ approvedOutputNoteIds: [id] });
+/** The row as its build recorded it: reviewed to move 500 fA in the one note `builtNoteId`. */
+const prebuilt = (type: ITransaction['type'], builtNoteId: string, amount = 500n) =>
+  row({ type, faucetId: 'bech32:fA', amount, ...builtNote(builtNoteId) });
+
+it.each(prebuiltTransfers)('passes %s signing that creates only the note it was built with', async type => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  await expect(withEffectCheckedSigner(prebuilt(type, 'payback'), sign, signer => signer('pk', 'aa'))).resolves.toBe(
+    SIGNATURE
+  );
+  expect(sign).toHaveBeenCalledTimes(1);
+});
+
+it.each(prebuiltTransfers)('refuses %s signing above its persisted approval', async type => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  await expect(
+    withEffectCheckedSigner(prebuilt(type, 'payback', 499n), sign, signer => signer('pk', 'aa'))
+  ).rejects.toMatchObject({
+    message: `Refused to sign this ${type} transaction: 500 of bech32:fA leaves (approved 499)`
+  });
+  expect(sign).not.toHaveBeenCalled();
+});
+
+it.each(prebuiltTransfers)(
+  'refuses %s signing that creates another note than the one it was built with',
+  async type => {
+    const sign = baseSigner();
+    givenSigning(summaryInputs(pswapFill('acct-a')));
+    const refused = await withEffectCheckedSigner(prebuilt(type, 'built-note'), sign, signer =>
+      signer('pk', 'aa')
+    ).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(ProposalEffectRefusedError);
+    expect(refused).toMatchObject({
+      message: `Refused to sign this ${type} transaction: creates a note that was not approved (payback)`
+    });
+    expect(sign).not.toHaveBeenCalled();
+  }
+);
+
+it.each(prebuiltTransfers)('refuses %s signing when its row recorded no built note', async type => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  const transfer = row({ type, faucetId: 'bech32:fA', amount: 500n });
+  await expect(withEffectCheckedSigner(transfer, sign, signer => signer('pk', 'aa'))).rejects.toBeInstanceOf(
+    ProposalEffectRefusedError
+  );
+  expect(sign).not.toHaveBeenCalled();
+});
+
 it('passes a summary within the approval to the base signer and returns what run returned', async () => {
   const sign = baseSigner();
   givenSigning(summaryInputs(pswapFill('acct-a')));
@@ -181,7 +331,7 @@ it('passes a summary within the approval to the base signer and returns what run
   expect(signatures).toEqual([SIGNATURE]);
   expect(sign).toHaveBeenCalledWith('pk', 'aa');
   expect(SigningInputs.deserialize).toHaveBeenCalledWith(new Uint8Array([0xaa]));
-  expect(getVerificationBaseFee).toHaveBeenCalledTimes(1);
+  expect(refreshVerificationBaseFee).toHaveBeenCalledTimes(1);
 });
 
 it('refuses a summary that moves more than the row allows, and rejects with the same error the signer threw', async () => {
@@ -253,7 +403,7 @@ it('refuses a summary within the approval whose check was still running when a s
   expect(settled[1]).toBe(settled[0]);
   expect(refused).toBe(settled[0]);
   expect(sign).not.toHaveBeenCalled();
-  expect(getVerificationBaseFee).toHaveBeenCalledTimes(1);
+  expect(refreshVerificationBaseFee).toHaveBeenCalledTimes(1);
 });
 
 it("leaves the base signer's own failure unrecorded, so the write rejects with run's error and signs again", async () => {
@@ -403,7 +553,7 @@ it('rejects an unknown fee with ProposalFeeUnknownError and run is not called', 
   const sign = baseSigner();
   const fill = pswapFill('acct-a');
   givenSigning(summaryInputs(fill));
-  jest.mocked(getVerificationBaseFee).mockResolvedValue(null);
+  jest.mocked(refreshVerificationBaseFee).mockResolvedValue(null);
   const run = jest.fn(async (signer: RawSigner) => signer('pk', 'aa'));
   const refused = await withEffectCheckedSigner(execute, sign, run).catch((error: unknown) => error);
   expect(refused).toBeInstanceOf(ProposalFeeUnknownError);
@@ -416,7 +566,7 @@ it('rejects an unknown fee with ProposalFeeUnknownError and run is not called', 
 
 it('propagates a fee lookup rejection before the write runs', async () => {
   const failure = new Error('node down');
-  jest.mocked(getVerificationBaseFee).mockRejectedValue(failure);
+  jest.mocked(refreshVerificationBaseFee).mockRejectedValue(failure);
   const run = jest.fn();
   await expect(withEffectCheckedSigner(execute, baseSigner(), run)).rejects.toBe(failure);
   expect(run).not.toHaveBeenCalled();
@@ -435,7 +585,7 @@ it.each<[string, () => Error]>([
   // Known before the write, so run starts. Unknown on the sign's cache read, and on a second lookup.
   const kill = killOf();
   let feeLookups = 0;
-  jest.mocked(getVerificationBaseFee).mockImplementation(async () => {
+  jest.mocked(refreshVerificationBaseFee).mockImplementation(async () => {
     feeLookups += 1;
     return feeLookups === 1 ? 2 : null;
   });
@@ -464,22 +614,58 @@ it('rejects from the signer when the cached fee is unknown, without decoding the
   expect(run).toHaveBeenCalledTimes(1);
   expect(fill.vault).not.toHaveBeenCalled();
   expect(sign).not.toHaveBeenCalled();
-  expect(getVerificationBaseFee).toHaveBeenCalledTimes(1);
+  expect(refreshVerificationBaseFee).toHaveBeenCalledTimes(1);
 });
 
-it('looks the chain fee up once, before the write runs', async () => {
+it('rejects from the signer when the endpoint moved after the fee read, without decoding the summary', async () => {
+  const fill = pswapFill('acct-a');
+  givenSigning(summaryInputs(fill));
+  const sign = baseSigner();
+  const refused = await withEffectCheckedSigner(execute, sign, async signer => {
+    // The cache still holds a fee, read for another endpoint.
+    jest.mocked(cacheScope).mockReturnValue('rpc-b|testnet');
+    return signer('pk', 'aa');
+  }).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(ProposalFeeUnknownError);
+  expect(getVerificationBaseFeeSync()).toBe(2);
+  expect(fill.vault).not.toHaveBeenCalled();
+  expect(sign).not.toHaveBeenCalled();
+});
+
+// The signer reads the cache inside the WASM hold, so the write re-reads the chain first rather than trusting a fee
+// another realm cached, and a failed re-read stops the write even with a fee cached.
+it('reads a fresh chain fee once, before the write runs, and stops the write when that read fails', async () => {
   const order: string[] = [];
-  jest.mocked(getVerificationBaseFee).mockImplementation(async () => {
+  jest.mocked(refreshVerificationBaseFee).mockImplementation(async () => {
     order.push('fee');
     return 2;
   });
   givenSigning(summaryInputs(pswapFill('acct-a')));
-  await withEffectCheckedSigner(execute, baseSigner(), async signer => {
-    order.push('run');
-    return signer('pk', 'aa');
-  });
+  await expect(
+    withEffectCheckedSigner(execute, baseSigner(), async signer => {
+      order.push('run');
+      return signer('pk', 'aa');
+    })
+  ).resolves.toBe(SIGNATURE);
   expect(order).toEqual(['fee', 'run']);
-  expect(getVerificationBaseFee).toHaveBeenCalledTimes(1);
+  expect(refreshVerificationBaseFee).toHaveBeenCalledTimes(1);
+  expect(getVerificationBaseFee).not.toHaveBeenCalled();
+
+  jest.mocked(refreshVerificationBaseFee).mockResolvedValueOnce(null);
+  const run = jest.fn();
+  await expect(withEffectCheckedSigner(execute, baseSigner(), run)).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+  expect(getVerificationBaseFeeSync()).toBe(2);
+  expect(run).not.toHaveBeenCalled();
+});
+
+it('refuses a custom transaction that creates a note its approval did not record', async () => {
+  const sign = baseSigner();
+  givenSigning(summaryInputs(pswapFill('acct-a')));
+  const unrecorded = { ...execute, approvedEffects: { ...executeEffects, approvedOutputNoteIds: ['other'] } };
+  await expect(withEffectCheckedSigner(unrecorded, sign, signer => signer('pk', 'aa'))).rejects.toThrow(
+    'Refused to sign this execute transaction: creates a note that was not approved (payback)'
+  );
+  expect(sign).not.toHaveBeenCalled();
 });
 
 it('checks each write of one account against its own row while both run', async () => {

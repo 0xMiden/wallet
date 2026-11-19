@@ -25,6 +25,15 @@ it('fills quarter, half, three quarters and Max without exceeding the spendable 
   expect(onAmountChange).toHaveBeenLastCalledWith('0.00012345');
 });
 
+it('never fills a percentage above the balance for a token with more than 20 decimals', () => {
+  const onAmountChange = jest.fn();
+  // 9 base units at 21 decimals: 75% is 6.75 base units, so it must round down to 6.
+  render(<AmountShortcuts balance={9e-21} decimals={21} scaleIsKnown onAmountChange={onAmountChange} />);
+
+  fireEvent.click(screen.getByTestId('amount-shortcut-75'));
+  expect(onAmountChange).toHaveBeenLastCalledWith('0.000000000000000000006');
+});
+
 it('does not offer shortcuts before a known spendable balance is available', () => {
   const { rerender } = render(<AmountShortcuts balance={null} decimals={6} scaleIsKnown onAmountChange={jest.fn()} />);
   expect(screen.queryByTestId('amount-shortcuts')).not.toBeInTheDocument();

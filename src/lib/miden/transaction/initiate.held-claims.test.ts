@@ -21,7 +21,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => 'native-faucet',
-  getVerificationBaseFee: async () => null
+  getVerificationBaseFee: async () => null,
+  refreshVerificationBaseFee: async () => null
 }));
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {
@@ -292,7 +293,8 @@ describe('what queued a consume row', () => {
       'claim_all'
     );
     expect(await stamp(many.committedId)).toBe('claim_all');
-    const auto = await initiateConsumeNotesTransaction(ACCOUNT, [note('d')], false, false, true, null, 'auto_consume');
+    // A fee of 0 is a chain with no fee. An unknown fee (null) refuses an auto-consume (#2192).
+    const auto = await initiateConsumeNotesTransaction(ACCOUNT, [note('d')], false, false, true, 0, 'auto_consume');
     expect(await stamp(auto)).toBe('auto_consume');
     expect(await stamp(await initiateConsumeTransactionFromId(ACCOUNT, 'e', false, true, ORIGIN, 'dapp'))).toBe('dapp');
     const reclaim = await initiateConsumeTransactionFromId(ACCOUNT, 'f', false, true, undefined, 'bridge_reclaim');

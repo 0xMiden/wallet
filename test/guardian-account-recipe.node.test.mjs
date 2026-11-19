@@ -5,7 +5,8 @@ import ts from 'typescript';
 
 import * as sdk from '@miden-sdk/miden-sdk';
 
-// The recipe's two imports resolve to the copies this harness loads, so the multisig client and the test share one SDK.
+// The recipe's package imports resolve to the copies this harness loads, so the multisig client and the test share one
+// SDK. Its one wallet import, the import-free `wasm-handle`, is transpiled and loaded on its own in `before`.
 const rewrites = new Map([
   ['@miden-sdk/miden-sdk/lazy', import.meta.resolve('@miden-sdk/miden-sdk')],
   ['@openzeppelin/miden-multisig-client', import.meta.resolve('@openzeppelin/miden-multisig-client')]
@@ -22,7 +23,17 @@ let deriveGuardianAccountSeed;
 let guardianAccountConfig;
 let rebuildGuardianAccount;
 
+const asModule = source =>
+  `data:text/javascript;base64,${Buffer.from(
+    ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
+      .outputText
+  ).toString('base64')}`;
+
 before(async () => {
+  rewrites.set(
+    '../sdk/wasm-handle',
+    asModule(await readFile(new URL('../src/lib/miden/sdk/wasm-handle.ts', import.meta.url), 'utf8'))
+  );
   const source = await readFile(new URL('../src/lib/miden/guardian/account-recipe.ts', import.meta.url), 'utf8');
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },

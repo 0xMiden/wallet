@@ -8,7 +8,7 @@ import { isFeatureBlocked } from 'components/FeatureUnavailable';
 import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { Skeleton } from 'components/ui/Skeleton';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { usdcxArrivalKey } from 'lib/usdcx/constant';
 import { RouteCard } from 'screens/send-flow/Route';
@@ -49,7 +49,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
   const { t } = useTranslation();
   const circleSelected = !fast?.selected;
   // Built in plain JS so the em-dash fallback does not trip the no-literal-string i18n lint.
-  const fastFeeText = fast?.feeUsd != null ? `$${toAdaptiveFixed(fast.feeUsd)}` : '—';
+  const fastFeeText = fast?.feeUsd != null ? formatUsdDisplay(fast.feeUsd) : '—';
   return (
     <HomeGroupPaneBody
       top="header"

@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Déverrouillage par mot de passe",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Déverrouiller avec une clé d’accès",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Utilisez le fournisseur de clés d’accès de votre appareil pour déverrouiller ce portefeuille. Le mot de passe de votre portefeuille restera valable.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Le déverrouillage par mot de passe est activé pour ce portefeuille.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Le déverrouillage par mot de passe n’est pas disponible sur ce navigateur, ce système d’exploitation ou ce portefeuille. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Activer le déverrouillage par mot de passe",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Remplacer la clé d’accès",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Supprimer le déverrouillage par mot de passe",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "La suppression du déverrouillage par clé d’accès ici ne révoque ni ne supprime la clé d’accès stockée par votre fournisseur. Supprimez-la également dans les paramètres de votre fournisseur si vous n’en avez plus besoin.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Votre fournisseur indique que ce mot de passe peut être sauvegardé ou synchronisé. Sa disponibilité sur d’autres appareils dépend de votre fournisseur.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Votre fournisseur indique que ce mot de passe ne peut pas être sauvegardé.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Ouvrez le panneau latéral du portefeuille pour activer, remplacer ou désactiver le déverrouillage par mot de passe.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Impossible d’ouvrir le panneau latéral. Ouvrez-le depuis la barre d’outils du portefeuille et réessayez.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "La demande de mot de passe a été annulée ou n’était pas disponible. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Impossible d’activer le déverrouillage par mot de passe. Vérifiez le mot de passe de votre portefeuille et utilisez un fournisseur prenant en charge cette fonctionnalité.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Impossible de supprimer le déverrouillage par mot de passe. Veuillez réessayer. Le mot de passe de votre portefeuille fonctionne toujours.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Impossible de déverrouiller avec cette clé d’accès. Utilisez le mot de passe de votre portefeuille et vérifiez les paramètres de la clé d’accès.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Sauvegardez votre phrase de récupération",
     "englishSource": "Back up your recovery phrase"
@@ -3227,6 +3295,10 @@
     "message": "Phrase de récupération masquée",
     "englishSource": "Recovery phrase hidden"
   },
+  "privateKeyHidden": {
+    "message": "Clé privée masquée",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Afficher",
     "englishSource": "Show"
@@ -4481,6 +4553,11 @@
     "message": "Inconnu",
     "englishSource": "Unknown"
   },
+  "includesUnclaimedNotes": {
+    "message": "Includes notes you have not claimed yet",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Includes notes you have not claimed yet"
+  },
   "inputNotesConsumed": {
     "message": "Notes d'entrée consommées",
     "englishSource": "Input notes consumed"
@@ -5552,6 +5629,10 @@
     "message": "Informations sur le jeton",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Composition",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Description",
     "englishSource": "Description"
@@ -5870,6 +5951,10 @@
         "content": "$1"
       }
     }
+  },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "Les transactions intelligentes de MetaMask n’ont pas pu envoyer cette transaction. Désactivez les transactions intelligentes dans vos paramètres MetaMask et réessayez.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
   },
   "connectedWallet": {
     "message": "Portefeuille connecté",
@@ -7480,6 +7565,14 @@
     "message": "Caché depuis la page d’accueil. Il reste dans votre portefeuille et ses transferts peuvent toujours être réclamés.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
   },
+  "hideDustTokens": {
+    "message": "Masquer les jetons « dust »",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Masque les tokens d’une valeur inférieure à 0,001 $ dans votre liste d’actifs. Le token natif reste toujours visible.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
+  },
   "hiddenAssets": {
     "message": "Actifs cachés",
     "englishSource": "Hidden assets"
@@ -8758,5 +8851,278 @@
   "epochReturnUnavailable": {
     "message": "Impossible de vérifier l’état des fonds. Veuillez réessayer.",
     "englishSource": "Unable to check the funds status. Try again."
+  },
+  "epochDepositLocked": {
+    "message": "Dépôt bloqué",
+    "englishSource": "Deposit locked"
+  },
+  "epochDepositWithdrawn": {
+    "message": "Dépôt retiré",
+    "englishSource": "Deposit withdrawn"
+  },
+  "epochDepositLockedTitle": {
+    "message": "Votre dépôt est en sécurité",
+    "englishSource": "Your deposit is safe"
+  },
+  "epochDepositLockedBody": {
+    "message": "Votre dépôt de $amount$ se trouve dans The Compact sur $network$, mais Epoch n’a pas lancé le pont. Réessayez le pont ou retirez le dépôt vers $address$.",
+    "englishSource": "Your $amount$ deposit is in The Compact on $network$, but Epoch did not start the bridge. Retry the bridge, or withdraw the deposit back to $address$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      },
+      "address": {
+        "content": "$3"
+      }
+    }
+  },
+  "epochDepositConnectSponsor": {
+    "message": "Connectez le portefeuille EVM $address$ pour récupérer ce dépôt.",
+    "englishSource": "Connect the EVM wallet $address$ to recover this deposit.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWrongWallet": {
+    "message": "Le portefeuille connecté n’a pas effectué ce dépôt. Connectez $address$ pour le récupérer.",
+    "englishSource": "The connected wallet did not make this deposit. Connect $address$ to recover it.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositRetry": {
+    "message": "Réessayer le pont",
+    "englishSource": "Retry bridge"
+  },
+  "epochDepositRetrying": {
+    "message": "Nouvelle tentative…",
+    "englishSource": "Retrying…"
+  },
+  "epochDepositWithdraw": {
+    "message": "Retrait de dépôt",
+    "englishSource": "Withdraw deposit"
+  },
+  "epochDepositWithdrawing": {
+    "message": "Retrait…",
+    "englishSource": "Withdrawing…"
+  },
+  "epochDepositWithdrawStarted": {
+    "message": "Retrait disponible dans $time$.",
+    "englishSource": "Withdrawal available in $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWithdrawStartedUnknown": {
+    "message": "Demande de retrait. Les fonds sont disponibles environ une heure après la demande.",
+    "englishSource": "Withdrawal requested. It becomes available about one hour after the request."
+  },
+  "epochDepositWithdrawReady": {
+    "message": "Le retrait est disponible.",
+    "englishSource": "The withdrawal is available."
+  },
+  "epochDepositWithdrawnBody": {
+    "message": "Le dépôt a été reversé à l’$address$.",
+    "englishSource": "The deposit went back to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotRecoverable": {
+    "message": "Ce dépôt ne peut pas être récupéré depuis ce portefeuille.",
+    "englishSource": "This deposit cannot be recovered from this wallet."
+  },
+  "epochDepositErrorWrongChain": {
+    "message": "Changez votre portefeuille EVM pour $network$ et réessayez.",
+    "englishSource": "Switch your EVM wallet to $network$ and try again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotStarted": {
+    "message": "Commencez par effectuer le retrait.",
+    "englishSource": "Start the withdrawal first."
+  },
+  "epochDepositErrorNotDue": {
+    "message": "Le retrait n’est pas encore disponible.",
+    "englishSource": "The withdrawal is not available yet."
+  },
+  "epochDepositErrorMissing": {
+    "message": "Le Compact ne détient plus ce dépôt.",
+    "englishSource": "The Compact no longer holds this deposit."
+  },
+  "epochDepositErrorLockMismatch": {
+    "message": "Epoch a attribué un verrou différent pour ce dépôt. Procédez plutôt à un retrait de ce dépôt.",
+    "englishSource": "Epoch returned a different lock for this deposit. Withdraw the deposit instead."
+  },
+  "recoverLockedFunds": {
+    "message": "Récupérer des fonds de pont bloqués",
+    "englishSource": "Recover locked bridge funds"
+  },
+  "recoverFundsOpenLock": {
+    "message": "Gérez ce verrouillage dans les Paramètres",
+    "englishSource": "Manage this lock in Settings"
+  },
+  "recoverFundsDescription": {
+    "message": "Un « Fast bridge-in » peut laisser son dépôt dans The Compact lorsque Epoch ne lance pas le pont. Cette page vérifie dans The Compact chaque portefeuille EVM ayant effectué un « bridge-in » à partir de ce portefeuille, ainsi que le portefeuille connecté.",
+    "englishSource": "A Fast bridge-in can leave its deposit in The Compact when Epoch does not start the bridge. This page checks The Compact for each EVM wallet that bridged in from this wallet, and for the connected wallet."
+  },
+  "recoverFundsConnectedWallet": {
+    "message": "Portefeuille connecté",
+    "englishSource": "Connected wallet"
+  },
+  "recoverFundsNothingLocked": {
+    "message": "Rien n’est verrouillé sur ce portefeuille.",
+    "englishSource": "Nothing is locked for this wallet."
+  },
+  "recoverFundsCouldNotCheck": {
+    "message": "Impossible de vérifier $tokens$ sur $network$. Veuillez réessayer plus tard.",
+    "englishSource": "Could not check $tokens$ on $network$. Try again later.",
+    "placeholders": {
+      "tokens": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "recoverFundsConnectAnother": {
+    "message": "Connecter un autre portefeuille",
+    "englishSource": "Connect another wallet"
+  },
+  "recoverFundsNoAddressesTitle": {
+    "message": "Pas de portefeuilles à vérifier",
+    "englishSource": "No wallets to check"
+  },
+  "recoverFundsNoAddressesBody": {
+    "message": "Connectez le portefeuille EVM qui a effectué le dépôt afin de vérifier s’il contient des fonds bloqués.",
+    "englishSource": "Connect the EVM wallet that made the deposit to check it for locked funds."
+  },
+  "recoverFundsLockTitle": {
+    "message": "Fonds bloqués",
+    "englishSource": "Locked funds"
+  },
+  "recoverFundsLockInvalidTitle": {
+    "message": "Ce lien n’est pas valide",
+    "englishSource": "This link is not valid"
+  },
+  "recoverFundsLockInvalidBody": {
+    "message": "Déverrouillez à nouveau le pont à partir de la section « Récupérer les fonds du pont verrouillés ».",
+    "englishSource": "Open the lock again from Recover locked bridge funds."
+  },
+  "recoverFundsLockEmpty": {
+    "message": "Rien n’est verrouillé ici",
+    "englishSource": "Nothing is locked here"
+  },
+  "recoverFundsChecking": {
+    "message": "Vérification…",
+    "englishSource": "Checking…"
+  },
+  "recoverFundsCouldNotCheckShort": {
+    "message": "Impossible de vérifier",
+    "englishSource": "Could not check"
+  },
+  "recoverFundsWallet": {
+    "message": "Portefeuille",
+    "englishSource": "Wallet"
+  },
+  "recoverFundsLocked": {
+    "message": "Verrouillé",
+    "englishSource": "Locked"
+  },
+  "recoverFundsWithdrawal": {
+    "message": "Retrait",
+    "englishSource": "Withdrawal"
+  },
+  "recoverFundsWithdrawOff": {
+    "message": "Non demandé",
+    "englishSource": "Not requested"
+  },
+  "recoverFundsCancelWithdrawal": {
+    "message": "Désactiver les retraits",
+    "englishSource": "Disable withdrawal"
+  },
+  "recoverFundsCancelling": {
+    "message": "Désactiver…",
+    "englishSource": "Disabling…"
+  },
+  "recoverFundsWithdrawBlocksBridge": {
+    "message": "Un retrait forcé bloque les nouveaux transferts Fast vers $token$ depuis $address$. Une fois vos fonds récupérés, désactivez le retrait pour pouvoir effectuer à nouveau des transferts.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Vérifier l’accès rapide au pont",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "Vérification du statut de retrait pour ce jeton et ce portefeuille.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "Impossible de vérifier le statut du retrait. Réessayez avant d’utiliser le Fast Bridge.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "Le retrait forcé est actif pour $token$ sur $network$. Une fois vos fonds récupérés, désactivez le retrait pour pouvoir effectuer à nouveau des opérations sur Bridge.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "Désactiver les retraits",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "Désactiver…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "Cela désactive le retrait forcé pour ce verrou. Les fonds déjà récupérés restent dans votre portefeuille. Une nouvelle demande de récupération déclenche une nouvelle période d’attente. Cette transaction nécessite des frais de réseau.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "Ouvrez votre portefeuille EVM connecté et validez la transaction sur $network$. Attendez ici la confirmation.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "Utilisez plutôt Circle",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "Utilisez plutôt « Slow bridge »",
+    "englishSource": "Use Slow bridge instead"
   }
 }

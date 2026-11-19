@@ -206,9 +206,9 @@ for (const l2 of SOURCES) {
         return state;
       };
 
+      void walletB; // Keep fixture teardown diagnostics without creating an unused account.
       await steps.step('create_wallet', async () => {
         ({ address: addressA } = await walletA.createGuardianWallet());
-        await walletB.createNewWallet(); // fixture requires both sims up; B takes no part
       });
 
       try {

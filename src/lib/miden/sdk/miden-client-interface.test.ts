@@ -187,6 +187,54 @@ describe('MidenClientInterface', () => {
     }
   }
 
+  describe('full input note export', () => {
+    async function exportHarness(input: unknown) {
+      mockStagedSdk({
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        NoteFile: { fromInputNote: () => ({ serialize: () => new Uint8Array([4, 5]) }) }
+      });
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { NoteExportType } = jest.requireActual<typeof import('./constants')>('./constants');
+      const client = Object.create(MidenClientInterface.prototype) as MidenClientInterfaceType;
+      const notes = {
+        get: jest.fn(async () => input),
+        export: jest.fn(async () => {
+          if (input) throw new Error('No output note found');
+          return { serialize: () => new Uint8Array([1, 2]) };
+        })
+      };
+      client.client = { notes } as unknown as MidenClientInterfaceType['client'];
+      return { client, notes, full: NoteExportType.FULL };
+    }
+
+    it('exports an authenticated received note that has no output record', async () => {
+      const { client, full } = await exportHarness({ isAuthenticated: () => true, toInputNote: () => ({}) });
+      await expect(client.exportNote('received', full)).resolves.toEqual(new Uint8Array([4, 5]));
+    });
+
+    it('rejects an input note without its inclusion proof', async () => {
+      const { client, full } = await exportHarness({ isAuthenticated: () => false });
+      await expect(client.exportNote('received', full)).rejects.toThrow('Input note is not authenticated');
+    });
+
+    it('checks ownership before touching an input record returned after an await', async () => {
+      const input = { isAuthenticated: jest.fn(() => true), toInputNote: jest.fn() };
+      const { client, full } = await exportHarness(input);
+      await expect(
+        client.exportNote('received', full, () => {
+          throw new Error('retired hold');
+        })
+      ).rejects.toThrow('retired hold');
+      expect(input.isAuthenticated).not.toHaveBeenCalled();
+      expect(input.toInputNote).not.toHaveBeenCalled();
+    });
+
+    it('preserves full output export when no received record exists', async () => {
+      const { client, full } = await exportHarness(null);
+      await expect(client.exportNote('sent', full)).resolves.toEqual(new Uint8Array([1, 2]));
+    });
+  });
+
   it('creates a client with provided callbacks', async () => {
     const fakeMidenClient = buildFakeMidenClient();
     const createMock = jest.fn(async () => fakeMidenClient);
@@ -3113,6 +3161,68 @@ describe('MidenClientInterface', () => {
       await expect(rejection).rejects.not.toHaveProperty('code');
       expect(getSignerDetailsFromAccount).toHaveBeenNthCalledWith(1, stubAccount, false);
       expect(getSignerDetailsFromAccount).toHaveBeenNthCalledWith(2, stubAccount, true);
+    });
+
+    it.each([
+      ['public key', 'serialize'],
+      ['commitment', 'toHex']
+    ])(
+      'leaves a trapped %s read of the pasted key as the trap, freeing no handle and looking nothing up',
+      async (_read, at) => {
+        setup();
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        const trapAt = (read: string, value: () => unknown) => () => {
+          if (read === at) throw trap;
+          return value();
+        };
+        const frees = { secretKey: jest.fn(), publicKey: jest.fn(), commitment: jest.fn() };
+        jest.doMock('../guardian/hot-key-import', () => ({
+          deserializeHotSecretKey: jest.fn(() => ({
+            publicKey: () => ({
+              serialize: trapAt('serialize', () => new Uint8Array([0, 0x11, 0x22])),
+              toCommitment: () => ({ toHex: trapAt('toHex', () => PASTED_COMMITMENT), free: frees.commitment }),
+              free: frees.publicKey
+            }),
+            free: frees.secretKey
+          }))
+        }));
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+        const lookup = jest.spyOn(client as any, 'recoverAndAdoptByKey');
+
+        await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toBe(trap);
+        expect(frees.commitment).not.toHaveBeenCalled();
+        expect(frees.publicKey).not.toHaveBeenCalled();
+        expect(frees.secretKey).not.toHaveBeenCalled();
+        expect(lookup).not.toHaveBeenCalled();
+      }
+    );
+
+    it('frees the pasted key reads after an ordinary failure of its commitment', async () => {
+      setup();
+      const frees = { publicKey: jest.fn(), commitment: jest.fn() };
+      jest.doMock('../guardian/hot-key-import', () => ({
+        deserializeHotSecretKey: jest.fn(() => ({
+          publicKey: () => ({
+            serialize: () => new Uint8Array([0, 0x11, 0x22]),
+            toCommitment: () => ({
+              toHex: () => {
+                throw new Error('not a commitment');
+              },
+              free: frees.commitment
+            }),
+            free: frees.publicKey
+          })
+        }))
+      }));
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+
+      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
+        'not a commitment'
+      );
+      expect(frees.commitment).toHaveBeenCalledTimes(1);
+      expect(frees.publicKey).toHaveBeenCalledTimes(1);
     });
 
     it('rejects with no code when the pasted key matches neither the hot nor the recovery key', async () => {

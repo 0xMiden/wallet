@@ -138,8 +138,8 @@ describe('requestCustomTransaction', () => {
       inputNotesConsumed: 0,
       outputNotesCreated: 1,
       storageChanged: false,
-      introducedCredit: [],
-      introducedCount: 0
+      introducedNoteIds: [],
+      approvedOutputNoteIds: ['0xsent']
     };
     const totals = [{ faucetId: 'faucet-a', amount: 101n }];
 

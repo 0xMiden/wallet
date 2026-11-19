@@ -60,7 +60,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authErrorId, setAuthErrorId] = useState<UserErrorId | null>(null);
-  const { copy, copied } = useClipboardCopy(mnemonic ?? '');
+  const { copy, copied } = useClipboardCopy(mnemonic ?? '', { secret: true });
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.

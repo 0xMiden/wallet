@@ -162,6 +162,10 @@ export const INVALID_NOTE_ERROR = 'Note is invalid';
 export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
   'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
 
+// Thrown before the row is queued: a bridged send signs only the request persisted for the note it records.
+export const BRIDGED_SEND_MISSING_REQUEST_ERROR =
+  'Bridged send has no persisted request for its recorded note, so it was not queued.';
+
 // A dApp's consume request whose note a dApp transaction holds: answering with that row would hand it another
 // transaction's id, outcome and output notes.
 export const NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR = 'This note is being consumed by another transaction';
@@ -283,6 +287,19 @@ export const TRANSACTION_RETRY_UNSAFE_ERROR =
  */
 export const TRANSACTION_NEVER_COMMITTED_ERROR =
   'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.';
+
+/**
+ * Retry could not ask the node whether a note the row's saved request creates is already on chain, so it replays
+ * nothing. A replay needs that node too, so a later Retry can ask again.
+ */
+export const TRANSACTION_REPLAY_CHECK_FAILED_ERROR =
+  'The wallet could not check with the network whether this already went through, so it will not send it again ' +
+  'yet. Try again in a few minutes.';
+
+/** The row's saved request no longer decodes, so no Retry can resend it. */
+export const TRANSACTION_REPLAY_UNREADABLE_ERROR =
+  'The wallet can no longer read the saved request for this transaction, so it cannot send it again. ' +
+  'Check your activity once it syncs, and start a new one only if it never arrived.';
 
 /** Retry waited out its 10 s for a reconciler pass on this row, or the evidence moved twice under it (#1081). */
 export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =

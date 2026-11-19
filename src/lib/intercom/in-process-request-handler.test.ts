@@ -15,7 +15,9 @@ const mockUnlock = jest.fn(async (_password: string) => undefined);
 const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
   type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
   outcome: 'measured',
-  feeReserve: '315'
+  feeReserve: '315',
+  faucetId: 'native',
+  scope: 'source-scope'
 }));
 jest.mock('lib/miden/back/actions', () => ({
   estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
@@ -31,6 +33,24 @@ jest.mock('lib/miden/back/transaction-processor', () => ({
 describe('processInProcessRequest', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it.each(['MobileIntercomAdapter', 'DesktopIntercomAdapter'])(
+    'keeps platform credentials unavailable on %s',
+    async label => {
+      await expect(
+        processInProcessRequest({ type: WalletMessageType.PlatformUnlockRequest, command: { action: 'state' } }, label)
+      ).rejects.toThrow();
+    }
+  );
+
+  it('does not treat an extension reset nonce as native reset authority', async () => {
+    await expect(
+      processInProcessRequest(
+        { type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43) },
+        'DesktopIntercomAdapter'
+      )
+    ).rejects.toThrow();
   });
 
   // #788 follow-up: the dead-letter drain must work on mobile/desktop, where
@@ -71,7 +91,9 @@ describe('processInProcessRequest', () => {
     expect(res).toEqual({
       type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
       outcome: 'measured',
-      feeReserve: '315'
+      feeReserve: '315',
+      faucetId: 'native',
+      scope: 'source-scope'
     });
     expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledWith(req);
   });

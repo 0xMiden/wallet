@@ -34,7 +34,8 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: {
     onRequest: (cb: any) => (globalThis as any).__mainTest.onRequest(cb),
     onNotFound: (cb: any) => (globalThis as any).__mainTest.onNotFound(cb),
-    broadcast: (msg: any) => (globalThis as any).__mainTest.broadcast(msg)
+    broadcast: (msg: any) => (globalThis as any).__mainTest.broadcast(msg),
+    isConnected: () => true
   }
 }));
 
@@ -181,12 +182,26 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   recordSyncedFeeFaucetId: jest.fn(async () => true)
 }));
 
+const mockPlatformAvailability = jest.fn(async () => true);
+const mockPlatformStartup = jest.fn(async () => undefined);
+const mockPerformReset = jest.fn<Promise<void>, [string]>(async () => undefined);
+jest.mock('lib/miden/platform-reset', () => ({
+  performAuthorizedExtensionReset: (nonce: string) => mockPerformReset(nonce)
+}));
+jest.mock('lib/extension/platform-unlock-startup', () => ({
+  getPlatformUnlockAvailability: () => mockPlatformAvailability(),
+  ensureTrustedPlatformStorage: async () => true,
+  ensurePlatformUnlockStartup: () => mockPlatformStartup()
+}));
+
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn(),
   getFrontState: jest.fn(),
   registerNewWallet: jest.fn(),
+  registerWalletFromHotKey: jest.fn(),
   registerImportedWallet: jest.fn(),
   unlock: jest.fn(),
+  platformUnlock: jest.fn(),
   lock: jest.fn(),
   createHDAccount: jest.fn(),
   updateCurrentAccount: jest.fn(),
@@ -226,6 +241,7 @@ import type { MessageSenderLike } from 'lib/intercom/sender';
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { start } from './main';
@@ -241,6 +257,8 @@ const flushStorage = () => new Promise(resolve => setTimeout(resolve, 0));
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockPlatformAvailability.mockReset().mockResolvedValue(true);
+  mockPlatformStartup.mockReset().mockResolvedValue(undefined);
   _g.__mainTest.nativeScope = 'rpc|devnet';
   _g.__mainTest.nativeRevision = 0;
   for (const k of Object.keys(_g.__mainConnStore)) delete _g.__mainConnStore[k];
@@ -281,10 +299,45 @@ beforeEach(async () => {
   // Spin up `start()` so the dispatcher gets registered, then capture
   // the handler intercom.onRequest received.
   await start();
-  dispatch = mockOnRequest.mock.calls[0]![0];
+  const handler = mockOnRequest.mock.calls[0]![0];
+  const browser = (await import('webextension-polyfill')).default;
+  const page = { sender: { id: browser.runtime.id, url: browser.runtime.getURL('fullpage.html') } };
+  dispatch = (req, port = page) => handler(req, port);
 });
 
 describe('main.start', () => {
+  it('registers listeners immediately but reads no wallet configuration before reset readiness', async () => {
+    let release: () => void = () => undefined;
+    mockPlatformStartup.mockImplementationOnce(
+      () =>
+        new Promise<undefined>(resolve => {
+          release = () => resolve(undefined);
+        })
+    );
+    mockOnRequest.mockClear();
+    mockLoadEndpointOverrides.mockClear();
+    Actions.init.mockClear();
+    const starting = start();
+    try {
+      expect(mockOnRequest).toHaveBeenCalledTimes(1);
+      await flushStorage();
+      expect(mockLoadEndpointOverrides).not.toHaveBeenCalled();
+      expect(Actions.init).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await starting;
+    }
+  });
+
+  it('rejects waiting requests after reset readiness fails instead of exposing the old wallet', async () => {
+    mockPlatformStartup.mockRejectedValueOnce(new Error('reset pending'));
+    mockOnRequest.mockClear();
+    Actions.getFrontState.mockClear();
+    await expect(start()).rejects.toThrow('reset pending');
+    const handler = mockOnRequest.mock.calls[0]![0];
+    await expect(handler({ type: WalletMessageType.GetStateRequest })).rejects.toThrow('reset pending');
+    expect(Actions.getFrontState).not.toHaveBeenCalled();
+  });
   it('hydrates the remote config after the endpoint override and before any handler can run', () => {
     expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
     expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
@@ -393,6 +446,152 @@ describe('main.start', () => {
   });
 });
 
+describe('reset transport authority', () => {
+  it('executes the protected nonce rather than trusting a wire reset payload', async () => {
+    await expect(
+      dispatch({
+        type: WalletMessageType.PlatformResetRequest,
+        nonce: 'A'.repeat(43),
+        options: { keepEndpointOverride: false }
+      })
+    ).resolves.toEqual({ type: WalletMessageType.PlatformResetResponse });
+    expect(mockPerformReset).toHaveBeenCalledWith('A'.repeat(43));
+  });
+  it('does not accept a reset nonce from a content script', async () => {
+    const browser = (await import('webextension-polyfill')).default;
+    await expect(
+      dispatch(
+        { type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43) },
+        { sender: { id: browser.runtime.id, url: 'https://example.com/' } }
+      )
+    ).rejects.toThrow();
+    expect(mockPerformReset).not.toHaveBeenCalled();
+  });
+});
+
+describe('wallet setup authority', () => {
+  it.each([
+    WalletMessageType.NewWalletRequest,
+    WalletMessageType.NewWalletFromHotKeyRequest,
+    WalletMessageType.ImportFromClientRequest
+  ])('refuses content-script setup %s', async type => {
+    const browser = (await import('webextension-polyfill')).default;
+    await expect(
+      dispatch(
+        {
+          type,
+          walletType: 'guardian',
+          password: 'pw',
+          mnemonic: 'fixture',
+          ownMnemonic: false,
+          keyPairPayload: 'fixture',
+          walletAccounts: [],
+          importedAccounts: []
+        },
+        { sender: { id: browser.runtime.id, url: 'https://example.com/' } }
+      )
+    ).rejects.toThrow();
+  });
+  it('keeps legitimate content-script dApp traffic outside the private setup gate', async () => {
+    const browser = (await import('webextension-polyfill')).default;
+    await expect(
+      dispatch(
+        { type: MidenMessageType.PageRequest, origin: 'https://example.com', payload: 'PING' },
+        { sender: { id: browser.runtime.id, url: 'https://example.com/' } }
+      )
+    ).resolves.toEqual({
+      type: MidenMessageType.PageResponse,
+      payload: 'PONG'
+    });
+  });
+});
+
+describe('platform unlock authority', () => {
+  async function ownPort() {
+    const browser = (await import('webextension-polyfill')).default;
+    return { sender: { id: browser.runtime.id, url: browser.runtime.getURL('sidepanel.html') } };
+  }
+  it('dispatches only validated commands from extension pages', async () => {
+    const port = await ownPort();
+    const state = { available: true, hasPassword: true, credential: null };
+    Actions.platformUnlock.mockResolvedValueOnce({ action: 'state', state });
+    await expect(
+      dispatch(
+        { type: WalletMessageType.PlatformUnlockRequest, command: { action: 'state', password: 'must not forward' } },
+        port
+      )
+    ).resolves.toEqual({
+      type: WalletMessageType.PlatformUnlockResponse,
+      result: { action: 'state', state }
+    });
+    expect(Actions.platformUnlock).toHaveBeenCalledWith({ action: 'state' }, port, true);
+  });
+  it('does not grant a content script the extension page authority of its sender ID', async () => {
+    const port = await ownPort();
+    port.sender.url = 'https://example.com/';
+    await expect(
+      dispatch(
+        { type: WalletMessageType.PlatformUnlockRequest, command: { action: 'remove', expectedCredentialId: null } },
+        port
+      )
+    ).rejects.toThrow();
+    expect(Actions.platformUnlock).not.toHaveBeenCalled();
+  });
+  it('refuses ports without browser-supplied page metadata', async () => {
+    await expect(
+      dispatch({ type: WalletMessageType.PlatformUnlockRequest, command: { action: 'state' } }, {})
+    ).rejects.toThrow();
+  });
+  it('refuses malformed PRF input before vault adoption', async () => {
+    await expect(
+      dispatch(
+        {
+          type: WalletMessageType.PlatformUnlockRequest,
+          command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: '' }
+        },
+        await ownPort()
+      )
+    ).rejects.toThrow();
+    expect(Actions.platformUnlock).not.toHaveBeenCalled();
+  });
+  it('does not unlock through an unavailable browser path', async () => {
+    mockPlatformAvailability.mockResolvedValueOnce(false);
+    await expect(
+      dispatch(
+        {
+          type: WalletMessageType.PlatformUnlockRequest,
+          command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) }
+        },
+        await ownPort()
+      )
+    ).rejects.toThrow();
+    expect(Actions.platformUnlock).not.toHaveBeenCalled();
+  });
+  it('answers password-only availability without throwing', async () => {
+    mockPlatformAvailability.mockResolvedValueOnce(false);
+    const state = { available: false, hasPassword: true, credential: null };
+    Actions.platformUnlock.mockResolvedValueOnce({ action: 'state', state });
+    const port = await ownPort();
+    await expect(
+      dispatch({ type: WalletMessageType.PlatformUnlockRequest, command: { action: 'state' } }, port)
+    ).resolves.toMatchObject({ result: { state } });
+    expect(Actions.platformUnlock).toHaveBeenCalledWith({ action: 'state' }, port, false);
+  });
+  it('resumes deferred processing after a platform unlock', async () => {
+    Actions.platformUnlock.mockResolvedValueOnce({ action: 'unlock' });
+    await expect(
+      dispatch(
+        {
+          type: WalletMessageType.PlatformUnlockRequest,
+          command: { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'A'.repeat(43) }
+        },
+        await ownPort()
+      )
+    ).resolves.toMatchObject({ result: { action: 'unlock' } });
+    expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('processRequest', () => {
   it('returns an unforced SyncResponse without waiting for doSync', async () => {
     mockDoSync.mockImplementationOnce(() => new Promise(() => {}));
@@ -402,7 +601,13 @@ describe('processRequest', () => {
   });
 
   it('EstimateUsdcxBurnFeeRequest reaches the estimate action and answers its response', async () => {
-    const response = { type: WalletMessageType.EstimateUsdcxBurnFeeResponse, outcome: 'measured', feeReserve: '315' };
+    const response = {
+      type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+      outcome: 'measured',
+      feeReserve: '315',
+      faucetId: 'native',
+      scope: 'source-scope'
+    };
     Actions.estimateUsdcxBurnFee.mockResolvedValueOnce(response);
     const req = {
       type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
@@ -1204,13 +1409,13 @@ const capturedRuntimeListeners: Array<(m: any, s: any, r: (x?: any) => void) => 
  * not silently also a test about identity.
  */
 const OWN_EXTENSION_ID = 'this-extension';
-const ownSender = { id: OWN_EXTENSION_ID, url: 'chrome-extension://this-extension/offscreen.html' };
+const ownSender = { id: OWN_EXTENSION_ID, url: `chrome-extension://${OWN_EXTENSION_ID}/offscreen.html` };
 
 beforeAll(() => {
   const chromeAny = (globalThis as any).chrome;
   if (chromeAny?.runtime) {
     chromeAny.runtime.id = OWN_EXTENSION_ID;
-    chromeAny.runtime.getURL = (p: string) => `chrome-extension://${OWN_EXTENSION_ID}/${p}`;
+    chromeAny.runtime.getURL = (path: string) => `chrome-extension://${OWN_EXTENSION_ID}/${path}`;
   }
   if (chromeAny?.runtime?.onMessage) {
     chromeAny.runtime.onMessage.addListener = (l: any) => capturedRuntimeListeners.push(l);
@@ -1220,6 +1425,39 @@ beforeAll(() => {
 describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 slice 5)', () => {
   const flushMicro = () => new Promise(resolve => setTimeout(resolve, 0));
   const signListener = () => capturedRuntimeListeners[0]!;
+
+  it('does not accept a content-script connectivity write from the same extension ID', () => {
+    signListener()(
+      { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: true },
+      { id: OWN_EXTENSION_ID, url: 'https://example.com/' },
+      jest.fn()
+    );
+    expect(connectivityMock.getConnectivityState().node.active).toBe(false);
+  });
+
+  it('defers reverse-IPC storage publication until initial reset readiness settles', async () => {
+    let release: () => void = () => undefined;
+    mockPlatformStartup.mockImplementationOnce(
+      () =>
+        new Promise<undefined>(resolve => {
+          release = () => resolve(undefined);
+        })
+    );
+    const starting = start();
+    try {
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_CONNECTIVITY_EVENT', category: 'node', active: true },
+        ownSender,
+        jest.fn()
+      );
+      expect(connectivityMock.getConnectivityState().node.active).toBe(false);
+    } finally {
+      release();
+      await starting;
+      await flushMicro();
+    }
+    expect(connectivityMock.getConnectivityState().node.active).toBe(true);
+  });
 
   it('registers exactly one runtime.onMessage listener that ignores non-sign messages (returns false)', () => {
     expect(capturedRuntimeListeners.length).toBe(1);
@@ -1720,6 +1958,83 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.sign_id).toBe('sign-y');
+  });
+});
+
+describe('bounded E2E offscreen authorization storage', () => {
+  const key = 'e2e_mainnet_send_authorization';
+  const mode = process.env.MIDEN_E2E_TEST;
+  let getUrl: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    getUrl = Object.getOwnPropertyDescriptor(chrome.runtime, 'getURL');
+    process.env.MIDEN_E2E_TEST = 'true';
+    Object.defineProperty(chrome.runtime, 'getURL', {
+      configurable: true,
+      value: (path: string) => `chrome-extension://${OWN_EXTENSION_ID}/${path}`
+    });
+  });
+  afterEach(() => {
+    if (mode === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = mode;
+    if (getUrl) Object.defineProperty(chrome.runtime, 'getURL', getUrl);
+    else Reflect.deleteProperty(chrome.runtime, 'getURL');
+  });
+  const invoke = (
+    message: unknown,
+    sender = { ...ownSender, url: `chrome-extension://${OWN_EXTENSION_ID}/offscreen.html` },
+    reply = jest.fn()
+  ) => capturedRuntimeListeners[0]?.(message, sender, reply);
+  const read = { target: 'sw', type: 'OFFSCREEN_TEST_AUTHORIZATION_STORAGE', operation: 'get', keys: [key] };
+  it('reads only the public authorization through the owning service worker', async () => {
+    const policy = { nonce: 'original', accountId: 'actor', status: 'armed' };
+    await getStorageProvider().set({ [key]: policy });
+    const reply = jest.fn();
+    expect(invoke(read, undefined, reply)).toBe(true);
+    await flushStorage();
+    expect(reply).toHaveBeenCalledWith({ ok: true, value: { [key]: policy } });
+  });
+  it('persists an original waiting fingerprint without granting a release', async () => {
+    const policy = { nonce: 'original', accountId: 'actor', status: 'armed' };
+    const waiting = { ...policy, status: 'waiting', sha256: 'a'.repeat(64) };
+    await getStorageProvider().set({ [key]: policy });
+    const reply = jest.fn();
+    expect(
+      invoke({ target: 'sw', type: read.type, operation: 'set', items: { [key]: waiting } }, undefined, reply)
+    ).toBe(true);
+    await flushStorage();
+    expect(reply).toHaveBeenCalledWith({ ok: true });
+    expect(await getStorageProvider().get([key])).toEqual({ [key]: waiting });
+  });
+  it.each([
+    { ...read, keys: ['mnemonic'] },
+    {
+      target: 'sw',
+      type: read.type,
+      operation: 'set',
+      items: { [key]: { nonce: 'replacement', accountId: 'actor', status: 'waiting' } }
+    },
+    {
+      target: 'sw',
+      type: read.type,
+      operation: 'set',
+      items: { [key]: { nonce: 'original', accountId: 'actor', status: 'released' } }
+    },
+    { target: 'sw', type: read.type, operation: 'set', items: { [`${key}_required`]: {} } }
+  ])('rejects secret storage access, scope replacement and self-release: %j', async message => {
+    const original = { nonce: 'original', accountId: 'actor', status: 'armed' };
+    await getStorageProvider().set({ [key]: original });
+    const reply = jest.fn();
+    expect(invoke(message, undefined, reply)).toBe(true);
+    await flushStorage();
+    expect(reply).toHaveBeenCalledWith({ ok: false });
+    expect(await getStorageProvider().get([key])).toEqual({ [key]: original });
+  });
+  it('does not expose the relay in production or to a different realm or extension', () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    expect(invoke(read)).toBe(false);
+    process.env.MIDEN_E2E_TEST = 'true';
+    expect(invoke(read, { id: 'foreign', url: `chrome-extension://${OWN_EXTENSION_ID}/offscreen.html` })).toBe(false);
+    expect(invoke(read, { ...ownSender, url: `chrome-extension://${OWN_EXTENSION_ID}/fullpage.html` })).toBe(false);
   });
 });
 

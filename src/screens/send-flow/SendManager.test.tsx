@@ -12,6 +12,7 @@ import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+import { currentUsdcxFeeScope } from 'lib/usdcx/fee-scope';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
@@ -395,6 +396,11 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
   default: () => mockBaseFee
 }));
 let mockNativeId: string | null = 'MIDEN-ID';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
+  getNativeAssetIdSync: () => mockNativeId,
+  cacheScope: () => `${mockRpcUrl}|${mockSendNetwork}`
+}));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
   __esModule: true,
   default: () => mockNativeId
@@ -2439,7 +2445,12 @@ describe('USDCx burn fee reserve', () => {
   // 315 (cap 9.909419), so 9.9095 fits only the static cap.
   const NATIVE = 'MIDEN-ID';
   const never = () => new Promise<UsdcxBurnFeeEstimate>(() => {});
-  const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({ outcome: 'measured', reserve });
+  const measured = (reserve: bigint): UsdcxBurnFeeEstimate => ({
+    outcome: 'measured',
+    reserve,
+    faucetId: NATIVE,
+    scope: currentUsdcxFeeScope()
+  });
 
   const openBurn = (step: SendFlowStep, amount = '') => {
     setSendDraft({

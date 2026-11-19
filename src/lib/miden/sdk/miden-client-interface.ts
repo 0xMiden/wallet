@@ -108,11 +108,14 @@ import {
   isApplyAfterSubmitError,
   isPipelineKillLink,
   isSubmitCrossingUnrecorded,
-  markErrorBeforeSubmit
+  markErrorBeforeSubmit,
+  readWasmHandle
 } from './sdk-error-code';
 import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
+import { awaitTestConsumeAuthorization } from './test-consume-authorization';
+import { awaitTestSendAuthorization } from './test-send-authorization';
 import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
 import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
@@ -1168,14 +1171,13 @@ export class MidenClientInterface {
       import('lib/i18n')
     ]);
 
+    // Outside any hold: a trap leaves as itself, for the caller to retire, and frees nothing.
     const sk = deserializeHotSecretKey(hotSecretKeyHex);
-    const publicKey = sk.publicKey();
-    const hotPublicKey = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
-    const commitmentHandle = publicKey.toCommitment();
     const normalizeCommitment = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
-    const pastedCommitment = normalizeCommitment(commitmentHandle.toHex());
-    commitmentHandle.free();
-    publicKey.free();
+    const { hotPublicKey, pastedCommitment } = readWasmHandle(sk.publicKey(), publicKey => ({
+      hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
+      pastedCommitment: readWasmHandle(publicKey.toCommitment(), commitment => normalizeCommitment(commitment.toHex()))
+    }));
 
     // Not yet bound to an account: on mobile its origin routes through native HTTP
     // while it is looked up, and for the session only once an account is adopted from it.
@@ -1265,7 +1267,8 @@ export class MidenClientInterface {
       }
       const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
       const p2ideRoot = NoteScript.p2ide().root().toHex();
-      for (const output of splitExecutedOutputNotes(summary).userNotes) {
+      // A past summary has no fee rate of its own.
+      for (const output of splitExecutedOutputNotes(summary, 'recorded').userNotes) {
         if (output.id().toString() !== noteId) continue;
         let note = output.intoFull();
         if (!note && output.metadata().noteType() === NoteType.Public) {
@@ -1699,6 +1702,14 @@ export class MidenClientInterface {
       [NoteExportType.FULL]: NoteExportFormat.Full,
       [NoteExportType.DETAILS]: NoteExportFormat.Details
     };
+    if (exportType === NoteExportType.FULL) {
+      const input = await this.client.notes.get(noteId);
+      assertLive();
+      if (input) {
+        if (!input.isAuthenticated()) throw new Error('Input note is not authenticated');
+        return NoteFile.fromInputNote(input.toInputNote()).serialize();
+      }
+    }
     const result = await this.client.notes.export(noteId, { format: formatMap[exportType] ?? NoteExportFormat.Full });
     assertLive();
     return result.serialize();
@@ -1920,8 +1931,8 @@ export class MidenClientInterface {
       async (prover, attempt) => {
         if (this.shouldUseOffscreenProver(prover)) {
           return await this.proveLocallyViaOffscreen(
-            (wasm, inner) =>
-              buildSendExecuteArgs(
+            async (wasm, inner) => {
+              const args = await buildSendExecuteArgs(
                 wasm,
                 inner,
                 accountId,
@@ -1930,7 +1941,10 @@ export class MidenClientInterface {
                 noteType,
                 amount,
                 reclaimAfter
-              ),
+              );
+              await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), args.request);
+              return args;
+            },
             attempt,
             onStage,
             assertQuotedDeadline
@@ -1963,6 +1977,7 @@ export class MidenClientInterface {
           return request.serialize();
         });
         await onStage?.('executing');
+        await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), { serialize: () => requestBytes });
         // The canonical id, which is what `buildSendExecuteArgs` read the vault
         // under. Executing against the raw `accountId` would let the account the
         // request runs on diverge from the one its asset's vault key came from —
@@ -2011,6 +2026,7 @@ export class MidenClientInterface {
               const request: TransactionRequest = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
               const acctId = resolveAccountId(wasm, accountId);
               recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
+              await awaitTestConsumeAuthorization(walletAccountIdToSdk(accountId).toString(), targetNoteIds, request);
               return { accountId: acctId, request };
             },
             attempt,
@@ -2032,6 +2048,9 @@ export class MidenClientInterface {
           }
           const request = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
           return request.serialize();
+        });
+        await awaitTestConsumeAuthorization(walletAccountIdToSdk(accountId).toString(), targetNoteIds, {
+          serialize: () => requestBytes
         });
         try {
           const executed = await this.client.transactions.executeRequest(
@@ -2125,6 +2144,8 @@ export class MidenClientInterface {
         // other leg proves here, and both submit and apply themselves, so the apply after the submit
         // is reachable and a failure there classifies as landed. The prove is pre-submit, so a
         // delegated prove that fails falls back to a local attempt with a freshly built request.
+        await onStage?.('executing');
+        await awaitTestSendAuthorization(canonicalId, request, 'swap');
         const executed = await this.client.transactions.executeRequest(canonicalId, request);
         if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
         return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage);
@@ -2238,7 +2259,8 @@ export class MidenClientInterface {
       apply: () => submitted.apply(),
       result: executed.result,
       readLocalAccount: accountId => this.client.accounts.get(accountId),
-      holdIsCurrent: () => attempt.holdIsCurrent()
+      holdIsCurrent: () => attempt.holdIsCurrent(),
+      retireTrap: cause => attempt.retireCaughtTrap(cause)
     });
     return executed.result;
   }
@@ -2305,7 +2327,8 @@ export class MidenClientInterface {
       apply: () => submitted.apply(),
       result: executed.result,
       readLocalAccount: accountId => this.client.accounts.get(accountId),
-      holdIsCurrent: () => attempt.holdIsCurrent()
+      holdIsCurrent: () => attempt.holdIsCurrent(),
+      retireTrap: cause => attempt.retireCaughtTrap(cause)
     });
     return executed.result;
   }
@@ -2411,7 +2434,8 @@ export class MidenClientInterface {
           apply: () => inner.applyTransaction(txResult, height),
           result: txResult,
           readLocalAccount: accountId => inner.getAccount(accountId),
-          holdIsCurrent: () => attempt.holdIsCurrent()
+          holdIsCurrent: () => attempt.holdIsCurrent(),
+          retireTrap: cause => attempt.retireCaughtTrap(cause)
         });
         recordProveTiming('proveLocallyViaOffscreen apply returned');
       });
@@ -2618,6 +2642,12 @@ export interface ProveAttempt {
    */
   holdIsCurrent(): boolean;
   /**
+   * Retire this write's client for a trap caught inside its submitting hold. No-op unless
+   * {@link holdIsCurrent} is true: the hold read at entry is a successor's once this write was
+   * evicted, and retiring that hold would poison the successor's healthy client.
+   */
+  retireCaughtTrap(cause: WebAssembly.RuntimeError): void;
+  /**
    * True once recovery took this write's client away: the client is disposed or marked poisoned,
    * or the lock hold the write took is no longer the lock's (#1233). A write that took no hold
    * answers from its client alone, so the lockless unit tests still run. A pre-submit step that sees
@@ -2758,6 +2788,9 @@ export async function proveWithFallback<T>(
         ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
         : proveInWorker(result, hold),
     holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold,
+    retireCaughtTrap: cause => {
+      if (attempt.holdIsCurrent()) retireWasmClientForCaughtTrap(hold!, cause);
+    },
     evicted: () => liveness.disposed || (hold !== null && getCurrentWasmLockHold() !== hold)
   };
 

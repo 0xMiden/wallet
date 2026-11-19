@@ -445,6 +445,12 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.UnlockResponse);
     },
 
+    platformUnlock: async command => {
+      const res = await request({ type: WalletMessageType.PlatformUnlockRequest, command });
+      assertResponse(res.type === WalletMessageType.PlatformUnlockResponse);
+      return res.result;
+    },
+
     // Account actions
     createAccount: async (walletType, name) => {
       const res = await request({
@@ -865,7 +871,7 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
       const failure = burnFeeFailureOf(res);
       return res.outcome === 'measured'
-        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve), faucetId: res.faucetId, scope: res.scope }
         : res.outcome === 'failed' && failure
           ? { outcome: 'failed', failure }
           : { outcome: res.outcome };
