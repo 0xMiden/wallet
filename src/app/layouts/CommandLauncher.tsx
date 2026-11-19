@@ -7,15 +7,18 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { isExtension } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 export default function CommandLauncher(): ReactElement | null {
   const { t } = useTranslation();
   const { popup, sidePanel, confirmWindow } = useAppEnv();
+  const { config } = useBridgeConfigSnapshot({ load: false });
   const [error, setError] = useState(false);
   const [opening, setOpening] = useState(false);
   const openingRef = useRef(false);
 
   if (!isExtension() || confirmWindow || (!popup && !sidePanel)) return null;
+  if (sidePanel && config?.features.openFullscreen === false) return null;
 
   const open = async () => {
     if (openingRef.current) return;

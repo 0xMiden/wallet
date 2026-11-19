@@ -224,6 +224,7 @@ export interface BridgeConfig {
     bridgeOut?: boolean;
     /** Buying Game Coins in Arcade; only there when the document sets it, and `arcade` exists exactly when true. */
     arcadeGcPurchase?: boolean;
+    openFullscreen?: boolean;
   };
   /**
    * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
@@ -794,7 +795,7 @@ function readConfig(
       earn: earnEnabled,
       nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
-        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase']
+        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase', 'openFullscreen']
           .filter(name => features[name] !== undefined)
           .map(name => [name, featureSwitch(features, name)])
       )

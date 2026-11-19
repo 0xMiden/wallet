@@ -3,12 +3,17 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { openCommandHome, WindowType } from 'app/env';
+import { parseBridgeConfig } from 'lib/remote-config/schema';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import CommandLauncher from './CommandLauncher';
 
 const mockEnv = { popup: true, sidePanel: false, confirmWindow: false };
 let mockExtension = true;
+let mockConfig: ReturnType<typeof parseBridgeConfig> = null;
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => ({ config: mockConfig })
+}));
 jest.mock('app/env', () => ({
   WindowType: { Popup: 0, FullPage: 1, SidePanel: 2 },
   useAppEnv: () => mockEnv,
@@ -32,6 +37,7 @@ beforeEach(() => {
   mockEnv.sidePanel = false;
   mockEnv.confirmWindow = false;
   mockExtension = true;
+  mockConfig = null;
 });
 
 it.each([
@@ -48,6 +54,31 @@ it.each([
   expect(button).toHaveAccessibleDescription('commandFullscreenNewTab');
   fireEvent.click(button);
   expect(mockOpen).toHaveBeenCalledWith(source);
+});
+
+it('hides only the sidebar launcher when wallet-config turns it off, and restores it when enabled', () => {
+  const config = (openFullscreen: boolean) =>
+    parseBridgeConfig({ network: 'testnet', version: 1, features: { openFullscreen } }, 'testnet');
+  mockEnv.popup = false;
+  mockEnv.sidePanel = true;
+  const { rerender } = render(<CommandLauncher />);
+  expect(screen.getByRole('button', { name: 'commandOpenFullscreen' })).toBeVisible();
+
+  mockConfig = config(false);
+  expect(mockConfig).not.toBeNull();
+  rerender(<CommandLauncher />);
+  expect(screen.queryByRole('button', { name: 'commandOpenFullscreen' })).toBeNull();
+
+  mockEnv.popup = true;
+  mockEnv.sidePanel = false;
+  rerender(<CommandLauncher />);
+  expect(screen.getByRole('button', { name: 'commandOpenFullscreen' })).toBeVisible();
+
+  mockEnv.popup = false;
+  mockEnv.sidePanel = true;
+  mockConfig = config(true);
+  rerender(<CommandLauncher />);
+  expect(screen.getByRole('button', { name: 'commandOpenFullscreen' })).toBeVisible();
 });
 
 it.each(['native', 'full page', 'confirmation'] as const)('does not offer a launcher in %s', surface => {
