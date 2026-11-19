@@ -263,7 +263,7 @@ beforeEach(async () => {
   duringAllowance = async () => undefined;
   validationPatch = {};
   afterValidation = () => undefined;
-  fetchMock.mockImplementation(async () => {
+  fetchMock.mockReset().mockImplementation(async () => {
     const body = validationResponse();
     afterValidation();
     return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body };
@@ -807,7 +807,9 @@ it.each([false, true])('withholds manual Execute for older saved source proof (p
   await reconcile();
 
   const row = await Repo.transactions.get(id);
-  expect(row?.extraInputs.cctp?.attestation).toBeUndefined();
+  const leg = row?.extraInputs.cctp;
+  expect(leg?.attestation).toBe(staged ? '0xabcd' : undefined);
+  expect(() => captureCctpExecution(row, source.chain.id, leg, captureBridgeWalletScope())).toThrow(UsdcxBurnError);
   expect(capture).toThrow(UsdcxBurnError);
   expect(adapterWallet).not.toHaveBeenCalled();
 });
@@ -827,11 +829,19 @@ it('waits for explicit Circle failure on an aged deposit with previously staged 
     .mockResolvedValueOnce(completedBurn(message, 'FAILED'));
 
   await reconcile();
-  await reconcile();
+  const waiting = await Repo.transactions.get(id);
+  expect(() =>
+    captureCctpExecution(waiting, source.chain.id, waiting?.extraInputs.cctp, captureBridgeWalletScope())
+  ).toThrow(UsdcxBurnError);
 
+  await reconcile();
   const row = await Repo.transactions.get(id);
   expect(row?.extraInputs.phase).toBe('delivering');
   expect(row?.extraInputs.cctp).toMatchObject({ forwardState: 'FAILED', message, attestation: '0xabcd' });
+  expect(captureCctpExecution(row, source.chain.id, row?.extraInputs.cctp, captureBridgeWalletScope())).toMatchObject({
+    rowId: id,
+    sourceHash
+  });
   expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(adapterWallet).not.toHaveBeenCalled();
 });

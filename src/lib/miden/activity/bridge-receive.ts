@@ -443,17 +443,10 @@ async function reconcileUsdcxExecutorRow(
     return;
   }
   const canUpdate = original ? (current: ITransaction) => cctpSourceStillCurrent(row, current) : undefined;
-  if (canUpdate && leg.attestation && !leg.executeAttempt && !cctpAllowsManualExecution(leg)) {
-    await updateBridgedReceivePhase(
-      row.id,
-      'delivering',
-      { cctp: { sourceDomain: leg.sourceDomain, forwarded: true, message: undefined, attestation: undefined } },
-      undefined,
-      { canUpdate }
-    );
-    return;
-  }
-  if (leg.attestation && !leg.forwarded && !original) return;
+  // Keep a historical pair as delivery evidence: clearing it can time out the row before Iris next answers.
+  // The CTA and wallet reservation both veto a pair that still belongs to Circle's forward.
+  const manualAllowed = cctpAllowsManualExecution(leg);
+  if (leg.attestation && !leg.forwarded && (!original || manualAllowed)) return;
   const attested = original
     ? await fetchOwnedAttestedCctpMessage(row, source, original)
     : await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
@@ -489,7 +482,7 @@ async function reconcileUsdcxExecutorRow(
     }
     return;
   }
-  if (leg.attestation) return;
+  if (leg.attestation && manualAllowed) return;
   const execution = {
     cctp: {
       sourceDomain: leg.sourceDomain,
