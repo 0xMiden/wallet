@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.0 clients.
 - [FIX][ci] Measure the mobile R5 refusal with adjacent WebView sync samples while retaining the two-block limit.
 - [FIX][ci] Create only the deposit wallet in the live iOS USDCx tests.
 
