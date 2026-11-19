@@ -278,19 +278,32 @@ describe('dApp approval labels keep their meaning', () => {
     }
   });
 
-  it.each(['ja', 'ko', 'zh_CN'])('names one Note from a faucet in %s confirmTxNoteFromFaucet', locale => {
+  const NOTE_FROM_FAUCET: Record<string, RegExp> = {
+    ja: /faucet.*Note/,
+    ko: /faucet.*Note/,
+    zh_CN: /faucet.*Note/,
+    tr: /faucet'ten Note/,
+    zh_TW: /來自 faucet 的 Note/
+  };
+  const DUPLICATE_NOTE_TERM = /notu|註解|注記/i;
+
+  it.each(Object.keys(NOTE_FROM_FAUCET))('names one Note from a faucet in %s confirmTxNoteFromFaucet', locale => {
     for (const label of shipped(locale, 'confirmTxNoteFromFaucet')) {
+      expect(label).toMatch(NOTE_FROM_FAUCET[locale]!);
       expect(label.match(/Note/g)).toHaveLength(1);
       // The Note comes from the faucet: in each of these word orders the faucet is named first.
       expect(label.indexOf('faucet')).toBeGreaterThanOrEqual(0);
       expect(label.indexOf('faucet')).toBeLessThan(label.indexOf('Note'));
+      expect(label).not.toMatch(DUPLICATE_NOTE_TERM);
     }
   });
 
   // "Send you transaction requests": the site asks the user, it does not send the user's own requests.
   const YOUR_REQUESTS: Record<string, RegExp> = { fr: /vos demandes/i, pt: /suas solicita/i, tr: /taleplerinizi/i };
+  const REQUESTS_TO_USER: Record<string, RegExp> = { fr: /vous envoyer/i, pt: /para você/i, tr: /^size /i };
   it.each(Object.keys(YOUR_REQUESTS))('says the site sends requests to the user in %s', locale => {
     for (const label of shipped(locale, 'connectFactTxRequestsTitle')) {
+      expect(label).toMatch(REQUESTS_TO_USER[locale]!);
       expect(label).not.toMatch(YOUR_REQUESTS[locale]!);
     }
   });
