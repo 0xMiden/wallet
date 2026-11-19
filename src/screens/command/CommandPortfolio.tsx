@@ -184,7 +184,8 @@ export function CommandPortfolio({
             <SegmentedControl<HistoryRange>
               aria-label={t('commandHistoryRange')}
               size="sm"
-              className="min-w-0 max-w-full"
+              layout="fill"
+              className="w-52 min-w-0 max-w-full"
               value={range}
               items={RANGE_ITEMS}
               onChange={next => {
