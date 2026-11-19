@@ -12,7 +12,7 @@
  */
 
 import { Account } from '@miden-sdk/miden-sdk/lazy';
-import { GuardianHttpClient } from '@openzeppelin/miden-multisig-client';
+import { GuardianHttpClient, type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
 import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
@@ -309,6 +309,8 @@ if (typeof global.atob === 'undefined') {
 // request deserializer + note array the rebased custom proposal rebuilds through.
 const mockAccountDeserialize = jest.fn();
 const mockTransactionRequestDeserialize = jest.fn();
+const mockTransactionSummaryDeserialize = jest.fn();
+const mockWordFromFelts = jest.fn();
 const mockNoteArray = jest.fn((notes: unknown) => ({ kind: 'note-array', notes }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
@@ -321,6 +323,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionRequest: {
       deserialize: (...args: unknown[]) => mockTransactionRequestDeserialize(...args)
     },
+    TransactionSummary: { deserialize: (...args: unknown[]) => mockTransactionSummaryDeserialize(...args) },
+    Word: Object.assign(actual.Word, { newFromFelts: (...args: unknown[]) => mockWordFromFelts(...args) }),
     NoteArray: function (notes: unknown) {
       return mockNoteArray(notes);
     }
@@ -339,6 +343,8 @@ jest.mock('@miden-sdk/miden-sdk', () => {
     TransactionRequest: {
       deserialize: (...args: unknown[]) => mockTransactionRequestDeserialize(...args)
     },
+    TransactionSummary: { deserialize: (...args: unknown[]) => mockTransactionSummaryDeserialize(...args) },
+    Word: Object.assign(actual.Word, { newFromFelts: (...args: unknown[]) => mockWordFromFelts(...args) }),
     NoteArray: function (notes: unknown) {
       return mockNoteArray(notes);
     }
@@ -369,10 +375,13 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   })),
   getConsumableNotes: jest.fn(async () => ['note-a']),
   createSwitchGuardianProposal: jest.fn(async () => ({
+    id: 'switch-proposal',
     nonce: 7,
     txSummary: 'txs-b64',
     metadata: { proposalType: 'switch-guardian' }
   })),
+  exportProposalToJson: jest.fn((proposalId: string) => JSON.stringify({ commitment: proposalId })),
+  importProposal: jest.fn(async () => ({ id: 'imported' })),
   setGuardianClient: jest.fn(),
   registerOnGuardian: jest.fn(async () => {}),
   guardianPublicKey: 'old-pubkey',
@@ -2802,6 +2811,33 @@ describe('MultisigService', () => {
       expect(mockProbeVerdicts).toEqual([['https://new', true]]);
     });
 
+    it('returns the SDK export captured under the switch creation hold', async () => {
+      const proposal = { id: 'switch-proposal', nonce: 7 };
+      const exportBytes = '{"commitment":"switch-proposal"}';
+      let creationHold: object | null = null;
+      let exportHold: object | null = null;
+      const exportProposalToJson = jest.fn(() => {
+        exportHold = currentWasmHold;
+        return exportBytes;
+      });
+      const multisig = makeMultisig({
+        createSwitchGuardianProposal: jest.fn(async () => {
+          creationHold = currentWasmHold;
+          return proposal;
+        }),
+        exportProposalToJson
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
+
+      const result = await service.createSwitchGuardianProposal('https://new');
+
+      expect(exportProposalToJson).toHaveBeenCalledWith(proposal.id);
+      expect(creationHold).not.toBeNull();
+      expect(exportHold).toBe(creationHold);
+      expect(result).toMatchObject({ proposal, exportedProposal: exportBytes });
+    });
+
     it('names a rejected switch-guardian proposal creation but not the new guardian key fetch', async () => {
       const error = new Error('proposal refused');
       const multisig = makeMultisig({ createSwitchGuardianProposal: jest.fn(async () => Promise.reject(error)) });
@@ -3376,7 +3412,12 @@ describe('MultisigService', () => {
         callOrder.push('createSwitchGuardianProposal');
         multisigHold = currentWasmHold;
         expect(currentWasmHold).not.toBeNull();
-        return { nonce: 7, txSummary: 'txs-b64', metadata: { proposalType: 'switch-guardian' } };
+        return {
+          id: 'switch-proposal',
+          nonce: 7,
+          txSummary: 'txs-b64',
+          metadata: { proposalType: 'switch-guardian' }
+        };
       });
       const multisig = makeMultisig({ createSwitchGuardianProposal });
       return {
@@ -3649,8 +3690,166 @@ describe('MultisigService', () => {
       await service.signProposal('p-3');
 
       expect(multisig.signProposal).toHaveBeenCalledWith('p-3');
+      expect(multisig.importProposal).not.toHaveBeenCalled();
       expect(multisig.executeProposal).not.toHaveBeenCalled();
       expect(multisig.createTransactionProposalRequest).not.toHaveBeenCalled();
+    });
+
+    // #2225: the SDK looks for a proposal that is not in its cache in the Guardian's full pending list, and
+    // one pending proposal that does not parse (a signature from a replaced hot key) fails that read.
+    it('adopts a known proposal before it signs, so the SDK finds it in its cache', async () => {
+      const calls: string[] = [];
+      const importedId = `0x${'cd'.repeat(32)}`;
+      const exported = JSON.stringify({
+        accountId: 'acc-id',
+        nonce: 7,
+        commitment: '0xPROP',
+        txSummaryBase64: 'txs-b64',
+        signatures: [
+          {
+            commitment: '0xhot',
+            signatureHex: '0xsig',
+            scheme: 'ecdsa',
+            publicKey: '0xpub',
+            messageFormat: 'eip712',
+            timestamp: '2026-11-19T00:00:00.000Z'
+          },
+          {
+            commitment: '0xfalcon',
+            signatureHex: '0xfsig',
+            scheme: 'falcon',
+            timestamp: '2026-11-19T00:00:01.000Z'
+          }
+        ],
+        metadata: { proposalType: 'switch_guardian' }
+      });
+      const importProposal = jest.fn(async (json: string) => {
+        calls.push('import');
+        return { id: json === exported ? importedId : 'other-spelling' };
+      });
+      const multisig = makeMultisig({
+        importProposal,
+        signProposal: jest.fn(async () => {
+          calls.push('sign');
+          return { signatures: [] };
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.signProposal('0xPROP', undefined, exported);
+
+      expect(calls).toEqual(['import', 'sign']);
+      expect(importProposal).toHaveBeenCalledWith(exported);
+      expect(multisig.signProposal).toHaveBeenCalledWith(importedId);
+    });
+
+    it('does not sign when the known proposal fails its adoption', async () => {
+      const multisig = makeMultisig({
+        importProposal: jest.fn(async () => {
+          throw new Error('Invalid proposal: metadata salt does not match');
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.signProposal('0xprop', undefined, '{"commitment":"0xprop"}')).rejects.toThrow(
+        'metadata salt does not match'
+      );
+      expect(multisig.signProposal).not.toHaveBeenCalled();
+    });
+
+    it('does not start cold adoption after its caller stops waiting', async () => {
+      const importProposal = jest.fn(async () => ({}));
+      const multisig = makeMultisig({ importProposal });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: true };
+
+      await expect(service.signProposal('0xprop', undefined, '{"commitment":"0xprop"}', phase)).rejects.toThrow(
+        'abandoned'
+      );
+      expect(importProposal).not.toHaveBeenCalled();
+      expect(multisig.signProposal).not.toHaveBeenCalled();
+    });
+
+    it('signs an imported switch proposal from the SDK cache without listing pending proposals', async () => {
+      const { Multisig } = jest.requireActual<typeof import('@openzeppelin/miden-multisig-client')>(
+        '../../../../node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js'
+      );
+      const commitment = `0x${'11'.repeat(32)}`;
+      const salt = `0x${'22'.repeat(32)}`;
+      const signerCommitment = `0x${'33'.repeat(32)}`;
+      const accountId = '0x000000000000000000000000000001';
+      const proposal: Proposal = {
+        id: commitment,
+        accountId,
+        nonce: 7,
+        status: 'pending',
+        txSummary: 'AQ==',
+        signatures: [],
+        metadata: {
+          description: 'Switch Guardian',
+          proposalType: 'switch_guardian',
+          newGuardianPubkey: signerCommitment,
+          newGuardianEndpoint: 'https://new.test',
+          saltHex: salt
+        },
+        verification: { status: 'unchecked' }
+      };
+      const summaryBytes = new Uint8Array(87);
+      summaryBytes[0] = 1;
+      mockTransactionSummaryDeserialize.mockReturnValue({
+        toCommitment: () => ({ toHex: () => commitment }),
+        serialize: () => summaryBytes,
+        blockCommitment: () => ({ serialize: () => new Uint8Array(32), free: () => {} }),
+        userParams: () => Array.from({ length: 6 }, () => ({ asInt: () => 0n })),
+        expirationDelta: () => 0
+      });
+      mockWordFromFelts.mockReturnValue({ toHex: () => salt });
+      const getDeltaProposals = jest.fn(async () => {
+        throw new Error('The test does not list pending proposals');
+      });
+      const signDeltaProposal = jest.fn(async () => ({
+        accountId,
+        nonce: proposal.nonce,
+        deltaPayload: { txSummary: { data: proposal.txSummary } },
+        status: { status: 'candidate' }
+      }));
+      const guardian = { getDeltaProposals, signDeltaProposal };
+      const signer = { commitment: signerCommitment, scheme: 'falcon', signCommitment: async () => '0x01' };
+      const client = {
+        defaultProver: null,
+        accounts: { get: async () => null },
+        syncChain: async () => {}
+      };
+      const multisig = new Multisig(
+        {} as never,
+        { threshold: 1, signerCommitments: [signerCommitment], guardianCommitment: signerCommitment },
+        guardian as never,
+        signer as never,
+        client as never,
+        accountId,
+        'https://node.test'
+      );
+      const service = new MultisigService(multisig, {} as never, 'https://old.test');
+      const exportedProposal = JSON.stringify({
+        accountId: proposal.accountId,
+        nonce: proposal.nonce,
+        commitment: proposal.id,
+        txSummaryBase64: proposal.txSummary,
+        signatures: [],
+        metadata: proposal.metadata
+      });
+
+      let outcome: PromiseSettledResult<void>;
+      try {
+        await service.signProposal(commitment, undefined, exportedProposal);
+        outcome = { status: 'fulfilled', value: undefined };
+      } catch (reason) {
+        outcome = { status: 'rejected', reason };
+      }
+
+      expect(getDeltaProposals).not.toHaveBeenCalled();
+      expect(outcome).toEqual({ status: 'fulfilled', value: undefined });
+      expect(signDeltaProposal).toHaveBeenCalledWith(expect.objectContaining({ accountId, commitment }));
     });
   });
 

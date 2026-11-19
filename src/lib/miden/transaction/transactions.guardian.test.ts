@@ -250,6 +250,7 @@ const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => {
   const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
   return {
+    ColdProposalAdoptionError: actual.ColdProposalAdoptionError,
     GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
     PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
     ProposalChainSyncError: actual.ProposalChainSyncError,
@@ -11191,7 +11192,8 @@ describe('generateTransaction - Guardian routing', () => {
           id: 'prop-switch',
           metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
         },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: '{"commitment":"prop-switch"}'
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -11253,10 +11255,17 @@ describe('generateTransaction - Guardian routing', () => {
         label: 'switch-guardian cold service load'
       }
     );
-    expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch', {
-      watchdogMs: 30_000,
-      label: 'switch-guardian cold co-sign'
-    });
+    // The cold service imports the SDK export from createSwitchGuardianProposal, so it does not read the
+    // outgoing guardian's pending list, which one pending proposal that does not parse fails (#2225).
+    expect(coldService.signProposal).toHaveBeenCalledWith(
+      'prop-switch',
+      {
+        watchdogMs: 30_000,
+        label: 'switch-guardian cold co-sign'
+      },
+      '{"commitment":"prop-switch"}',
+      expect.objectContaining({ syncing: false, abandoned: false })
+    );
     // After the multisigService/signingService consolidation, the hot service IS
     // the only service for non-replace-hot-key types - it drives the final
     // signAndCreateTransactionRequest.
@@ -11285,7 +11294,8 @@ describe('generateTransaction - Guardian routing', () => {
           id: 'prop-switch',
           metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
         },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: '{"commitment":"prop-switch"}'
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -11481,7 +11491,8 @@ describe('generateTransaction - Guardian routing', () => {
     const multisigService = {
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch', nonce: 31 },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: '{"commitment":"prop-switch"}'
       })),
       signAndCreateTransactionRequest: jest.fn(),
       abandonCandidate: jest.fn(async () => {
@@ -11560,7 +11571,8 @@ describe('generateTransaction - Guardian routing', () => {
       guardianEndpoint: 'https://old.guardian',
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch', nonce: 33 },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: '{"commitment":"prop-switch"}'
       })),
       signAndCreateTransactionRequest: jest.fn(),
       abandonCandidate: jest.fn(async () => {
@@ -12683,7 +12695,8 @@ describe('generateTransaction - Guardian routing', () => {
       mockGetOrCreateMultisigService.mockResolvedValue({
         createSwitchGuardianProposal: jest.fn(async () => ({
           proposal: { id: 'prop-switch', metadata: { proposalType: 'switch_guardian' } },
-          newEndpoint: 'https://new.guardian'
+          newEndpoint: 'https://new.guardian',
+          exportedProposal: '{"commitment":"prop-switch"}'
         })),
         signAndCreateTransactionRequest: jest.fn(async () => ({
           serialize: () => new Uint8Array([1]),
@@ -12710,10 +12723,15 @@ describe('generateTransaction - Guardian routing', () => {
       ).catch(() => undefined);
 
       expect(mockBuildColdMultisigService).toHaveBeenCalled();
-      expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch', {
-        watchdogMs: 30_000,
-        label: 'switch-guardian cold co-sign'
-      });
+      expect(coldService.signProposal).toHaveBeenCalledWith(
+        'prop-switch',
+        {
+          watchdogMs: 30_000,
+          label: 'switch-guardian cold co-sign'
+        },
+        '{"commitment":"prop-switch"}',
+        expect.objectContaining({ syncing: false, abandoned: false })
+      );
     });
 
     it('update-procedure-threshold reaches the cold service and its proposal', async () => {
@@ -13006,7 +13024,8 @@ describe('generateTransaction - Guardian routing', () => {
       const service = {
         createSwitchGuardianProposal: jest.fn(async () => ({
           proposal: { id: 'prop-switch', nonce: 41 },
-          newEndpoint: 'https://new.guardian'
+          newEndpoint: 'https://new.guardian',
+          exportedProposal: '{"commitment":"prop-switch"}'
         })),
         signAndCreateTransactionRequest: jest.fn(async () => ({
           serialize: () => new Uint8Array([1]),
@@ -13090,7 +13109,8 @@ describe('generateTransaction - Guardian routing', () => {
     const service = {
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch', nonce: 41 },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: '{"commitment":"prop-switch"}'
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -13179,7 +13199,8 @@ describe('generateTransaction - Guardian routing', () => {
       guardianEndpoint: 'https://old.guardian',
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: proposalId, nonce: 41 },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: `{"commitment":"${String(proposalId)}"}`
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -13459,7 +13480,8 @@ describe('generateTransaction - Guardian routing', () => {
     const service = {
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch' },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: '{"commitment":"prop-switch"}'
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -13653,7 +13675,8 @@ describe('generateTransaction - Guardian routing', () => {
           nonce: 41,
           metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
         },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: '{"commitment":"prop-switch"}'
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -15036,7 +15059,8 @@ describe('generateTransaction - Guardian routing', () => {
     const multisigService = {
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch' },
-        newEndpoint: 'https://new.guardian'
+        newEndpoint: 'https://new.guardian',
+        exportedProposal: '{"commitment":"prop-switch"}'
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -16702,7 +16726,10 @@ describe('generateTransaction - direct switch audit marker', () => {
     const provider = setup(txId);
     const abandonCandidate = jest.fn(async () => {});
     mockGetOrCreateMultisigService.mockResolvedValue({
-      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7 },
+        exportedProposal: '{"commitment":"prop-1"}'
+      })),
       abandonCandidate
     });
     mockBuildColdMultisigService.mockRejectedValue(Object.assign(new Error('Unauthorized'), { status: 401 }));
@@ -16721,7 +16748,10 @@ describe('generateTransaction - direct switch audit marker', () => {
     const txId = 'switch-guardian-marker-cold-cosign-warn';
     const provider = setup(txId);
     mockGetOrCreateMultisigService.mockResolvedValue({
-      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7 },
+        exportedProposal: '{"commitment":"prop-1"}'
+      })),
       abandonCandidate: jest.fn(async () => {})
     });
     mockBuildColdMultisigService.mockRejectedValue(Object.assign(new Error('Forbidden'), { status: 403 }));
@@ -16742,7 +16772,10 @@ describe('generateTransaction - direct switch audit marker', () => {
     const txId = 'switch-guardian-marker-final-cosign-warn';
     const provider = setup(txId);
     mockGetOrCreateMultisigService.mockResolvedValue({
-      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7 },
+        exportedProposal: '{"commitment":"prop-1"}'
+      })),
       signAndCreateTransactionRequest: jest.fn(async () => {
         throw Object.assign(new Error('Forbidden'), { status: 403 });
       }),
@@ -16775,7 +16808,10 @@ describe('generateTransaction - direct switch audit marker', () => {
     const provider = setup(txId);
     const abandonCandidate = jest.fn(async () => {});
     mockGetOrCreateMultisigService.mockResolvedValue({
-      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7 },
+        exportedProposal: '{"commitment":"prop-1"}'
+      })),
       signAndCreateTransactionRequest: jest.fn(async () => {
         throw Object.assign(new Error('refused'), shape);
       }),
@@ -16815,7 +16851,10 @@ describe('generateTransaction - direct switch audit marker', () => {
     const provider = setup(txId);
     const abandonCandidate = jest.fn(async () => {});
     mockGetOrCreateMultisigService.mockResolvedValue({
-      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7 },
+        exportedProposal: '{"commitment":"prop-1"}'
+      })),
       abandonCandidate
     });
     mockBuildColdMultisigService.mockRejectedValue(
@@ -16837,7 +16876,10 @@ describe('generateTransaction - direct switch audit marker', () => {
     const txId = 'switch-guardian-marker-cold-cosign';
     const provider = setup(txId);
     mockGetOrCreateMultisigService.mockResolvedValue({
-      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7 },
+        exportedProposal: '{"commitment":"prop-1"}'
+      })),
       abandonCandidate: jest.fn(async () => {})
     });
     mockBuildColdMultisigService.mockRejectedValue(new Error('Failed to fetch'));
@@ -16847,6 +16889,54 @@ describe('generateTransaction - direct switch audit marker', () => {
     const extra = markerExtraInputs(txId);
     expect(extra).toMatchObject({ switchedDirectly: true });
     expect(extra.directSwitchReason).toContain('at cold co-sign');
+  });
+
+  it('keeps a pending cold adoption timeout on the coordinated failure path', async () => {
+    jest.useFakeTimers();
+    try {
+      const txId = 'switch-guardian-cold-adoption-timeout';
+      const provider = setup(txId);
+      const { MultisigService: RealService } =
+        jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
+      const proposal = {
+        id: 'prop-1',
+        accountId: 'guardian-acc',
+        nonce: 7,
+        txSummary: 'summary',
+        signatures: [],
+        metadata: { proposalType: 'switch_guardian' }
+      };
+      let finishAdoption = () => {};
+      const importProposal = jest.fn(
+        () =>
+          new Promise<typeof proposal>(resolve => {
+            finishAdoption = () => resolve(proposal);
+          })
+      );
+      const signProposal = jest.fn(async () => proposal);
+      const coldService = new RealService({ importProposal, signProposal } as never, {} as never, 'https://old');
+      const abandonCandidate = jest.fn(async () => {});
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSwitchGuardianProposal: jest.fn(async () => ({ proposal, exportedProposal: '{}' })),
+        abandonCandidate
+      });
+      mockBuildColdMultisigService.mockResolvedValue(coldService);
+
+      const pending = run(txId, provider).catch(() => {});
+      await jest.advanceTimersByTimeAsync(0);
+      expect(importProposal).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS);
+      await pending;
+      finishAdoption();
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
+      expect(abandonCandidate).not.toHaveBeenCalled();
+      expect(signProposal).not.toHaveBeenCalled();
+      expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   // The stage the user reads while this runs. NOT `signing-proposal`, whose copy
@@ -16884,7 +16974,10 @@ describe('generateTransaction - direct switch audit marker', () => {
   it('does not mark a coordinated switch as direct', async () => {
     const txId = 'switch-guardian-marker-coordinated';
     const provider = setup(txId);
-    const createSwitchGuardianProposal = jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } }));
+    const createSwitchGuardianProposal = jest.fn(async () => ({
+      proposal: { id: 'prop-1', nonce: 7 },
+      exportedProposal: '{"commitment":"prop-1"}'
+    }));
     const signProposal = jest.fn(async () => {});
     mockGetOrCreateMultisigService.mockResolvedValue({
       createSwitchGuardianProposal,
@@ -16898,7 +16991,12 @@ describe('generateTransaction - direct switch audit marker', () => {
     // Pin that the coordinated path was actually walked - otherwise an early
     // throw for an unrelated reason would satisfy the assertion below.
     expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian', expect.any(Object));
-    expect(signProposal).toHaveBeenCalledWith('prop-1', { watchdogMs: 30_000, label: 'switch-guardian cold co-sign' });
+    expect(signProposal).toHaveBeenCalledWith(
+      'prop-1',
+      { watchdogMs: 30_000, label: 'switch-guardian cold co-sign' },
+      '{"commitment":"prop-1"}',
+      expect.objectContaining({ syncing: false, abandoned: false })
+    );
     expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
 
     expect(markerExtraInputs(txId).switchedDirectly).toBeUndefined();
@@ -16989,7 +17087,10 @@ describe('generateTransaction - direct switch, wedged outgoing guardian', () => 
     // and stays quiet for the abandon that follows.
     const abandonCandidate = jest.fn(() => new Promise(() => {}));
     mockGetOrCreateMultisigService.mockResolvedValue({
-      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7 },
+        exportedProposal: '{"commitment":"prop-1"}'
+      })),
       abandonCandidate
     });
     mockBuildColdMultisigService.mockReturnValue(new Promise(() => {}));
@@ -17059,7 +17160,10 @@ describe('generateTransaction - direct switch, wedged outgoing guardian', () => 
     const signAndCreateTransactionRequest = jest.fn(() => new Promise(() => {}));
     const abandonCandidate = jest.fn(() => new Promise(() => {}));
     mockGetOrCreateMultisigService.mockResolvedValue({
-      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7 },
+        exportedProposal: '{"commitment":"prop-1"}'
+      })),
       signAndCreateTransactionRequest,
       abandonCandidate
     });
@@ -17144,7 +17248,8 @@ describe('generateTransaction - direct switch, wedged outgoing guardian', () => 
     const coSign = jest.fn(async () => ({ serialize: () => new Uint8Array([3]), authArg: () => undefined }));
     mockGetOrCreateMultisigService.mockResolvedValue({
       createSwitchGuardianProposal: jest.fn(async () => ({
-        proposal: { id: 'prop-1', nonce: 7, metadata: { chainAnchor: 'Y2hhaW4tYW5jaG9y' } }
+        proposal: { id: 'prop-1', nonce: 7, metadata: { chainAnchor: 'Y2hhaW4tYW5jaG9y' } },
+        exportedProposal: '{"commitment":"prop-1"}'
       })),
       signAndCreateTransactionRequest: coSign,
       abandonCandidate: jest.fn(async () => {})

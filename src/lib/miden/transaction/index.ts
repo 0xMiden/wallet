@@ -15,6 +15,7 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import {
+  ColdProposalAdoptionError,
   GUARDIAN_CANDIDATE_HOLD_MS,
   isProposalChainSyncError,
   MultisigService,
@@ -3933,6 +3934,7 @@ const generateGuardianTransaction = async (
   // write leaves measures its retry window from here (#1317).
   const proposalStamps: ProposalStamps = { proposedAt: Date.now(), proposedAtMono: monotonicNowMs() };
   let proposalResult: Proposal;
+  let switchProposalExport: string | undefined;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
   // structural ops (replace-hot-key / update-procedure-threshold) and, per
@@ -4079,7 +4081,7 @@ const generateGuardianTransaction = async (
         );
         await releaseUnabandonedCandidate(transaction, service);
         unreachableSubject = 'outgoing or new guardian';
-        const { proposal } = await withGuardianConflictRetry(() => {
+        const { proposal, exportedProposal } = await withGuardianConflictRetry(() => {
           const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
           syncPhase = phase;
           return withOutgoingGuardianDeadline(
@@ -4088,6 +4090,7 @@ const generateGuardianTransaction = async (
           );
         });
         proposalResult = proposal;
+        switchProposalExport = exportedProposal;
       } catch (error) {
         // The arm awaits this attempt no longer, whatever rejected it, so its hold must push nothing in any phase.
         if (syncPhase) syncPhase.abandoned = true;
@@ -4578,13 +4581,29 @@ const generateGuardianTransaction = async (
       // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too -
       // otherwise a prior delta mid-canonicalization fails the whole switch even
       // though the hot proposal already landed.
-      await withGuardianConflictRetry(() =>
-        withOutgoingGuardianDeadline(
-          () => coldService.signProposal(proposalResult.id, outgoingGuardianHold('switch-guardian cold co-sign')),
+      await withGuardianConflictRetry(() => {
+        const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+        return withOutgoingGuardianDeadline(
+          // The cold service imports the export captured under the hot creation hold and signs the imported
+          // id. Without that export the SDK reads the outgoing guardian's full pending list, and one pending
+          // proposal that does not parse fails that read (#2225).
+          () =>
+            coldService.signProposal(
+              proposalResult.id,
+              outgoingGuardianHold('switch-guardian cold co-sign'),
+              switchProposalExport,
+              phase
+            ),
           'cold co-signing the switch-guardian proposal'
-        )
-      );
+        ).catch((error: unknown) => {
+          phase.abandoned = true;
+          if (phase.syncing && !isKilledPipeline(error)) throw new ProposalChainSyncError(error);
+          throw error;
+        });
+      });
     } catch (error) {
+      if (error instanceof ColdProposalAdoptionError) throw error.cause;
+      if (isProposalChainSyncError(error)) throw error;
       // Connectivity to the outgoing guardian dropped between proposal push and
       // cold co-sign, or the operator stopped being able to co-sign for this
       // account in that window: fall back to the direct on-chain switch.
