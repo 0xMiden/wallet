@@ -20,20 +20,30 @@ export interface TransactionRowState {
  * tx completes: it just advances Queued → GeneratingTransaction → Completed |
  * Failed, so status alone tells the page everything it needs.
  */
-export const useTransactionRow = (txId: string): TransactionRowState => {
+export const useTransactionRow = (txId: string, probeReceiptRead = false): TransactionRowState => {
   const [state, setState] = useState<TransactionRowState>({ row: undefined, loaded: false });
 
   useEffect(() => {
+    const probe =
+      process.env.MIDEN_E2E_TEST === 'true' &&
+      process.env.MIDEN_NETWORK === 'localhost' &&
+      probeReceiptRead &&
+      Reflect.get(globalThis, '__TEST_EARN_COLD_RECEIPT__') === true;
+    if (probe) console.info('[earn-cold-receipt] subscribed');
     setState({ row: undefined, loaded: false });
 
     return subscribeToLiveQuery(() => Repo.transactions.where({ id: txId }).first(), {
-      next: row => setState({ row: row ?? undefined, loaded: true }),
+      next: row => {
+        if (probe) console.info('[earn-cold-receipt] result');
+        setState({ row: row ?? undefined, loaded: true });
+      },
       error: error => {
+        if (probe) console.info('[earn-cold-receipt] read-error');
         setState(current => ({ ...current, readFailed: true }));
         console.error('[useTransactionRow] Failed to read transaction:', error);
       }
     });
-  }, [txId]);
+  }, [txId, probeReceiptRead]);
 
   return state;
 };

@@ -429,12 +429,28 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         const retryDelivery = survivorPage.getByRole('button', { name: 'Retry delivery', exact: true });
         const consoleErrors: string[] = [];
         const diagnoseColdReceipt = getEnvironmentConfig().name === 'localhost';
+        const receiptOrder = new Set<string>();
         const onConsoleError = (message: ConsoleMessage) => {
-          if (message.type() !== 'error' || consoleErrors.length >= 2) return;
           const text = message.text();
-          if (text.length <= 16_384 && text.includes('Minified React error #185')) consoleErrors.push(text);
+          if (message.type() === 'info') {
+            if (text === '[earn-cold-receipt] subscribed') receiptOrder.add('subscribed');
+            if (text === '[earn-cold-receipt] result') receiptOrder.add('result');
+            if (text === '[earn-cold-receipt] read-error') receiptOrder.add('read-error');
+          }
+          if (message.type() !== 'error' || consoleErrors.length >= 2) return;
+          if (text.length <= 16_384 && text.includes('Minified React error #185')) {
+            receiptOrder.add('react-limit');
+            consoleErrors.push(text);
+          }
         };
-        if (diagnoseColdReceipt) survivorPage.on('console', onConsoleError);
+        if (diagnoseColdReceipt) {
+          await survivorPage.addInitScript(() => {
+            if (location.protocol === 'chrome-extension:' && location.pathname === '/fullpage.html') {
+              Reflect.set(globalThis, '__TEST_EARN_COLD_RECEIPT__', true);
+            }
+          });
+          survivorPage.on('console', onConsoleError);
+        }
         try {
           await survivor.navigateTo(`/history-details/${txId}`);
           await expect(retryDelivery).toBeVisible({ timeout: 30_000 });
@@ -450,6 +466,7 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
             } catch {
               console.error('Earn receipt #185 frames: unavailable');
             }
+            console.error(`Earn cold receipt browser events: ${[...receiptOrder].join(' -> ') || 'unobserved'}`);
           }
           throw error;
         } finally {

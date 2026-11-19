@@ -341,7 +341,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const earnCollateral = selectMidenUsdc(bridgeConfig);
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
-  const { row, loaded, readFailed } = useTransactionRow(transactionId);
+  const { row, loaded, readFailed } = useTransactionRow(transactionId, true);
   const guardianHoldUntil = useGuardianHoldUntil(row);
   const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
   // Live on its own: the payout claims are other rows, which the swap row's subscription never sees.
