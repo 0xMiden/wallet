@@ -88,7 +88,8 @@ export async function assertUsdcxDepositCurrent(owned: OwnedUsdcxDeposit): Promi
 
 export async function recordCctpSourceFacts(
   owned: Pick<OwnedUsdcxDeposit, 'rowId' | 'operation'> & Partial<Pick<OwnedUsdcxDeposit, 'checks'>>,
-  facts: { messageTransmitter?: string; sourceMessage?: Hex }
+  facts: { messageTransmitter?: string; sourceMessage?: Hex; forwardFee?: string },
+  sourceHash?: Hash
 ): Promise<void> {
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const row = await findAdmittedBridgeOperation(owned.operation);
@@ -109,24 +110,41 @@ export async function recordCctpSourceFacts(
       (previous?.sourceMessage &&
         facts.sourceMessage &&
         previous.sourceMessage.toLowerCase() !== facts.sourceMessage.toLowerCase()) ||
-      (facts.sourceMessage &&
+      ((facts.sourceMessage !== undefined || facts.forwardFee !== undefined) &&
         (row.restoredFromBackup ||
           row.recovered ||
           row.extraInputs?.provider !== 'usdcx' ||
+          row.extraInputs.usdcxSource?.route !== 'cctp-executor' ||
           (row.extraInputs.phase !== 'submitting' && row.extraInputs.phase !== 'delivering') ||
           original.sourceAttempt.phase !== 'known' ||
-          !original.sourceAttempt.hash ||
-          original.sourceAttempt.hash !== row.extraInputs.evmTxHash))
+          !sourceHash ||
+          original.sourceAttempt.hash !== sourceHash ||
+          row.extraInputs.evmTxHash !== sourceHash))
     )
       throw new Error('Circle original source facts changed');
     const chain = original.review.route.recovery.config.supportedEvmChains[original.review.route.source.network];
     const domain = chain?.bridges.usdcx?.domain;
     if (domain === undefined) throw new Error('Circle original source domain unavailable');
-    await Repo.transactions.update(row.id, { 'extraInputs.cctp': { sourceDomain: domain, ...previous, ...facts } });
+    await Repo.transactions.update(row.id, {
+      'extraInputs.cctp': {
+        sourceDomain: domain,
+        ...previous,
+        ...facts,
+        ...((facts.sourceMessage !== undefined || facts.forwardFee !== undefined) &&
+          !previous?.revertedExecuteTxHash && { forwarded: true })
+      }
+    });
   });
 }
 
-export async function recordUsdcxDepositHash(owned: OwnedUsdcxDeposit, hash: Hash): Promise<void> {
-  if (!(await recordBridgeSourceAttempt(owned.operation.operationId, owned.operation.revision, { hash })))
-    throw new Error('Circle source identity could not be recorded');
+export async function recordUsdcxDepositHash(
+  owned: OwnedUsdcxDeposit,
+  hash: Hash,
+  forwardFee?: string
+): Promise<void> {
+  await Repo.db.transaction('rw', Repo.transactions, async () => {
+    if (!(await recordBridgeSourceAttempt(owned.operation.operationId, owned.operation.revision, { hash })))
+      throw new Error('Circle source identity could not be recorded');
+    if (forwardFee !== undefined) await recordCctpSourceFacts(owned, { forwardFee }, hash);
+  });
 }

@@ -15,6 +15,7 @@ import {
 import { matchesAgglayerReceiveDeposit } from 'lib/bridge/providers/agglayer/agglayer-status';
 import {
   assertOwnedCctpArcReceipt,
+  cctpSourceStillCurrent,
   fetchOwnedAttestedCctpMessage,
   ownedCctpSourceProof,
   recoverOwnedCctpSourceProof
@@ -442,6 +443,7 @@ async function reconcileUsdcxExecutorRow(
     return;
   }
   if (leg.attestation && !leg.forwarded) return;
+  const canUpdate = original ? (current: ITransaction) => cctpSourceStillCurrent(row, current) : undefined;
   const attested = original
     ? await fetchOwnedAttestedCctpMessage(row, source, original)
     : await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
@@ -465,27 +467,29 @@ async function reconcileUsdcxExecutorRow(
         }
       },
       undefined,
-      { onlyIfNoExecuteHash: true }
+      { onlyIfNoExecuteHash: true, ...(canUpdate && { canUpdate }) }
     );
     return;
   }
   if (leg.forwarded && !isCctpForwardFailed(attested.forwardState)) {
     if (attested.forwardState !== leg.forwardState) {
-      await updateBridgedReceivePhase(row.id, 'delivering', {
-        cctp: { sourceDomain: leg.sourceDomain, forwardState: attested.forwardState }
-      });
+      const progress = { cctp: { sourceDomain: leg.sourceDomain, forwardState: attested.forwardState } };
+      if (canUpdate) await updateBridgedReceivePhase(row.id, 'delivering', progress, undefined, { canUpdate });
+      else await updateBridgedReceivePhase(row.id, 'delivering', progress);
     }
     return;
   }
   if (leg.attestation) return;
-  await updateBridgedReceivePhase(row.id, 'delivering', {
+  const execution = {
     cctp: {
       sourceDomain: leg.sourceDomain,
       message: attested.message,
       attestation: attested.attestation,
       forwardState: attested.forwardState
     }
-  });
+  };
+  if (canUpdate) await updateBridgedReceivePhase(row.id, 'delivering', execution, undefined, { canUpdate });
+  else await updateBridgedReceivePhase(row.id, 'delivering', execution);
 }
 
 // Only the route the row itself recorded, never one the current config would pick for its chain.

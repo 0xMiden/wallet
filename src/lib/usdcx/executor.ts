@@ -370,7 +370,8 @@ export async function runUsdcxExecutorDeposit(
   if (deadline !== undefined && performance.now() >= deadline)
     throw new UsdcxForwardQuoteUnavailableError('the reviewed quote expires before the burn can be signed');
   const burnHash = await signer.depositForBurnWithHookAndFees(burnArgs);
-  if (original && ownership) await ownership.recordUsdcxDepositHash(original, burnHash);
+  if (original && ownership)
+    await ownership.recordUsdcxDepositHash(original, burnHash, quote.feeTotalAmount.toString());
   await updatePhase(trackingTxId, 'submitting', {
     evmTxHash: burnHash,
     usdcxRemoteRecipient: remoteRecipient.toLowerCase(),

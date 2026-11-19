@@ -1,13 +1,15 @@
 // Adapted from bridge-portal@cb52c470 src/bridge/providers/xreserve/cctp-status.ts (MIT).
 import { isAddress, isHash, isHex, parseUnits, type Hex } from 'viem';
 
+import { configKey } from 'lib/bridge/core/routes';
 import { bridgeOperationOf, findAdmittedBridgeOperation } from 'lib/bridge/operation';
-import type { ITransaction } from 'lib/miden/db/types';
+import type { IBridgedReceiveExtraInputs, ITransaction } from 'lib/miden/db/types';
+import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { fetchCctpMessages, type AttestedCctpMessage } from 'lib/usdcx/cctp';
 import type { UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { encodeExecutorHookData } from 'lib/usdcx/executor';
-import { readEvmReceiptOutcome } from 'lib/walletconnect/receipt';
+import { EvmTransactionRevertedError, readEvmReceiptOutcome } from 'lib/walletconnect/receipt';
 
 import {
   assertCctpArcReceipt,
@@ -49,6 +51,32 @@ export function ownedCctpSourceProof(row: ITransaction, source: UsdcxExecutorSou
   } catch {
     return undefined;
   }
+}
+
+/** Bind a receipt or Iris observation to the source and leg read before the network await. */
+export function cctpSourceStillCurrent(expected: ITransaction, row: ITransaction): boolean {
+  const original = bridgeOperationOf(expected);
+  const current = bridgeOperationOf(row);
+  const hash = original?.sourceAttempt?.hash;
+  const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
+  return (
+    row.id === expected.id &&
+    row.type === 'bridged-receive' &&
+    !row.restoredFromBackup &&
+    !row.recovered &&
+    original !== undefined &&
+    current?.operationId === original.operationId &&
+    current.revision === original.revision &&
+    isHash(hash) &&
+    current.sourceAttempt?.phase === 'known' &&
+    current.sourceAttempt.hash === hash &&
+    inputs?.evmTxHash === hash &&
+    inputs.provider === 'usdcx' &&
+    inputs.sourceChainId === expected.extraInputs?.sourceChainId &&
+    configKey(inputs.usdcxSource) === configKey(expected.extraInputs?.usdcxSource) &&
+    (inputs.phase === 'submitting' || inputs.phase === 'delivering') &&
+    configKey(inputs.cctp) === configKey(expected.extraInputs?.cctp)
+  );
 }
 
 export async function recoverOwnedCctpSourceProof(row: ITransaction, source: UsdcxExecutorSource): Promise<void> {
@@ -121,8 +149,18 @@ export async function recoverOwnedCctpSourceProof(row: ITransaction, source: Usd
     );
     sourceMessage = message;
   });
-  if (outcome === 'success' && sourceMessage)
-    await recordCctpSourceFacts({ rowId: row.id, operation }, { messageTransmitter: transmitter, sourceMessage });
+  if (outcome === 'success' && sourceMessage) {
+    await recordCctpSourceFacts({ rowId: row.id, operation }, { messageTransmitter: transmitter, sourceMessage }, hash);
+  } else if (outcome === 'reverted') {
+    const cause = new EvmTransactionRevertedError(source.chain.name);
+    await updateBridgedReceivePhase(
+      row.id,
+      'failed',
+      { error: cause.message, failure: { step: 'reconciler_receipt', cause } },
+      undefined,
+      { canUpdate: current => cctpSourceStillCurrent(row, current) }
+    );
+  }
 }
 
 export async function fetchOwnedAttestedCctpMessage(

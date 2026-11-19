@@ -182,7 +182,7 @@ export async function submitXReserveDeposit(request: XReserveDepositRequest): Pr
             parseUnits(amount, 6),
             encodeExecutorHookData(source.target, recipient, account)
           );
-          await recordCctpSourceFacts(owned, { sourceMessage });
+          await recordCctpSourceFacts(owned, { sourceMessage }, hash);
         }
       },
       updatePhase: updateBridgedReceivePhase
