@@ -16,6 +16,7 @@ import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
 import { CommandAssets } from './CommandAssets';
+import { CommandHistoryTrace } from './CommandHistoryTrace';
 import { useCommandPortfolio } from './useCommandPortfolio';
 import { useCommandPrivacy } from './useCommandPrivacy';
 
@@ -30,7 +31,15 @@ const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
   { id: '1Y', label: '1Y' }
 ];
 
-export function CommandPortfolio({ scope }: { scope: AccountScope }): React.ReactElement {
+export function CommandPortfolio({
+  scope,
+  prompts,
+  recentActions
+}: {
+  scope: AccountScope;
+  prompts?: React.ReactNode;
+  recentActions?: React.ReactNode;
+}): React.ReactElement {
   const { t } = useTranslation();
   const displayOptions = {
     minimumFractionDigits: 2,
@@ -134,25 +143,9 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
     y: 90 - (80 * (Number(row.value) - min)) / span,
     row
   }));
-  const lines = chartPoints.slice(1).flatMap((point, index) => {
-    const previous = chartPoints[index]!;
-    return point.row.bucket - previous.row.bucket === BUCKET_MS && point.row.coverageKey === previous.row.coverageKey
-      ? [
-          <line
-            key={point.row.bucket}
-            x1={previous.x}
-            y1={previous.y}
-            x2={point.x}
-            y2={point.y}
-            stroke="var(--status-positive)"
-            strokeWidth="1"
-          />
-        ]
-      : [];
-  });
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5">
-      <section aria-label={t('commandPortfolio')}>
+    <div className="mx-auto grid w-full max-w-[90rem] gap-y-8 px-4 py-8 sm:px-8 lg:grid-cols-12 lg:gap-x-8 lg:px-12 lg:py-12">
+      <section className="min-w-0 lg:col-span-9" aria-label={t('commandPortfolio')}>
         <div className="flex items-center justify-between gap-3">
           <SectionHeader size="xl">{t('commandPortfolio')}</SectionHeader>
           <Button
@@ -166,7 +159,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
           </Button>
         </div>
         <p className="text-label text-muted">{t('commandWalletBalance')}</p>
-        <p className="text-display text-ink">
+        <p className="break-words text-display tracking-tight text-ink sm:text-6xl xl:text-8xl">
           {hidden
             ? t('commandMaskedBalance')
             : !portfolio.current || value === null
@@ -203,7 +196,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
             <>
               <div
                 data-testid="command-chart"
-                className="mt-3 h-40 w-full"
+                className="mt-5 h-44 w-full sm:h-56"
                 onMouseMove={event => {
                   const rect = event.currentTarget.getBoundingClientRect();
                   if (rect.width) {
@@ -218,12 +211,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
                   }
                 }}
               >
-                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full" aria-hidden="true">
-                  {lines}
-                  {chartPoints.map(point => (
-                    <circle key={point.row.bucket} cx={point.x} cy={point.y} r="1" fill="var(--status-positive)" />
-                  ))}
-                </svg>
+                <CommandHistoryTrace points={chartPoints} bucketMs={BUCKET_MS} />
               </div>
               <input
                 type="range"
@@ -243,7 +231,7 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
         </Card>
       </section>
       {!hidden && portfolio.current && portfolio.allocation.length > 0 && (
-        <section aria-label={t('commandAllocation')}>
+        <section className="min-w-0 lg:col-span-3" aria-label={t('commandAllocation')}>
           <Card surface="outline" className="flex flex-col gap-2">
             <SectionHeader>{t('commandAllocation')}</SectionHeader>
             <p className="text-caption text-muted">{t('commandPricedAssets')}</p>
@@ -265,12 +253,16 @@ export function CommandPortfolio({ scope }: { scope: AccountScope }): React.Reac
           </Card>
         </section>
       )}
-      <CommandAssets
-        assets={portfolio.assets}
-        prices={portfolio.tokenPrices}
-        hidden={hidden}
-        current={portfolio.current}
-      />
+      {prompts && <div className="lg:col-span-12">{prompts}</div>}
+      <div className={recentActions ? 'min-w-0 lg:col-span-7' : 'min-w-0 lg:col-span-12'}>
+        <CommandAssets
+          assets={portfolio.assets}
+          prices={portfolio.tokenPrices}
+          hidden={hidden}
+          current={portfolio.current}
+        />
+      </div>
+      {recentActions && <div className="min-w-0 lg:col-span-5">{recentActions}</div>}
     </div>
   );
 }

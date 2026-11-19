@@ -30,7 +30,7 @@ export function CommandRecentActions({
   const [hidden] = useCommandPrivacy();
 
   return (
-    <section className="mx-auto w-full max-w-5xl px-4 pb-8" aria-label={t('commandRecentActions')}>
+    <section className="w-full pb-8" aria-label={t('commandRecentActions')}>
       <SectionHeader
         size="xl"
         action={

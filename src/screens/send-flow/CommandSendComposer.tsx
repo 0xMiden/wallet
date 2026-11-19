@@ -41,10 +41,9 @@ export function CommandSendComposer({
       form={formId}
       title={t('reviewDetails')}
       variant={ButtonVariant.Primary}
-      accent="send"
       data-testid="command-send-review"
       disabled={!canReview}
-      className="w-full max-w-none"
+      className="w-full max-w-none sm:w-auto sm:min-w-40"
     />,
     route
   );
@@ -53,7 +52,7 @@ export function CommandSendComposer({
     <div data-testid="command-send-composer">
       <form
         id={formId}
-        className="flex flex-col gap-4"
+        className="grid items-start gap-4 md:grid-cols-2 md:gap-6"
         onSubmit={event => {
           event.preventDefault();
           if (canReview) onReview();

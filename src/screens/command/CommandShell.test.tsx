@@ -86,7 +86,13 @@ jest.mock('./CommandHomePrompts', () => ({
   CommandHomePrompts: () => <div data-testid="command-home-prompts" />
 }));
 jest.mock('./CommandPortfolio', () => ({
-  CommandPortfolio: () => <div data-testid="command-portfolio">Live wallet portfolio</div>
+  CommandPortfolio: ({ prompts, recentActions }: { prompts: React.ReactNode; recentActions: React.ReactNode }) => (
+    <div data-testid="command-portfolio">
+      Live wallet portfolio
+      {prompts}
+      {recentActions}
+    </div>
+  )
 }));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),

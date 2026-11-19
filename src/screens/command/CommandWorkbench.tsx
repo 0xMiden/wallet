@@ -79,7 +79,7 @@ export function CommandWorkbench({
         <Dialog.Content
           aria-describedby={undefined}
           onInteractOutside={event => event.preventDefault()}
-          className="relative h-full min-h-0 w-full outline-none"
+          className="relative flex h-full min-h-0 w-full max-w-[66rem] flex-col outline-none sm:h-fit sm:max-h-full"
         >
           <Dialog.Title className="sr-only">{title}</Dialog.Title>
           <SlotContext.Provider value={{ footerHost, summaryHost, register }}>

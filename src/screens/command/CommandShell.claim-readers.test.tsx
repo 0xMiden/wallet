@@ -102,7 +102,14 @@ jest.mock('app/templates/history/History', () => ({
 jest.mock('app/templates/history/PendingActivityCard', () => ({
   PendingActivityCard: ({ item }: { item: { note: { id: string } } }) => <button>{item.note.id}</button>
 }));
-jest.mock('./CommandPortfolio', () => ({ CommandPortfolio: () => null }));
+jest.mock('./CommandPortfolio', () => ({
+  CommandPortfolio: ({ prompts, recentActions }: { prompts: React.ReactNode; recentActions: React.ReactNode }) => (
+    <>
+      {prompts}
+      {recentActions}
+    </>
+  )
+}));
 jest.mock('./CommandHeader', () => ({ CommandHeader: () => null }));
 jest.mock('./CommandDock', () => ({ CommandDock: () => null }));
 jest.mock('./CommandPalette', () => ({ CommandPalette: () => null }));

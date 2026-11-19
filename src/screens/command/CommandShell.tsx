@@ -32,11 +32,11 @@ function CommandDashboard({ scope }: { scope: AccountScope }): React.ReactElemen
   const sharedRead: ScopedClaimableNotesRead | undefined = shareNotes ? { scope, result } : undefined;
 
   return (
-    <>
-      <CommandPortfolio scope={scope} />
-      <CommandHomePrompts sharedRead={sharedRead} />
-      <CommandRecentActions scope={scope} sharedRead={sharedRead} scopeCurrent={scopeCurrent} />
-    </>
+    <CommandPortfolio
+      scope={scope}
+      prompts={<CommandHomePrompts sharedRead={sharedRead} />}
+      recentActions={<CommandRecentActions scope={scope} sharedRead={sharedRead} scopeCurrent={scopeCurrent} />}
+    />
   );
 }
 
@@ -91,9 +91,12 @@ export function CommandShell({
       <FlowPresentationProvider value="command">
         <CommandFlowBackProvider>
           <Dialog.Root open={paletteOpen} onOpenChange={setPaletteOpen}>
-            <div data-testid="command-shell" className="relative flex h-full min-h-0 w-full flex-col bg-page text-ink">
+            <div
+              data-testid="command-shell"
+              className="dark relative flex h-full min-h-0 w-full flex-col bg-page text-ink"
+            >
               <CommandHeader scope={scope} />
-              <main className="relative min-h-0 flex-1 overflow-y-auto">
+              <main className="relative min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,rgba(231,117,55,0.08),transparent_55%)] pb-28">
                 {route.kind === 'dashboard' && (
                   <CommandDashboard
                     key={JSON.stringify([scope.accountId, scope.network, scope.rpcUrl])}
@@ -103,7 +106,9 @@ export function CommandShell({
                 <div
                   ref={setPortalHost}
                   data-command-portals="true"
-                  className={route.kind === 'dashboard' ? '' : 'mx-auto h-full max-w-5xl p-4'}
+                  className={
+                    route.kind === 'dashboard' ? '' : 'grid h-full min-h-0 place-items-center px-3 py-3 sm:px-7 sm:py-6'
+                  }
                 />
                 {route.kind !== 'dashboard' && portalHost && (
                   <CommandWorkbench
