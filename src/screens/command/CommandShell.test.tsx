@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MotionConfig } from 'framer-motion';
 
+import ErrorBoundary from 'app/ErrorBoundary';
 import { HistoryEntryType, type IHistoryEntry } from 'app/templates/history/IHistoryEntry';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { ReviewLayout } from 'components/review';
@@ -16,6 +17,7 @@ import { CommandShell } from './CommandShell';
 import { useCommandWorkbenchSlots } from './CommandWorkbench';
 
 let mockHidden = false;
+let mockBackdropRead: Promise<unknown> | Error | undefined;
 let mockRecentEntries: IHistoryEntry[] = [];
 let mockHistoryInputs: { address: string; numItems?: number; pendingItems?: unknown[] } | undefined;
 let mockClaimItems: { note: { id: string; receivedAt: number }; status: string; txId?: string }[] = [];
@@ -86,13 +88,24 @@ jest.mock('./CommandHomePrompts', () => ({
   CommandHomePrompts: () => <div data-testid="command-home-prompts" />
 }));
 jest.mock('./CommandPortfolio', () => ({
-  CommandPortfolio: ({ prompts, recentActions }: { prompts: React.ReactNode; recentActions: React.ReactNode }) => (
-    <div data-testid="command-portfolio">
-      Live wallet portfolio
-      {prompts}
-      {recentActions}
-    </div>
-  )
+  CommandPortfolio: ({
+    prompts,
+    recentActions,
+    backdrop
+  }: {
+    prompts: React.ReactNode;
+    recentActions: React.ReactNode;
+    backdrop?: boolean;
+  }) => {
+    if (backdrop && mockBackdropRead) throw mockBackdropRead;
+    return (
+      <div data-testid="command-portfolio">
+        Live wallet portfolio
+        {prompts}
+        {recentActions}
+      </div>
+    );
+  }
 }));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
@@ -107,6 +120,7 @@ const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc
 beforeEach(() => {
   jest.clearAllMocks();
   mockHidden = false;
+  mockBackdropRead = undefined;
   mockRecentEntries = [];
   mockHistoryInputs = undefined;
   mockClaimItems = [];
@@ -133,6 +147,28 @@ it('renders one active workbench and navigates via the five dock destinations', 
   expect(screen.getAllByTestId('command-shell')).toHaveLength(1);
   expect(screen.getByText('Real swap controller')).toBeInTheDocument();
   expect(screen.queryByText('Real send controller')).not.toBeInTheDocument();
+});
+
+it.each(['pending', 'failed'])('keeps the workbench usable when the backdrop preference read is %s', state => {
+  mockBackdropRead = state === 'pending' ? new Promise(() => {}) : new Error('Storage read failed');
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    render(
+      <ErrorBoundary>
+        <Suspense fallback={<p>Waiting for wallet</p>}>
+          <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+            <input aria-label="Amount" />
+          </CommandShell>
+        </Suspense>
+      </ErrorBoundary>
+    );
+    const amount = screen.getByRole('textbox', { name: 'Amount' });
+    fireEvent.change(amount, { target: { value: '1.25' } });
+    expect(amount).toHaveValue('1.25');
+    expect(screen.queryByTestId('command-portfolio')).not.toBeInTheDocument();
+  } finally {
+    consoleError.mockRestore();
+  }
 });
 
 it('offers the existing account history as recent actions on the dashboard', () => {
@@ -654,6 +690,27 @@ it('keeps Command controls functional with reduced motion', () => {
   } finally {
     warning.mockRestore();
   }
+});
+
+it('scrolls the last palette option into view while keeping search focus', () => {
+  render(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'commandSearch' }));
+  const input = screen.getByRole('combobox', { name: 'commandSearch' });
+  const last = screen.getByRole('option', { name: 'explore' });
+  const scrollIntoView = jest.fn();
+  last.scrollIntoView = scrollIntoView;
+
+  const optionCount = screen.getAllByRole('option').length;
+  for (let index = 0; index < optionCount; index++) fireEvent.keyDown(input, { key: 'ArrowDown' });
+  expect(last).toHaveAttribute('aria-selected', 'true');
+  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  expect(input).toHaveFocus();
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(navigate).toHaveBeenCalledWith('/browser');
 });
 
 it('opens an accessible palette, selects with arrows and Enter, Escape closes and returns focus', async () => {
