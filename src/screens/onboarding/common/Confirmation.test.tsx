@@ -208,7 +208,7 @@ describe('ConfirmationScreen', () => {
 
     it('draws the outcome hero with the reminders and pins the CTA in the footer', () => {
       renderComponent();
-      // The page title's size: the hero is the screen's only heading.
+      // The xl hero size: the screen's only heading, a step up from the page title.
       expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-hero-value', 'font-extrabold');
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('yourWalletIsReady');
       // The daily reminder line is gone; the seven-day subtitle is the only reminder.
