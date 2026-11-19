@@ -3162,7 +3162,7 @@ describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, write deadline, criticalOp bracketed) + rehydrates', async () => {
+  it.each([false, true])('flag ON → dispatches a minimal send DTO and rehydrates (calendar: %s)', async calendar => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
     let criticalDuring: boolean | undefined;
@@ -3173,8 +3173,10 @@ describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
       return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1, 2, 3]).toString('base64'), durationMs: 4 };
     });
 
+    const tx = sendTx();
+    const calendarRecallTarget = '2030-01-01T12:00:30.000Z';
     const p = midenClientProxy.sendTransaction(
-      sendTx() as any,
+      (calendar ? { ...tx, extraInputs: { recallBlocks: 100, calendarRecallTarget } } : tx) as any,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -3198,14 +3200,16 @@ describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
       noteType: 'public',
       amount: '1000',
       delegateTransaction: false,
-      extraInputs: {
-        recallBlocks: 100,
-        oneClick: {
-          fundingDeadline: '2026-10-22T12:00:00.000Z',
-          request: { deadline: '2026-10-22T12:00:00.000Z' },
-          quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
-        }
-      }
+      extraInputs: calendar
+        ? { recallBlocks: 100, calendarRecallTarget }
+        : {
+            recallBlocks: 100,
+            oneClick: {
+              fundingDeadline: '2026-10-22T12:00:00.000Z',
+              request: { deadline: '2026-10-22T12:00:00.000Z' },
+              quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+            }
+          }
     });
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);

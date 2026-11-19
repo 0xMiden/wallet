@@ -1281,7 +1281,19 @@ describe('Command Send review controller', () => {
       const reopenedExpiration = screen.getByTestId('review-row-expiration').textContent;
       fireEvent.click(screen.getByTestId('send-review-submit'));
       await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
-      expect(initiateMock).toHaveBeenLastCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 20, false);
+      expect(initiateMock).toHaveBeenLastCalledWith(
+        'pubkey-1',
+        '0xrecipient',
+        'tok1',
+        'private',
+        12345n,
+        20,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        new Date(2030, 0, 3, 14).toISOString()
+      );
       expect(dateTimeToRecallBlocksMock).toHaveBeenLastCalledWith(new Date(2030, 0, 3, 14));
       expect(reopenedExpiration).toBe(reviewedExpiration);
       expect(reopenedExpiration).toMatch(/2030/);

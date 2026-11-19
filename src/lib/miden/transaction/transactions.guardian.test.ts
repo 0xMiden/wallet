@@ -2792,11 +2792,13 @@ describe('generateTransaction - Guardian routing', () => {
   });
 
   it.each([
-    ['public', 'Public'],
-    ['private', 'Private']
-  ])(
-    'Guardian recallable %s send builds one P2IDE request with an absolute reclaim height',
-    async (noteType, expectedSdkNoteType) => {
+    ['public', 'Public', undefined, 125, false],
+    ['private', 'Private', undefined, 125, false],
+    ['private', 'Private', '2030-01-01T12:00:30.000Z', 110, false],
+    ['private', 'Private', '2030-01-01T12:00:00.000Z', undefined, true]
+  ] as const)(
+    'Guardian recallable %s send (%s, target %s) honors the reviewed recall term',
+    async (noteType, expectedSdkNoteType, calendarRecallTarget, reclaimHeight, refused) => {
       const txId = `recallable-${noteType}`;
       const result = makeResult();
       const requestBytes = new Uint8Array([7, 8, 9]);
@@ -2809,7 +2811,7 @@ describe('generateTransaction - Guardian routing', () => {
         faucetId: 'faucet',
         noteType,
         requestBytes: undefined,
-        extraInputs: { recallBlocks: 25 },
+        extraInputs: { recallBlocks: 25, calendarRecallTarget },
         delegateTransaction: false
       });
       txStore.push({
@@ -2843,12 +2845,25 @@ describe('generateTransaction - Guardian routing', () => {
         client
       });
 
-      await generateTransaction(
-        transaction,
-        jest.fn(async () => new Uint8Array([2])),
-        false,
-        makeGuardianProvider(true)
-      );
+      const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T12:00:00.000Z'));
+      try {
+        const sending = generateTransaction(
+          transaction,
+          jest.fn(async () => new Uint8Array([2])),
+          false,
+          makeGuardianProvider(true)
+        );
+        if (refused) {
+          await expect(sending).rejects.toMatchObject({ name: 'CalendarRecallReviewRequiredError' });
+          expect(mockBuildSendTransactionRequest).not.toHaveBeenCalled();
+          expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
+          expect(multisigService.createSendProposal).not.toHaveBeenCalled();
+          return;
+        }
+        await sending;
+      } finally {
+        clock.mockRestore();
+      }
 
       expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
       expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
@@ -2859,7 +2874,7 @@ describe('generateTransaction - Guardian routing', () => {
         1000n,
         expectedSdkNoteType,
         180,
-        125,
+        reclaimHeight,
         FEE_AWARE_BUILDER
       );
       // Asked for by the EXECUTING (guarded) account, with the salt this build drew.

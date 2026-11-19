@@ -3950,12 +3950,14 @@ describe('MidenClientInterface', () => {
     });
 
     it.each([
-      ['a Never send', {}, undefined],
+      ['a Never send', {}, undefined, false],
       // The fake client syncs to block 5, so a 600-block window reclaims at 605 (#308).
-      ['a reclaimable send', { recallBlocks: 600 }, 605]
-    ])(
-      "builds %s's request from the sender's account, resolved ids and reclaim height",
-      async (_label, extraInputs, reclaimAfter) => {
+      ['a reclaimable send', { recallBlocks: 600 }, 605, false],
+      ['a delayed calendar send', { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:30.000Z' }, 15, false],
+      ['an expired calendar send', { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:00.000Z' }, undefined, true]
+    ] as const)(
+      "honors %s's reviewed recall term when building its request",
+      async (_label, extraInputs, reclaimAfter, refused) => {
         const fakeWasm = buildWasmStub();
         // A marker account, NOT undefined: the sender's vault key (callback flag
         // included) has to reach the builder. With `undefined` the builder falls
@@ -3986,18 +3988,30 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-        await client.sendTransaction({
-          // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
-          // suffix before parsing, or the bech32 parser sees a string it can reject.
-          accountId: 'mtst1sender_qr7qqq9wr6w',
-          // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
-          // that is otherwise valid would fail to resolve here.
-          secondaryAccountId: '0XRecipient',
-          faucetId: 'mtst1faucet',
-          noteType: 'private' as any,
-          amount: BigInt(250),
-          extraInputs
-        } as any);
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T12:00:00.000Z'));
+        try {
+          const sending = client.sendTransaction({
+            // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
+            // suffix before parsing, or the bech32 parser sees a string it can reject.
+            accountId: 'mtst1sender_qr7qqq9wr6w',
+            // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
+            // that is otherwise valid would fail to resolve here.
+            secondaryAccountId: '0XRecipient',
+            faucetId: 'mtst1faucet',
+            noteType: 'private' as any,
+            amount: BigInt(250),
+            extraInputs
+          } as any);
+          if (refused) {
+            await expect(sending).rejects.toMatchObject({ name: 'CalendarRecallReviewRequiredError' });
+            expect(buildSendTransactionRequest).not.toHaveBeenCalled();
+            expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
+            return;
+          }
+          await sending;
+        } finally {
+          clock.mockRestore();
+        }
 
         expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
         expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
