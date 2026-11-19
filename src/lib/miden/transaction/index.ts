@@ -15,6 +15,7 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import {
+  ColdProposalAdoptionError,
   GUARDIAN_CANDIDATE_HOLD_MS,
   isProposalChainSyncError,
   MultisigService,
@@ -4578,20 +4579,28 @@ const generateGuardianTransaction = async (
       // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too -
       // otherwise a prior delta mid-canonicalization fails the whole switch even
       // though the hot proposal already landed.
-      await withGuardianConflictRetry(() =>
-        withOutgoingGuardianDeadline(
+      await withGuardianConflictRetry(() => {
+        const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+        return withOutgoingGuardianDeadline(
           // The cold service gets the proposal itself. Without it the SDK reads the outgoing guardian's full
           // pending list to find it, and one pending proposal that does not parse fails that read (#2225).
           () =>
             coldService.signProposal(
               proposalResult.id,
               outgoingGuardianHold('switch-guardian cold co-sign'),
-              proposalResult
+              proposalResult,
+              phase
             ),
           'cold co-signing the switch-guardian proposal'
-        )
-      );
+        ).catch((error: unknown) => {
+          phase.abandoned = true;
+          if (phase.syncing && !isKilledPipeline(error)) throw new ProposalChainSyncError(error);
+          throw error;
+        });
+      });
     } catch (error) {
+      if (error instanceof ColdProposalAdoptionError) throw error.cause;
+      if (isProposalChainSyncError(error)) throw error;
       // Connectivity to the outgoing guardian dropped between proposal push and
       // cold co-sign, or the operator stopped being able to co-sign for this
       // account in that window: fall back to the direct on-chain switch.

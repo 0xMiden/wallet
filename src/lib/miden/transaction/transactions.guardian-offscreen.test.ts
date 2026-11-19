@@ -296,8 +296,11 @@ const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => {
   const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
   return {
+    ColdProposalAdoptionError: actual.ColdProposalAdoptionError,
     GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
+    isProposalChainSyncError: actual.isProposalChainSyncError,
     PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+    ProposalChainSyncError: actual.ProposalChainSyncError,
     MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
   };
 });

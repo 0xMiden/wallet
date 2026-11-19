@@ -103,6 +103,13 @@ export function isProposalChainSyncError(err: unknown): boolean {
   return someInCauseChain(err, link => link instanceof ProposalChainSyncError);
 }
 
+export class ColdProposalAdoptionError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'ColdProposalAdoptionError';
+  }
+}
+
 /**
  * The Guardian returned a proposal whose id is not the summary commitment that the wallet derived from the request it
  * proposed. The wallet does not sign this proposal. The message names only the local commitment, so text from the
@@ -941,13 +948,31 @@ export class MultisigService {
   async signProposal(
     id: string,
     lockOptions?: Parameters<typeof withWasmClientLock>[1],
-    known?: Proposal
+    known?: Proposal,
+    phase?: ProposalSyncPhase
   ): Promise<void> {
+    const abandoned = (when: string) => {
+      if (phase?.abandoned) throw new Error(`guardian proposal signing: abandoned by its caller ${when}`);
+    };
     // Signing syncs and previews with the same shared client as account creation.
     await withWasmClientLock(async hold => {
+      abandoned('while it waited for the hold');
       if (known) {
-        await this.multisig.importProposal(exportedProposalJson(known));
+        if (phase) phase.syncing = true;
+        try {
+          await this.multisig.importProposal(exportedProposalJson(known));
+        } catch (error) {
+          if (error instanceof WebAssembly.RuntimeError) {
+            retireWasmClientForCaughtTrap(hold, error);
+            throw error;
+          }
+          if (isPipelineKillLink(error)) throw error;
+          throw new ColdProposalAdoptionError(error);
+        } finally {
+          if (phase) phase.syncing = false;
+        }
         assertWasmHoldCurrent(hold, 'guardian proposal signing: after adopting the known proposal');
+        abandoned('after adopting the known proposal');
       }
       await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(id));
       assertWasmHoldCurrent(hold, 'guardian proposal signing');

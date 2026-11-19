@@ -250,6 +250,7 @@ const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => {
   const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
   return {
+    ColdProposalAdoptionError: actual.ColdProposalAdoptionError,
     GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
     PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
     ProposalChainSyncError: actual.ProposalChainSyncError,
@@ -11261,7 +11262,8 @@ describe('generateTransaction - Guardian routing', () => {
         watchdogMs: 30_000,
         label: 'switch-guardian cold co-sign'
       },
-      expect.objectContaining({ id: 'prop-switch' })
+      expect.objectContaining({ id: 'prop-switch' }),
+      expect.objectContaining({ syncing: false, abandoned: false })
     );
     // After the multisigService/signingService consolidation, the hot service IS
     // the only service for non-replace-hot-key types - it drives the final
@@ -12722,7 +12724,8 @@ describe('generateTransaction - Guardian routing', () => {
           watchdogMs: 30_000,
           label: 'switch-guardian cold co-sign'
         },
-        expect.objectContaining({ id: 'prop-switch' })
+        expect.objectContaining({ id: 'prop-switch' }),
+        expect.objectContaining({ syncing: false, abandoned: false })
       );
     });
 
@@ -16959,7 +16962,8 @@ describe('generateTransaction - direct switch audit marker', () => {
     expect(signProposal).toHaveBeenCalledWith(
       'prop-1',
       { watchdogMs: 30_000, label: 'switch-guardian cold co-sign' },
-      expect.objectContaining({ id: 'prop-1' })
+      expect.objectContaining({ id: 'prop-1' }),
+      expect.objectContaining({ syncing: false, abandoned: false })
     );
     expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
 
