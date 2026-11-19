@@ -31,6 +31,7 @@ type GestureStage =
   | 'swipe-handoff'
   | 'swipe-reply-no-started'
   | 'swipe-reply-started-no-injected'
+  | `swipe-reply-started-no-injected: ${HostRejectionKind}`
   | 'fixture-cleanup';
 
 async function markStage(path: string, stage: GestureStage) {
@@ -272,7 +273,7 @@ test.describe('API36 managed presentation gestures', () => {
         // A started reply precedes injection and does not confirm it.
         if (stagePath) await markStage(stagePath, 'swipe-handoff');
         let inputConfirmed = false;
-        let rejectedReply: { started: boolean; injected: boolean } | undefined;
+        let rejectedReply: { started: boolean; injected: boolean; kind: HostRejection['kind'] } | undefined;
         try {
           let started = false;
           let injecting = false;
@@ -310,7 +311,7 @@ test.describe('API36 managed presentation gestures', () => {
               nativeResult = await gesture;
             } catch (error) {
               // On rejection, only a matching injected reply can have confirmed input.
-              rejectedReply = { started, injected: inputConfirmed };
+              rejectedReply = { started, injected: inputConfirmed, kind: rejection.kind };
               throw error;
             }
             inputConfirmed = true;
@@ -389,7 +390,14 @@ test.describe('API36 managed presentation gestures', () => {
         } catch (error) {
           if (stagePath && inputConfirmed) await markStage(stagePath, name);
           else if (stagePath && rejectedReply && !rejectedReply.injected) {
-            const replyStage = rejectedReply.started ? 'swipe-reply-started-no-injected' : 'swipe-reply-no-started';
+            const { started, kind } = rejectedReply;
+            let replyStage: GestureStage = started ? 'swipe-reply-started-no-injected' : 'swipe-reply-no-started';
+            if (
+              started &&
+              (kind === 'framing-protocol' || kind === 'socket-error-or-close' || kind === 'socket-inactivity')
+            ) {
+              replyStage = `swipe-reply-started-no-injected: ${kind}`;
+            }
             await markStage(stagePath, replyStage);
           }
           throw error;
