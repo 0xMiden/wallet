@@ -443,6 +443,10 @@ it('shows priced-subset allocation independent of holdings search and masks all 
   ];
   render(<CommandPortfolio scope={scope} />);
   const allocation = screen.getByRole('region', { name: 'commandAllocation' });
+  const strip = within(allocation).getByTestId('command-allocation-strip');
+  expect(strip).toHaveAttribute('aria-hidden', 'true');
+  expect(strip.children[0]).toHaveStyle({ flexGrow: '75' });
+  expect(strip.children[1]).toHaveStyle({ flexGrow: '25' });
   expect(within(allocation).getByText('Ethereum')).toBeInTheDocument();
   expect(within(allocation).getByText('Beta')).toBeInTheDocument();
   expect(within(allocation).queryByText('Voucher')).not.toBeInTheDocument();
@@ -459,6 +463,7 @@ it('shows priced-subset allocation independent of holdings search and masks all 
   expect(screen.queryByText('2.00 USD')).not.toBeInTheDocument();
   expect(screen.queryByText('75%')).not.toBeInTheDocument();
   expect(screen.queryByText('25%')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('command-allocation-strip')).not.toBeInTheDocument();
   const maskedMarkup = screen.queryByRole('region', { name: 'commandAllocation' })?.outerHTML ?? '';
   expect(maskedMarkup).not.toMatch(/(?:75|25)%|(?:6|2)\.00/);
 });

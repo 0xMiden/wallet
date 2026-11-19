@@ -23,6 +23,7 @@ import { useCommandPrivacy } from './useCommandPrivacy';
 const BUCKET_MS = 15 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 const RANGES = { '1W': 7, '1M': 30, '3M': 90, '1Y': 365 };
+const ALLOCATION_COLORS = ['bg-accent-primary', 'bg-accent-tint-ink', 'bg-muted'] as const;
 type HistoryRange = keyof typeof RANGES;
 const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
   { id: '1W', label: '1W' },
@@ -147,7 +148,7 @@ export function CommandPortfolio({
     row
   }));
   return (
-    <div className="mx-auto grid w-full max-w-[90rem] gap-y-8 px-4 py-8 sm:px-8 lg:grid-cols-12 lg:gap-x-8 lg:px-12 lg:py-12">
+    <div className="mx-auto grid w-full max-w-[90rem] gap-y-8 px-4 py-8 sm:px-8 lg:grid-cols-12 lg:gap-x-10 lg:px-[5vw] lg:py-12">
       <section className="min-w-0 lg:col-span-9" aria-label={t('commandPortfolio')}>
         <div className="flex items-center justify-between gap-3">
           <SectionHeader size="xl">{t('commandPortfolio')}</SectionHeader>
@@ -178,7 +179,7 @@ export function CommandPortfolio({
             })}
           </p>
         )}
-        <Card surface="outline" className="mt-5" aria-busy={history?.key !== key} data-testid="command-history">
+        <div className="mt-8 min-w-0" aria-busy={history?.key !== key} data-testid="command-history">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
             <SectionHeader>{t('commandObservedHistory')}</SectionHeader>
             <SegmentedControl<HistoryRange>
@@ -234,20 +235,37 @@ export function CommandPortfolio({
             </>
           )}
           <p className="text-caption text-muted">{t('commandObservedOnDevice')}</p>
-        </Card>
+        </div>
       </section>
       {!hidden && portfolio.current && portfolio.allocation.length > 0 && (
         <section className="min-w-0 lg:col-span-3" aria-label={t('commandAllocation')}>
-          <Card surface="outline" className="flex flex-col gap-2">
-            <SectionHeader>{t('commandAllocation')}</SectionHeader>
-            <p className="text-caption text-muted">{t('commandPricedAssets')}</p>
+          <Card surface="outline" className="flex flex-col gap-3 bg-fill/40">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+              <SectionHeader>{t('commandAllocation')}</SectionHeader>
+              <p className="text-caption text-muted">{t('commandPricedAssets')}</p>
+            </div>
+            <div aria-hidden="true" className="flex h-1.5 gap-1" data-testid="command-allocation-strip">
+              {portfolio.allocation.map((entry, index) => (
+                <span
+                  key={entry.tokenId}
+                  className={`min-w-0 basis-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
+                  style={{ flexGrow: entry.percentage }}
+                />
+              ))}
+            </div>
             {coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
-            {portfolio.allocation.map(entry => {
+            {portfolio.allocation.map((entry, index) => {
               const asset = portfolio.assets.find(row => row.tokenId === entry.tokenId);
               if (!asset) return null;
               return (
                 <div key={entry.tokenId} className="flex items-center justify-between gap-3 text-body-sm text-ink">
-                  <span className="min-w-0 truncate">{asset.metadata.name || asset.metadata.symbol}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className={`size-1.5 shrink-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
+                    />
+                    <span className="truncate">{asset.metadata.name || asset.metadata.symbol}</span>
+                  </span>
                   <span className="shrink-0 text-muted">{formatAmountDisplay(entry.value, displayOptions)} USD</span>
                   <span className="shrink-0">
                     {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}

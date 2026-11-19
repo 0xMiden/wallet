@@ -66,7 +66,8 @@ export function CommandSendComposer({
             onConfirm={onReview}
           />
         </div>
-        <div className="min-w-0 rounded-2xl border border-hairline bg-fill/40 p-4 sm:p-5">
+        <div className="min-w-0 rounded-2xl border border-hairline bg-page p-4 sm:p-5">
+          <p className="mb-2 text-body-sm text-muted">{t('youSend')}</p>
           <SendAmount {...amount} embedded onConfirm={onReview} />
         </div>
       </form>

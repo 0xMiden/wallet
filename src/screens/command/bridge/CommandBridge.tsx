@@ -169,10 +169,18 @@ export function CommandBridge(): React.ReactElement {
                 >
                   {bridge.environment}
                 </DetailRow>
-                <DetailRow label={t('commandBridgeFrom')}>{route?.source.network ?? t('unavailable')}</DetailRow>
-                <DetailRow label={t('commandBridgeTo')}>{route?.destination.network ?? t('unavailable')}</DetailRow>
               </DetailCard>
             </div>
+            <DetailCard>
+              <DetailRow label={t('commandBridgeFrom')} stacked>
+                {route?.source.network ?? t('unavailable')}
+              </DetailRow>
+            </DetailCard>
+            <DetailCard>
+              <DetailRow label={t('commandBridgeTo')} stacked>
+                {route?.destination.network ?? t('unavailable')}
+              </DetailRow>
+            </DetailCard>
             <ChoiceCardGroup
               aria-label={t('commandBridgeRoute')}
               value={route?.id ?? null}
