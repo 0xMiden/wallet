@@ -42,7 +42,7 @@ import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { installLandedTrapRetirement, retireLandedTrap } from 'lib/miden/sdk/landed-trap-retirement';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { ConsumableNote } from 'lib/miden/types';
+import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import {
   getEffectiveDefaultGuardianEndpoint,
   getEffectiveNetworkName,
@@ -2792,10 +2792,10 @@ describe('generateTransaction - Guardian routing', () => {
   });
 
   it.each([
-    ['public', 'Public', undefined, 125, false],
-    ['private', 'Private', undefined, 125, false],
-    ['private', 'Private', '2030-01-01T12:00:30.000Z', 110, false],
-    ['private', 'Private', '2030-01-01T12:00:00.000Z', undefined, true]
+    [NoteTypeEnum.Public, 'Public', undefined, 125, false],
+    [NoteTypeEnum.Private, 'Private', undefined, 125, false],
+    [NoteTypeEnum.Private, 'Private', '2030-01-01T12:00:30.000Z', 110, false],
+    [NoteTypeEnum.Private, 'Private', '2030-01-01T12:00:00.000Z', undefined, true]
   ] as const)(
     'Guardian recallable %s send (%s, target %s) honors the reviewed recall term',
     async (noteType, expectedSdkNoteType, calendarRecallTarget, reclaimHeight, refused) => {
