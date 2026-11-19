@@ -33,7 +33,7 @@ const rows = [
   }
 ];
 let mockAssets: typeof rows = rows;
-let mockAllocation: { tokenId: string; value: number; percentage: number }[] | null = null;
+let mockAllocation: ReturnType<typeof import('./useCommandPortfolio').useCommandPortfolio>['allocation'] = [];
 let resolvePreference: (() => void) | undefined;
 let mockCanRecord = false;
 let mockMarketMove: { absolute: number; percentage: number } | null = null;
@@ -103,7 +103,7 @@ jest.mock('./useCommandPortfolio', () => ({
 
 beforeEach(async () => {
   mockAssets = rows;
-  mockAllocation = null;
+  mockAllocation = [];
   store.hidden = true;
   store.pending = false;
   mockCanRecord = false;
