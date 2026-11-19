@@ -2802,6 +2802,33 @@ describe('MultisigService', () => {
       expect(mockProbeVerdicts).toEqual([['https://new', true]]);
     });
 
+    it('returns the SDK export captured under the switch creation hold', async () => {
+      const proposal = { id: 'switch-proposal', nonce: 7 };
+      const exportBytes = '{"commitment":"switch-proposal"}';
+      let creationHold: object | null = null;
+      let exportHold: object | null = null;
+      const exportProposalToJson = jest.fn(() => {
+        exportHold = currentWasmHold;
+        return exportBytes;
+      });
+      const multisig = makeMultisig({
+        createSwitchGuardianProposal: jest.fn(async () => {
+          creationHold = currentWasmHold;
+          return proposal;
+        }),
+        exportProposalToJson
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
+
+      const result = await service.createSwitchGuardianProposal('https://new');
+
+      expect(exportProposalToJson).toHaveBeenCalledWith(proposal.id);
+      expect(creationHold).not.toBeNull();
+      expect(exportHold).toBe(creationHold);
+      expect(result).toMatchObject({ proposal, exportedProposal: exportBytes });
+    });
+
     it('names a rejected switch-guardian proposal creation but not the new guardian key fetch', async () => {
       const error = new Error('proposal refused');
       const multisig = makeMultisig({ createSwitchGuardianProposal: jest.fn(async () => Promise.reject(error)) });
