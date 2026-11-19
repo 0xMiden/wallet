@@ -871,7 +871,7 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
       const failure = burnFeeFailureOf(res);
       return res.outcome === 'measured'
-        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve), faucetId: res.faucetId, scope: res.scope }
         : res.outcome === 'failed' && failure
           ? { outcome: 'failed', failure }
           : { outcome: res.outcome };

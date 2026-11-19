@@ -406,7 +406,7 @@ const readBridgedSend = (tx: BridgedSendTransaction, result: TransactionResult):
       const noteId = burnId ?? extractFullNote(result, tx.id)?.id().toString();
       return {
         outputNoteIds: noteId ? [noteId] : [],
-        feeFields: feeFieldsFromResult(result, tx.id),
+        feeFields: feeFieldsFromResult(result, tx.id, tx),
         transactionId: executedTx.id().toHex(),
         resultBytes: result.serialize()
       };

@@ -1228,7 +1228,13 @@ export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<
     const type = WalletMessageType.EstimateUsdcxBurnFeeResponse;
     const failure = burnFeeFailureOf(estimate);
     return estimate.outcome === 'measured'
-      ? { type, outcome: 'measured', feeReserve: estimate.reserve.toString() }
+      ? {
+          type,
+          outcome: 'measured',
+          feeReserve: estimate.reserve.toString(),
+          faucetId: estimate.faucetId,
+          scope: estimate.scope
+        }
       : estimate.outcome === 'failed' && failure
         ? { type, outcome: 'failed', failure }
         : { type, outcome: estimate.outcome };

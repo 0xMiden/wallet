@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import YAML from 'yaml';
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
@@ -23,7 +24,116 @@ function step(name: string): Record<string, unknown> {
   return found;
 }
 
+const freshSwapSteps = [
+  'Prepare mainnet solver swap',
+  'Upload mainnet swap forward authorization',
+  'Run mainnet swap forward',
+  'Upload swap SDK forward authority',
+  'Upload swap SDK forward claim authority',
+  'Wait for mainnet swap forward',
+  'Upload mainnet swap reverse authorization',
+  'Run mainnet swap reverse',
+  'Upload swap SDK reverse authority',
+  'Upload swap SDK reverse claim authority',
+  'Wait for mainnet swap return'
+];
+function freshSwapStep(name: string): Record<string, unknown> {
+  const found = steps
+    .slice(index('Prepare mainnet solver swap'), index('Prepare mainnet Epoch loop'))
+    .find(entry => entry.name === name);
+  if (!found) throw new Error(`Missing fresh swap step ${name}`);
+  return found;
+}
+function enabled(
+  entry: Record<string, unknown>,
+  inputs: { swaps_only: boolean; bridges_only: boolean; loops_only: boolean },
+  recovered = 'true'
+): boolean {
+  const condition = String(entry.if ?? 'true')
+    .replace(/^\$\{\{\s*|\s*\}\}$/g, '')
+    .replaceAll('steps.recovery-barrier.outputs.recovery_cleared', JSON.stringify(recovered))
+    .replaceAll('always()', 'true')
+    .replace(/hashFiles\('[^']+'\)/g, "'checkpoint-present'");
+  return runInNewContext(condition, { inputs }) === true;
+}
+
 describe('funded nightly swap workflow', () => {
+  it('exposes independent bridge selection while default nightly still selects both groups', () => {
+    const inputs = object(object(object(document.on).workflow_dispatch).inputs);
+    expect(inputs).toHaveProperty('bridges_only');
+    expect(object(inputs.bridges_only)).toMatchObject({ type: 'boolean', default: false });
+    expect(object(inputs.swaps_only)).toMatchObject({ type: 'boolean', default: false });
+    expect(object(object(jobs['mainnet-nightly']).env).MAINNET_LOOP_BRIDGES_ONLY).toBe(
+      `\${{ inputs.bridges_only && 'true' || 'false' }}`
+    );
+  });
+  it.each([
+    { mode: 'nightly', swaps_only: false, bridges_only: false, loops_only: false, swaps: true, bridges: true },
+    { mode: 'swaps', swaps_only: true, bridges_only: false, loops_only: false, swaps: true, bridges: false },
+    { mode: 'bridges', swaps_only: false, bridges_only: true, loops_only: false, swaps: false, bridges: true },
+    { mode: 'bridge loops', swaps_only: false, bridges_only: true, loops_only: true, swaps: false, bridges: true }
+  ])('selects only the requested fresh groups for $mode', inputs => {
+    for (const name of freshSwapSteps)
+      expect({ name, enabled: enabled(freshSwapStep(name), inputs) }).toEqual({ name, enabled: inputs.swaps });
+    for (const name of ['Prepare mainnet Epoch loop', 'Prepare mainnet NEAR loop'])
+      expect({ name, enabled: enabled(step(name), inputs) }).toEqual({ name, enabled: inputs.bridges });
+  });
+  it('blocks fresh groups until original all-provider recovery has cleared in bridge-only mode', () => {
+    const inputs = { swaps_only: false, bridges_only: true, loops_only: false };
+    for (const name of freshSwapSteps) expect(enabled(freshSwapStep(name), inputs, 'false')).toBe(false);
+    for (const name of ['Prepare mainnet Epoch loop', 'Prepare mainnet NEAR loop'])
+      expect(enabled(step(name), inputs, 'false')).toBe(false);
+  });
+  it.each([
+    'Recover prior mainnet swap',
+    'Recover prior mainnet Epoch',
+    'Recover prior mainnet NEAR',
+    'Clear all-provider recovery barrier',
+    'Retain mainnet swap checkpoint',
+    'Retain mainnet Epoch checkpoint',
+    'Retain mainnet NEAR checkpoint'
+  ])('keeps original recovery or final financial evidence eligible in bridge-only mode: %s', name => {
+    expect(enabled(step(name), { swaps_only: false, bridges_only: true, loops_only: false })).toBe(true);
+  });
+  it('rejects conflicting swap-only and bridge-only selection before wallet restoration', () => {
+    expect(() =>
+      execFileSync('bash', ['-c', String(step('Require an original, unambiguous run').run)], {
+        env: {
+          ...process.env,
+          GITHUB_RUN_ATTEMPT: '1',
+          SWAPS_ONLY: 'true',
+          BRIDGES_ONLY: 'true',
+          LOOPS_ONLY: 'false',
+          MAINNET_SWAP_RECOVERY_RETURN_APPROVED: 'false',
+          MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: 'false',
+          MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: '1953919'
+        },
+        stdio: 'pipe'
+      })
+    ).toThrow();
+  });
+  it.each([
+    { swaps: 'false', bridges: 'false', loops: 'false' },
+    { swaps: 'true', bridges: 'false', loops: 'false' },
+    { swaps: 'false', bridges: 'true', loops: 'false' },
+    { swaps: 'false', bridges: 'true', loops: 'true' }
+  ])('accepts a bounded, unambiguous group selection %#', ({ swaps, bridges, loops }) => {
+    expect(() =>
+      execFileSync('bash', ['-c', String(step('Require an original, unambiguous run').run)], {
+        env: {
+          ...process.env,
+          GITHUB_RUN_ATTEMPT: '1',
+          SWAPS_ONLY: swaps,
+          BRIDGES_ONLY: bridges,
+          LOOPS_ONLY: loops,
+          MAINNET_SWAP_RECOVERY_RETURN_APPROVED: 'false',
+          MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: 'false',
+          MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: '1953919'
+        },
+        stdio: 'pipe'
+      })
+    ).not.toThrow();
+  });
   it('retains the fixed sanitized Epoch readiness sidecar without uploading private worker logs', () => {
     const summaries = step('Upload public summaries');
     expect(summaries.if).toBe('always()');
@@ -31,6 +141,7 @@ describe('funded nightly swap workflow', () => {
     expect(paths.split('\n')).toContain(
       'test-results/mainnet-epoch-state/roundtrip.json.return-readiness-failure.json'
     );
+    expect(paths.split('\n')).toContain('test-results/mainnet-epoch-state/roundtrip.json.return-solve-failure.json');
     expect(paths).not.toMatch(/epoch-reverse\.log|RUNNER_TEMP|epoch-reverse-results|mainnet-epoch-state\/\*/);
   });
   it('binds known unsigned NEAR reconciliation only to official artifact provenance without relabelling attempted funding', () => {

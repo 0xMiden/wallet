@@ -26,6 +26,11 @@ import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
 const G = globalThis as any;
+const originalE2eFlag = process.env.MIDEN_E2E_TEST;
+const mockRestoreFetchFaults = jest.fn<Promise<void>, []>();
+jest.mock('./e2e-fetch-faults', () => ({ restoreOffscreenFetchFaults: () => mockRestoreFetchFaults() }), {
+  virtual: true
+});
 const mockAssertGuardianAuthorization = jest.fn(async (..._args: unknown[]) => undefined);
 jest.mock('../lib/miden/sdk/test-guardian-authorization', () => ({
   assertTestGuardianRequestAuthorization: (...args: unknown[]) => mockAssertGuardianAuthorization(...args)
@@ -735,6 +740,7 @@ async function loadModule(opts: { coi?: boolean; hwc?: number | undefined } = {}
 beforeEach(() => {
   resetControl();
   mockAssertGuardianAuthorization.mockReset().mockResolvedValue(undefined);
+  mockRestoreFetchFaults.mockReset().mockResolvedValue(undefined);
   mockProveTransport.prove.mockClear();
   mockProveTransport.prewarm.mockClear();
   mockProveTransport.ctorCount = 0;
@@ -747,6 +753,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalE2eFlag === undefined) delete process.env.MIDEN_E2E_TEST;
+  else process.env.MIDEN_E2E_TEST = originalE2eFlag;
   logSpy.mockRestore();
   warnSpy.mockRestore();
   errorSpy.mockRestore();
@@ -754,6 +762,39 @@ afterEach(() => {
 });
 
 describe('offscreen/main — startup / init()', () => {
+  it('waits for restored E2E faults before starting WASM', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    let release: (() => void) | undefined;
+    mockRestoreFetchFaults.mockReturnValue(new Promise<void>(resolve => (release = resolve)));
+    try {
+      await loadModule();
+      expect(G.__off.getWasmOrThrow).not.toHaveBeenCalled();
+      release?.();
+      await flush();
+      expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
+      expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+    } finally {
+      release?.();
+      await flush();
+    }
+  });
+
+  it('does not start WASM or signal ready after an E2E fault-policy read failure', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    mockRestoreFetchFaults.mockRejectedValue(new Error('fault-policy read unavailable'));
+    await loadModule();
+    expect(G.__off.getWasmOrThrow).not.toHaveBeenCalled();
+    expect(G.chrome.runtime.sendMessage).not.toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+  });
+
+  it('does not gate ordinary startup on E2E fault storage', async () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    mockRestoreFetchFaults.mockRejectedValue(new Error('must not read fault storage'));
+    await loadModule();
+    expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
+    expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+  });
+
   it('boots the rayon pool and signals OFFSCREEN_READY (COI on, MT build, hwc known)', async () => {
     await loadModule({ coi: true, hwc: 8 });
 

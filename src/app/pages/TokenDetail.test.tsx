@@ -167,6 +167,11 @@ jest.mock('lib/prices', () => ({
   quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
   fetchKlineData: (...args: unknown[]) => mockFetchKlineData(...args)
 }));
+// A basket's chart loads each token's candles with their length, straight from the feed.
+const mockFetchKlineSeries = jest.fn();
+jest.mock('lib/prices/feed', () => ({
+  fetchKlineSeries: (...args: unknown[]) => mockFetchKlineSeries(...args)
+}));
 
 // The figures under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
@@ -411,6 +416,7 @@ function configure(o: Overrides = {}) {
     o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
   );
   mockFetchKlineData.mockResolvedValue([]);
+  mockFetchKlineSeries.mockResolvedValue({ points: [], stepMs: 300_000 });
   const data = o.klineLoading
     ? undefined
     : o.klineData === undefined
@@ -508,7 +514,82 @@ describe('TokenDetail', () => {
     expect(within(screen.getByTestId('token-detail-hero')).getByText('$25.00')).toBeInTheDocument();
     expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
     expect(screen.queryByTestId('token-detail-price-change')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-composition')).not.toBeInTheDocument();
     expect(mockFetchKlineData).not.toHaveBeenCalled();
+  });
+
+  it('charts a basket from its tokens and shows the composition read from its vault', () => {
+    renderPage({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          observedAt: Date.now(),
+          source: 'basket',
+          composition: [
+            { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.6 },
+            { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.4 }
+          ]
+        },
+        BTC: { price: 60000, change24h: 0, percentageChange24h: 1 },
+        SOL: { price: 90, change24h: 0, percentageChange24h: 1 }
+      }
+    });
+
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$25.00')).toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-price')).toBeInTheDocument();
+    // Every token up 1% moves the basket 1%.
+    expect(screen.getByTestId('token-detail-price-change')).toHaveTextContent('tokenDetailChange24h_+1.0');
+    expect(mockFetchKlineSeries).toHaveBeenCalledWith('BTC', '1D');
+    expect(mockFetchKlineSeries).toHaveBeenCalledWith('SOL', '1D');
+
+    const composition = screen.getByTestId('token-detail-composition');
+    expect(within(composition).getByText('basketComposition')).toBeInTheDocument();
+    const items = within(composition).getAllByTestId('token-detail-composition-item');
+    expect(items.map(item => item.textContent)).toEqual(['WBTC60.0%', 'SOL40.0%']);
+    const segments = within(composition).getAllByTestId('token-detail-composition-segment');
+    expect(segments.map(segment => segment.style.width)).toEqual(['60%', '40%']);
+  });
+
+  it('keys the basket chart on its exact weights, so a change below a rounding step refetches the line', () => {
+    renderPage({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          source: 'basket',
+          composition: [
+            { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.600004 },
+            { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.399996 }
+          ]
+        },
+        BTC: { price: 60000, change24h: 0, percentageChange24h: 1 },
+        SOL: { price: 90, change24h: 0, percentageChange24h: 1 }
+      }
+    });
+
+    const keys = mockUseRetryableSWR.mock.calls.map(([key]) => (key as unknown[])[1]);
+    expect(keys).toContain('basket:BTC:0.600004,SOL:0.399996:2');
+  });
+
+  it('charts a basket without a move while one of its tokens has no market quote', () => {
+    renderPage({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          source: 'basket',
+          composition: [{ faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 1 }]
+        }
+      }
+    });
+
+    expect(screen.getByTestId('token-detail-price')).toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price-change')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-composition')).toBeInTheDocument();
   });
 
   it('shows no fiat line and no price section for a token the feed does not quote', () => {

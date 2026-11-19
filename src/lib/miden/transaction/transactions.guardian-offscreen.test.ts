@@ -300,8 +300,11 @@ const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => {
   const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
   return {
+    ColdProposalAdoptionError: actual.ColdProposalAdoptionError,
     GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
+    isProposalChainSyncError: actual.isProposalChainSyncError,
     PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+    ProposalChainSyncError: actual.ProposalChainSyncError,
     MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
   };
 });
@@ -4013,7 +4016,10 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 const makeStructuralService = () => {
   const pushSwitchDelta = jest.fn(async (_proposalId: string) => {});
   return {
-    createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
+    createSwitchGuardianProposal: jest.fn(async () => ({
+      proposal: { id: 'prop', nonce: 7 },
+      exportedProposal: '{"commitment":"prop"}'
+    })),
     createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
     createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
     signProposal: jest.fn(async () => {}),
@@ -4045,6 +4051,24 @@ const makeStructuralProvider = () => ({
 });
 
 type StructuralCase = { type: string; row: Record<string, unknown>; complete: jest.Mock };
+
+const expectStructuralCoSign = (service: ReturnType<typeof makeStructuralService>, type: string) => {
+  const expectedCalls =
+    type === 'switch-guardian'
+      ? [
+          [
+            'prop',
+            expect.objectContaining({ label: 'switch-guardian cold co-sign' }),
+            '{"commitment":"prop"}',
+            expect.objectContaining({ syncing: false, abandoned: false })
+          ]
+        ]
+      : [];
+  expect(service.signProposal.mock.calls).toEqual(expectedCalls);
+  const hotSignOrder = service.signAndCreateTransactionRequest.mock.invocationCallOrder[0]!;
+  expect(service.signProposal.mock.invocationCallOrder.every(order => order < hotSignOrder)).toBe(true);
+};
+
 const structuralCases = (): StructuralCase[] => [
   {
     type: 'switch-guardian',
@@ -4086,7 +4110,7 @@ function arrangeStructural(id: string, extra: Record<string, unknown>, result = 
 describe('structural guardian leaf routing — flag OFF (inline)', () => {
   it.each(structuralCases())(
     '$type: runs the inline pipeline, never dispatchGuardianPipeline; commit-wait routes through the proxy with the re-derived id',
-    async ({ row, complete }) => {
+    async ({ type, row, complete }) => {
       const { service, inline, provider: sp } = arrangeStructural(`s-off-${row.type}`, row);
 
       await generateTransaction(buildTx(`s-off-${row.type}`, row) as never, signCallback, false, sp as never);
@@ -4108,6 +4132,7 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
       const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
       const completeOrder = complete.mock.invocationCallOrder[0]!;
       expect(waitOrder).toBeLessThan(completeOrder);
+      expectStructuralCoSign(service, type);
     }
   );
 });
@@ -4115,11 +4140,11 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
 describe('structural guardian leaf routing — flag ON (offscreen)', () => {
   it.each(structuralCases())(
     '$type: crosses the co-signed request bytes to dispatchGuardianPipeline; commit-wait routes through the proxy (offscreen), never the dormant SW client',
-    async ({ row, complete }) => {
+    async ({ type, row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       const dispatched = makeResult();
       mockDispatchGuardianPipeline.mockResolvedValue(dispatched);
-      const { inline, provider: sp } = arrangeStructural(`s-on-${row.type}`, row);
+      const { service, inline, provider: sp } = arrangeStructural(`s-on-${row.type}`, row);
 
       await generateTransaction(buildTx(`s-on-${row.type}`, row) as never, signCallback, false, sp as never);
 
@@ -4147,6 +4172,7 @@ describe('structural guardian leaf routing — flag ON (offscreen)', () => {
       const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
       const completeOrder = complete.mock.invocationCallOrder[0]!;
       expect(waitOrder).toBeLessThan(completeOrder);
+      expectStructuralCoSign(service, type);
       // Structural completion finalized with the round-tripped result.
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0][STRUCTURAL_RESULT_ARG]).toBe(dispatched);

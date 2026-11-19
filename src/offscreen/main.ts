@@ -293,6 +293,10 @@ installLocalProveTransport(proveWorker);
 let initPromise: Promise<void> | null = null;
 
 async function init() {
+  if (process.env.MIDEN_E2E_TEST === 'true') {
+    const { restoreOffscreenFetchFaults } = await import('./e2e-fetch-faults');
+    await restoreOffscreenFetchFaults();
+  }
   // Force WASM init (lazy entry doesn't auto-load) so the wasm-bindgen `wasm`
   // namespace is populated and `initThreadPool` can call into it.
   // getWasmOrThrow → ensureWasm → loadWasm → import('Cargo-*.js') + __wbg_init

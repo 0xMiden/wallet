@@ -52,33 +52,6 @@ export const REFUSAL_WRAPPERS = { connect: 'WalletConnectionError', transaction:
 
 export const KNOWN_BUGS: readonly KnownBug[] = [
   {
-    id: 'K1',
-    title: 'MidenWalletAdapter never follows the provider accountChange',
-    tracking: '0xMiden/web-sdk#469 (open)',
-    mobileEvidenceRun: '39090853726',
-    cells: { ...on(['S7', 'WP7-switch', 'WP7-revoke'], BOTH), ...on(['M1'], BOTH, ['extension', 'ios', 'android']) },
-    signature: ({ cellId, source, evidence }) =>
-      source === 'hard' &&
-      // With no address from before the switch there is nothing the adapter could have kept.
-      evidence.previousAddress !== undefined &&
-      evidence.providerAddress !== evidence.previousAddress &&
-      // React copies the adapter's fields on its connect event only (WalletProvider.tsx:154-170), so after a switch or
-      // a revoke the context keeps the old account, still connected, as the adapter does.
-      (cellId.startsWith('WP7-')
-        ? evidence.reactAddress === evidence.previousAddress && evidence.reactConnected === true
-        : evidence.adapterAddress === evidence.previousAddress)
-  },
-  {
-    id: 'K12',
-    title: "adapter-react exports MidenFi's own WalletContext, so it reads no state under WalletProvider",
-    tracking: '0xMiden/web-sdk#484 (open)',
-    cells: on(['WP9'], BOTH),
-    // index.ts:7-16 exports MidenFiSignerProvider's local context under the name useWallet.ts exports too, and only
-    // the latter is the one WalletProvider fills (WalletProvider.tsx:449): useWallet() sees the connect, the export {}.
-    signature: ({ source, evidence }) =>
-      source === 'hard' && evidence.reactConnected === true && evidence.reactExportedConnected === null
-  },
-  {
     id: 'K13',
     title:
       'MidenFiSignerProvider cannot set up its signer account for a private wallet account, so MidenProvider never readies',
