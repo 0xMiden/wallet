@@ -681,9 +681,13 @@ jobs:
             if [ -f "${PRESENTATION_GESTURE_STAGE_FILE:-}" ]; then
             for label in device-setup device-identity device-root device-webview-install device-webview-select device-navigation device-display device-apks device-app-state input-bridge playwright emulator-checks onboarding dapp-ready swipe-handoff swipe-reply-no-started swipe-reply-started-no-injected
             "swipe-reply-started-no-injected: framing-protocol" "swipe-reply-started-no-injected: socket-error-or-close" "swipe-reply-started-no-injected: socket-inactivity"
+            "swipe-reply-started-no-injected: socket-inactivity: native-enter-only" "swipe-reply-started-no-injected: socket-inactivity: native-swipe-succeeded"
+            "swipe-reply-started-no-injected: socket-inactivity: native-reply-built" "swipe-reply-started-no-injected: socket-inactivity: native-write-returned"
             capsule-cancel capsule-commit predictive-cancel predictive-commit fixture-cleanup result-checks; do
             if cmp -s -- "$PRESENTATION_GESTURE_STAGE_FILE" <(printf "%s\n" "$label") 2>/dev/null; then phase=$label; break; fi;
-            done; fi;
+            done;
+            if [ "$phase" = unknown ] && cmp -s -- "$PRESENTATION_GESTURE_STAGE_FILE" <(printf "%s\n" "swipe-reply-started-no-injected: socket-inactivity: first-swipe-eligible") 2>/dev/null;
+            then phase="swipe-reply-started-no-injected: socket-inactivity"; fi; fi;
             printf "%s\n" "Android API36 presentation gestures: FAIL ($phase)"; exit "$rc"; fi'
       - name: Upload gesture acceptance artifacts
         if: always() && inputs.suite == 'presentation-gestures'

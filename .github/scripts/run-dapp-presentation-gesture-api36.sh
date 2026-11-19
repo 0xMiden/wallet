@@ -11,13 +11,68 @@ mark_stage() {
 mark_stage device-setup
 results_dir=test-results-presentation-gesture
 mkdir -p "$results_dir"
+capture=$results_dir/instrumentation.txt
+capture_fd=
 bridge_pid=
 target_pid=
 owned_forward=false
 
+prepare_native_capture() {
+  local -
+  local mask
+  mask=$(umask)
+  umask 077
+  set -C
+  # Hold the inode created here; truncating the old capture would leave prior writers attached.
+  { rm -f -- "$capture" && exec {capture_fd}>"$capture"; } 2>/dev/null || capture_fd=
+  umask "$mask"
+}
+
+native_milestone() {
+  node - "$capture" 3>&"$capture_fd" <<'NODE'
+const fs = require('node:fs');
+try {
+  const path = process.argv[2];
+  const prefix = fs.fstatSync(3, {bigint: true});
+  const sameCapture = entry =>
+    entry.isFile() && entry.dev === prefix.dev && entry.ino === prefix.ino && entry.size >= prefix.size;
+  if (!prefix.isFile() || prefix.size === 0n || prefix.size > 1048576n) process.exit(0);
+  const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  if (!sameCapture(fs.fstatSync(fd, {bigint: true}))) process.exit(0);
+  // Read only the prefix sized above, even if the instrumentation process is still writing.
+  const bytes = Buffer.alloc(Number(prefix.size));
+  if (fs.readSync(fd, bytes, 0, bytes.length, 0) !== bytes.length || bytes.at(-1) !== 10 ||
+      !sameCapture(fs.lstatSync(path, {bigint: true}))) process.exit(0);
+
+  const tag = 'DAPP_SWIPE_MILESTONE';
+  const steps = ['enter', 'swipe-succeeded', 'reply-built', 'write-returned'];
+  const labels = ['native-enter-only', 'native-swipe-succeeded', 'native-reply-built', 'native-write-returned'];
+  let count = 0;
+  for (const line of bytes.toString('latin1').split('\n')) {
+    if (!line || (!line.includes(tag) && !tag.startsWith(line))) continue;
+    if (count === steps.length || line !== `${tag}_V1 ${steps[count]}`) process.exit(0);
+    count++;
+  }
+  if (count) process.stdout.write(labels[count - 1]);
+} catch {
+  // An unavailable capture cannot refine the host verdict.
+}
+NODE
+}
+
 cleanup() {
   local status=$?
   trap - EXIT
+  local inactivity='swipe-reply-started-no-injected: socket-inactivity' milestone
+  if [[ -n "$capture_fd" ]]; then
+    if [[ "$status" != 0 && -f "${PRESENTATION_GESTURE_STAGE_FILE:-}" ]] &&
+      cmp -s -- "$PRESENTATION_GESTURE_STAGE_FILE" <(printf '%s\n' "$inactivity: first-swipe-eligible") 2>/dev/null &&
+      milestone=$(native_milestone 2>/dev/null) && [[ -n "$milestone" ]]; then
+      # A failed open must not delete the intact eligibility marker used for coarse fallback.
+      (umask 077; printf '%s\n' "$inactivity: $milestone" > "$PRESENTATION_GESTURE_STAGE_FILE") 2>/dev/null || true
+    fi
+    { exec {capture_fd}>&-; } 2>/dev/null || true
+  fi
   if [[ "$owned_forward" == true ]]; then
     node <<'NODE' || true
 const net = require('node:net');
@@ -97,13 +152,18 @@ adb shell pm grant com.miden.wallet android.permission.POST_NOTIFICATIONS
 mark_stage input-bridge
 adb forward --no-rebind tcp:9236 tcp:8736
 owned_forward=true
+capture_output=$capture
+if [[ ${PRESENTATION_GESTURE_PRIVATE_OUTPUT:-} == true && -n ${PRESENTATION_GESTURE_STAGE_FILE:-} ]]; then
+  prepare_native_capture
+  if [[ -n "$capture_fd" ]]; then capture_output=/dev/fd/$capture_fd; fi
+fi
 adb shell am instrument -w -e class com.miden.wallet.DappPresentationGestureInputTest \
-  com.miden.wallet.test/androidx.test.runner.AndroidJUnitRunner > "$results_dir/instrumentation.txt" 2>&1 &
+  com.miden.wallet.test/androidx.test.runner.AndroidJUnitRunner > "$capture_output" 2>&1 &
 bridge_pid=$!
 ready=false
 for _ in $(seq 1 60); do
   if [[ -z "$target_pid" ]]; then target_pid=$(adb shell pidof com.miden.wallet 2>/dev/null | tr -d '\r' || true); fi
-  if grep -qF 'DappGestureInput ready port=8736' "$results_dir/instrumentation.txt"; then ready=true; break; fi
+  if grep -qF 'DappGestureInput ready port=8736' "$capture"; then ready=true; break; fi
   kill -0 "$bridge_pid" 2>/dev/null || break
   sleep 1
 done
@@ -135,4 +195,4 @@ socket.on('end', () => {
 NODE
 wait "$bridge_pid"
 bridge_pid=
-grep -qxF 'OK (1 test)' <(tr -d '\r' < "$results_dir/instrumentation.txt")
+grep -qxF 'OK (1 test)' <(tr -d '\r' < "$capture")

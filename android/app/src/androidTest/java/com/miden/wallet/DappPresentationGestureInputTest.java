@@ -92,18 +92,34 @@ public class DappPresentationGestureInputTest {
                         path[index] = new Point(integer(point, "x", 0, device.getDisplayWidth() - 1),
                             integer(point, "y", 0, device.getDisplayHeight() - 1));
                     }
+                    boolean observeFirstSwipe = executed == 0 && Boolean.TRUE.equals(command.opt("observeFirstSwipe"));
                     long inputStarted = SystemClock.elapsedRealtime();
                     output.println(reply(id, "started", executed, device).put("inputStartedMs", inputStarted));
+                    if (observeFirstSwipe) reportSwipeMilestone("enter");
                     assertTrue("one continuous UiDevice swipe must inject successfully", device.swipe(path, steps));
                     executed++;
                     long inputEnded = SystemClock.elapsedRealtime();
-                    output.println(reply(id, "injected", executed, device).put("inputEndedMs", inputEnded));
+                    if (observeFirstSwipe) reportSwipeMilestone("swipe-succeeded");
+                    JSONObject injected = reply(id, "injected", executed, device).put("inputEndedMs", inputEnded);
+                    if (observeFirstSwipe) reportSwipeMilestone("reply-built");
+                    output.println(injected);
+                    if (observeFirstSwipe) reportSwipeMilestone("write-returned");
                     assertEquals("wallet remains foreground after input", PACKAGE, device.getCurrentPackageName());
                     output.println(reply(id, "done", executed, device)
                         .put("inputStartedMs", inputStarted).put("inputEndedMs", inputEnded));
                 }
             }
             fail("gesture host did not complete its bounded acceptance session");
+        }
+    }
+
+    private static void reportSwipeMilestone(String milestone) {
+        Bundle status = new Bundle();
+        status.putString("stream", "\nDAPP_SWIPE_MILESTONE_V1 " + milestone + "\n");
+        try {
+            InstrumentationRegistry.getInstrumentation().sendStatus(0, status);
+        } catch (RuntimeException ignored) {
+            // Unavailable instrumentation status must not replace a gesture result.
         }
     }
 

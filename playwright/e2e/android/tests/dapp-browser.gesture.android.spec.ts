@@ -32,6 +32,7 @@ type GestureStage =
   | 'swipe-reply-no-started'
   | 'swipe-reply-started-no-injected'
   | `swipe-reply-started-no-injected: ${HostRejectionKind}`
+  | 'swipe-reply-started-no-injected: socket-inactivity: first-swipe-eligible'
   | 'fixture-cleanup';
 
 async function markStage(path: string, stage: GestureStage) {
@@ -63,19 +64,25 @@ async function adb(...args: string[]): Promise<string> {
 }
 
 type HostRejectionKind = 'framing-protocol' | 'socket-error-or-close' | 'socket-inactivity';
-type HostRejection = { kind?: HostRejectionKind };
+type HostRejection = { kind?: HostRejectionKind; started?: boolean; injected?: boolean; firstSwipeEligible?: boolean };
 
 function input(
   command: { op: string; points?: Point[]; steps?: number; label?: string },
   phaseChanged?: (phase: string) => void,
-  rejection?: HostRejection
+  rejection?: HostRejection,
+  privateOutput = false
 ) {
   const id = ++commandId;
+  const observeFirstSwipe = command.op === 'swipe' && !swipeSeen && privateOutput;
+  if (command.op === 'swipe') swipeSeen = true;
   return new Promise<BridgeReply>((resolve, reject) => {
     const socket = createConnection({ host: '127.0.0.1', port: 9236 });
     const destroyOrigins = new WeakMap<Error, HostRejectionKind>();
     let buffer = '';
     let settled = false;
+    let started = false;
+    let startedAtZero = false;
+    let injected = false;
 
     function destroyWithOrigin(error: Error, kind: HostRejectionKind) {
       destroyOrigins.set(error, kind);
@@ -84,12 +91,22 @@ function input(
     function rejectOnce(error: Error) {
       if (settled) return;
       settled = true;
-      if (rejection) rejection.kind = destroyOrigins.get(error) ?? 'socket-error-or-close';
+      if (rejection) {
+        const kind = destroyOrigins.get(error) ?? 'socket-error-or-close';
+        rejection.kind = kind;
+        rejection.started = started;
+        rejection.injected = injected;
+        rejection.firstSwipeEligible = observeFirstSwipe && startedAtZero && !injected && kind === 'socket-inactivity';
+      }
       reject(error);
     }
 
     socket.setTimeout(30_000, () => destroyWithOrigin(new Error('Native gesture input timed out'), 'socket-inactivity'));
-    socket.on('connect', () => socket.write(JSON.stringify({ id, ...command }) + '\n'));
+    socket.on('connect', () => {
+      // Opt in on the existing command so only the standalone first swipe can emit native milestones.
+      const request = observeFirstSwipe ? { id, ...command, observeFirstSwipe } : { id, ...command };
+      socket.write(JSON.stringify(request) + '\n');
+    });
     socket.on('data', chunk => {
       buffer += String(chunk);
       if (buffer.length > 16_384) {
@@ -103,13 +120,19 @@ function input(
         try {
           const reply: BridgeReply = JSON.parse(line);
           if (reply.id !== id) throw new Error('Native gesture command identity mismatch');
-          if (reply.phase === 'started' || reply.phase === 'injected') phaseChanged?.(reply.phase);
-          else if (reply.phase === 'done') {
+          if (reply.phase === 'started' || reply.phase === 'injected') {
+            if (reply.phase === 'started') {
+              started = true;
+              startedAtZero ||= reply.executed === 0;
+            } else {
+              injected = true;
+            }
+            phaseChanged?.(reply.phase);
+          } else if (reply.phase === 'done') {
             settled = true;
             resolve(reply);
             socket.end();
-          }
-          else throw new Error('Native gesture input rejected the command');
+          } else throw new Error('Native gesture input rejected the command');
         } catch (error) {
           destroyWithOrigin(error instanceof Error ? error : new Error(String(error)), 'framing-protocol');
         }
@@ -121,6 +144,8 @@ function input(
     });
   });
 }
+
+let swipeSeen = false;
 
 async function footprint(file: string) {
   const { data, info } = await sharp(await readFile(file)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -273,7 +298,7 @@ test.describe('API36 managed presentation gestures', () => {
         // A started reply precedes injection and does not confirm it.
         if (stagePath) await markStage(stagePath, 'swipe-handoff');
         let inputConfirmed = false;
-        let rejectedReply: { started: boolean; injected: boolean; kind: HostRejection['kind'] } | undefined;
+        let rejectedReply: HostRejection | undefined;
         try {
           let started = false;
           let injecting = false;
@@ -286,7 +311,8 @@ test.describe('API36 managed presentation gestures', () => {
               if (phase === 'injected') inputConfirmed = true;
               injecting = phase === 'started';
             },
-            rejection
+            rejection,
+            Boolean(stagePath)
           ).finally(() => {
             finished = true;
           });
@@ -310,8 +336,7 @@ test.describe('API36 managed presentation gestures', () => {
             try {
               nativeResult = await gesture;
             } catch (error) {
-              // On rejection, only a matching injected reply can have confirmed input.
-              rejectedReply = { started, injected: inputConfirmed, kind: rejection.kind };
+              rejectedReply = { started, injected: inputConfirmed, ...rejection };
               throw error;
             }
             inputConfirmed = true;
@@ -388,12 +413,14 @@ test.describe('API36 managed presentation gestures', () => {
             )
           );
         } catch (error) {
-          if (stagePath && inputConfirmed) await markStage(stagePath, name);
-          else if (stagePath && rejectedReply && !rejectedReply.injected) {
-            const { started, kind } = rejectedReply;
-            let replyStage: GestureStage = started ? 'swipe-reply-started-no-injected' : 'swipe-reply-no-started';
-            if (
-              started &&
+          if (stagePath && (rejectedReply?.injected ?? inputConfirmed)) await markStage(stagePath, name);
+          else if (stagePath && rejectedReply) {
+            const { kind, firstSwipeEligible, started: sawStarted } = rejectedReply;
+            let replyStage: GestureStage = sawStarted ? 'swipe-reply-started-no-injected' : 'swipe-reply-no-started';
+            if (firstSwipeEligible) {
+              replyStage = 'swipe-reply-started-no-injected: socket-inactivity: first-swipe-eligible';
+            } else if (
+              sawStarted &&
               (kind === 'framing-protocol' || kind === 'socket-error-or-close' || kind === 'socket-inactivity')
             ) {
               replyStage = `swipe-reply-started-no-injected: ${kind}`;
