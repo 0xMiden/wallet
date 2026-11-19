@@ -112,6 +112,7 @@ describe('command server', () => {
     expect(receipt.status).toBe(204);
     await expect(outcome).resolves.toBeInstanceOf(ChainUnavailable);
     await expect(outcome).resolves.toHaveProperty('message', expect.stringContaining('leading node unavailable'));
+    expect(fs.readFileSync(logFile, 'utf8')).toContain('"command":"submitCustomMeasured","status":"error"');
   });
 
   it('clears the leading error only for the matching live measured command', async () => {

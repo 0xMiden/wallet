@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 
-import { DappCellRunner, deadlineIn, type CellContext, type JourneyRecord } from './dapp-cells';
+import { DappCellRunner, deadlineIn, InfrastructureFault, type CellContext, type JourneyRecord } from './dapp-cells';
 import { callOn } from './dapp-channel';
 import { registryOf } from './dapp-known-bugs';
 import { cellIdsFor } from './dapp-matrix';
@@ -311,7 +311,8 @@ describe('mobile cell assertions', () => {
     const failure = await f.run().catch((reason: unknown) => reason);
 
     expect(failure === undefined).toBe(passes);
-    expect(failure instanceof Error && /Expected: <= 2/.test(failure.message)).toBe(!passes);
+    expect(failure instanceof InfrastructureFault).toBe(trailingReadFailed);
+    expect(failure instanceof Error && /Expected: <= 2/.test(failure.message)).toBe(!passes && !trailingReadFailed);
     expect(f.ctx.evidence.dappError).toEqual(error);
     expect(expectNoNewMobileRows).toHaveBeenCalledTimes(passes ? 1 : 0);
     expect(f.send.mock.calls.map(([command]) => command)).toEqual(['buildCustom', 'submitCustomMeasured']);
