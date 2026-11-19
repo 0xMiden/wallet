@@ -160,6 +160,30 @@ it('keeps an observation just inside the 1W edge and plots its captured time', a
   expect(screen.getByRole('status').textContent).not.toContain('1.00 USD');
 });
 
+it('keeps dense captured runs continuous after thinning but breaks at a real gap and coverage change', async () => {
+  store.hidden = false;
+  jest.mocked(readPortfolioObservations).mockResolvedValue(
+    Array.from({ length: 701 }, (_, index) => {
+      const bucket = capturedAt - (701 - index) * bucketMs;
+      return {
+        ...scope,
+        bucket,
+        capturedAt: bucket,
+        currency: 'USD' as const,
+        value: String(index),
+        coverage: 'complete' as const,
+        coverageKey: index < 500 ? 'priced:first' : 'priced:second'
+      };
+    }).filter((_, index) => index !== 300)
+  );
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  const area = chart.querySelector('[data-command-chart-area]')?.getAttribute('d');
+  expect(area?.match(/M /g)).toHaveLength(3);
+  expect(chart.querySelectorAll('circle').length).toBeLessThanOrEqual(365);
+  expect(screen.getByText('commandHistoryGaps')).toBeInTheDocument();
+});
+
 it('formats the current and inspected USD values without floating-point tails', async () => {
   store.hidden = false;
   mockValue = '0.30000000000000004';

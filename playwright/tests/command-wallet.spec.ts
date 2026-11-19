@@ -59,8 +59,7 @@ async function seedChartPreview(page: Page, accountId: string) {
             const store = txn.objectStore('portfolioObservations');
             const bucketMs = 15 * 60_000;
             const latest = Math.floor(Date.now() / bucketMs) * bucketMs;
-            for (let offset = 660; offset >= 0; offset--) {
-              if (offset > 160 && offset < 500) continue;
+            for (let offset = 660; offset >= 1; offset--) {
               const bucket = latest - offset * bucketMs;
               store.put({
                 accountId: id,
@@ -124,17 +123,30 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   const week = command.getByRole('radio', { name: '1W', exact: true });
   await week.click();
   await expect(week).toHaveAttribute('aria-checked', 'true');
-  await expect(command.locator('[data-command-chart-area]')).toHaveAttribute('d', /^M /);
+  const area = command.locator('[data-command-chart-area]');
+  await expect(area).toHaveAttribute('d', /^M [^M]+ Z$/);
+  // The range selection and point marker must fit, including at the right endpoint.
+  await expect(week).toBeInViewport({ ratio: 1 });
+  await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
   await captureCommand(command, info, 'command-dashboard-chart-1440x1000');
   await command.setViewportSize({ width: 1600, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-chart-1600x1000');
+  await command.setViewportSize({ width: 390, height: 844 });
+  await expect(week).toBeInViewport({ ratio: 1 });
+  await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
+  await captureCommand(command, info, 'command-dashboard-chart-390x844');
   await command.emulateMedia({ reducedMotion: null });
   await command.setViewportSize({ width: 1440, height: 1000 });
 
   await command.keyboard.press('Control+k');
   const search = command.getByRole('combobox', { name: 'Search wallet actions' });
   await expect(search).toBeFocused();
-  await command.getByRole('dialog', { name: 'Search wallet actions' }).getByRole('button', { name: 'Close' }).click();
+  await search.press('ArrowDown');
+  const palette = command.getByRole('dialog', { name: 'Search wallet actions' });
+  const activeAction = palette.getByRole('option', { selected: true });
+  await expect(activeAction).toBeInViewport({ ratio: 1 });
+  await captureCommand(command, info, 'command-palette-1440x1000');
+  await palette.getByRole('button', { name: 'Close' }).click();
   await expect(search).toHaveCount(0);
 
   await command.getByRole('navigation', { name: 'Wallet actions' }).getByRole('button', { name: 'Send' }).click();

@@ -122,31 +122,35 @@ export function CommandPortfolio({
     () => actual.filter(row => row.capturedAt >= Date.now() - RANGES[range] * DAY_MS),
     [actual, range]
   );
-  // Pick actual rows only; never interpolate into a missing bucket or across a coverage change.
-  const samples = useMemo(() => {
+  const { samples, gaps } = useMemo(() => {
     const stride = Math.max(1, Math.ceil(points.length / 365));
-    return points.filter((_, index) => index % stride === 0 || index === points.length - 1);
+    const samples: { row: (typeof points)[number]; run: number }[] = [];
+    let run = 0;
+    for (const [index, row] of points.entries()) {
+      const previous = points[index - 1];
+      // Determine continuity before thinning so skipped drawing samples never look like missing history.
+      if (previous && (row.bucket - previous.bucket !== BUCKET_MS || row.coverageKey !== previous.coverageKey)) run++;
+      if (index % stride === 0 || index === points.length - 1) samples.push({ row, run });
+    }
+    return { samples, gaps: run > 0 };
   }, [points]);
-  const gaps = points.some(
-    (row, index) =>
-      index > 0 &&
-      (row.bucket - points[index - 1]!.bucket > BUCKET_MS || row.coverageKey !== points[index - 1]!.coverageKey)
-  );
   const sampleIndex = selected === null ? samples.length - 1 : Math.min(selected, samples.length - 1);
-  const sample = samples[sampleIndex];
+  const sample = samples[sampleIndex]?.row;
   const inspected = sample
     ? `${new Date(sample.capturedAt).toLocaleString()} · ${hidden ? t('commandMaskedBalance') : `${formatAmountDisplay(sample.value, displayOptions)} USD${sample.coverage === 'partial' ? ` · ${t('commandPartialCoverage')}` : ''}`}`
     : '';
-  const values = samples.map(row => Number(row.value));
+  const values = samples.map(({ row }) => Number(row.value));
   const min = Math.min(...values);
   const span = Math.max(...values) - min || 1;
   const rangeMs = RANGES[range] * DAY_MS;
   const rangeStart = Date.now() - rangeMs;
-  const chartPoints = samples.map(row => ({
+  const chartPoints = samples.map(({ row, run }) => ({
     x: Math.max(0, Math.min(100, (100 * (row.capturedAt - rangeStart)) / rangeMs)),
     y: 90 - (80 * (Number(row.value) - min)) / span,
-    row
+    bucket: row.bucket,
+    run
   }));
+  const activePoint = chartPoints[sampleIndex];
   return (
     <div className="mx-auto grid w-full max-w-[90rem] gap-y-8 px-4 py-8 sm:px-8 lg:grid-cols-12 lg:gap-x-10 lg:px-[5vw] lg:py-12">
       <section className="min-w-0 lg:col-span-9" aria-label={t('commandPortfolio')}>
@@ -186,7 +190,7 @@ export function CommandPortfolio({
               aria-label={t('commandHistoryRange')}
               size="sm"
               layout="fill"
-              className="w-52 min-w-0 max-w-full"
+              className="w-52 min-w-0 max-w-full px-1"
               value={range}
               items={RANGE_ITEMS}
               onChange={next => {
@@ -203,7 +207,7 @@ export function CommandPortfolio({
             <>
               <div
                 data-testid="command-chart"
-                className="mt-5 h-44 w-full sm:h-56"
+                className="relative mx-2 mt-5 h-44 sm:h-56"
                 onMouseMove={event => {
                   const rect = event.currentTarget.getBoundingClientRect();
                   if (rect.width) {
@@ -218,7 +222,15 @@ export function CommandPortfolio({
                   }
                 }}
               >
-                <CommandHistoryTrace points={chartPoints} bucketMs={BUCKET_MS} />
+                <CommandHistoryTrace points={chartPoints} />
+                {activePoint && (
+                  <span
+                    aria-hidden="true"
+                    data-testid="command-chart-marker"
+                    className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
+                    style={{ left: `${activePoint.x}%`, top: `${activePoint.y}%` }}
+                  />
+                )}
               </div>
               <input
                 type="range"
@@ -228,7 +240,7 @@ export function CommandPortfolio({
                 aria-label={t('commandInspectHistory')}
                 aria-valuetext={inspected}
                 onChange={event => setSelected(Number(event.target.value))}
-                className="w-full accent-accent-primary"
+                className="mx-2 block w-[calc(100%-1rem)] accent-accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
               />
               <output className="text-caption text-muted">{inspected}</output>
               {gaps && <p className="text-caption text-muted">{t('commandHistoryGaps')}</p>}

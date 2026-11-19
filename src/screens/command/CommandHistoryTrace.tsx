@@ -3,20 +3,27 @@ import React, { useId } from 'react';
 interface HistoryTracePoint {
   x: number;
   y: number;
-  row: { bucket: number; coverageKey: string };
+  bucket: number;
+  run: number;
 }
 
-export function CommandHistoryTrace({ points, bucketMs }: { points: HistoryTracePoint[]; bucketMs: number }) {
+export function CommandHistoryTrace({ points }: { points: HistoryTracePoint[] }) {
   const fillId = useId();
   const area: string[] = [];
   const trace: string[] = [];
-  for (let index = 1; index < points.length; index++) {
-    const previous = points[index - 1]!;
-    const point = points[index]!;
-    if (point.row.bucket - previous.row.bucket !== bucketMs || point.row.coverageKey !== previous.row.coverageKey)
-      continue;
-    area.push(`M ${previous.x} 100 L ${previous.x} ${previous.y} L ${point.x} ${point.y} L ${point.x} 100 Z`);
-    trace.push(`M ${previous.x} ${previous.y} L ${point.x} ${point.y}`);
+  for (let start = 0; start < points.length; ) {
+    const first = points[start]!;
+    let end = start + 1;
+    while (points[end]?.run === first.run) end++;
+    if (end - start > 1) {
+      const lines = points
+        .slice(start + 1, end)
+        .map(point => `L ${point.x} ${point.y}`)
+        .join(' ');
+      area.push(`M ${first.x} 100 L ${first.x} ${first.y} ${lines} L ${points[end - 1]!.x} 100 Z`);
+      trace.push(`M ${first.x} ${first.y} ${lines}`);
+    }
+    start = end;
   }
   const path = trace.join(' ');
   return (
@@ -46,7 +53,7 @@ export function CommandHistoryTrace({ points, bucketMs }: { points: HistoryTrace
         <path d={path} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
       </g>
       {points.map(point => (
-        <circle key={point.row.bucket} cx={point.x} cy={point.y} r="0.35" fill="var(--accent-primary)" />
+        <circle key={point.bucket} cx={point.x} cy={point.y} r="0.35" fill="var(--accent-primary)" />
       ))}
     </svg>
   );
