@@ -48,6 +48,7 @@ import { getUsdcxSourceChain } from './constant';
 import { runUsdcxDeposit } from './deposit';
 import { runUsdcxExecutorDeposit } from './executor';
 import { midenAccountHexToXReserveRecipient } from './recipient';
+import { UsdcxBurnError } from './withdrawal';
 
 jest.mock('viem', () => ({ ...jest.requireActual('viem'), createPublicClient: jest.fn() }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -786,6 +787,30 @@ it.each(['PENDING', undefined])(
     expect(adapterWallet).not.toHaveBeenCalled();
   }
 );
+
+it.each([false, true])('withholds manual Execute for older saved source proof (proof staged=%s)', async staged => {
+  const { id, source, reconcile } = await interruptedForward();
+  const message = cctpSourceMessage(source, { executed: 1000 });
+  await Repo.transactions.update(id, {
+    'extraInputs.phase': 'delivering',
+    'extraInputs.cctp.sourceMessage': cctpSourceMessage(source).toLowerCase(),
+    ...(staged && {
+      'extraInputs.cctp.message': message,
+      'extraInputs.cctp.attestation': '0xabcd'
+    })
+  });
+  const historical = await Repo.transactions.get(id);
+  const originalLeg = historical?.extraInputs.cctp;
+  const capture = () => captureCctpExecution(historical, source.chain.id, originalLeg, captureBridgeWalletScope());
+  fetchMock.mockResolvedValue(completedBurn(message, 'PENDING'));
+
+  await reconcile();
+
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.cctp?.attestation).toBeUndefined();
+  expect(capture).toThrow(UsdcxBurnError);
+  expect(adapterWallet).not.toHaveBeenCalled();
+});
 
 it('permits the manual leg after the matching recovered burn is explicitly reported as failed by Circle', async () => {
   const { id, source, reconcile } = await interruptedForward();

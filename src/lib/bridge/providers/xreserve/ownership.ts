@@ -137,11 +137,7 @@ export async function recordCctpSourceFacts(
   });
 }
 
-export async function recordUsdcxDepositHash(
-  owned: OwnedUsdcxDeposit,
-  hash: Hash,
-  forwardFee?: string
-): Promise<void> {
+export async function recordUsdcxDepositHash(owned: OwnedUsdcxDeposit, hash: Hash, forwardFee?: string): Promise<void> {
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     if (!(await recordBridgeSourceAttempt(owned.operation.operationId, owned.operation.revision, { hash })))
       throw new Error('Circle source identity could not be recorded');

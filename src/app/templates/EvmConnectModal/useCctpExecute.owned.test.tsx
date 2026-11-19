@@ -150,7 +150,8 @@ async function funded() {
       );
       await recordCctpSourceFacts(
         { rowId, operation: claimed, checks: { readCurrent: async () => review, now: () => now } },
-        { sourceMessage: raw, messageTransmitter: TEST_CCTP_TRANSMITTER }
+        { sourceMessage: raw, messageTransmitter: TEST_CCTP_TRANSMITTER },
+        sourceHash
       );
       await updateBridgedReceivePhase(rowId, 'delivering', { cctp: { sourceDomain: source.domain, forwarded: true } });
       finish();

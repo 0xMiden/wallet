@@ -844,16 +844,23 @@ describe('Command Send uses the real SendManager form', () => {
     );
   });
 
-  it('reopens the original pending bridge handoff instead of creating a new review', async () => {
+  it.each([
+    ['pending', '/send/review?'],
+    ['admitted', '/generating-transaction-full/original-bridge-row']
+  ])('resumes the original %s bridge Send from the already-open composer', async (status, destination) => {
     mockTokenRoutes = { epoch: true, agglayer: true };
     useAllBalancesMock.mockReturnValue({
       data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 }]
     });
+    const intent = JSON.stringify(['original-handoff', '2', '0xrecipient', 'T1', 'sepolia', 'agglayer']);
     function Session() {
       const drafts = useCommandDrafts();
       const [back, setBack] = React.useState(false);
       return back ? (
-        <SendFlow isLoading={false} />
+        <>
+          <SendFlow isLoading={false} />
+          <button onClick={() => drafts.finishSendAdmission(intent, 'original-bridge-row')}>Queue completed</button>
+        </>
       ) : (
         <button
           onClick={() => {
@@ -865,9 +872,7 @@ describe('Command Send uses the real SendManager form', () => {
               bridgeNetwork: 'sepolia',
               bridgeRoute: 'agglayer'
             });
-            drafts.beginSendAdmission(
-              JSON.stringify(['original-handoff', '2', '0xrecipient', 'T1', 'sepolia', 'agglayer'])
-            );
+            drafts.beginSendAdmission(intent);
             setBack(true);
           }}
         >
@@ -885,9 +890,11 @@ describe('Command Send uses the real SendManager form', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Back from pending review' }));
     await waitFor(() => expect(screen.getByTestId('command-send-review')).toBeEnabled());
+    if (status === 'admitted') fireEvent.click(screen.getByRole('button', { name: 'Queue completed' }));
     fireEvent.click(screen.getByTestId('command-send-review'));
     expect(navigateMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('commandReviewId=original-handoff'));
+    const expected = status === 'pending' ? 'commandReviewId=original-handoff' : destination;
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining(expected));
   });
 
   it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {
