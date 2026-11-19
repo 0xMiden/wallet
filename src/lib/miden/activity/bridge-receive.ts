@@ -38,7 +38,7 @@ import {
 } from 'lib/usdcx/attestation';
 import {
   fetchAttestedCctpMessage,
-  isCctpForwardFailed,
+  cctpAllowsManualExecution,
   revertedExecuteLeg,
   stalledExecuteLeg,
   USDCX_EXECUTE_STALL_SEC
@@ -442,8 +442,18 @@ async function reconcileUsdcxExecutorRow(
     );
     return;
   }
-  if (leg.attestation && !leg.forwarded) return;
   const canUpdate = original ? (current: ITransaction) => cctpSourceStillCurrent(row, current) : undefined;
+  if (canUpdate && leg.attestation && !leg.executeAttempt && !cctpAllowsManualExecution(leg)) {
+    await updateBridgedReceivePhase(
+      row.id,
+      'delivering',
+      { cctp: { sourceDomain: leg.sourceDomain, forwarded: true, message: undefined, attestation: undefined } },
+      undefined,
+      { canUpdate }
+    );
+    return;
+  }
+  if (leg.attestation && !leg.forwarded && !original) return;
   const attested = original
     ? await fetchOwnedAttestedCctpMessage(row, source, original)
     : await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
@@ -471,7 +481,7 @@ async function reconcileUsdcxExecutorRow(
     );
     return;
   }
-  if (leg.forwarded && !isCctpForwardFailed(attested.forwardState)) {
+  if (!cctpAllowsManualExecution({ ...leg, forwardState: attested.forwardState })) {
     if (attested.forwardState !== leg.forwardState) {
       const progress = { cctp: { sourceDomain: leg.sourceDomain, forwardState: attested.forwardState } };
       if (canUpdate) await updateBridgedReceivePhase(row.id, 'delivering', progress, undefined, { canUpdate });

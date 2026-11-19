@@ -67,6 +67,7 @@ export function cctpSourceStillCurrent(expected: ITransaction, row: ITransaction
     original !== undefined &&
     current?.operationId === original.operationId &&
     current.revision === original.revision &&
+    hash !== undefined &&
     isHash(hash) &&
     current.sourceAttempt?.phase === 'known' &&
     current.sourceAttempt.hash === hash &&

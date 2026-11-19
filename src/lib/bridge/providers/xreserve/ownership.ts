@@ -88,8 +88,10 @@ export async function assertUsdcxDepositCurrent(owned: OwnedUsdcxDeposit): Promi
 
 export async function recordCctpSourceFacts(
   owned: Pick<OwnedUsdcxDeposit, 'rowId' | 'operation'> & Partial<Pick<OwnedUsdcxDeposit, 'checks'>>,
-  facts: { messageTransmitter?: string; sourceMessage?: Hex; forwardFee?: string },
-  sourceHash?: Hash
+  ...[facts, sourceHash]:
+    | [facts: { messageTransmitter: string; sourceMessage?: never; forwardFee?: never }]
+    | [facts: { messageTransmitter?: string; sourceMessage: Hex; forwardFee?: never }, sourceHash: Hash]
+    | [facts: { messageTransmitter?: never; sourceMessage?: never; forwardFee: string }, sourceHash: Hash]
 ): Promise<void> {
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const row = await findAdmittedBridgeOperation(owned.operation);

@@ -47,6 +47,16 @@ export function isCctpForwardFailed(forwardState: string | undefined): boolean {
   return forwardState !== undefined && /fail|reject|error|cancel/i.test(forwardState);
 }
 
+/** A verified owned burn asked Circle to forward even if its old row lacks the forwarding flag. */
+export function cctpAllowsManualExecution(leg: IUsdcxCctpLeg): boolean {
+  return (
+    (!leg.forwarded && leg.sourceMessage === undefined) ||
+    isCctpForwardFailed(leg.forwardState) ||
+    (leg.revertedExecuteTxHash !== undefined && isHash(leg.revertedExecuteTxHash)) ||
+    (leg.stalledExecuteTxHash !== undefined && isHash(leg.stalledExecuteTxHash))
+  );
+}
+
 function parseMessage(entry: unknown): CctpMessage | undefined {
   if (!entry || typeof entry !== 'object') return undefined;
   const message = Reflect.get(entry, 'message');

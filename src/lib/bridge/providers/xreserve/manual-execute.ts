@@ -12,6 +12,7 @@ import {
 import type { ITransaction, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
+import { cctpAllowsManualExecution } from 'lib/usdcx/cctp';
 import type { UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 
@@ -62,6 +63,7 @@ export function captureCctpExecution(
     !isHex(leg.attestation) ||
     leg.attestation === '0x' ||
     !matchesCctpSourceMessage(original, leg.message) ||
+    !cctpAllowsManualExecution(leg) ||
     configKey(inputs.cctp) !== configKey(leg) ||
     leg.executeTxHash
   )

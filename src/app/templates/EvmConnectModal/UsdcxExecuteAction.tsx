@@ -8,6 +8,7 @@ import { IBridgedReceivePhase, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId, type UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { cctpAllowsManualExecution } from 'lib/usdcx/cctp';
 import { usdcxSourceChains, UsdcxSourceChain } from 'lib/usdcx/constant';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
@@ -77,12 +78,13 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
     phase === 'delivering' &&
     !!cctp &&
     !cctp.executeTxHash &&
+    cctpAllowsManualExecution(cctp) &&
     !!cctp.message &&
     !!cctp.attestation;
   useUserVisibleError(ready ? error?.id : null, 'inline');
 
   const handleExecute = useCallback(async () => {
-    if (busy || operationRef.current?.owner === selection || sourceChainId === undefined || !cctp) return;
+    if (!ready || busy || operationRef.current?.owner === selection || sourceChainId === undefined || !cctp) return;
     const operation: ExecuteOperation = { owner: selection };
     operationRef.current = operation;
     hapticMedium();
@@ -113,7 +115,7 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
         setExecution(current => (current?.operation === operation ? { ...current, busy: false } : current));
       }
     }
-  }, [busy, cctp, execute, selection, sourceChainId, t, txId]);
+  }, [busy, cctp, execute, ready, selection, sourceChainId, t, txId]);
 
   if (sourceChainId === undefined || source?.route !== 'cctp-executor' || phase !== 'delivering' || !cctp) {
     return null;
@@ -127,10 +129,10 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
       </p>
     );
   }
-  if (!cctp.message || !cctp.attestation) {
+  if (!ready) {
     // A forwarded burn is Circle's to execute: the reconciler records the Arc hash when Circle sends it and
     // keeps the message on the row only if Circle gives up, which is when the button below appears.
-    const forwarding = cctp.forwarded === true;
+    const forwarding = cctp.forwarded === true || cctp.sourceMessage !== undefined;
     return (
       <p
         className={clsx('text-center text-sm text-gray', className)}
