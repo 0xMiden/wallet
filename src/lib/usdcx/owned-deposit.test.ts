@@ -812,6 +812,30 @@ it.each([false, true])('withholds manual Execute for older saved source proof (p
   expect(adapterWallet).not.toHaveBeenCalled();
 });
 
+it('waits for explicit Circle failure on an aged deposit with previously staged manual proof', async () => {
+  const { id, source, reconcile } = await interruptedForward();
+  const message = cctpSourceMessage(source, { executed: 1000 });
+  await Repo.transactions.update(id, {
+    'extraInputs.phase': 'delivering',
+    'extraInputs.cctp.sourceMessage': cctpSourceMessage(source).toLowerCase(),
+    'extraInputs.cctp.message': message,
+    'extraInputs.cctp.attestation': '0xabcd'
+  });
+  jest.spyOn(Date, 'now').mockReturnValue(now + 8 * 24 * 60 * 60 * 1000);
+  fetchMock
+    .mockResolvedValueOnce(completedBurn(message, 'PENDING'))
+    .mockResolvedValueOnce(completedBurn(message, 'FAILED'));
+
+  await reconcile();
+  await reconcile();
+
+  const row = await Repo.transactions.get(id);
+  expect(row?.extraInputs.phase).toBe('delivering');
+  expect(row?.extraInputs.cctp).toMatchObject({ forwardState: 'FAILED', message, attestation: '0xabcd' });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(adapterWallet).not.toHaveBeenCalled();
+});
+
 it('permits the manual leg after the matching recovered burn is explicitly reported as failed by Circle', async () => {
   const { id, source, reconcile } = await interruptedForward();
   receiptReader.mockResolvedValue(cctpSourceReceipt(sourceHash, cctpSourceMessage(source)));
