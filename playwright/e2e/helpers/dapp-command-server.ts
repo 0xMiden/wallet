@@ -209,7 +209,7 @@ export async function startCommandServer(options: CommandServerOptions): Promise
     fs.appendFileSync(options.logFile, `${JSON.stringify(line)}\n`);
 
   const events: PageEvent[] = [];
-  const queues = new Map<string, Array<{ id: string; command: string; input: unknown }>>();
+  const queues = new Map<string, Array<{ id: string; command: string; input: unknown; expiresAt?: number }>>();
   const held = new Map<string, HeldPoll>();
   const pending = new Map<string, PendingCommand>();
   const eventWaiters = new Set<{ predicate: (event: PageEvent) => boolean; resolve: (event: PageEvent) => void }>();
@@ -373,7 +373,10 @@ export async function startCommandServer(options: CommandServerOptions): Promise
           resolve(result);
         }
       });
-      queues.set(key, [...(queues.get(key) ?? []), { id, command, input }]);
+      queues.set(key, [
+        ...(queues.get(key) ?? []),
+        { id, command, input, ...(command === 'submitCustomMeasured' ? { expiresAt: enqueuedAt + timeoutMs } : {}) }
+      ]);
       write({ type: 'enqueue', key, id, command, at: enqueuedAt });
       deliver(key);
     });
@@ -428,6 +431,7 @@ export function commandChannel(server: CommandServer, device: DeviceKey, dapp: D
       if (result.status === 'ok') return result.value;
       if (result.status === 'error') {
         const what = `${result.error.name}: ${result.error.message}`;
+        if (result.error.name === 'CommandExpiredError') throw new CellDeadlineExceeded(`dApp ${label} ${command}: ${what}`);
         if (result.error.name === 'ChainUnavailableError')
           throw new ChainUnavailable(`dApp ${label} ${command}: ${what}`);
         throw new HarnessFault(`dApp ${label} ${command} threw: ${what}`);

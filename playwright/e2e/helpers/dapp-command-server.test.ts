@@ -160,6 +160,20 @@ describe('command server', () => {
     });
   });
 
+  it('attaches the server deadline to the measured submission command', async () => {
+    const base = await start(300);
+    const pending = live().send('A', 'one', 'submitCustomMeasured', {}, 5_000);
+    const command: unknown = await (await poll(base, 'A', 'one')).json();
+    await postResult(base, 'A', 'one', { id: idOf(command), ok: true, value: {} });
+    const result = await pending;
+    expect(command).toEqual({
+      id: expect.any(String),
+      command: 'submitCustomMeasured',
+      input: {},
+      expiresAt: result.enqueuedAt + 5_000
+    });
+  });
+
   it('answers an idle poll with 204 once the hold ends', async () => {
     const base = await start(200);
     const startedAt = Date.now();

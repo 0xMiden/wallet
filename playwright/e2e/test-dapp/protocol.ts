@@ -1,5 +1,5 @@
 /**
- * The command surface of `window.testDapp`, imported type-only by the page and by the Playwright driver. Results are
+ * The command surface of `window.testDapp`, shared by the page and the Playwright driver. Results are
  * JSON: amounts and bigints are decimal strings, bytes are base64, ids are hex. Wallet and adapter errors come back
  * as `Outcome` data; a bad input or a failed self-check throws, because that is a dApp bug, not a wallet verdict, and a
  * call the node failed throws `ChainUnavailableError`, which the driver asks again where a repeat cannot change the
@@ -282,9 +282,55 @@ export interface DappCommands {
 export type DappCommandName = keyof DappCommands;
 export type DappInput<K extends DappCommandName> = DappCommands[K]['input'];
 export type DappOutput<K extends DappCommandName> = DappCommands[K]['output'];
-export type DappHandlers = { [K in DappCommandName]: (input: DappInput<K>) => Promise<DappOutput<K>> };
+export type DappHandlers = { [K in DappCommandName]: (input: DappInput<K>, expiresAt?: number) => Promise<DappOutput<K>> };
 
 export interface TestDappWindowApi {
   readonly ready: true;
-  call<K extends DappCommandName>(command: K, input: DappInput<K>): Promise<DappOutput<K>>;
+  call<K extends DappCommandName>(command: K, input: DappInput<K>, expiresAt?: number): Promise<DappOutput<K>>;
+}
+
+export const NODE_RETRY_MS = 2_000;
+
+export async function runMeasuredCustomSubmit(
+  sync: () => Promise<DappOutput<'syncHeight'>>,
+  submit: () => Promise<DappOutput<'submitCustom'>>,
+  expiresAt?: number
+): Promise<DappOutput<'submitCustomMeasured'>> {
+  const checkExpiry = () => {
+    if (expiresAt !== undefined && Date.now() >= expiresAt) {
+      throw Object.assign(new Error('Measured submission expired before reaching the wallet'), { name: 'CommandExpiredError' });
+    }
+  };
+  const beforeStartedAt = performance.now();
+  let beforeHeight: number;
+  for (;;) {
+    checkExpiry();
+    const startedAt = Date.now();
+    try {
+      ({ height: beforeHeight } = await sync());
+      break;
+    } catch (error) {
+      if (
+        !(error instanceof Error && error.name === 'ChainUnavailableError') ||
+        expiresAt === undefined ||
+        expiresAt - Date.now() <= NODE_RETRY_MS + (Date.now() - startedAt)
+      ) throw error;
+      await new Promise(resolve => setTimeout(resolve, NODE_RETRY_MS));
+    }
+  }
+  checkExpiry();
+  const requestStartedAt = performance.now();
+  const result = await submit();
+  const afterStartedAt = performance.now();
+  const { height: afterHeight } = await sync();
+  return {
+    result,
+    timing: {
+      beforeHeight,
+      afterHeight,
+      beforeSyncMs: Math.round(requestStartedAt - beforeStartedAt),
+      requestMs: Math.round(afterStartedAt - requestStartedAt),
+      afterSyncMs: Math.round(performance.now() - afterStartedAt)
+    }
+  };
 }

@@ -81,6 +81,7 @@ import type {
   SessionEvent,
   TestDappWindowApi
 } from './protocol';
+import { runMeasuredCustomSubmit } from './protocol.js';
 import { buildScriptRequest } from './script-request.js';
 
 /** A built custom request waits here until `submitCustom`, so a test can let the chain move in between. */
@@ -672,24 +673,8 @@ const handlers: Partial<DappHandlers> = {
   // (R3), which a test drives through `raw` instead.
   submitCustom,
   // Keep the real sync samples adjacent to the request, without driver transport between them.
-  submitCustomMeasured: async input => {
-    const beforeStartedAt = performance.now();
-    const { height: beforeHeight } = await syncHeight({});
-    const requestStartedAt = performance.now();
-    const result = await submitCustom(input);
-    const afterStartedAt = performance.now();
-    const { height: afterHeight } = await syncHeight({});
-    return {
-      result,
-      timing: {
-        beforeHeight,
-        afterHeight,
-        beforeSyncMs: Math.round(requestStartedAt - beforeStartedAt),
-        requestMs: Math.round(afterStartedAt - requestStartedAt),
-        afterSyncMs: Math.round(performance.now() - afterStartedAt)
-      }
-    };
-  },
+  submitCustomMeasured: (input, expiresAt) =>
+    runMeasuredCustomSubmit(() => syncHeight({}), () => submitCustom(input), expiresAt),
 
   waitForTransaction: ({ txId }) =>
     outcome(async () => {
@@ -870,10 +855,14 @@ const handlers: Partial<DappHandlers> = {
     })
 };
 
-async function call<K extends DappCommandName>(command: K, input: DappInput<K>): Promise<DappOutput<K>> {
+async function call<K extends DappCommandName>(
+  command: K,
+  input: DappInput<K>,
+  expiresAt?: number
+): Promise<DappOutput<K>> {
   const handler = handlers[command];
   if (handler === undefined) throw new HarnessCheckError(`command ${command} is not implemented`);
-  return handler(input);
+  return handler(input, expiresAt);
 }
 
 // Published only once every handler above exists, so a driver that waits for `ready` never calls a half-loaded page.
