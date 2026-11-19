@@ -115,7 +115,17 @@ export function CommandBridge(): React.ReactElement {
       )}
     </DetailCard>
   ) : undefined;
-  const outlets = useCommandWorkbenchSlots(footer, details);
+  const outlets = useCommandWorkbenchSlots(
+    <>
+      {!bridge.review && !locked && (
+        <TextAction className="mr-auto" onClick={() => navigate(RECOVER_FUNDS_PATH)}>
+          {t('recoverLockedFunds')}
+        </TextAction>
+      )}
+      {footer}
+    </>,
+    details
+  );
   return (
     <div data-testid="command-bridge" className="flex flex-col gap-4">
       <form
@@ -262,11 +272,6 @@ export function CommandBridge(): React.ReactElement {
           {bridge.error && !stoppedBeforeSource ? t('bridgeReviewChanged') : undefined}
         </ErrorLine>
       </form>
-      {!bridge.review && !locked && (
-        <TextAction className="self-start" onClick={() => navigate(RECOVER_FUNDS_PATH)}>
-          {t('recoverLockedFunds')}
-        </TextAction>
-      )}
       {outlets}
     </div>
   );

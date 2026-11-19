@@ -346,7 +346,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   const saveCommandDraft = useCallback(
     (changes: Partial<CommandDrafts['send']>) => {
-      if (!commandDrafts) return;
+      if (!commandDrafts || commandDrafts.readSendAdmission()?.status === 'pending') return;
       const previous = commandDrafts.readDraft('send');
       commandDrafts.writeDraft('send', {
         ...previous,
@@ -844,6 +844,21 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
     if (reviewHandoffRef.current) return;
+    if (commandDrafts?.readSendAdmission()?.status === 'pending') {
+      const original = commandDrafts.readDraft('send');
+      if (!original?.reviewId) return;
+      reviewHandoffRef.current = true;
+      const params = new URLSearchParams({
+        amount: original.amount,
+        to: original.recipientAddress,
+        tokenId: original.tokenId,
+        commandReviewId: original.reviewId
+      });
+      if (original.bridgeNetwork) params.set('network', original.bridgeNetwork);
+      if (original.bridgeRoute) params.set('route', original.bridgeRoute);
+      navigate(`/send/review?${params.toString()}`);
+      return;
+    }
     if (
       !token ||
       !amount ||
@@ -918,6 +933,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     errors.amount,
     payoutFeeShortfall,
     command,
+    commandDrafts,
     saveCommandDraft,
     routeEligibility.blocked
   ]);

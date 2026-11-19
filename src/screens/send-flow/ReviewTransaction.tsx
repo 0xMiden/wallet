@@ -726,12 +726,27 @@ export const ReviewTransaction: React.FC = () => {
         setSpendingLimitChallenge(undefined);
         return;
       }
+      if (command && commandDrafts && !commandDrafts.beginSendAdmission(sendIntent)) return;
       setIsSubmitting(true);
       setSubmitError(undefined);
       setSubmitErrorId(undefined);
       setSpendingLimitChallenge(undefined);
-      // Biometrics already passed, or this is the spending-limit authorization
-      // that actually submits. Re-open a flow a previous error already settled.
+      // Once the owner returns a row, a worker wake-up or receipt view failure cannot rearm Send.
+      let admittedId: string | undefined;
+      const recordAdmission = (txId: string) => {
+        if (admittedId !== undefined) return;
+        admittedId = txId;
+        goToGeneratingTransaction(txId);
+      };
+      const wakeWorker = () => {
+        if (isExtension()) {
+          try {
+            requestSWTransactionProcessing();
+          } catch (error) {
+            console.error(error);
+          }
+        }
+      };
       enterSendFlow();
       reportSendStep('submitting');
       let failureId: UserErrorId = 'raw_send_submit_failed';
@@ -753,15 +768,18 @@ export const ReviewTransaction: React.FC = () => {
             networkFeeBudget: burnNetworkFeeBudget,
             spendingLimitAuthorization: authorization
           });
-          if (isExtension()) requestSWTransactionProcessing();
-          goToGeneratingTransaction(txId);
+          recordAdmission(txId);
+          wakeWorker();
         } else if (route === 'agglayer') {
           // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
           if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), bridgeNetworkObj?.chainId))) {
             failureId = 'agglayerTokenUnsupported';
             throw new Error(t('agglayerTokenUnsupported'));
           }
-          if (!isCurrentSubmission()) return;
+          if (!isCurrentSubmission()) {
+            if (command) commandDrafts?.abortSendAdmission(sendIntent);
+            return;
+          }
           const txId = await initiateB2AggBridge({
             destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
@@ -771,11 +789,15 @@ export const ReviewTransaction: React.FC = () => {
             guardianProvider: zustandProvider,
             spendingLimitAuthorization: authorization
           });
-          if (isExtension()) requestSWTransactionProcessing();
-          goToGeneratingTransaction(txId);
+          recordAdmission(txId);
+          wakeWorker();
         } else {
-          if (!epochQuote.address || epochQuote.decimals === undefined || !epochQuote.validity) return;
-          await bridgeEpochSend({
+          if (!epochQuote.address || epochQuote.decimals === undefined || !epochQuote.validity) {
+            if (command) commandDrafts?.abortSendAdmission(sendIntent);
+            setIsSubmitting(false);
+            return;
+          }
+          const { txId } = await bridgeEpochSend({
             minimumOutputBaseUnits: epochMinimumOutput,
             reviewedQuote: {
               validity: epochQuote.validity,
@@ -788,11 +810,19 @@ export const ReviewTransaction: React.FC = () => {
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
             deps: { signTransaction, guardianProvider: zustandProvider },
-            onRowCreated: goToGeneratingTransaction,
+            onRowCreated: recordAdmission,
             spendingLimitAuthorization: authorization
           });
+          if (txId !== undefined) recordAdmission(txId);
+          else if (admittedId === undefined) {
+            if (command) commandDrafts?.abortSendAdmission(sendIntent);
+            setIsSubmitting(false);
+          }
         }
       } catch (error) {
+        if (admittedId !== undefined) return;
+        // The queue's rejection before a returned or observed row leaves nothing admitted.
+        if (command) commandDrafts?.abortSendAdmission(sendIntent);
         console.error(error);
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
@@ -837,6 +867,8 @@ export const ReviewTransaction: React.FC = () => {
       amountBaseUnits,
       bridgeNetworkObj,
       burnNetworkFeeBudget,
+      command,
+      commandDrafts,
       epochMinimumOutput,
       epochQuote.address,
       epochQuote.decimals,
@@ -846,6 +878,7 @@ export const ReviewTransaction: React.FC = () => {
       openUnpricedChallenge,
       publicKey,
       route,
+      sendIntent,
       signTransaction,
       t,
       to,
