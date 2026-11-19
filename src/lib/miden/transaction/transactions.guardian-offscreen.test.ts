@@ -3826,7 +3826,7 @@ function arrangeStructural(id: string, extra: Record<string, unknown>, result = 
 describe('structural guardian leaf routing — flag OFF (inline)', () => {
   it.each(structuralCases())(
     '$type: runs the inline pipeline, never dispatchGuardianPipeline; commit-wait routes through the proxy with the re-derived id',
-    async ({ row, complete }) => {
+    async ({ type, row, complete }) => {
       const { service, inline, provider: sp } = arrangeStructural(`s-off-${row.type}`, row);
 
       await generateTransaction(buildTx(`s-off-${row.type}`, row) as never, signCallback, false, sp as never);
@@ -3848,7 +3848,7 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
       const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
       const completeOrder = complete.mock.invocationCallOrder[0]!;
       expect(waitOrder).toBeLessThan(completeOrder);
-      expectStructuralCoSign(service, row.type);
+      expectStructuralCoSign(service, type);
     }
   );
 });
@@ -3856,7 +3856,7 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
 describe('structural guardian leaf routing — flag ON (offscreen)', () => {
   it.each(structuralCases())(
     '$type: crosses the co-signed request bytes to dispatchGuardianPipeline; commit-wait routes through the proxy (offscreen), never the dormant SW client',
-    async ({ row, complete }) => {
+    async ({ type, row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       const dispatched = makeResult();
       mockDispatchGuardianPipeline.mockResolvedValue(dispatched);
@@ -3888,7 +3888,7 @@ describe('structural guardian leaf routing — flag ON (offscreen)', () => {
       const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
       const completeOrder = complete.mock.invocationCallOrder[0]!;
       expect(waitOrder).toBeLessThan(completeOrder);
-      expectStructuralCoSign(service, row.type);
+      expectStructuralCoSign(service, type);
       // Structural completion finalized with the round-tripped result.
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0][STRUCTURAL_RESULT_ARG]).toBe(dispatched);

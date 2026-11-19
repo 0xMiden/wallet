@@ -3786,6 +3786,7 @@ describe('MultisigService', () => {
         txSummary: 'AQ==',
         signatures: [],
         metadata: {
+          description: 'Switch Guardian',
           proposalType: 'switch_guardian',
           newGuardianPubkey: signerCommitment,
           newGuardianEndpoint: 'https://new.test',
