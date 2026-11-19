@@ -212,6 +212,8 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await command.keyboard.press('ArrowDown');
   const focusedRoute = routePicker.getByRole('radio', { checked: true });
   await expect(focusedRoute).toBeFocused();
+  await expect(focusedRoute).toHaveCSS('outline-style', 'solid');
+  await expect(focusedRoute).toHaveCSS('outline-width', '2px');
   await expect(focusedRoute).toHaveCSS('outline-offset', '-5px');
   await expect
     .poll(() => focusedRoute.evaluate(card => getComputedStyle(card, '::before').borderLeftWidth))

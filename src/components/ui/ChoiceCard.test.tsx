@@ -174,7 +174,7 @@ describe('ChoiceCardGroup', () => {
     expect(oz).toHaveAttribute('aria-checked', 'true');
     expect(oz).toHaveAttribute('data-state', 'checked');
     expect(oz).toHaveClass('before:border-2', 'before:border-accent-primary');
-    expect(oz).toHaveClass('focus-visible:outline-2', 'focus-visible:-outline-offset-[5px]');
+    expect(oz).toHaveClass('focus-visible:outline-solid', 'focus-visible:outline-2', 'focus-visible:-outline-offset-[5px]');
     expect(oz.querySelector('svg:not([data-testid])')).not.toBeNull();
 
     const gateway = radio('Gateway');

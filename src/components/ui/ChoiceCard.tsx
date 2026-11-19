@@ -70,7 +70,7 @@ const card = cva(
     'group relative flex h-full w-full min-h-18 items-center gap-3 rounded-2xl px-4 py-3 text-left',
     'select-none transition-colors duration-150 ease-hover motion-reduce:transition-none',
     // Keep focus inside scrollable panes and separated from the selected edge.
-    'outline-none focus-visible:outline-2 focus-visible:-outline-offset-[5px] focus-visible:outline-ink/75',
+    'outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:-outline-offset-[5px] focus-visible:outline-ink/75',
     'disabled:cursor-not-allowed'
   ],
   {
