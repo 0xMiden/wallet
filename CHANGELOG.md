@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Keep polling the same faucet note after an interrupted limits read, within the existing deadline.
+
 - [FIX][ci] Wait for the Guardian to settle the funding claim before testing candidate abandonment.
 
 - [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.
