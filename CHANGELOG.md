@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] Match the bundled testnet Explore catalog to the published catalog.
+
 - [FIX][ci] Exercise the fullscreen Command launcher and wallet actions in existing browser/localnet jobs, and refuse a missing requested E2E Send token instead of selecting another asset.
 
 - [FEATURE][extension] Command shows recent wallet activity and existing claim cards, and opens the original transaction progress or receipt without changing settlement, recovery, privacy or signing authority.
