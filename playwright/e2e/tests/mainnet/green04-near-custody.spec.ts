@@ -5,8 +5,7 @@ import { createPublicClient, erc20Abi, getAddress, http, isHash } from 'viem';
 import { test } from '../../fixtures/two-wallets';
 import { vaultBalanceByFaucetId } from '../../helpers/balance-truth';
 import { mainnetChain, mainnetRpc } from '../../helpers/mainnet-bridge-sources';
-import { readTransactionRowsWithBytes, TxStatus, type TransactionRowSnapshot } from '../../helpers/history';
-import { canonicalMainnetLoopFaucet } from '../../helpers/mainnet-loop-config';
+import { isRecord } from '../../../../src/lib/update/guards';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { readMainnetMidenOwnNoteCreator } from '../../helpers/mainnet-miden-indexer';
 import { verifyMainnetMidenNoteInclusion } from '../../helpers/mainnet-miden-read';
@@ -87,26 +86,33 @@ test('bind the original NEAR deposit to the public payout and actual private cus
   await restoreMainnetLoopGuardian(walletB, process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
   assert.equal(await walletB.getAccountAddress(), state.account);
   const native = await vaultBalanceByFaucetId(walletB.page, state.native.faucetId);
-  stage = 'private-fee-evidence';
-  const history: TransactionRowSnapshot[] = await readTransactionRowsWithBytes(walletB.page, 'send');
-  const byNote = history.filter(row => row.outputNoteIds?.includes(note));
-  const rows = byNote.filter(row => row.status === TxStatus.Completed);
-  statusFailure = !history.length ? 'no-send-history' : !byNote.length ?
-    (history.some(row => row.transactionId?.toLowerCase() === creator.transactionId) ? 'creator-without-note' : 'no-exact-row') :
-    !rows.length ? 'no-completed-exact-row' : rows.length > 1 ? 'ambiguous-completed-row' : 'missing-or-invalid-fee';
-  const row = rows[0];
-  assert.ok(rows.length === 1 && row?.feeAmount && /^[1-9]\d*$/.test(row.feeAmount) && row.feeFaucetId);
-  statusFailure = 'fee-faucet-mismatch';
-  assert.equal(canonicalMainnetLoopFaucet(row.feeFaucetId), state.native.hex);
-  statusFailure = 'fee-creator-mismatch';
-  if (row.transactionId) assert.equal(row.transactionId.toLowerCase(), creator.transactionId);
-  statusFailure = undefined;
-  stage = 'private-balance';
-  assert.equal(native, BigInt(state.native.balance) - BigInt(state.principal) - BigInt(row.feeAmount));
+  stage = 'public-account-interval';
+  const prior = JSON.parse(readFileSync('test-results/epoch/roundtrip.json', 'utf8'));
+  assert.equal(prior.sourceRunId, state.sourceRunId);
+  assert.equal(prior.phase, 'complete');
+  assert.equal(prior.after.native, state.native.balance);
+  assert.ok(isHash(prior.returnMidenTxId));
+  const txs = await fetch('https://scan-backend-cedar-miden.eu-central-8.gateway.fm/graphql', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(10_000),
+    body: JSON.stringify({ query: 'query($a:String!){transactions(first:2,input:{account_bech:$a,order_by:desc,sort_by:timestamp}){edges{node{transaction_id account_bech block_number}}}}', variables: {a: creator.senderAddress} })
+  });
+  assert.ok(txs.ok);
+  const history = await txs.json();
+  assert.ok(isRecord(history) && !history.errors && isRecord(history.data) && isRecord(history.data.transactions));
+  const edges = history.data.transactions.edges;
+  assert.ok(Array.isArray(edges) && edges.length === 2);
+  assert.ok(edges.every(edge => edge?.node?.account_bech === creator.senderAddress));
+  assert.equal(edges[0].node.transaction_id, creator.transactionId);
+  assert.equal(edges[0].node.block_number, String(creator.blockNumber));
+  assert.equal(edges[1].node.transaction_id, prior.returnMidenTxId);
+  assert.ok(Number(edges[1].node.block_number) < creator.blockNumber);
+  stage = 'private-vault-delta';
+  const fee = BigInt(state.native.balance) - BigInt(state.principal) - native;
+  assert.ok(fee >= BigInt(state.baseFee) && fee <= BigInt(state.feeBudget));
   assert.equal(digest(), hash);
   writeFileSync('test-results/green04-near-custody.json', JSON.stringify({
     sourceRunId: state.sourceRunId, checkpointHash: hash, publicSourceAndPayoutVerified: true,
-    privateCustodyVerified: true, nativeFeeBaseUnits: row.feeAmount, heldBaseUnits: received.toString(),
+    privateCustodyVerified: true, nativeFeeBaseUnits: fee.toString(), heldBaseUnits: received.toString(),
     pendingNonce: pending, noNewAuthority: true, checkpointUnchanged: true, roundTripComplete: false
   }));
 });

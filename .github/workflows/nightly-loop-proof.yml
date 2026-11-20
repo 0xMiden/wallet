@@ -1,7 +1,7 @@
 name: Independent NEAR custody audit (read only)
 on:
   push:
-    branches: [wiktor/green04-near-fee-proof-once]
+    branches: [wiktor/green04-near-vault-proof-once]
 permissions:
   contents: read
   actions: read
@@ -25,9 +25,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green04-near-fee-proof-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green04-near-vault-proof-once
           base=84e600746824080d9b4e1b24a53ab665db0cc8dd
-          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git rev-parse HEAD^^)" = "$base"
           test "$(gh pr view 2220 --json headRefOid --jq .headRefOid)" = "$base"
           test "$(gh run list --workflow e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44681947124:completed
           gh run view 44318071333 --json headSha,attempt,conclusion,jobs | jq -e '.headSha=="eb23473d006c3564a30cdb991f177e64ff89ec24" and .attempt==1 and .conclusion=="failure" and ([.jobs[].steps[]|select(.name=="Wait for mainnet NEAR forward" and .conclusion=="failure")]|length)==1' >/dev/null
@@ -43,9 +43,16 @@ jobs:
           github-token: ${{ github.token }}
           name: mainnet-1click-final-44681947124
           path: test-results/near
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: 44681947124
+          github-token: ${{ github.token }}
+          name: mainnet-epoch-final-44681947124
+          path: test-results/epoch
       - name: Verify checkpoint bytes and audit types
         run: |
           echo '49280822379e8ce1e83a36e11e128e28ebee70001a2eadc56ce654ed410c7147  test-results/near/roundtrip.json' | sha256sum -c
+          echo '3478eb7eb398302b997ebbb0c0d1674b79f44b0db3b05c811519c778fa07893e  test-results/epoch/roundtrip.json' | sha256sum -c
           yarn ts
       - uses: ./.github/actions/install-miden-client-cli
       - uses: ./.github/actions/apt-drop-unused-repos
