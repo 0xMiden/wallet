@@ -159,6 +159,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // Token picker is a bottom sheet over the Amount step, not a Navigator step.
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+  const tokenAnchorRef = useRef<HTMLButtonElement>(null);
   // Contact picker is likewise a bottom sheet over the recipient step.
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
@@ -1247,6 +1248,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     tokenHeld,
     onAmountChange,
     onSelectToken: () => setShowTokenDrawer(true),
+    tokenAnchorRef: command ? tokenAnchorRef : undefined,
     onReceive,
     onBack: onStepBack,
     onConfirm: onConfirmAmount
@@ -1294,6 +1296,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       <SelectTokenDrawer
         open={showTokenDrawer}
         onOpenChange={setShowTokenDrawer}
+        anchorRef={command ? tokenAnchorRef : undefined}
         onSelect={onSelectToken}
         usdcxOnly={usdcxOnly}
         destinationChainId={destinationChainId}

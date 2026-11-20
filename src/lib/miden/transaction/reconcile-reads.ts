@@ -35,7 +35,16 @@ export type AccountRead = { ok: true; state: AccountState } | { ok: false; prune
 export interface NodeReads {
   blockCommitment(blockNum: number): Promise<string | undefined>;
   account(accountId: string, atBlock: number | undefined, timeoutMs: number): Promise<AccountRead>;
-  noteInclusions(noteIds: readonly string[], timeoutMs: number): Promise<ReadonlyMap<string, number> | undefined>;
+  /**
+   * The block including each of `noteIds` the node holds. With `sender`, only a copy that account created counts, and
+   * a note the node holds only under another sender fails the read: a note's id commits to its sender, so that copy is
+   * metadata that contradicts its id, and shows neither that the account created the note nor that it created none.
+   */
+  noteInclusions(
+    noteIds: readonly string[],
+    timeoutMs: number,
+    sender?: string
+  ): Promise<ReadonlyMap<string, number> | undefined>;
   /** The block that spent `nullifier` at or after `fromBlock`, null when unspent, undefined when the read failed. */
   nullifierHeight(nullifier: string, fromBlock: number, timeoutMs: number): Promise<number | null | undefined>;
 }
@@ -137,8 +146,9 @@ export async function createNodeReads(): Promise<NodeReads> {
       if (atBlock === undefined) observeTip(state.blockNum, performance.now(), scope);
       return { ok: true, state };
     },
-    noteInclusions: async (noteIds, timeoutMs) => {
+    noteInclusions: async (noteIds, timeoutMs, sender) => {
       try {
+        const creator = sender === undefined ? undefined : normalizeHex(canonicalWalletAccountId(sender));
         // NoteIds are moved by the call, so each read builds its own handles.
         const fetched = await once(
           () => client.getNotesById(noteIds.map(id => NoteId.fromHex(id))),
@@ -146,8 +156,18 @@ export async function createNodeReads(): Promise<NodeReads> {
           timeoutMs
         );
         const blocks = new Map<string, number>();
-        for (const note of fetched)
-          blocks.set(normalizeHex(note.noteId.toString()), note.inclusionProof.location().blockNum());
+        const elsewhere = new Set<string>();
+        for (const note of fetched) {
+          const noteId = normalizeHex(note.noteId.toString());
+          if (creator !== undefined && normalizeHex(note.metadata.sender().toString()) !== creator)
+            elsewhere.add(noteId);
+          else blocks.set(noteId, note.inclusionProof.location().blockNum());
+        }
+        const unattributed = [...elsewhere].filter(noteId => !blocks.has(noteId));
+        if (unattributed.length > 0) {
+          console.warn('[reconcile] the node names another sender for a note than the one asked for', unattributed);
+          return undefined;
+        }
         return blocks;
       } catch (error) {
         console.warn('[reconcile] could not read output notes', error);

@@ -6,7 +6,6 @@ import { RECOVER_FUNDS_PATH } from 'app/pages/recover-funds-paths';
 import { AmountInput } from 'components/AmountInput';
 import { useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { Button, ButtonVariant } from 'components/ui/Button';
-import { ChoiceCardGroup } from 'components/ui/ChoiceCard';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
@@ -14,6 +13,7 @@ import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import { TokenAmount } from 'components/ui/TokenAmount';
+import { assetKey } from 'lib/bridge/core/assets';
 import { quoteAmounts } from 'lib/bridge/core/quote';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -30,6 +30,9 @@ export function CommandBridge(): React.ReactElement {
   const formId = useId();
   useRegisterCommandFlowBack(bridge.back);
   const route = bridge.operationId ? (bridge.review?.route ?? bridge.route) : bridge.route;
+  const sourceKey = route ? assetKey(route.source) : '';
+  const sources = new Map(bridge.routes.map(candidate => [assetKey(candidate.source), candidate.source]));
+  const destinations = bridge.routes.filter(candidate => assetKey(candidate.source) === sourceKey);
   const isCircleSend = route?.provider === 'xreserve' && route.mode === 'send';
   const networkFeeBudget = bridge.review?.networkFeeBudget ?? bridge.networkFeeBudget;
   useUserVisibleError(
@@ -173,51 +176,10 @@ export function CommandBridge(): React.ReactElement {
               layout="fill"
               className="lg:col-span-2 lg:max-w-sm"
             />
-            <div className="lg:col-span-2">
-              <DetailCard>
-                <DetailRow
-                  label={t('commandBridgeEnvironment')}
-                  action={{ label: t('commandBridgeChangeNetwork'), onClick: () => navigate('/settings/networks') }}
-                >
-                  {bridge.environment}
-                </DetailRow>
-              </DetailCard>
-            </div>
-            <DetailCard>
-              <DetailRow label={t('commandBridgeFrom')} stacked>
-                {route?.source.network ?? t('unavailable')}
-              </DetailRow>
-            </DetailCard>
-            <DetailCard>
-              <DetailRow label={t('commandBridgeTo')} stacked>
-                {route?.destination.network ?? t('unavailable')}
-              </DetailRow>
-            </DetailCard>
-            <div className="flex min-w-0 flex-col gap-4">
-              <ChoiceCardGroup
-                aria-label={t('commandBridgeRoute')}
-                value={route?.id ?? null}
-                items={bridge.routes.map(item => ({
-                  id: item.id,
-                  'data-testid': `command-bridge-route-${item.id}`,
-                  title: t('commandBridgeRouteLabel', {
-                    source: item.source.symbol,
-                    destination: item.destination.symbol,
-                    network: item.mode === 'receive' ? item.source.network : item.destination.network
-                  }),
-                  subtitle: t(`commandBridgeProvider_${item.provider}`)
-                }))}
-                onChange={bridge.selectRoute}
-              />
-              <TextField
-                label={t('commandBridgeExternalAccount')}
-                value={bridge.externalAccountId}
-                readOnly={bridge.direction === 'in'}
-                onChange={event => bridge.setExternalAccountId(event.target.value)}
-              />
+            <div className="flex min-w-0 flex-wrap gap-2 lg:col-span-2">
               <Button
                 type="button"
-                variant={ButtonVariant.Secondary}
+                variant={bridge.connected ? ButtonVariant.Secondary : ButtonVariant.Primary}
                 onClick={() => {
                   hapticLight();
                   void bridge.connectWallet();
@@ -237,6 +199,62 @@ export function CommandBridge(): React.ReactElement {
                   {t('commandBridgeSwitchSource')}
                 </Button>
               )}
+            </div>
+            <div className="lg:col-span-2">
+              <DetailCard>
+                <DetailRow
+                  label={t('commandBridgeEnvironment')}
+                  action={{ label: t('commandBridgeChangeNetwork'), onClick: () => navigate('/settings/networks') }}
+                >
+                  {bridge.environment}
+                </DetailRow>
+              </DetailCard>
+            </div>
+            <label className="grid min-w-0 gap-2 rounded-2xl border border-hairline bg-fill/40 p-4 text-label text-muted">
+              {t('commandBridgeFrom')}
+              <select
+                className="min-h-11 w-full rounded-xl border border-hairline bg-page px-3 text-body text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
+                data-testid="command-bridge-source"
+                value={sourceKey}
+                disabled={!route}
+                onChange={event => {
+                  const candidate = bridge.routes.find(item => assetKey(item.source) === event.target.value);
+                  if (candidate) bridge.selectRoute(candidate.id);
+                }}
+              >
+                {!route && <option value="">{t('unavailable')}</option>}
+                {Array.from(sources, ([key, asset]) => (
+                  <option key={key} value={key}>
+                    {asset.symbol} · {asset.network}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-2 rounded-2xl border border-hairline bg-fill/40 p-4 text-label text-muted">
+              {t('commandBridgeTo')}
+              <select
+                className="min-h-11 w-full rounded-xl border border-hairline bg-page px-3 text-body text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
+                data-testid="command-bridge-destination"
+                value={route?.id ?? ''}
+                disabled={!route}
+                onChange={event => bridge.selectRoute(event.target.value)}
+              >
+                {!route && <option value="">{t('unavailable')}</option>}
+                {destinations.map(item => (
+                  <option key={item.id} value={item.id}>
+                    {item.destination.symbol} · {item.destination.network} ·{' '}
+                    {t(`commandBridgeProvider_${item.provider}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex min-w-0 flex-col gap-4">
+              <TextField
+                label={t('commandBridgeExternalAccount')}
+                value={bridge.externalAccountId}
+                readOnly={bridge.direction === 'in'}
+                onChange={event => bridge.setExternalAccountId(event.target.value)}
+              />
             </div>
             {route && (
               <div className="min-w-0 rounded-2xl border border-hairline bg-fill/40 p-4 sm:p-5">

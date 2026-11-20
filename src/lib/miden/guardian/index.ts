@@ -53,6 +53,7 @@ import {
 import { WalletSigner, type SignWordFunction } from './signer';
 import { requireRequestBoundBlockNum } from './tip-execution';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { requestOrderOf, type RequestOrder } from '../sdk/apply-after-submit';
 import { accountRefToSdk, feeAwareRequestBuilder, randomFeeSalt } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -831,21 +832,30 @@ export class MultisigService {
    * The request's own expiration delta does not survive either, and a tip execution would count
    * it from the tip anyway. `approvalExpirationDelta` is the bound the proposal keeps instead,
    * counted from the bound block this rebuild takes (#1081).
+   *
+   * A swap's rebuild also returns `order`, the order read off the rebuilt request whose bytes it returns, for the
+   * caller to record in the write that stores them; it is absent when that read named none.
    */
   async createRebasedCustomProposal(
     requestBytes: Uint8Array,
     proposalType: string,
     approvalExpirationDelta?: number
-  ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
+  ): Promise<{ proposal: Proposal; requestBytes: Uint8Array; order?: RequestOrder }> {
     return await this.withChainSyncedHold('rebased custom proposal', async (hold, client) => {
       const { notes, builder } = await this.proposalStep('rebase_build', async () => ({
         notes: TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes(),
         builder: await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta)
       }));
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
-      const rebased = await this.proposalStep('rebase_build', async () =>
-        builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize()
-      );
+      const { rebased, order } = await this.proposalStep('rebase_build', async () => {
+        const request = builder.withOwnOutputNotes(new NoteArray(notes)).build();
+        // Read off the request whose bytes are returned, after the hold check above: the notes it was built from may
+        // have moved into its NoteArray by value.
+        return {
+          rebased: request.serialize(),
+          order: proposalType === 'swap' ? requestOrderOf(() => request.expectedOutputOwnNotes()) : undefined
+        };
+      });
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the rebuild');
       // The check runs on `rebased`, the bytes this proposal is made from and the caller persists.
       const proposal = await this.proposeCheckedCustomRequest(
@@ -855,7 +865,7 @@ export class MultisigService {
         proposalType,
         'rebased custom proposal'
       );
-      return { proposal, requestBytes: rebased };
+      return { proposal, requestBytes: rebased, ...(order === undefined ? {} : { order }) };
     });
   }
 

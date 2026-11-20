@@ -1,7 +1,8 @@
 import type { Proposal } from '@openzeppelin/miden-multisig-client';
 
-import type { ITransaction } from 'lib/miden/db/types';
+import type { ISwapExtraInputs, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import type { RequestOrder } from 'lib/miden/sdk/apply-after-submit';
 import { withProposalStep } from 'lib/telemetry/crash-diagnostics';
 
 import type { MultisigService } from './index';
@@ -26,12 +27,30 @@ export const proposeRebased = async (
   approvalExpirationDelta?: number
 ): Promise<Proposal> => {
   const rebased = await service.createRebasedCustomProposal(requestBytes, proposalType, approvalExpirationDelta);
+  const recordsOrder = transaction.type === 'swap';
   transaction.requestBytes = rebased.requestBytes;
+  if (recordsOrder) transaction.extraInputs = withRequestOrder(transaction.extraInputs, rebased.order);
   // The proposal exists by now: a failure here never means none was made.
   await withProposalStep('rebased_request_persist', () =>
     Repo.transactions.where({ id: transaction.id }).modify(t => {
       t.requestBytes = rebased.requestBytes;
+      if (recordsOrder) t.extraInputs = withRequestOrder(t.extraInputs, rebased.order);
     })
   );
   return rebased.proposal;
+};
+
+/**
+ * A swap row's `extraInputs` recording `order` as the order of the request bytes written with them (`requestOrder`),
+ * or without a record when no order was read off those bytes: a record left from other bytes would describe a request
+ * the row no longer holds. Called only in the write that stores the bytes, and on the in-memory row the completion
+ * reads.
+ */
+export const withRequestOrder = (
+  extraInputs: ISwapExtraInputs | undefined,
+  order: RequestOrder | undefined
+): ISwapExtraInputs | undefined => {
+  if (extraInputs === undefined) return undefined;
+  const { requestOrder: _replaced, ...rest } = extraInputs;
+  return order === undefined ? rest : { ...rest, requestOrder: { orderId: order.orderId, noteId: order.orderNoteId } };
 };
