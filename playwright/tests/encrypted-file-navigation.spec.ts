@@ -70,8 +70,14 @@ test.describe('encrypted file export navigation', () => {
         }
         await page.goto(`${origin}/${surface.shell}#/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
         const profileTab = page.getByRole('button', { name: 'Profile', exact: true });
-        await expect(profileTab, `Profile entry in ${surface.name}/${theme}`).toBeVisible({ timeout: 20_000 });
-        await profileTab.click({ timeout: 10_000 });
+        if (surface.name === 'fullpage') {
+          await expect(page.getByTestId('command-shell')).toBeVisible({ timeout: 20_000 });
+          await expect(profileTab).toHaveCount(0);
+          await page.goto(`${origin}/${surface.shell}#/me`);
+        } else {
+          await expect(profileTab, `Profile entry in ${surface.name}/${theme}`).toBeVisible({ timeout: 20_000 });
+          await profileTab.click({ timeout: 10_000 });
+        }
         await expect.poll(() => new URL(page.url()).hash).toBe('#/me');
         await expect(page.getByTestId('profile-settings-menu')).toBeVisible();
         await expect

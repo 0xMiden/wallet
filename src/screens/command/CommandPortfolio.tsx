@@ -22,6 +22,7 @@ import { useCommandPrivacy } from './useCommandPrivacy';
 
 const BUCKET_MS = 15 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
+const BALANCE_PLACEHOLDER = '---';
 const RANGES = { '1W': 7, '1M': 30, '3M': 90, '1Y': 365 };
 const ALLOCATION_COLORS = ['bg-accent-primary', 'bg-accent-tint-ink', 'bg-muted'] as const;
 type HistoryRange = keyof typeof RANGES;
@@ -181,7 +182,7 @@ export function CommandPortfolio({
             t('commandMaskedBalance')
           ) : value === null ? (
             <>
-              <span aria-hidden="true">---</span>
+              <span aria-hidden="true">{BALANCE_PLACEHOLDER}</span>
               <span className="sr-only">{t('commandBalanceUnavailable')}</span>
             </>
           ) : (
