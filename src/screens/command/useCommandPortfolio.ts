@@ -27,6 +27,7 @@ export function useCommandPortfolio(scope: AccountScope) {
   const pricedValues: { tokenId: string; value: number }[] = [];
   let partial = false;
   let staleQuote = false;
+  let hasMarketValue = false;
   const priced: string[] = [];
   const unpriced: string[] = [];
   const assets = rows.filter(row => !isHidden(row.tokenId));
@@ -60,6 +61,7 @@ export function useCommandPortfolio(scope: AccountScope) {
       unpriced.push(row.tokenId);
       continue;
     }
+    hasMarketValue ||= !isFixedQuote(quote);
     pricedRows.push(row);
     pricedValues.push({ tokenId: row.tokenId, value });
     priced.push(row.tokenId);
@@ -69,8 +71,14 @@ export function useCommandPortfolio(scope: AccountScope) {
     proof?.capturedAt && proof.capturedAt <= Date.now() && Date.now() - proof.capturedAt <= CURRENT_MS
   );
   const { totalFiat: total, previousFiat } = valuedBalanceTotal(pricedRows, tokenPrices);
+  const empty =
+    current && !isLoading && hiddenReady && rows.length > 0 && rows.every(row => row.balanceBaseUnits === '0');
+  // Fixed quotes and a proven empty vault do not depend on the market feed.
+  const canValueWithoutFeed = empty || (held && !partial && !hasMarketValue);
   const value =
-    current && hiddenReady && pricesStatus === 'ready' && (!held || pricedRows.length > 0) ? String(total) : null;
+    current && hiddenReady && (pricesStatus === 'ready' || canValueWithoutFeed) && (!held || pricedRows.length > 0)
+      ? String(total)
+      : null;
   const allocation =
     value !== null && !isLoading && Number.isFinite(total) && total > 0
       ? pricedValues.map(row => ({ ...row, percentage: (row.value / total) * 100 }))
@@ -101,7 +109,7 @@ export function useCommandPortfolio(scope: AccountScope) {
     coverageKey: `priced:${priced.sort().join(',')}|unpriced:${unpriced.sort().join(',')}`,
     capturedAt: proof?.capturedAt,
     current: current && !isLoading,
-    empty: current && !isLoading && hiddenReady && rows.length > 0 && rows.every(row => row.balanceBaseUnits === '0'),
+    empty,
     canRecord:
       current &&
       rows.length > 0 &&
