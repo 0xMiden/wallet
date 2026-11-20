@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][extension] Restore the selected account’s last synced balance when reopening the wallet, without waiting for another sync.
+
 - [CHANGE][extension] Give fullscreen Bread Command a wider portfolio, steadier action switching, and desktop controls for sending, bridging, and viewing activity.
 
 - [FIX][all] Match the bundled testnet Explore catalog to the published catalog.

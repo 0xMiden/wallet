@@ -21,6 +21,11 @@ jest.mock('lib/store/utils/updateBalancesFromSyncData', () => ({
   updateBalancesFromSyncData: jest.fn().mockResolvedValue(undefined)
 }));
 
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveRpcUrl: () => 'https://node.example'
+}));
+
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => true),
   // False on an extension page an extension reload or update orphaned.
@@ -173,10 +178,15 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
 
   it('lands the last matching vault before publishing Ready on popup startup', async () => {
     const syncFromBackend = jest.fn();
-    _g.__intSyncTest.walletState = { currentAccount: null, syncFromBackend, setSyncStatus: jest.fn() };
-    const state = { ...readyResponse.state, currentAccount: { publicKey: 'A' } };
+    _g.__intSyncTest.walletState = { currentAccount: null, balances: {}, syncFromBackend, setSyncStatus: jest.fn() };
+    const state = { ...readyResponse.state, status: WalletStatus.Ready, currentAccount: { publicKey: 'A' } };
     intercom.request.mockResolvedValue({ ...readyResponse, state });
-    const snapshot = { network: 'testnet', rpcUrl: 'https://node.example', accountNonce: '1' };
+    const snapshot = {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: 'https://node.example',
+      accountNonce: '1'
+    };
     const vaultAssets = [{ faucetId: 'test-token', amountBaseUnits: '5000000' }];
     get.mockImplementationOnce((_key, cb) =>
       cb({ miden_sync_data: { accountPublicKey: 'A', vaultAssets, balanceSnapshot: snapshot } })
@@ -186,11 +196,38 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
 
     renderHook(() => useIntercomSync());
     await act(async () => jest.advanceTimersByTimeAsync(0));
-    expect(updateBalancesFromSyncData).toHaveBeenCalledWith('A', vaultAssets, snapshot);
+    expect(updateBalancesFromSyncData).toHaveBeenCalledWith('A', vaultAssets, snapshot, expect.any(Function));
     expect(syncFromBackend).not.toHaveBeenCalled();
 
     await act(async () => finish());
     expect(syncFromBackend).toHaveBeenCalledWith(state);
+  });
+
+  it('does not wait for a different network’s cached vault', async () => {
+    const syncFromBackend = jest.fn();
+    _g.__intSyncTest.walletState = { currentAccount: null, balances: {}, syncFromBackend };
+    const state = { ...readyResponse.state, status: WalletStatus.Ready, currentAccount: { publicKey: 'A' } };
+    intercom.request.mockResolvedValue({ ...readyResponse, state });
+    jest.mocked(updateBalancesFromSyncData).mockClear();
+    get.mockImplementationOnce((_key, cb) =>
+      cb({
+        miden_sync_data: {
+          accountPublicKey: 'A',
+          vaultAssets: [],
+          balanceSnapshot: {
+            network: 'mainnet',
+            effectiveNetwork: 'mainnet',
+            rpcUrl: 'https://other',
+            accountNonce: '1'
+          }
+        }
+      })
+    );
+
+    renderHook(() => useIntercomSync());
+    await act(async () => jest.advanceTimersByTimeAsync(0));
+    expect(syncFromBackend).toHaveBeenCalledWith(state);
+    expect(updateBalancesFromSyncData).not.toHaveBeenCalled();
   });
 
   it('stops reading extension storage once the runtime is gone', async () => {
