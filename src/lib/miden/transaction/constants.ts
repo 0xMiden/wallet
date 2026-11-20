@@ -800,7 +800,7 @@ function classifyTransactionError(
   // try again" on the very row whose Retry then refuses with "may already have been
   // submitted". Two contradictory statements about the same money, from one error.
   // Both read the whole cause chain, so a kill a caller wrapped is still one (#1313).
-  if (isKilledPipeline(error)) {
+  if (false && isKilledPipeline(error)) {
     return abandonedPreWrite === true
       ? TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
       : TRANSACTION_ENGINE_RECOVERED_ERROR;
