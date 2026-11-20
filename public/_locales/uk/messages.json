@@ -895,6 +895,14 @@
     "message": "У заставній note має бути вказано перевірений токен, перевірена сума та налаштований розподільник. Нічого не було надіслано. Поверніться назад і спробуйте ще раз.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "Термінологія «bridge» змінилася. Перевірте «Activity», перш ніж продовжувати.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "Зупинено перед відправленням",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Загальна сума заробленого",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "Термін придатності",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Орієнтовна",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "Переглянутий термін дії змінився. Перегляньте його ще раз перед відправленням.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Якщо до того часу його не приймуть, $amount$ повернеться як очікуваний переказ, який ви приймете. Кошти не втрачаються.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3374,6 +3390,237 @@
   "openWallet": {
     "message": "Відкрити гаманець",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "Гаманець",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Пошук дій гаманця",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Дії з гаманцем",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Транзакція",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Міст",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "Напрямок",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Вихід з мосту",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Мережа Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Зміна мережі",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Провайдер",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Епоха",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "З",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "До",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Актив, мережа та провайдер",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ до $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Зовнішній рахунок",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Рахунок Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Орієнтовна сума, що надійшла",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Загальна сума джерела",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Комісія провайдера",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Зміна вихідної мережі",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch не може вказати фіксовану суму джерела у встановленого постачальника. Оберіть іншого постачальника для підключення.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Для поточної мережі гаманців маршрути-містки недоступні.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Перед продовженням процедури необхідно переконатися, що на рахунку є достатній залишок, який дозволяє здійснити цей депозит.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Цей переказ зафіксовано в розділі «Активність». Затвердження гаманцем або розрахунок можуть ще перебувати в стані очікування. Не починайте процес заново.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Переглянути статус переказу",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "Деталі",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "Відкрити у повноекранному режимі",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Відкриває ваш гаманець у новій вкладці.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Не вдалося відкрити у повноекранному режимі. Спробуйте ще раз.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "Портфель",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "Розподіл",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Активи гаманця з визначеною ціною",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "Ваш гаманець порожній.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Немає активів із зазначеною ціною для відображення.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "Останні дії",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Немає останніх дій для показу",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "Баланс гаманця",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "Зміна ринкової ціни за останні 24 години для активів за поточною ціною: $change$ доларів США ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "Приховати залишки",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Показати залишки",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Приховано",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Баланс недоступний",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Ціна недоступна",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Часткова оцінка — деякі активи не мають підтвердженої ціни в доларах США",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Історія операцій з гаманцем",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Діапазон історії",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Поки що недостатньо спостережень",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Відсутні деякі інтервали або охоплення оцінки",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Переглянути історію спостережень",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Зауваження стосуються лише цього пристрою. Пропуски не заповнюються.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "Почніть",
@@ -5925,6 +6172,10 @@
     "message": "Надіслати адресу",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "Не вдалося скопіювати цю адресу. Виберіть її нижче, щоб скопіювати вручну.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "З іншої мережі",
     "englishSource": "From another network"
@@ -7447,6 +7698,10 @@
   "receiveAt": {
     "message": "Отримати на",
     "englishSource": "Receive at"
+  },
+  "receiveNoPendingTransfers": {
+    "message": "Відсутні вхідні перекази для перевірки",
+    "englishSource": "No incoming transfers to review"
   },
   "earnTitle": {
     "message": "Ваш дохід",

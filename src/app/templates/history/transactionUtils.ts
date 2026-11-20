@@ -314,7 +314,7 @@ export const lockedDepositStateOf = (
 
 /** A bridge row whose badge is `bridgeBadgeStatusOf` and not the plain Pending/Confirmed/Failed status. */
 export const hasOwnBridgeBadge = (entry: IHistoryEntry): boolean =>
-  isUsdcxBridgeEntry(entry) || lockedDepositStateOf(entry) !== undefined;
+  isUsdcxBridgeEntry(entry) || entry.bridgeInStoppedBeforeSource === true || lockedDepositStateOf(entry) !== undefined;
 
 /**
  * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
@@ -324,6 +324,15 @@ export const hasOwnBridgeBadge = (entry: IHistoryEntry): boolean =>
  * until a retry or a withdrawal recovers it.
  */
 export function bridgeBadgeStatusOf(entry: IHistoryEntry, now = Date.now()): Status {
+  if (
+    entry.txType === 'bridged-receive' &&
+    (entry.bridgeInProvider === 'agglayer' || entry.bridgeInProvider === 'usdcx') &&
+    entry.bridgeInPhase === 'submitting' &&
+    entry.bridgeInStoppedBeforeSource &&
+    !entry.restoredFromBackup &&
+    entry.status !== ITransactionStatus.Failed
+  )
+    return 'stoppedBeforeSource';
   switch (lockedDepositStateOf(entry)) {
     case 'locked':
       return 'depositLocked';

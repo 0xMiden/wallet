@@ -12,7 +12,7 @@ import {
 import { badgesFromHistory } from '../badges/backfill';
 import { BADGE_EVIDENCE_TYPES } from '../badges/evidence';
 import { compareAccountIds } from './activity/utils';
-import { ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
+import { BridgedSendTransaction, ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
 import {
   BADGE_EVIDENCE_ROW_TYPES,
   createSchemaFor,
@@ -24,6 +24,7 @@ import {
   Table,
   TRANSACTIONS_V17_STORE,
   TRANSACTIONS_V2_STORE,
+  TRANSACTIONS_V3_2_STORE,
   SPENDING_LIMITS_V17_STORE,
   SPENDING_LIMITS_V19_STORE
 } from './repo';
@@ -436,6 +437,26 @@ describe('miden repo export/import', () => {
     const [restored] = await transactions.toArray();
     expect(restored!.restoredFromBackup).toBe(true);
     expect(isRequeueableTransaction(restored!)).toBe(false);
+  });
+
+  it('omits local original Epoch collateral facts while retaining actual execution bytes and history', async () => {
+    const row = new BridgedSendTransaction(
+      'acc1',
+      1n,
+      '0x1111111111111111111111111111111111111111',
+      11155111,
+      'epoch',
+      'faucet',
+      new Uint8Array([91, 92])
+    );
+    row.extraInputs.epochCollateralRequestBytes = new Uint8Array([81, 82]);
+    row.extraInputs.intentNonce = 'original-nonce';
+    await transactions.add(row);
+    const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
+    expect(dumped.extraInputs).not.toHaveProperty('epochCollateralRequestBytes');
+    expect(dumped.requestBytes).toEqual([91, 92]);
+    expect(dumped.extraInputs.intentNonce).toBe('original-nonce');
+    expect((await transactions.get(row.id))?.extraInputs.epochCollateralRequestBytes).toEqual(new Uint8Array([81, 82]));
   });
 
   // A backup must not record which dApps the user used, and a restored row is never waitable by one (#1416). Asserted
@@ -870,16 +891,53 @@ describe('miden repo export/import', () => {
   });
 });
 
+describe('portfolio observation migration', () => {
+  it('upgrades a populated 3.2 database without rewriting its transaction or spending-limit rows', async () => {
+    const name = `portfolio-v32-${crypto.randomUUID()}`;
+    const seed = new Dexie(name);
+    seed.version(3.2).stores({
+      [Table.Transactions]: TRANSACTIONS_V3_2_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+    });
+    await seed.open();
+    await seed.table(Table.Transactions).put({ id: 'existing-tx', accountId: 'a', initiatedAt: 1 });
+    await seed
+      .table(Table.SpendingLimits)
+      .put({ accountId: 'a', limit: '10', revision: 'r', createdAt: 1, updatedAt: 1 });
+    seed.close();
+    const upgraded = createSchemaFor(name);
+    try {
+      await upgraded.open();
+      expect(upgraded.verno).toBe(3.3);
+      await expect(upgraded.table(Table.Transactions).get('existing-tx')).resolves.toMatchObject({ accountId: 'a' });
+      await expect(upgraded.table(Table.SpendingLimits).get('a')).resolves.toMatchObject({ limit: '10' });
+      expect(upgraded.table(Table.PortfolioObservations).schema.primKey.keyPath).toEqual([
+        'accountId',
+        'network',
+        'rpcUrl',
+        'currency',
+        'bucket'
+      ]);
+      expect(upgraded.table(Table.PortfolioObservations).schema.indexes.map(index => index.name)).toEqual([
+        '[accountId+network+rpcUrl+currency+capturedAt]'
+      ]);
+    } finally {
+      upgraded.close();
+      await upgraded.delete();
+    }
+  });
+});
+
 describe('spending limits schema', () => {
   beforeEach(async () => {
     await spendingLimits.clear();
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 3.2', () => {
+  it('keeps spending limits keyed by account alone after the observation migration', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3.2);
+    expect(db.verno).toBe(3.3);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -1057,7 +1115,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3.2);
+    expect(upgraded.verno).toBe(3.3);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -1108,7 +1166,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3.2);
+    expect(upgraded.verno).toBe(3.3);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -1155,7 +1213,7 @@ describe('writing a transaction row', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.2);
+      expect(upgraded.verno).toBe(3.3);
       const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
       expect(upgradedLegacy).toMatchObject(legacy);
       expect(upgradedLegacy).not.toHaveProperty('badgeEvidenceRevision');
@@ -2169,7 +2227,7 @@ describe('wallet storage rejection boundaries', () => {
         target.close();
         let upgrades = 0;
         target
-          .version(3.3)
+          .version(3.4)
           .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
           .upgrade(async tx => {
             upgrades++;
@@ -2201,7 +2259,7 @@ describe('wallet storage rejection boundaries', () => {
       await target.open();
       target.close();
       target
-        .version(3.3)
+        .version(3.4)
         .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
         .upgrade(() => {
           throw failure;

@@ -712,6 +712,24 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
   });
 
+  it('reads Stopped before sending for a proven original pre-source stop, not a pending or failed delivery', () => {
+    const stopped = Object.assign(deposit({ bridgeInPhase: 'submitting' }), { bridgeInStoppedBeforeSource: true });
+    expect(bridgeBadgeStatusOf(stopped)).toBe('stoppedBeforeSource');
+    expect(hasOwnBridgeBadge(stopped)).toBe(true);
+  });
+
+  it('does not turn a restored, unresolved, or failed receive into a proven pre-source stop', () => {
+    const cases: Partial<IHistoryEntry>[] = [
+      { restoredFromBackup: true, bridgeInPhase: 'submitting' },
+      { bridgeInPhase: 'delivering' },
+      { bridgeInPhase: 'failed' }
+    ];
+    for (const overrides of cases) {
+      const entry = Object.assign(deposit(overrides), { bridgeInStoppedBeforeSource: true });
+      expect(bridgeBadgeStatusOf(entry)).toBe(overrides.bridgeInPhase === 'failed' ? 'failed' : 'pending');
+    }
+  });
+
   it('reads Failed for a failed deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
   });

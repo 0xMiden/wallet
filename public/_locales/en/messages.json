@@ -895,6 +895,14 @@
     "message": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "The bridge terms changed. Check Activity before continuing.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "Stopped before sending",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Total earned",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "Expiration Date",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Estimated",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "The reviewed expiration changed. Review it again before sending.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3374,6 +3390,237 @@
   "openWallet": {
     "message": "Open wallet",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "Wallet",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Search wallet actions",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Wallet actions",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Transaction",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Bridge",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "Direction",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Bridge out",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Miden network",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Change network",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Provider",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Epoch",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "From",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "To",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Asset, network and provider",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ to $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "External account",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Miden account",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Estimated received",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Total source amount",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Provider fee",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Switch source network",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "No bridge routes are available for the current wallet network.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "The receiving balance limit must be available and allow this deposit before continuing.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "View transfer status",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "Open fullscreen",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Opens your wallet in a new tab.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Couldn’t open fullscreen. Try again.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "Portfolio",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "Allocation",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Priced wallet assets",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "Your wallet is empty.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "No priced assets to show.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "Recent actions",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "No recent actions to show",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "Wallet balance",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "Hide balances",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Show balances",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Hidden",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Balance unavailable",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Price unavailable",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Partial valuation - some assets have no verified USD price",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Observed wallet history",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "History range",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Not enough observations yet",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Some intervals or valuation coverage are missing",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Inspect observed history",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Observations on this device only. Gaps are not filled.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "Get started",
@@ -5923,6 +6170,10 @@
     "message": "Send your address",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "Couldn't copy this address. Select it below to copy manually.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "From another network",
     "englishSource": "From another network"
@@ -7445,6 +7696,10 @@
   "receiveAt": {
     "message": "Receive at",
     "englishSource": "Receive at"
+  },
+  "receiveNoPendingTransfers": {
+    "message": "No incoming transfers to review",
+    "englishSource": "No incoming transfers to review"
   },
   "earnTitle": {
     "message": "Your Earnings",

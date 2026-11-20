@@ -3162,7 +3162,7 @@ describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, write deadline, criticalOp bracketed) + rehydrates', async () => {
+  it.each([false, true])('flag ON → dispatches a minimal send DTO and rehydrates (calendar: %s)', async calendar => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
     let criticalDuring: boolean | undefined;
@@ -3173,8 +3173,10 @@ describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
       return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1, 2, 3]).toString('base64'), durationMs: 4 };
     });
 
+    const tx = sendTx();
+    const calendarRecallTarget = '2030-01-01T12:00:30.000Z';
     const p = midenClientProxy.sendTransaction(
-      sendTx() as any,
+      (calendar ? { ...tx, extraInputs: { recallBlocks: 100, calendarRecallTarget } } : tx) as any,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -3198,14 +3200,16 @@ describe('MidenClientProxy - slice-5b sendTransaction flag routing', () => {
       noteType: 'public',
       amount: '1000',
       delegateTransaction: false,
-      extraInputs: {
-        recallBlocks: 100,
-        oneClick: {
-          fundingDeadline: '2026-10-22T12:00:00.000Z',
-          request: { deadline: '2026-10-22T12:00:00.000Z' },
-          quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
-        }
-      }
+      extraInputs: calendar
+        ? { recallBlocks: 100, calendarRecallTarget }
+        : {
+            recallBlocks: 100,
+            oneClick: {
+              fundingDeadline: '2026-10-22T12:00:00.000Z',
+              request: { deadline: '2026-10-22T12:00:00.000Z' },
+              quote: { quote: { deadline: '2026-10-22T12:10:00.000Z' } }
+            }
+          }
     });
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);
@@ -3700,6 +3704,63 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
 
 describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing', () => {
   const reqBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+
+  it('an owned newTransaction registers the existing op-scoped SW submit gate and requires it on the wire', async () => {
+    const { midenClientProxy, handleOffscreenSubmitGate } = await loadProxy(true);
+    const submitGate = jest.fn(async () => true);
+    let answer: unknown;
+    let opId = '';
+    let required: string | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string; argsB64: string[] }) => {
+      opId = env.op_id;
+      required = env.argsB64[3];
+      answer = await handleOffscreenSubmitGate({
+        target: 'sw',
+        type: 'OFFSCREEN_SUBMIT_GATE',
+        op_id: opId,
+        evidence: { refBlock: 4 }
+      });
+      return { ok: true, op_id: opId, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const pending = midenClientProxy.newTransaction(
+      'acct',
+      reqBytes,
+      false,
+      async () => new Uint8Array(),
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await pending;
+    expect(required).toBe('s:true');
+    expect(submitGate).toHaveBeenCalledWith({ refBlock: 4 });
+    expect(answer).toEqual({ ok: true });
+    expect(await handleOffscreenSubmitGate({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: opId })).toMatchObject(
+      { ok: false }
+    );
+    expect(submitGate).toHaveBeenCalledTimes(1);
+  });
+
+  it('the inline newTransaction waits for the same gate and refuses a non-granted source', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const gate = jest.fn(async () => false);
+    G.__px.inlineNewTransaction.mockImplementation(
+      async (
+        _account: string,
+        _bytes: Uint8Array,
+        _delegated: boolean,
+        onStage?: (stage: 'submitting', detail: { evidence: { refBlock: number } }) => void | Promise<void>
+      ) => {
+        await onStage?.('submitting', { evidence: { refBlock: 4 } });
+        return { __inlineNewResult: true };
+      }
+    );
+    await expect(
+      midenClientProxy.newTransaction('acct', reqBytes, false, async () => new Uint8Array(), undefined, gate)
+    ).rejects.toThrow();
+    expect(gate).toHaveBeenCalledWith({ refBlock: 4 });
+  });
 
   it('flag OFF → newTransaction runs inline under withWasmClientLock, signed by the per-write signer for its hold', async () => {
     const { midenClientProxy } = await loadProxy(false);

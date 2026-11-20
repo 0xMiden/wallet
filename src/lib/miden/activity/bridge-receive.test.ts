@@ -28,6 +28,7 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 jest.mock('lib/miden/repo', () => ({
   transactions: {
+    get: async (id: string) => rows.find(row => row.id === id),
     where: jest.fn((index: string) => ({
       equals: (value: string) => ({
         filter: (predicate: (row: any) => boolean) => ({
@@ -64,11 +65,8 @@ jest.mock('lib/agglayer/contract', () => ({
   midenAddrToEvmAddr: (address: string) => `evm:${address}`
 }));
 jest.mock('lib/agglayer/status', () => ({
-  fetchDeposits: (...args: unknown[]) => fetchDeposits(...args),
-  isAgglayerDepositReady: (deposit: any) =>
-    Boolean(
-      deposit.ready_for_claim || deposit.ready_to_claim || deposit.finalized || deposit.status === 'READY_TO_CLAIM'
-    )
+  ...jest.requireActual('lib/agglayer/status'),
+  fetchDeposits: (...args: unknown[]) => fetchDeposits(...args)
 }));
 jest.mock('lib/epoch/sdk', () => ({
   getEpochReadOnlySdk: jest.fn(async () => ({
@@ -235,7 +233,7 @@ describe('reconcileBridgedReceives', () => {
     );
   });
 
-  it('marks only the matching AggLayer transaction ready once the indexer finalizes it', async () => {
+  it('marks only the matching AggLayer transaction ready on an explicit legacy destination signal', async () => {
     const hash = `0x${'a'.repeat(64)}`;
     rows.push({
       id: 'agg-ready',
@@ -246,7 +244,7 @@ describe('reconcileBridgedReceives', () => {
     });
     fetchDeposits.mockResolvedValue([
       { tx_hash: `0x${'b'.repeat(64)}`, ready_for_claim: true },
-      { tx_hash: hash.toUpperCase(), ready_for_claim: false, status: 'READY_TO_CLAIM' }
+      { tx_hash: hash.toUpperCase(), status: 'READY_TO_CLAIM' }
     ]);
 
     await reconcileBridgedReceives();
@@ -441,7 +439,7 @@ describe('reconcileBridgedReceives', () => {
     expect(readOutcome).toHaveBeenCalledTimes(1);
     expect(readOutcome).toHaveBeenCalledWith(`0x${'e'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
     expect(updatePhase).not.toHaveBeenCalled();
-    expect(fetchDeposits).not.toHaveBeenCalled();
+    expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, undefined);
   });
 
   it.each([new Error('timeout'), new Error('Sepolia RPC is not configured')])(
@@ -454,7 +452,7 @@ describe('reconcileBridgedReceives', () => {
       await reconcileBridgedReceives();
 
       expect(updatePhase).not.toHaveBeenCalled();
-      expect(fetchDeposits).not.toHaveBeenCalled();
+      expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, undefined);
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith('[bridge-receive] AggLayer receipt read failed', 'agg-unreadable', error);
       warn.mockRestore();

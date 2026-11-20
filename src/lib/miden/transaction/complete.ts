@@ -1640,14 +1640,17 @@ export const updateBridgedReceivePhase = async (
   received?: { amount: bigint; faucetId: string; transactionId?: string },
   // The reconciler's adoption of Circle's forward lands only on a leg with no execute hash, so it never replaces a
   // manual execute; the wallet's own execute always lands, and the reconciler reopens on whichever held hash reverts.
-  { onlyIfNoExecuteHash = false }: { onlyIfNoExecuteHash?: boolean } = {}
+  {
+    onlyIfNoExecuteHash = false,
+    canUpdate
+  }: { onlyIfNoExecuteHash?: boolean; canUpdate?: (row: ITransaction) => boolean } = {}
 ) => {
   const { failure: source, ...details }: NonNullable<typeof extra> = extra ?? {};
   let settled: ITransaction | undefined;
   let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-    if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
+    if (!canMoveBridgedReceivePhase(inputs?.phase, phase) || (canUpdate && !canUpdate(tx))) return;
     // A reopen clears only the Arc execute it saw revert or stall: a newer execute saved meanwhile, with its proof,
     // stands.
     const reopened = extra?.cctp?.revertedExecuteTxHash ?? extra?.cctp?.stalledExecuteTxHash;

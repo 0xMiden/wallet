@@ -10,11 +10,56 @@ import {
 import { AccountId } from '@miden-sdk/miden-sdk';
 import { formatUnits, parseUnits } from 'viem';
 
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { readCompactLockBalance, strandedDepositAmount } from './bridge-in-lock';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
-import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
+import type { CrossChainIntentParams, EpochReviewedOutput, EVMToMidenIntentParams, IntentResult } from './types';
+
+export function reviewedEpochMinimum(value: string, decimals: number): bigint {
+  if (
+    typeof value !== 'string' ||
+    !Number.isSafeInteger(decimals) ||
+    decimals < 0 ||
+    decimals > 255 ||
+    !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) ||
+    (value.split('.')[1]?.length ?? 0) > decimals
+  )
+    throw new EpochReviewChangedError();
+  const minimum = parseUnits(value, decimals);
+  if (minimum <= 0n || minimum >= 1n << 256n) throw new EpochReviewChangedError();
+  return minimum;
+}
+
+export function assertEpochReviewedOutput(output: EpochReviewedOutput | undefined): void {
+  if (
+    !output ||
+    typeof output.minimumOutputBaseUnits !== 'string' ||
+    !/^[1-9]\d*$/.test(output.minimumOutputBaseUnits) ||
+    BigInt(output.minimumOutputBaseUnits) >= 1n << 256n ||
+    !/^0x[\da-f]{40}$/i.test(output.outputTokenAddress) ||
+    !Number.isSafeInteger(output.outputTokenDecimals) ||
+    output.outputTokenDecimals < 0 ||
+    output.outputTokenDecimals > 255 ||
+    !output.validity ||
+    (output.validity.kind !== 'provider' &&
+      (output.validity.kind !== 'time' ||
+        !Number.isFinite(output.validity.expiresAt) ||
+        output.validity.expiresAt <= Date.now()))
+  )
+    throw new EpochReviewChangedError();
+}
+
+export function assertCompactEpochScope(output: EpochReviewedOutput | undefined): void {
+  if (
+    !output?.walletScope ||
+    output.walletScope.network !== getEffectiveNetworkName() ||
+    output.walletScope.rpcUrl !== getEffectiveRpcUrl()
+  )
+    throw new EpochReviewChangedError();
+}
 
 export interface CrossChainQuote {
   taskTypeString: string;
@@ -256,7 +301,8 @@ function solvedCompactExpires(solveResult: unknown): string | undefined {
 
 export async function buildEVMToMidenIntent(
   sdk: Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'> & Partial<Pick<EpochIntentSDK, 'getDepositedBalances'>>,
-  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote }
+  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote },
+  beforeSolve?: () => Promise<void>
 ): Promise<IntentResult> {
   let taskTypeString: string;
   let intentData: unknown;
@@ -276,6 +322,7 @@ export async function buildEVMToMidenIntent(
   const lockBefore = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
 
   try {
+    await beforeSolve?.();
     const solveResult = await sdk.solveIntent({
       isNative: params.isNative === true,
       sponsorAddress: params.evmSourceAddress as `0x${string}`,
@@ -293,7 +340,7 @@ export async function buildEVMToMidenIntent(
       ...(compactExpires !== undefined ? { compactExpires } : {})
     };
   } catch (err) {
-    console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);
+    if (!beforeSolve) console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);
     const lockAfter = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
     const stranded = strandedDepositAmount(lockBefore, lockAfter);
     return {

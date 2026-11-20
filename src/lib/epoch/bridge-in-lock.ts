@@ -24,8 +24,8 @@ export async function readCompactLockBalance(
     const [row] = await sdk.getDepositedBalances(sponsorAddress, [{ address: tokenAddress, symbol: '', decimals: 0 }]);
     if (row === undefined || !/^[0-9]+$/.test(row.balance) || !/^[0-9]+$/.test(row.depositId)) return undefined;
     return { lockId: row.depositId, balance: BigInt(row.balance) };
-  } catch (err) {
-    console.warn('[epoch] Compact lock balance read failed', err);
+  } catch {
+    console.warn('[epoch] Compact lock balance read failed');
     return undefined;
   }
 }

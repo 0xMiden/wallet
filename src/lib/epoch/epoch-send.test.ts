@@ -169,13 +169,21 @@ describe('the Epoch quote amount', () => {
   });
 
   it('returns the exact quote for the Review to format', async () => {
-    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '10.655599', symbol: 'USDC' });
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({
+      amount: '10.655599',
+      symbol: 'USDC',
+      validity: { kind: 'provider' }
+    });
   });
 
   it('reads a zero quote as 0, not a padded 0.00', async () => {
     mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '0' } });
 
-    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '0', symbol: 'USDC' });
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({
+      amount: '0',
+      symbol: 'USDC',
+      validity: { kind: 'provider' }
+    });
   });
 });
 
@@ -264,7 +272,11 @@ describe('the configured output token', () => {
     });
     mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '1500000000000000000' } });
 
-    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '1.5', symbol: 'USDC.e' });
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({
+      amount: '1.5',
+      symbol: 'USDC.e',
+      validity: { kind: 'provider' }
+    });
     await bridgeEpochSend(args());
 
     expect(mockGetCrossChainQuote).toHaveBeenCalledWith(

@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
+import CommandLauncher from 'app/layouts/CommandLauncher';
 import { useHomePagerPreview } from 'app/layouts/home-pager-preview';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import {
@@ -330,6 +331,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // The Home pane holds the swipe carousel for every home-group route.
   panesRef.current[activeTab] = showActionBar ? (
     <>
+      {activeAction !== 'overview' && <CommandLauncher />}
       <div className="shrink-0 relative z-10" data-home-actions="true">
         <HomeActionBar
           items={actionItems}

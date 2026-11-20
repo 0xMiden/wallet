@@ -7,6 +7,7 @@ import path from 'path';
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
 import { FlowLayout } from './FlowLayout';
+import { FlowPresentationProvider } from './FlowPresentation';
 import { stepFooterCushionClass } from './footer-cushion';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -20,6 +21,18 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 describe('FlowLayout', () => {
+  it('omits the compact frame header only in Command presentation while retaining actions', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <FlowLayout title="Send" onBack={jest.fn()} footer={<button>Continue</button>}>
+          <p>Recipient</p>
+        </FlowLayout>
+      </FlowPresentationProvider>
+    );
+    expect(screen.queryByTestId('flow-back')).not.toBeInTheDocument();
+    expect(screen.getByText('Recipient')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
   it('renders the title, content, footer, and a back button that calls onBack', () => {
     const onBack = jest.fn();
     render(

@@ -40,7 +40,7 @@
  *  3. The re-key. Nothing anywhere in this repo pins that the wallet comes back
  *     under a DIFFERENT password: `wallet-lifecycle.spec.ts` :31-43 locks and
  *     unlocks with the same one. The falsifiable pair is P2 reaching
- *     `explore-page` and P1 being refused — together they are the only proof the
+ *     `command-shell` and P1 being refused — together they are the only proof the
  *     vault was genuinely re-encrypted rather than reused.
  *  4. The failure surface (#630). A recovery that fails has already wiped the
  *     wallet — the second test READS that, rather than asserting it in prose:
@@ -223,7 +223,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
       // make this pin one refactor away from matching the PRE-wipe value on its
       // first poll and passing a recovery that restored nothing.
       await walletA.page.reload({ waitUntil: 'domcontentloaded' });
-      await walletA.page.getByTestId('explore-page').waitFor({ timeout: 60_000 });
+      await walletA.page.getByTestId('command-shell').waitFor({ timeout: 60_000 });
 
       // And it must come back with the money. `> 0` would pass on a wallet that
       // recovered a fraction of its notes; the exact base-unit pin is what makes
@@ -245,7 +245,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
       await expectUnlockRejects(walletA, OLD_PASSWORD);
 
       // …and the password the user actually typed during the reset does open it.
-      // `unlockWallet` waits for `explore-page`, so reaching this line means the
+      // `unlockWallet` waits for `command-shell`, so reaching this line means the
       // re-keyed vault decrypted and the wallet is usable again.
       await walletA.unlockWallet(NEW_PASSWORD);
     });

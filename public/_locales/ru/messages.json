@@ -895,6 +895,14 @@
     "message": "В залоговой note необходимо использовать проверенный токен, проверенную сумму и настроенный аллокатор. Ничего не было отправлено. Вернитесь и попробуйте ещё раз.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "Терминология моста изменилась. Перед продолжением проверьте активность.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "Остановлено перед отправкой",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Общая сумма заработка",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "Срок годности",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Ориентировочная оценка",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "Проверенный срок действия изменился. Проверьте его ещё раз перед отправкой.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Если к тому времени перевод не примут, $amount$ вернётся как ожидающий перевод, который вы примете. Средства не теряются.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3374,6 +3390,237 @@
   "openWallet": {
     "message": "Открыть кошелек",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "Кошелек",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Поиск действий с кошельком",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Действия с кошельком",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Транзакция",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Мост",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "Направление",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Переход на другой мост",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Сеть Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Смена сети",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Провайдер",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Эпоха",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "Из",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "Чтобы",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Актив, сеть и провайдер",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ в $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Внешний счет",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Счёт Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Ориентировочная сумма поступления",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Общая сумма источника",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Комиссия провайдера",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Смена исходной сети",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch не может указать фиксированную сумму источника с установленным провайдером. Выберите другого провайдера для подключения.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Для текущей сети кошелька маршруты моста недоступны.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Прежде чем продолжить, необходимо убедиться, что на счёте имеется достаточный остаток, позволяющий осуществить данный депозит.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Этот перевод зафиксирован в разделе «Активность». Утверждение кошелька или расчет могут все еще находиться в процессе. Не запускайте его заново.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Просмотреть статус перевода",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "Открыть в полноэкранном режиме",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Открывает ваш кошелек в новой вкладке.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Не удалось перейти в полноэкранный режим. Попробуйте ещё раз.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "Портфель",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "Распределение",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Активы кошелька с установленной ценой",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "Ваш кошелек пуст.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Нет активов с указанной ценой для отображения.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "Недавние действия",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Нет недавних действий для отображения",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "Баланс кошелька",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "Изменение рыночной цены за 24 часа по активам по текущей цене: $change$ долларов США ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "Скрыть остатки",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Показать балансы",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Скрыто",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Баланс недоступен",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Цена недоступна",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Частичная оценка — у некоторых активов отсутствует подтверждённая цена в долларах США",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "История кошелька по наблюдениям",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Диапазон истории",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Пока недостаточно наблюдений",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Отсутствуют некоторые интервалы или диапазоны оценки",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Проверьте историю наблюдений",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Замечания касаются исключительно данного устройства. Пробелы не заполняются.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "Начать работу",
@@ -5927,6 +6174,10 @@
     "message": "Отправить адрес",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "Не удалось скопировать этот адрес. Выберите его ниже, чтобы скопировать вручную.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "Из другой сети",
     "englishSource": "From another network"
@@ -7449,6 +7700,10 @@
   "receiveAt": {
     "message": "Получить на",
     "englishSource": "Receive at"
+  },
+  "receiveNoPendingTransfers": {
+    "message": "Нет входящих переводов для проверки",
+    "englishSource": "No incoming transfers to review"
   },
   "earnTitle": {
     "message": "Ваш доход",
