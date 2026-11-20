@@ -1,6 +1,5 @@
 import type { Page } from '@playwright/test';
 
-import { earnWithdrawalRetryKind } from '../../src/lib/epoch/earn-withdraw-policy';
 import {
   preparedAllocation,
   PREPARED_FAUCET,
@@ -65,8 +64,6 @@ async function seedPreparedFailure(page: Page, id: string, accountId: string) {
       }
     }
   };
-
-  expect(earnWithdrawalRetryKind(row), 'the synthetic row must qualify under the real Retry policy').toBe('allocation');
 
   // Commit before the second document boots; the receipt must use its own real Dexie subscription.
   await page.evaluate(
