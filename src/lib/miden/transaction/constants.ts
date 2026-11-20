@@ -416,7 +416,7 @@ export function formatRawTransactionError(error: unknown): string {
     try {
       if (link instanceof Error) {
         isError = true;
-        parts.push(`${link.name}: ${link.message}${formatOffscreenDeadlineFacts(link)}`);
+        parts.push(`${link.name}: ${link.message}${parts.length === 0 ? formatOffscreenDeadlineFacts(link) : ''}`);
       } else if (link !== undefined) {
         parts.push(String(link));
       }
