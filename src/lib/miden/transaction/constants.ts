@@ -387,7 +387,7 @@ function formatOffscreenDeadlineFacts(link: Error): string {
   const owner = safeOwnDiagnosticData(deadline, 'owner');
   const timer = safeOwnDiagnosticData(deadline, 'timer');
   const trigger = safeOwnDiagnosticData(deadline, 'killer');
-  const observed = snapshotOffscreenDeadline(link);
+  const observed = snapshotOffscreenDeadline(undefined);
   return (
     ` [offscreen deadline: owner=${owner === 'own' || owner === 'collateral' ? owner : 'unavailable'};` +
     ` timer=${['dispatch', 'backstop', 'started', 'resumed'].find(value => value === timer) ?? 'unavailable'};` +
