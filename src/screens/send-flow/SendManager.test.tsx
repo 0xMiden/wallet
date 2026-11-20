@@ -1,7 +1,9 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
+import { FlowLayout } from 'components/flow/FlowLayout';
 import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   publishMockBridgeSnapshot
@@ -13,6 +15,9 @@ import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { currentUsdcxFeeScope } from 'lib/usdcx/fee-scope';
+import { useCommandDrafts } from 'screens/command/command-drafts';
+import { CommandShell } from 'screens/command/CommandShell';
+import { MidenAddressError } from 'utils/miden';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
@@ -60,9 +65,23 @@ let mockPathname = '/send';
 let mockSearch = '';
 let mockCardStack: { name: string }[] = [{ name: SendFlowStep.SelectRecipient }];
 let mockRenderRouteName: string | undefined;
+let mockRealNavigator = false;
+let mockLastAmountChange: ((value: string) => void) | undefined;
 
 let mockSelectedToken: any = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
 let mockSelectedContact: any = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
+let mockRouteFeatureAvailability: Partial<
+  Record<'fastBridgeOut' | 'bridgeOut', { state: 'available' | 'loading' | 'unavailable'; reason?: 'off' }>
+> = {};
+let mockSlowStatus: 'allowed' | 'loading' | 'unsupported' | 'error' = 'allowed';
+jest.mock('./useAgglayerEligibility', () => ({ useAgglayerEligibility: () => mockSlowStatus }));
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/use-feature-availability')>(
+    'lib/remote-config/use-feature-availability'
+  ),
+  useFeatureAvailability: (feature: 'fastBridgeOut' | 'bridgeOut') =>
+    mockRouteFeatureAvailability[feature] ?? { state: 'available' }
+}));
 
 let capturedBackHandler: (() => boolean) | null = null;
 let capturedBackHandlerDeps: unknown[] | null = null;
@@ -163,47 +182,72 @@ const walletStoreState = {
 // ---------------------------------------------------------------------------
 // Module mocks.
 // ---------------------------------------------------------------------------
-jest.mock('components/Navigator', () => ({
-  __esModule: true,
-  useNavigator: () => ({ navigateTo: navigateToMock, goBack: goBackMock, cardStack: mockCardStack }),
-  NavigatorProvider: ({ children, initialRouteName, initialRouteNames }: any) => (
-    <div data-testid="nav-provider" data-initial-stack={(initialRouteNames ?? [initialRouteName]).join(',')}>
-      {children}
-    </div>
-  ),
-  Navigator: ({ renderRoute }: any) => {
-    const name = mockRenderRouteName ?? mockCardStack[mockCardStack.length - 1]?.name;
-    return <div data-testid="navigator">{renderRoute({ name, animationIn: 'push', animationOut: 'pop' }, 0)}</div>;
-  }
-}));
+jest.mock('screens/command/CommandHomePrompts', () => ({ CommandHomePrompts: () => null }));
+jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
+jest.mock('screens/command/CommandRecentActions', () => ({ CommandRecentActions: () => null }));
+
+jest.mock('components/Navigator', () => {
+  const actual = jest.requireActual<typeof import('components/Navigator')>('components/Navigator');
+  return {
+    __esModule: true,
+    useNavigator: () =>
+      mockRealNavigator
+        ? actual.useNavigator()
+        : { navigateTo: navigateToMock, goBack: goBackMock, cardStack: mockCardStack },
+    NavigatorProvider: ({ children, initialRouteName, initialRouteNames, ...props }: any) =>
+      mockRealNavigator ? (
+        <actual.NavigatorProvider initialRouteNames={initialRouteNames} {...props}>
+          {children}
+        </actual.NavigatorProvider>
+      ) : (
+        <div data-testid="nav-provider" data-initial-stack={(initialRouteNames ?? [initialRouteName]).join(',')}>
+          {children}
+        </div>
+      ),
+    Navigator: ({ renderRoute }: any) => {
+      if (mockRealNavigator) return <actual.Navigator renderRoute={renderRoute} />;
+      const name = mockRenderRouteName ?? mockCardStack[mockCardStack.length - 1]?.name;
+      return <div data-testid="navigator">{renderRoute({ name, animationIn: 'push', animationOut: 'pop' }, 0)}</div>;
+    }
+  };
+});
 
 jest.mock('./SelectRecipient', () => ({
-  SelectRecipient: (props: any) => (
-    <div data-testid="select-recipient">
-      <span data-testid="sr-address">{props.address}</span>
-      <span data-testid="sr-network">{props.network ?? ''}</span>
-      <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
-      <span data-testid="sr-evidence">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
-      <span data-testid="sr-error">{props.error ?? ''}</span>
-      <textarea data-testid="sr-input" onChange={props.onAddressChange} />
-      <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
-      <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
-      <span data-testid="sr-networks">{JSON.stringify(props.networks.map((n: any) => n.id))}</span>
-      <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
-      <button data-testid="sr-addcontact" onClick={props.onAddContact} />
-      <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
-      {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
-      {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
-      {props.networks.map((network: { id: string }) => (
-        <button
-          key={network.id}
-          data-testid={`sr-network-${network.id}`}
-          onClick={() => props.onSelectNetwork(network.id)}
-        />
-      ))}
-      <button data-testid="sr-confirm" onClick={props.onConfirm} />
-    </div>
-  )
+  SelectRecipient: (props: any) =>
+    mockRealNavigator ? (
+      <FlowLayout title="Recipient" onBack={props.onBack} footer={<button onClick={props.onConfirm}>Continue</button>}>
+        <div data-testid="select-recipient">
+          <button data-testid="sr-network-sepolia" onClick={() => props.onSelectNetwork('sepolia')} />
+          <textarea data-testid="sr-input" onChange={props.onAddressChange} />
+          <button data-testid="sr-confirm" onClick={props.onConfirm} />
+        </div>
+      </FlowLayout>
+    ) : (
+      <div data-testid="select-recipient">
+        <span data-testid="sr-address">{props.address}</span>
+        <span data-testid="sr-network">{props.network ?? ''}</span>
+        <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
+        <span data-testid="sr-evidence">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
+        <span data-testid="sr-error">{props.error ?? ''}</span>
+        <textarea data-testid="sr-input" onChange={props.onAddressChange} />
+        <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
+        <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
+        <span data-testid="sr-networks">{JSON.stringify(props.networks.map((n: any) => n.id))}</span>
+        <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
+        <button data-testid="sr-addcontact" onClick={props.onAddContact} />
+        <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
+        {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
+        {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
+        {props.networks.map((network: { id: string }) => (
+          <button
+            key={network.id}
+            data-testid={`sr-network-${network.id}`}
+            onClick={() => props.onSelectNetwork(network.id)}
+          />
+        ))}
+        <button data-testid="sr-confirm" onClick={props.onConfirm} />
+      </div>
+    )
 }));
 
 jest.mock('./ScanQrDrawer', () => ({
@@ -221,30 +265,43 @@ jest.mock('./ScanQrDrawer', () => ({
 }));
 
 jest.mock('./SendAmount', () => ({
-  SendAmount: (props: any) => (
-    <div data-testid="select-amount">
-      <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
-      <span data-testid="sa-token-id">{props.token ? props.token.id : ''}</span>
-      <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
-      <span data-testid="sa-balance">{props.token ? String(props.token.balance) : ''}</span>
-      <span data-testid="sa-decimals">{props.token ? String(props.token.decimals) : ''}</span>
-      <span data-testid="sa-scale-known">{props.token ? String(props.token.scaleIsKnown) : ''}</span>
-      <span data-testid="sa-amount">{props.amount}</span>
-      <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
-      <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
-      <span data-testid="sa-token-held">{String(!!props.tokenHeld)}</span>
-      <span data-testid="sa-error">{props.error ?? ''}</span>
-      <span data-testid="sa-diagnostics">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
-      <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
-      <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
-      <span data-testid="sa-network">{props.network ?? ''}</span>
-      <button data-testid="sa-receive" onClick={props.onReceive} />
-      <input data-testid="sa-input" onChange={(e: any) => props.onAmountChange(e.target.value)} />
-      <button data-testid="sa-selecttoken" onClick={props.onSelectToken} />
-      {props.onBack && <button data-testid="sa-back" onClick={props.onBack} />}
-      <button data-testid="sa-confirm" onClick={props.onConfirm} />
-    </div>
-  )
+  SendAmount: (props: any) =>
+    mockRealNavigator ? (
+      <FlowLayout title="Amount" onBack={props.onBack} footer={<button onClick={props.onConfirm}>Continue</button>}>
+        <div data-testid="select-amount">
+          <button data-testid="sa-confirm" onClick={props.onConfirm} />
+        </div>
+      </FlowLayout>
+    ) : (
+      <div data-testid="select-amount">
+        <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
+        <span data-testid="sa-token-id">{props.token ? props.token.id : ''}</span>
+        <span data-testid="sa-fiat-price">{props.token ? String(props.token.fiatPrice) : ''}</span>
+        <span data-testid="sa-balance">{props.token ? String(props.token.balance) : ''}</span>
+        <span data-testid="sa-decimals">{props.token ? String(props.token.decimals) : ''}</span>
+        <span data-testid="sa-scale-known">{props.token ? String(props.token.scaleIsKnown) : ''}</span>
+        <span data-testid="sa-amount">{props.amount}</span>
+        <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
+        <span data-testid="sa-max-disabled">{String(!!props.maxDisabled)}</span>
+        <span data-testid="sa-token-held">{String(!!props.tokenHeld)}</span>
+        <span data-testid="sa-error">{props.error ?? ''}</span>
+        <span data-testid="sa-diagnostics">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
+        <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
+        <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
+        <span data-testid="sa-network">{props.network ?? ''}</span>
+        <button type="button" data-testid="sa-receive" onClick={props.onReceive} />
+        <input
+          data-testid="sa-input"
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            mockLastAmountChange = props.onAmountChange;
+            props.onAmountChange(e.target.value);
+          }}
+        />
+        <button type="button" data-testid="sa-selecttoken" onClick={props.onSelectToken} />
+        {props.onBack && <button type="button" data-testid="sa-back" onClick={props.onBack} />}
+        <button type="button" data-testid="sa-confirm" onClick={props.onConfirm} />
+      </div>
+    )
 }));
 
 jest.mock('./SelectToken', () => ({
@@ -358,17 +415,24 @@ jest.mock('./useEpochQuote', () => ({
 }));
 
 jest.mock('./SendRoute', () => ({
-  SendRoute: (props: any) => (
-    <>
-      <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
-      <span data-testid="route-selected">{props.route}</span>
-      <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
-      <span data-testid="route-usdcx-payout">
-        {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
-      </span>
-      <button data-testid="route-confirm" onClick={props.onConfirm} />
-    </>
-  )
+  SendRoute: (props: any) =>
+    mockRealNavigator ? (
+      <FlowLayout title="Route" onBack={props.onBack} footer={<button onClick={props.onConfirm}>Confirm</button>}>
+        <div data-testid="select-route" />
+      </FlowLayout>
+    ) : (
+      <>
+        <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
+        <span data-testid="route-selected">{props.route}</span>
+        <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
+        <span data-testid="route-usdcx-payout">
+          {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
+        </span>
+        <button data-testid="route-select-slow" onClick={() => props.onRouteChange('agglayer')} />
+        <button data-testid="route-select-usdcx" onClick={() => props.onRouteChange('usdcx')} />
+        <button data-testid="route-confirm" onClick={props.onConfirm} />
+      </>
+    )
 }));
 
 // The burn fee dry run behind `useBurnFeeReserve`; it never answers unless a case says otherwise.
@@ -382,6 +446,9 @@ jest.mock('lib/miden/front', () => ({
   useAllAccounts: () => useAllAccountsMock(),
   useAllBalances: (address: string) => ({ isLoading: mockBalancesLoading, ...useAllBalancesMock(address) }),
   useAllTokensBaseMetadata: () => useAllTokensBaseMetadataMock()
+}));
+jest.mock('lib/miden/front/claimable-notes', () => ({
+  useClaimableNotes: () => ({ data: undefined, isLoading: false })
 }));
 jest.mock('app/hooks/useHiddenTokens', () => ({
   useHiddenTokens: () => ({ loaded: mockHiddenTokensLoaded, isHidden: (id: string) => mockHiddenTokenIds.has(id) })
@@ -429,6 +496,9 @@ jest.mock('lib/store', () => ({
   })
 }));
 jest.mock('lib/woozie', () => ({
+  createLocationState: () => ({ historyPosition: 1, href: '/send' }),
+  goBack: () => goBackMock(),
+  listen: () => () => undefined,
   navigate: (...a: any[]) => navigateMock(...a),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
 }));
@@ -482,10 +552,14 @@ beforeEach(() => {
   mockSearch = '';
   mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
   mockRenderRouteName = undefined;
+  mockRealNavigator = false;
+  mockLastAmountChange = undefined;
   mockEpochAmount = undefined;
   mockUsdcxTokenId = undefined;
   mockUnsupportedSendTokens.clear();
   mockTokenRoutes = undefined;
+  mockRouteFeatureAvailability = {};
+  mockSlowStatus = 'allowed';
   mockUsdcxWithdrawalNetwork = true;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
@@ -650,6 +724,355 @@ describe('stale transaction modal dismissal', () => {
 // ---------------------------------------------------------------------------
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
+describe('Command Send uses the real SendManager form', () => {
+  const bridgeCommand = () => (
+    <CommandShell
+      scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+      route={{ kind: 'flow', action: 'send' }}
+    >
+      <SendFlow isLoading={false} />
+    </CommandShell>
+  );
+  const openBridge = () => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, scaleIsKnown: true, balance: 500, fiatPrice: 1 };
+    const view = render(bridgeCommand());
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    return view;
+  };
+
+  it.each(['loading', 'unsupported', 'error'] as const)(
+    'refuses Command Review and direct Enter while Slow registry is %s',
+    async status => {
+      mockTokenRoutes = { epoch: true, agglayer: true };
+      mockSlowStatus = status;
+      openBridge();
+      fireEvent.click(screen.getByTestId('route-select-slow'));
+      expect(screen.getByTestId('route-selected')).toHaveTextContent('agglayer');
+      expect(screen.getByTestId('command-send-review')).toBeDisabled();
+      screen.getByTestId('sa-input').focus();
+      await userEvent.keyboard('{Enter}');
+      fireEvent.click(screen.getByTestId('route-confirm'));
+      expect(navigateMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+    }
+  );
+
+  it.each([
+    ['fastBridgeOut', 'loading'],
+    ['fastBridgeOut', 'unavailable'],
+    ['bridgeOut', 'loading'],
+    ['bridgeOut', 'unavailable']
+  ] as const)('refuses a %s feature while %s even via Enter', async (feature, state) => {
+    mockRouteFeatureAvailability = { [feature]: state === 'loading' ? { state } : { state, reason: 'off' } };
+    if (feature === 'bridgeOut') mockTokenRoutes = { epoch: true, agglayer: true };
+    openBridge();
+    if (feature === 'bridgeOut') fireEvent.click(screen.getByTestId('route-select-slow'));
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    screen.getByTestId('sa-input').focus();
+    await userEvent.keyboard('{Enter}');
+    fireEvent.click(screen.getByTestId('route-confirm'));
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses USDCx once it becomes unavailable without changing the recipient or amount', async () => {
+    mockUsdcxTokenId = 'T1';
+    const view = openBridge();
+    expect(screen.getByTestId('route-selected')).toHaveTextContent('usdcx');
+    mockUsdcxTokenId = undefined;
+    view.rerender(bridgeCommand());
+    expect(screen.getByTestId('route-selected')).toHaveTextContent('usdcx');
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    screen.getByTestId('sa-input').focus();
+    await userEvent.keyboard('{Enter}');
+    fireEvent.click(screen.getByTestId('route-confirm'));
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('2');
+  });
+
+  it('uses the pinned footer as the amount form submit on Enter, with one review handoff after a click', async () => {
+    openBridge();
+    const field = screen.getByTestId('sa-input');
+    const submit = screen.getByTestId('command-send-review');
+    const form = field.closest('form');
+    expect(form).not.toBeNull();
+    expect(submit).toHaveAttribute('type', 'submit');
+    expect(submit).toHaveAttribute('form', form?.id);
+    if (!(submit instanceof HTMLButtonElement)) throw new Error('Review must be a button');
+    expect(submit.form).toBe(form);
+    field.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(submit);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps token and route pickers non-submitting inside the composed form', () => {
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    openBridge();
+    expect(screen.getByTestId('command-send-review')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('sa-selecttoken'));
+    expect(screen.getByTestId('td-open')).toHaveTextContent('true');
+    fireEvent.click(screen.getByTestId('route-select-slow'));
+    expect(screen.getByTestId('route-selected')).toHaveTextContent('agglayer');
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('allows the admitted Slow route through the same guarded Review handler', () => {
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    openBridge();
+    fireEvent.click(screen.getByTestId('route-select-slow'));
+    expect(screen.getByTestId('command-send-review')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('route=agglayer'));
+  });
+
+  it('gives a Command-authored Send review link an ephemeral handoff identity', () => {
+    openBridge();
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    const path: unknown = navigateMock.mock.calls[0]?.[0];
+    if (typeof path !== 'string') throw new Error('Missing Command review handoff');
+    expect(new URL(path, 'https://wallet.invalid').searchParams.get('commandReviewId')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
+  });
+
+  it.each([
+    ['pending', '/send/review?'],
+    ['admitted', '/generating-transaction-full/original-bridge-row']
+  ])('resumes the original %s bridge Send from the already-open composer', async (status, destination) => {
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 }]
+    });
+    const intent = JSON.stringify(['original-handoff', '2', '0xrecipient', 'T1', 'sepolia', 'agglayer']);
+    function Session() {
+      const drafts = useCommandDrafts();
+      const [back, setBack] = React.useState(false);
+      return back ? (
+        <>
+          <SendFlow isLoading={false} />
+          <button onClick={() => drafts.finishSendAdmission(intent, 'original-bridge-row')}>Queue completed</button>
+        </>
+      ) : (
+        <button
+          onClick={() => {
+            drafts.writeDraft('send', {
+              reviewId: 'original-handoff',
+              amount: '2',
+              recipientAddress: '0xrecipient',
+              tokenId: 'T1',
+              bridgeNetwork: 'sepolia',
+              bridgeRoute: 'agglayer'
+            });
+            drafts.beginSendAdmission(intent);
+            setBack(true);
+          }}
+        >
+          Back from pending review
+        </button>
+      );
+    }
+    render(
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <Session />
+      </CommandShell>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Back from pending review' }));
+    await waitFor(() => expect(screen.getByTestId('command-send-review')).toBeEnabled());
+    if (status === 'admitted') fireEvent.click(screen.getByRole('button', { name: 'Queue completed' }));
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const expected = status === 'pending' ? 'commandReviewId=original-handoff' : destination;
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining(expected));
+  });
+
+  it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, balance: 500, fiatPrice: 1 };
+    const command = (review: boolean) => (
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        {review ? <div data-testid="review-placeholder" /> : <SendFlow isLoading={false} />}
+      </CommandShell>
+    );
+    const view = render(command(false));
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '7.123456' } });
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
+    expect(screen.getByTestId('send-flow')).toContainElement(screen.getByTestId('command-send-composer'));
+    expect(screen.getByTestId('command-details')).toContainElement(screen.getByTestId('route-selected'));
+    expect(screen.getByTestId('command-send-review').closest('footer')).toHaveAttribute('data-command-footer', 'true');
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('amount=7.123456'));
+    view.rerender(command(true));
+    view.rerender(command(false));
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('0xrecipient');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
+  });
+
+  it('refuses canonical self-send and wrong-network addresses without a review handoff', () => {
+    render(
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <SendFlow isLoading={false} />
+      </CommandShell>
+    );
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'me-pk' } });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    isValidMidenAddressMock.mockImplementation(() => {
+      throw new MidenAddressError('wrong-network');
+    });
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'mtst1other' } });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenAddressWrongNetwork');
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown-scale token and keeps the amount literal for correction', () => {
+    mockSelectedToken = { id: 'T1', name: 'Unknown', decimals: 6, scaleIsKnown: false, balance: 500, fiatPrice: 0 };
+    render(
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <SendFlow isLoading={false} />
+      </CommandShell>
+    );
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '7.123456' } });
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['account', { accountId: 'different-account', network: 'devnet', rpcUrl: 'https://testnet.example' }],
+    ['network', { accountId: 'me-pk', network: 'testnet', rpcUrl: 'https://testnet.example' }],
+    ['RPC', { accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://other.example' }]
+  ])('clears a real Send draft on %s change and refuses its stale callback across A → B → A', (_kind, changedScope) => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, scaleIsKnown: true, balance: 500, fiatPrice: 1 };
+    const scope = { accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' };
+    const command = (nextScope: typeof scope) => (
+      <CommandShell key={JSON.stringify(nextScope)} scope={nextScope} route={{ kind: 'flow', action: 'send' }}>
+        <SendFlow isLoading={false} />
+      </CommandShell>
+    );
+    const view = render(command(scope));
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '333.123456' } });
+    const staleAmountChange = mockLastAmountChange;
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('333.123456');
+    view.rerender(command(changedScope));
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    act(() => staleAmountChange?.('999'));
+    view.rerender(command(scope));
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('drops the real Send draft and late input after lock/remount', () => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, scaleIsKnown: true, balance: 500, fiatPrice: 1 };
+    const view = render(bridgeCommand());
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '333.123456' } });
+    const staleAmountChange = mockLastAmountChange;
+    view.rerender(null); // Lock removes CommandShell and its memory-only draft provider.
+    act(() => staleAmountChange?.('999'));
+    view.rerender(bridgeCommand());
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('restores 333.123456 on minimize/reopen, but not after an account-scope remount', () => {
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, balance: 500, fiatPrice: 1 };
+    const command = (open: boolean, accountId = 'me-pk') => (
+      <CommandShell
+        key={accountId}
+        scope={{ accountId, network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        {open ? <SendFlow isLoading={false} /> : null}
+      </CommandShell>
+    );
+    const view = render(command(true));
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '333.123456' } });
+    view.rerender(command(false));
+    view.rerender(command(true));
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('0xrecipient');
+    expect(screen.getByTestId('sa-amount')).toHaveTextContent('333.123456');
+    useAccountMock.mockReturnValue({ publicKey: 'different-account' });
+    view.rerender(command(true, 'different-account'));
+    expect(screen.getByTestId('sr-address')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+  });
+});
+
+describe('compact Send with the real Navigator', () => {
+  it('pops Route to Amount and Amount to Recipient without leaving Send', async () => {
+    mockRealNavigator = true;
+    renderFlow();
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xabc' } });
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
+    fireEvent.click(screen.getByTestId('sr-confirm'));
+    expect(await screen.findByTestId('select-amount')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+    expect(await screen.findByTestId('select-route')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(await screen.findByTestId('select-amount')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(await screen.findByTestId('select-recipient')).toBeInTheDocument();
+    expect(goBackMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('on-screen step back button', () => {
   it('opens a fresh flow on the recipient step', () => {
     renderFlow();

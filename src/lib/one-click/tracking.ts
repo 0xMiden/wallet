@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 
 import { liveQuery } from 'dexie';
 
-import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
   ITransactionStatus,
   BridgedReceiveTransaction,
@@ -11,8 +10,6 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 
@@ -419,21 +416,15 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
           const faucetId = oneClickDestinationFaucet(tracking);
           const amount = oneClickActualOutputAmount(tracking, status.swapDetails.amountOut);
           if (faucetId && destinationNoteIds.length > 0 && amount !== undefined) {
-            const notes = await withWasmClientLock(
-              async hold =>
-                midenClientProxy.getConsumableNotes(tracking.accountId, step =>
-                  assertWasmHoldCurrent(hold, 'inside the 1Click delivery note read', step)
-                ),
-              { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'one-click-delivery' }
-            );
             const consumed = await Repo.transactions.where('type').equals('consume').toArray();
+            // A committed note is ready to claim, not yet received; only a completed local consume closes this row.
             if (
               hasOneClickDeliveryArrived({
                 targetAccountId: tracking.accountId,
                 faucetId,
                 amount,
                 noteIds: destinationNoteIds,
-                consumableNotes: notes,
+                consumableNotes: [],
                 transactions: consumed
               })
             ) {

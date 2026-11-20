@@ -4,6 +4,7 @@ import { getNoteHoldingTransactions } from 'lib/miden/activity';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -831,4 +832,21 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
   const extensionResult = useExtensionClaimableNotes(publicAddress, enabled && extensionMode);
   const localResult = useLocalClaimableNotes(publicAddress, enabled && !extensionMode);
   return extensionMode ? extensionResult : localResult;
+}
+
+export type ScopedClaimableNotesRead = {
+  scope: AccountScope;
+  result: ReturnType<typeof useClaimableNotes>;
+};
+
+export function isCurrentClaimableNotesRead(
+  read: ScopedClaimableNotesRead | undefined,
+  accountId: string
+): read is ScopedClaimableNotesRead {
+  return (
+    read !== undefined &&
+    read.scope.accountId === accountId &&
+    read.scope.network === getEffectiveNetworkName() &&
+    read.scope.rpcUrl === getEffectiveRpcUrl()
+  );
 }

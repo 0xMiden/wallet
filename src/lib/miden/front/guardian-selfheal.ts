@@ -80,10 +80,17 @@ export const SELF_HEAL_COOLDOWN_MS = 60_000;
  *                             an eviction it never reaches the check that raises the
  *                             prompt, leaving a spent budget with nothing on screen.
  *                             Both stop the pass; only this one refunds.
+ *  - `signers-rejected`     - the Guardian rejected the COLD key's read too, before any
+ *                             `/configure`. A stale allowlist always keeps the cold key, so
+ *                             the Guardian's record names none of this account's signers and
+ *                             cannot be read to adopt. Nothing was pushed, so the attempt is
+ *                             refunded, and the caller runs the registration that needs no
+ *                             Guardian read (`attemptMissingRegistrationSelfHeal`).
  */
 export type SelfHealOutcome =
   | 'attempted'
   | 'refused-permanently'
   | 'refused-transiently'
   | 'evicted'
-  | 'evicted-preflight';
+  | 'evicted-preflight'
+  | 'signers-rejected';

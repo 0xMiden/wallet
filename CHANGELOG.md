@@ -2,6 +2,38 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Exercise the fullscreen Command launcher and wallet actions in existing browser/localnet jobs, and refuse a missing requested E2E Send token instead of selecting another asset.
+
+- [FEATURE][extension] Command shows recent wallet activity and existing claim cards, and opens the original transaction progress or receipt without changing settlement, recovery, privacy or signing authority.
+
+- [FEATURE][extension] Bridge in the fullscreen Command workbench reviews real provider quotes, restores unsigned choices and follows original wallet operations without duplicate funding; fixed-input Epoch bridge-in remains unavailable with the installed provider.
+
+- [FEATURE][extension] Open the wallet's existing Recover locked bridge funds page directly from the fullscreen Command Bridge entry.
+
+- [FIX][all] Bind Circle bridge quotes, approvals, burn receipts and manual executions to the original wallet operation, preserving exact payout proof and conservative recovery without duplicate funding or gas prompts.
+
+- [CHANGE][all] Port bridge route, quote-review and recovery contracts from the bridge portal, using accepted wallet configuration and verified token identities without changing transaction execution.
+- [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
+- [FEATURE][extension] Fullscreen Earn lets you select live vaults and owned positions, keeps unsigned deposit and withdrawal amounts across Back and minimize, and uses the existing risk, quote and transaction reviews.
+- [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
+- [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
+- [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.
+- [FEATURE][extension] Add a guarded fullscreen Command shell with direct access to the existing Send, Receive, Swap, Earn and Bridge screens, scoped unsigned drafts and a keyboard action palette; compact, native, locked and confirmation views retain their existing presentation.
+- [FEATURE][extension] Open the unlocked wallet in a new fullscreen tab from a prominent button on the compact Home and action pages; a failed tab opening keeps the compact wallet available to retry.
+- [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
+- [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
+- [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.0 clients.
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.1 clients.
+- [FIX][ci] Measure the mobile R5 refusal with adjacent WebView sync samples while retaining the two-block limit.
+- [FIX][ci] Create only the deposit wallet in the live iOS USDCx tests.
+- [FIX][all] Switch Guardians when the outgoing Guardian holds an old pending proposal that a replaced device key signed. The recovery key now signs the switch proposal without a read of the Guardian's full pending list.
+
+- [FIX][all] Register the account again when its Guardian rejects both the everyday key and the recovery key. The repair runs only when this device is still the account's signer, the operator serves the Guardian key the account names, and the chain holds this device's state.
+- [FIX][ci] Keep polling the same faucet note after an interrupted limits read, within the existing deadline.
+
+- [FIX][ci] Wait for the Guardian to settle the funding claim before testing candidate abandonment.
+
 - [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.
 
 - [FIX][ci] Allow a first explicitly approved Swap recovery return when an unsigned plan was retained and still matches the verified proceeds and vault balances. Previously issued return authority remains ineligible.

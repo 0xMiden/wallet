@@ -895,6 +895,14 @@
     "message": "担保noteには、審査済みのトークン、審査済みの金額、および設定済みのアロケーターを使用する必要があります。何も送信されていません。戻って、もう一度試してください。",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "ブリッジの用語が変更されました。続行する前に「アクティビティ」を確認してください。",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "送信前に停止",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "獲得総額",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "有効期限",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "推定",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "校正済みの有効期限が変更されました。送信する前に再度確認してください。",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "それまでに受け取られなかった場合、$amount$ は保留中の送金として戻り、あなたが受け取ります。資金が失われることはありません。",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3374,6 +3390,237 @@
   "openWallet": {
     "message": "財布を開く",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "ウォレット",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "ウォレット操作の検索",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "ウォレットの操作",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "取引",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "ブリッジ",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "方向",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "ブリッジアウト",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Midenネットワーク",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "ネットワークの変更",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "プロバイダー",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "エポック",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "出典：",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "To",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "資産、ネットワーク、プロバイダー",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ から $destination$ へ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "外部アカウント",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Midenアカウント",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "受領予定",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "ソースの合計金額",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "プロバイダー手数料",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "ソースネットワークを切り替える",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epochでは、インストール済みのプロバイダーを使用して固定のソース金額を提示することはできません。ブリッジを行うには、別のプロバイダーを選択してください。",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "現在のウォレットネットワークでは、ブリッジルートは利用できません。",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "続行するには、受取残高の制限額に余裕があり、この入金が可能である必要があります。",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "この送金は「アクティビティ」に記録されています。ウォレットの承認や決済がまだ保留中の可能性があります。再度実行しないでください。",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "送金状況を確認する",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "全画面表示",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "新しいタブでウォレットを開きます。",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "全画面表示できませんでした。もう一度お試しください。",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "ポートフォリオ",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "割り当て",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "価格付けされたウォレット資産",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "あなたのウォレットは空です。",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "表示すべき価格付き資産はありません。",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "最近のアクション",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "表示する最近のアクションはありません",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "ウォレットの残高",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "現在の価格での保有資産における24時間の市場価格変動：$change$米ドル（$percentage$％）",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "残高を非表示にする",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "残高を表示する",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "非表示",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "残高利用不可",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "価格不明",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "部分的な評価 — 一部の資産には検証済みの米ドル価格が設定されていない",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "ウォレットの履歴",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "履歴の範囲",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "まだ観察例が不十分です",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "一部の間隔や評価範囲が欠落しています",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "観測された履歴を検査する",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "本デバイスに関する注意事項のみ。空白は埋めない。",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "はじめに",
@@ -5923,6 +6170,10 @@
     "message": "アドレスを送る",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "このアドレスをコピーできませんでした。以下から選択して手動でコピーしてください。",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "別のネットワークからの情報",
     "englishSource": "From another network"
@@ -7450,6 +7701,10 @@
   "receiveAt": {
     "message": "受取先",
     "englishSource": "Receive at"
+  },
+  "receiveNoPendingTransfers": {
+    "message": "確認すべき着金はありません",
+    "englishSource": "No incoming transfers to review"
   },
   "earnTitle": {
     "message": "あなたの収益",

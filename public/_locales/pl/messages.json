@@ -895,6 +895,14 @@
     "message": "note z zabezpieczeniem musi zawierać zweryfikowany token, zweryfikowaną kwotę oraz skonfigurowany alokator. Nic nie zostało wysłane. Cofnij się i spróbuj ponownie.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "Zmieniły się terminy dotyczące mostu. Przed kontynuowaniem sprawdź aktywność.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "Zatrzymane przed wysłaniem",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Łączna kwota zarobków",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "Data ważności",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Szacunkowe",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "Sprawdzona data wygaśnięcia uległa zmianie. Sprawdź ją ponownie przed wysłaniem.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Jeśli do tego czasu nie zostanie zaakceptowany, $amount$ wraca jako oczekujący transfer, który akceptujesz. Żadne środki nie przepadają.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3374,6 +3390,237 @@
   "openWallet": {
     "message": "Otwórz portfel",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "Portfel",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Wyszukiwanie operacji w portfelu",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Czynności związane z portfelem",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Transakcja",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Bridge",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "Kierunek",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Przejście na zewnątrz",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Sieć Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Zmiana sieci",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Dostawca",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Epoka",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "Z",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "Do",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Aktywa, sieć i dostawca",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ do $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Konto zewnętrzne",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Konto Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Szacowana kwota otrzymana",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Całkowita kwota źródłowa",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Opłata dostawcy",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Zmiana sieci źródłowej",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch nie może podać stałej kwoty źródłowej u zainstalowanego dostawcy. Wybierz innego dostawcę, aby nawiązać połączenie.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Dla obecnej sieci portfela nie są dostępne żadne trasy mostkowe.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Przed kontynuowaniem należy upewnić się, że limit salda odbiorczego jest dostępny i pozwala na tę wpłatę.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Przelew ten został zarejestrowany w sekcji „Aktywność”. Zatwierdzenie przez portfel lub rozliczenie mogą nadal pozostawać w toku. Nie należy rozpoczynać tej operacji ponownie.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Wyświetl status przelewu",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "Szczegóły",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "Otwórz tryb pełnoekranowy",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Otwiera portfel w nowej karcie.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Nie udało się otworzyć trybu pełnoekranowego. Spróbuj ponownie.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "Portfel",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "Alokacja",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Aktywa portfela wycenione",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "Twój portfel jest pusty.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Brak aktywów z wyceną do wyświetlenia.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "Ostatnie działania",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Brak ostatnich działań do wyświetlenia",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "Saldo portfela",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "24-godzinna zmiana ceny rynkowej przy aktualnej wartości portfela: $change$ USD ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "Ukryj salda",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Pokaż salda",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Ukryte",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Saldo niedostępne",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Cena niedostępna",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Wycena częściowa – niektóre aktywa nie mają zweryfikowanej ceny w USD",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Historia portfela",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Zakres historii",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Zbyt mało obserwacji",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Brakuje niektórych przedziałów czasowych lub zakresu wyceny",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Sprawdź historię obserwacji",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Uwagi dotyczą wyłącznie tego urządzenia. Luki nie są wypełniane.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "Zacznij",
@@ -5925,6 +6172,10 @@
     "message": "Wyślij swój adres",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "Nie udało się skopiować tego adresu. Zaznacz go poniżej, aby skopiować ręcznie.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "Z innej sieci",
     "englishSource": "From another network"
@@ -7452,6 +7703,10 @@
   "receiveAt": {
     "message": "Odbierz na",
     "englishSource": "Receive at"
+  },
+  "receiveNoPendingTransfers": {
+    "message": "Brak przychodzących przelewów do sprawdzenia",
+    "englishSource": "No incoming transfers to review"
   },
   "earnTitle": {
     "message": "Twoje zarobki",

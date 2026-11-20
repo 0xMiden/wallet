@@ -43,7 +43,7 @@ export interface AgglayerDeposit {
    */
   claim_tx_hash?: string;
   metadata: string;
-  ready_for_claim: boolean;
+  ready_for_claim?: boolean;
   /** Newer bridge indexers expose the same terminal signal under this name. */
   ready_to_claim?: boolean;
   /** Some deployments expose finality separately from claim readiness. */
@@ -53,7 +53,7 @@ export interface AgglayerDeposit {
   global_index: string;
 }
 
-const TERMINAL_DEPOSIT_STATUSES = new Set(['finalized', 'finalised', 'ready_to_claim', 'ready_for_claim', 'claimed']);
+const DESTINATION_READY_STATUSES = new Set(['ready_to_claim', 'ready_for_claim']);
 
 function normalizedDepositStatus(deposit: AgglayerDeposit): string | undefined {
   return deposit.status
@@ -66,11 +66,9 @@ function normalizedDepositStatus(deposit: AgglayerDeposit): string | undefined {
 export function isAgglayerDepositReady(deposit: AgglayerDeposit): boolean {
   const normalizedStatus = normalizedDepositStatus(deposit);
   return Boolean(
-    deposit.ready_for_claim ||
-    deposit.ready_to_claim ||
-    deposit.finalized ||
-    deposit.finalised ||
-    (normalizedStatus && TERMINAL_DEPOSIT_STATUSES.has(normalizedStatus))
+    deposit.ready_for_claim === true ||
+    deposit.ready_to_claim === true ||
+    (normalizedStatus && DESTINATION_READY_STATUSES.has(normalizedStatus))
   );
 }
 
@@ -81,7 +79,7 @@ const ZERO_TX_HASH = /^(0x)?0*$/i;
  * True once AggLayer has recorded a claim for this deposit.
  *
  * `isAgglayerDepositReady` stays true after a claim on the indexers that keep
- * `ready_for_claim` set (and `claimed` is itself one of its terminal statuses),
+ * `ready_for_claim` set,
  * so readiness alone would keep offering a deposit that can only revert as
  * already-claimed. Claim selection has to exclude these explicitly.
  */
@@ -237,7 +235,9 @@ export async function searchAgglayerExitDeposit(
   route?: AgglayerRecoveryConfig
 ): Promise<AgglayerExitSearch> {
   const isThisExit = (deposit: AgglayerDeposit) =>
-    isMidenToEvmDeposit(deposit, route) && sameTxHash(deposit.tx_hash, exitTxHash);
+    isMidenToEvmDeposit(deposit, route) &&
+    deposit.dest_addr?.toLowerCase() === l1Dest.toLowerCase() &&
+    sameTxHash(deposit.tx_hash, exitTxHash);
   if (depositCnt !== undefined) {
     try {
       const pinned = await fetchMidenToEvmDeposit(depositCnt, route);
@@ -277,7 +277,9 @@ async function searchExitHistory(
   for (; page < AGGLAYER_EXIT_SEARCH_MAX_PAGES; page++) {
     const offset = page * AGGLAYER_DEPOSITS_PAGE_SIZE;
     const { deposits, total } = await fetchDepositsPage(l1Dest, offset, route);
-    const deposit = deposits.find(isThisExit);
+    const matching = deposits.filter(isThisExit);
+    if (matching.length > 1) throw new Error('Multiple Agglayer deposits carry this exit');
+    const deposit = matching[0];
     if (deposit) return { deposit, complete: true };
     if (offset + deposits.length >= total) return exitHistoryMiss(searchKey, page, 'missed');
     if (deposits.length === 0) break;

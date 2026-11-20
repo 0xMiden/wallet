@@ -7,6 +7,9 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { v4 as uuid } from 'uuid';
 
+import { configKey } from 'lib/bridge/core/routes';
+import { assertBridgeOperationCurrent, bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
+import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import { getMessage } from 'lib/i18n/core';
 import {
   clearGuardianServiceFor,
@@ -15,6 +18,7 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import {
+  ColdProposalAdoptionError,
   GUARDIAN_CANDIDATE_HOLD_MS,
   isProposalChainSyncError,
   MultisigService,
@@ -43,6 +47,7 @@ import {
   type ProofPass,
   withFreshProof
 } from 'lib/miden/guardian/proof-freshness';
+import { proposeRebased } from 'lib/miden/guardian/rebased-proposal';
 import {
   clearGuardianCandidate,
   getGuardianCandidate,
@@ -171,7 +176,7 @@ import {
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { writeCommittedCompleted } from './terminal-write';
-import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
+import { attemptMayHaveCrossed, canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
@@ -202,7 +207,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
+import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType, resolveSendReclaimHeight } from '../helpers';
 import { applyAfterSubmit, isLandedTailError, LandedTailError, landedTailErrorIn } from '../sdk/apply-after-submit';
 import {
   accountRefToSdk,
@@ -244,6 +249,7 @@ import {
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
   landedOrderFacts,
+  markErrorBeforeSubmit,
   someInCauseChain,
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
@@ -1748,12 +1754,79 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
   if (tx.type === 'consume') await adoptLandedConsume(tx.id);
 };
 
+const isOwnedNativeBridge = (transaction: ITransaction): boolean =>
+  transaction.type === 'bridged-send' && hasBridgeOperation(transaction);
+
+const hasEpochReviewedOutput = (transaction: ITransaction): boolean =>
+  transaction.type === 'bridged-send' &&
+  transaction.extraInputs?.provider === 'epoch' &&
+  Object.prototype.hasOwnProperty.call(transaction.extraInputs, 'epochReviewedOutput');
+
+const isReviewedNativeBridge = (transaction: ITransaction): boolean =>
+  isOwnedNativeBridge(transaction) || hasEpochReviewedOutput(transaction);
+
+async function assertOwnedNativeBridgeSource(transaction: ITransaction, stored?: ITransaction): Promise<void> {
+  if (!isReviewedNativeBridge(transaction)) return;
+  const row = stored ?? (await Repo.transactions.where({ id: transaction.id }).first());
+  if (hasEpochReviewedOutput(transaction)) {
+    assertEpochReviewedOutput(transaction.extraInputs.epochReviewedOutput);
+    assertEpochReviewedOutput(row?.extraInputs.epochReviewedOutput);
+    if (configKey(transaction.extraInputs.epochReviewedOutput) !== configKey(row?.extraInputs.epochReviewedOutput))
+      throw new Error('Epoch reviewed output changed');
+    if (!isOwnedNativeBridge(transaction)) assertCompactEpochScope(transaction.extraInputs.epochReviewedOutput);
+  }
+  if (!isOwnedNativeBridge(transaction)) return;
+  const expected = bridgeOperationOf(transaction);
+  const operation = row && bridgeOperationOf(row);
+  if (
+    !row ||
+    !expected ||
+    !operation ||
+    expected.operationId !== operation.operationId ||
+    expected.revision !== operation.revision
+  )
+    throw new Error('Bridge operation identity changed');
+  assertBridgeOperationCurrent(transaction, expected);
+  assertBridgeOperationCurrent(row, expected);
+  assertBridgeOperationCurrent(row, operation);
+}
+
+async function mayStartOwnedNativeBridge(transaction: ITransaction): Promise<boolean> {
+  if (!isOwnedNativeBridge(transaction)) {
+    if (hasEpochReviewedOutput(transaction)) await assertOwnedNativeBridgeSource(transaction);
+    return true;
+  }
+  const row = await Repo.transactions.where({ id: transaction.id }).first();
+  if (!row) throw new Error('Bridge operation is unavailable');
+  // The existing node verdict, not a generated id or a lease, decides whether an earlier source can be retried.
+  if (
+    (row.status !== ITransactionStatus.Queued && row.status !== ITransactionStatus.GeneratingTransaction) ||
+    (row.neverCommittedAt === undefined &&
+      (row.submitEvidence?.some(isUnresolvedEntry) || (row.mayHaveSubmitted && !row.submitEvidence?.length)))
+  )
+    return false;
+  await assertOwnedNativeBridgeSource(transaction, row);
+  return true;
+}
+
+function ownedBridgeStageStamp(
+  transaction: ITransaction,
+  stamp?: ReturnType<typeof stageStampFor>
+): ReturnType<typeof stageStampFor> {
+  return async (stage, detail) => {
+    await stamp?.(stage, detail);
+    // Replayed offscreen stages are observations; only the awaited native stamp/submit gate may permit a write.
+    if (stage === 'submitting' && detail?.reliable !== false) await assertOwnedNativeBridgeSource(transaction);
+  };
+}
+
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  if (!(await mayStartOwnedNativeBridge(transaction))) return;
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
     const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
@@ -1812,6 +1885,7 @@ const generateTransactionWithProvider = async (
     throw error;
   }
   await rememberPreflightSync(transaction, 'returned').catch(() => undefined);
+  await assertOwnedNativeBridgeSource(transaction);
 
   // Mark transaction as in progress
   // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
@@ -2333,6 +2407,7 @@ const generateTransactionWithProvider = async (
             transaction.type === 'earn-deposit'
               ? await requireEarnDepositRequestBytes(transaction)
               : requireBridgedSendRecordedRequest(transaction);
+          await assertOwnedNativeBridgeSource(transaction);
           await requireBridgeSubmitClaim(transaction);
           // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
           // returned at the top of `generateTransaction`), and for a basic wallet miden-client
@@ -2344,6 +2419,26 @@ const generateTransactionWithProvider = async (
           // the annotation is idempotent.
           // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
           const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+          if (isReviewedNativeBridge(transaction)) {
+            const stamp = ownedBridgeStageStamp(transaction, stageStampFor(transaction.id, attempt));
+            const submitGate = offscreenSubmitGate(stamp);
+            try {
+              return await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+                midenClientProxy.newTransaction(
+                  transaction.accountId,
+                  requestBytes,
+                  transaction.delegateTransaction,
+                  signer,
+                  stamp,
+                  submitGate.gate
+                )
+              );
+            } catch (error) {
+              throw submitGate.opened() ? error : markErrorBeforeSubmit(error);
+            } finally {
+              submitGate.settle();
+            }
+          }
           return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
             midenClientProxy.newTransaction(
               transaction.accountId,
@@ -2584,10 +2679,8 @@ const consumeServiceFor = async (
  * restart reuses them, which is also what lets the node reject the duplicate note
  * while the first copy is in flight (the reused serial pins the note id); Retry asks
  * before it reuses them. A retry only rebuilds them when the row
- * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. `recallBlocks` is a RELATIVE
- * blocks-until-recall offset, converted to an absolute reclaim height here
- * (`syncHeight + recallBlocks`) - the guardian-path counterpart of the
- * relative→absolute conversion in `MidenClientInterface.sendTransaction`.
+ * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. Like the single-key
+ * builder, Guardian resolves the approved recall term only when building fresh bytes.
  */
 const ensureGuardianRecallableSendRequestBytes = async (
   transaction: ITransaction,
@@ -2595,8 +2688,9 @@ const ensureGuardianRecallableSendRequestBytes = async (
   faucetId: string,
   amount: bigint,
   noteType: NoteType,
-  recallBlocks: number,
-  expirationDelta: number
+  recallBlocks: number | undefined,
+  expirationDelta: number,
+  calendarRecallTarget?: string
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) {
     // Pre-built bytes still need the fee auth. This early return used to hand back a request with
@@ -2668,7 +2762,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       amount,
       noteType,
       expirationDelta,
-      syncHeight + recallBlocks,
+      resolveSendReclaimHeight(syncHeight, recallBlocks, calendarRecallTarget),
       baseBuilder
     );
     // Serialization is its own step: a wasm-bindgen panic arrives as a bare
@@ -2686,36 +2780,6 @@ const ensureGuardianRecallableSendRequestBytes = async (
     t.requestBytes = requestBytes;
   });
   return requestBytes;
-};
-
-/**
- * Proposes a wallet-built guarded request, re-bound to the current sync height (see
- * `MultisigService.createRebasedCustomProposal`), and persists the bytes it was proposed from:
- * signing and execution rebuild from `transaction.requestBytes`, so it must be these.
- *
- * Proposes once. A value-moving type meets Guardian backpressure by requeueing (#312), so only
- * a caller that must wait out a 409 in process (a bridged-send) wraps this in
- * `withGuardianConflictRetry`.
- *
- * `approvalExpirationDelta` is the Guardian expiration of #1081 for the types that carry one: the rebuild drops the
- * request's own delta, so it travels here instead.
- */
-const proposeRebased = async (
-  service: MultisigService,
-  transaction: ITransaction,
-  requestBytes: Uint8Array,
-  proposalType: string,
-  approvalExpirationDelta?: number
-): Promise<Proposal> => {
-  const rebased = await service.createRebasedCustomProposal(requestBytes, proposalType, approvalExpirationDelta);
-  transaction.requestBytes = rebased.requestBytes;
-  // The proposal exists by now: a failure here never means none was made.
-  await withProposalStep('rebased_request_persist', () =>
-    Repo.transactions.where({ id: transaction.id }).modify(t => {
-      t.requestBytes = rebased.requestBytes;
-    })
-  );
-  return rebased.proposal;
 };
 
 /**
@@ -3933,6 +3997,7 @@ const generateGuardianTransaction = async (
   // write leaves measures its retry window from here (#1317).
   const proposalStamps: ProposalStamps = { proposedAt: Date.now(), proposedAtMono: monotonicNowMs() };
   let proposalResult: Proposal;
+  let switchProposalExport: string | undefined;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
   // structural ops (replace-hot-key / update-procedure-threshold) and, per
@@ -3955,8 +4020,8 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      const recallBlocks = sendTx.extraInputs?.recallBlocks;
-      if (recallBlocks) {
+      const { recallBlocks, calendarRecallTarget } = sendTx.extraInputs ?? {};
+      if (recallBlocks || calendarRecallTarget !== undefined) {
         // TEMP WORKAROUND (OpenZeppelin/guardian#366): the multisig client's
         // P2ID send proposal has no reclaim support, so the expiration the
         // user picked used to be silently dropped on Guardian accounts -
@@ -3985,7 +4050,8 @@ const generateGuardianTransaction = async (
           // send screens always set it.
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks,
-          GUARDIAN_EXPIRATION_DELTA_BLOCKS
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS,
+          calendarRecallTarget
         );
         proposalResult = await proposeRebased(
           service,
@@ -4079,7 +4145,7 @@ const generateGuardianTransaction = async (
         );
         await releaseUnabandonedCandidate(transaction, service);
         unreachableSubject = 'outgoing or new guardian';
-        const { proposal } = await withGuardianConflictRetry(() => {
+        const { proposal, exportedProposal } = await withGuardianConflictRetry(() => {
           const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
           syncPhase = phase;
           return withOutgoingGuardianDeadline(
@@ -4088,6 +4154,7 @@ const generateGuardianTransaction = async (
           );
         });
         proposalResult = proposal;
+        switchProposalExport = exportedProposal;
       } catch (error) {
         // The arm awaits this attempt no longer, whatever rejected it, so its hold must push nothing in any phase.
         if (syncPhase) syncPhase.abandoned = true;
@@ -4234,6 +4301,7 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'bridged-send': {
+      await assertOwnedNativeBridgeSource(transaction);
       const bridgeTx = transaction as BridgedSendTransaction;
       // The recorded request and its one note, before the service load, which can reach the guardian. The note id
       // recorded at initiate stays the one signing is bound to after `proposeRebased` overwrites `requestBytes`.
@@ -4578,13 +4646,29 @@ const generateGuardianTransaction = async (
       // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too -
       // otherwise a prior delta mid-canonicalization fails the whole switch even
       // though the hot proposal already landed.
-      await withGuardianConflictRetry(() =>
-        withOutgoingGuardianDeadline(
-          () => coldService.signProposal(proposalResult.id, outgoingGuardianHold('switch-guardian cold co-sign')),
+      await withGuardianConflictRetry(() => {
+        const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+        return withOutgoingGuardianDeadline(
+          // The cold service imports the export captured under the hot creation hold and signs the imported
+          // id. Without that export the SDK reads the outgoing guardian's full pending list, and one pending
+          // proposal that does not parse fails that read (#2225).
+          () =>
+            coldService.signProposal(
+              proposalResult.id,
+              outgoingGuardianHold('switch-guardian cold co-sign'),
+              switchProposalExport,
+              phase
+            ),
           'cold co-signing the switch-guardian proposal'
-        )
-      );
+        ).catch((error: unknown) => {
+          phase.abandoned = true;
+          if (phase.syncing && !isKilledPipeline(error)) throw new ProposalChainSyncError(error);
+          throw error;
+        });
+      });
     } catch (error) {
+      if (error instanceof ColdProposalAdoptionError) throw error.cause;
+      if (isProposalChainSyncError(error)) throw error;
       // Connectivity to the outgoing guardian dropped between proposal push and
       // cold co-sign, or the operator stopped being able to co-sign for this
       // account in that window: fall back to the direct on-chain switch.
@@ -4687,10 +4771,13 @@ const generateGuardianTransaction = async (
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
   // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
-  const stampStage = stageStampFor(
+  const baseStampStage = stageStampFor(
     transaction.id,
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
+  const stampStage = isReviewedNativeBridge(transaction)
+    ? ownedBridgeStageStamp(transaction, baseStampStage)
+    : baseStampStage;
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
     if (stage === 'submitting') inlineSubmittingStageStarted = true;
     await stampStage(stage, detail);
@@ -4734,6 +4821,7 @@ const generateGuardianTransaction = async (
     // worse-attributed route, and it costs a leftover pending delta on a healthy
     // operator (best-effort abandoned below). A silent operator is the case that
     // matters, and the hold's deadline ceiling evicts it at about 30s.
+    await assertOwnedNativeBridgeSource(transaction);
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(

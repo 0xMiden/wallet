@@ -1,9 +1,11 @@
+import { getMessage } from 'lib/i18n/core';
 import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import { isLikelyNetworkError, isPermanentHttpRejection } from 'lib/miden/activity/connectivity-classify';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
+import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
@@ -792,6 +794,7 @@ function classifyTransactionError(
   if (error instanceof ProposalEffectRefusedError) {
     return error.displayMessage;
   }
+  if (error instanceof CalendarRecallReviewRequiredError) return getMessage('recallReviewChanged');
   // A single-key write's signer refused before anything was signed. A Guardian row meets this only at its proposal
   // stages, which keep the outage copy below. Read before the stage: a delegated attempt's local fallback can be
   // refused while the row still reads the 'proving' its failed prove left.

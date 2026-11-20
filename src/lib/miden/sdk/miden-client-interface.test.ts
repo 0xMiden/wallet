@@ -1321,6 +1321,52 @@ describe('MidenClientInterface', () => {
     }));
   };
 
+  it('replays the calendar Send request when local fallback starts after the target', async () => {
+    mockSendSdk();
+    const { buildSendTransactionRequest } = await import('./helpers');
+    const { TransactionRequest } = await import('@miden-sdk/miden-sdk/lazy');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T12:00:00.000Z'));
+    const firstBytes = Uint8Array.of(1);
+    jest
+      .mocked(buildSendTransactionRequest)
+      .mockReturnValueOnce({ serialize: () => firstBytes } as any)
+      .mockReturnValueOnce({ serialize: () => Uint8Array.of(2) } as any);
+    const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+    const prove = jest.fn(async (options?: { prover?: unknown }) => {
+      if (!options?.prover) {
+        clock.mockReturnValue(Date.parse('2030-01-01T12:00:31.000Z'));
+        throw new Error('remote prover deadline exceeded');
+      }
+      return { submit };
+    });
+    const executeRequest = jest.fn(async () => ({ id: 'tx-id', result: fakeTransactionResult, prove }));
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest } }) as any,
+      'testnet'
+    );
+
+    try {
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public',
+        amount: 1n,
+        extraInputs: { recallBlocks: 25, calendarRecallTarget: '2030-01-01T12:00:30.000Z' },
+        delegateTransaction: true
+      } as any);
+    } finally {
+      clock.mockRestore();
+    }
+
+    expect(executeRequest).toHaveBeenCalledTimes(2);
+    expect(prove).toHaveBeenCalledTimes(2);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(TransactionRequest.deserialize).mock.calls).toEqual([[firstBytes], [firstBytes]]);
+    expect(buildSendTransactionRequest).toHaveBeenCalledTimes(1);
+  });
+
   // A delegated send whose 'submitting' stamp throws the crossing error, itself or wrapped as a cause.
   const sendWithFailingCrossing = async (
     wrapped: boolean,
@@ -3933,26 +3979,36 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any);
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+      ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
     });
 
     it.each([
-      ['a Never send', {}, undefined],
+      ['a Never send', {}, undefined, false],
       // The fake client syncs to block 5, so a 600-block window reclaims at 605 (#308).
-      ['a reclaimable send', { recallBlocks: 600 }, 605]
-    ])(
-      "builds %s's request from the sender's account, resolved ids and reclaim height",
-      async (_label, extraInputs, reclaimAfter) => {
+      ['a reclaimable send', { recallBlocks: 600 }, 605, false],
+      ['a delayed calendar send', { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:30.000Z' }, 15, false],
+      [
+        'an expired calendar send',
+        { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:00.000Z' },
+        undefined,
+        true
+      ]
+    ] as const)(
+      "honors %s's reviewed recall term when building its request",
+      async (_label, extraInputs, reclaimAfter, refused) => {
         const fakeWasm = buildWasmStub();
         // A marker account, NOT undefined: the sender's vault key (callback flag
         // included) has to reach the builder. With `undefined` the builder falls
@@ -3983,33 +4039,37 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-        await client.sendTransaction({
-          // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
-          // suffix before parsing, or the bech32 parser sees a string it can reject.
-          accountId: 'mtst1sender_qr7qqq9wr6w',
-          // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
-          // that is otherwise valid would fail to resolve here.
-          secondaryAccountId: '0XRecipient',
-          faucetId: 'mtst1faucet',
-          noteType: 'private' as any,
-          amount: BigInt(250),
-          extraInputs
-        } as any);
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T12:00:00.000Z'));
+        try {
+          const sending = client.sendTransaction({
+            // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
+            // suffix before parsing, or the bech32 parser sees a string it can reject.
+            accountId: 'mtst1sender_qr7qqq9wr6w',
+            // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
+            // that is otherwise valid would fail to resolve here.
+            secondaryAccountId: '0XRecipient',
+            faucetId: 'mtst1faucet',
+            noteType: 'private' as any,
+            amount: BigInt(250),
+            extraInputs
+          } as any);
+          await expect(
+            sending.then(
+              () => null,
+              (error: Error) => error.name
+            )
+          ).resolves.toBe(refused ? 'CalendarRecallReviewRequiredError' : null);
+        } finally {
+          clock.mockRestore();
+        }
 
         expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
         expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
         expect(inner.getAccount).toHaveBeenCalled();
-        expect(buildSendTransactionRequest).toHaveBeenCalledWith(
-          senderAccount,
-          expect.anything(),
-          expect.anything(),
-          'mtst1faucet',
-          250n,
-          'Private',
-          600,
-          reclaimAfter
-        );
-        expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+        const id = expect.anything();
+        const buildArgs = [senderAccount, id, id, 'mtst1faucet', 250n, 'Private', 600, reclaimAfter];
+        expect(buildSendTransactionRequest.mock.calls).toEqual(refused ? [] : [buildArgs]);
+        expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(refused ? 0 : 1);
       }
     );
 

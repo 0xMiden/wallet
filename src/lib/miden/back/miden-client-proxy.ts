@@ -20,6 +20,7 @@ import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -442,13 +443,13 @@ const opSignReasons = new Map<string, SignCallbackReason>();
 const opStageCallbacks = new Map<string, StageCallback>();
 
 /**
- * Records a Guardian leaf's submit crossing before its offscreen realm may submit (#1644), and says whether it may:
+ * Records a protected leaf's submit crossing before its offscreen realm may submit (#1644), and says whether it may:
  * false once the leaf has settled. A throw refuses the gate too, since a crossing that cannot be recorded must not
  * happen.
  */
 export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
 
-/** op_id → that Guardian write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
+/** op_id → that protected write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
 const opSubmitGates = new Map<string, SubmitGate>();
 
 function newOpId(): string {
@@ -530,6 +531,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     // tag itself.
     if (resp.errorName === 'StaleProofError') {
       reject(new StaleProofError());
+      return;
+    }
+    if (resp.errorName === 'CalendarRecallReviewRequiredError') {
+      reject(new CalendarRecallReviewRequiredError());
       return;
     }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
@@ -1848,7 +1853,7 @@ export const midenClientProxy = {
    * The minimal DTO carries EXACTLY the fields `MidenClientInterface.sendTransaction`
    * reads off the row — `accountId`, `secondaryAccountId`, `faucetId`, `noteType`,
    * `amount` (BigInt → decimal string), `delegateTransaction`, and
-   * `extraInputs.recallBlocks`, no more. `completeSendTransaction` (SW-side)
+   * the approved recall term and any 1Click cutoff. `completeSendTransaction` (SW-side)
    * consumes the round-tripped `TransactionResult` identically; any private-note
    * relay it does runs on the SW's own inline client (no further offscreen call).
    *
@@ -1882,6 +1887,7 @@ export const midenClientProxy = {
       delegateTransaction: transaction.delegateTransaction,
       extraInputs: {
         recallBlocks: transaction.extraInputs?.recallBlocks,
+        calendarRecallTarget: transaction.extraInputs?.calendarRecallTarget,
         ...(transaction.extraInputs?.oneClick
           ? {
               oneClick: {
@@ -1952,20 +1958,31 @@ export const midenClientProxy = {
     requestBytes: Uint8Array,
     delegateTransaction: boolean | undefined,
     signCallback: RawSignCallback,
-    onStage?: StageCallback
+    onStage?: StageCallback,
+    submitGate?: SubmitGate
   ): Promise<TransactionResult> {
+    const guardedStage: StageCallback | undefined = submitGate
+      ? async (stage, detail) => {
+          if (stage === 'submitting') {
+            if (!(await submitGate(detail?.evidence))) throw new Error('Bridge source submit was refused');
+          } else await onStage?.(stage, detail);
+        }
+      : onStage;
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async hold =>
         withHoldSigner(hold, signCallback, async () =>
-          (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
+          (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, guardedStage)
         )
       );
     }
     return dispatchOffscreenWrite(
       'newTransaction',
-      [accountId, requestBytes, delegateTransaction],
+      submitGate
+        ? [accountId, requestBytes, delegateTransaction, true]
+        : [accountId, requestBytes, delegateTransaction],
       signCallback,
-      onStage
+      onStage,
+      submitGate
     );
   }
 };

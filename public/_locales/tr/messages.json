@@ -895,6 +895,14 @@
     "message": "Teminat note'unda incelenen token, incelenen tutar ve yapılandırılmış tahsis edici kullanılmalıdır. Hiçbir şey gönderilmedi. Geri dönün ve tekrar deneyin.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "Köprü terimleri değişti. Devam etmeden önce Etkinlik bölümünü kontrol edin.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "Gönderilmeden önce durduruldu",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Toplam kazanç",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "Son Kullanım Tarihi",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Tahmini",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "İncelenen son kullanma tarihi değişti. Göndermeden önce tekrar gözden geçirin.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "O tarihe kadar kabul edilmezse $amount$ sizin kabul edeceğiniz bekleyen bir transfer olarak geri döner. Hiçbir fon kaybolmaz.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3374,6 +3390,237 @@
   "openWallet": {
     "message": "Cüzdanı aç",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "Cüzdan",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Cüzdan işlemlerini ara",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Cüzdan işlemleri",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "İşlem",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Köprü",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "Yön",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Köprü dışı",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Miden ağı",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Ağ değişikliği",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Sağlayıcı",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Epoch",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "Kaynak:",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "To",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Varlık, ağ ve sağlayıcı",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$'dan $destination$'a · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Harici hesap",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Miden hesabı",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Tahmini alınan",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Toplam kaynak tutarı",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Sağlayıcı ücreti",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Kaynak ağı değiştirme",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch, kurulu sağlayıcıyla sabit bir kaynak tutarı belirleyemez. Bağlantı kurmak için başka bir sağlayıcı seçin.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Mevcut cüzdan ağı için herhangi bir köprü rotası mevcut değildir.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Devam etmeden önce, alıcı bakiye limiti mevcut olmalı ve bu para yatırma işlemini desteklemelidir.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Bu transfer, Etkinlik bölümünde kaydedilir. Cüzdan onayı veya takas işlemi hâlâ beklemede olabilir. İşlemi yeniden başlatmayın.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Transfer durumunu görüntüle",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "Ayrıntılar",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "Tam ekran aç",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Cüzdanınızı yeni bir sekmede açar.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Tam ekran açılmadı. Lütfen tekrar deneyin.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "Portföy",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "Tahsis",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Fiyatlandırılmış cüzdan varlıkları",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "Cüzdanınız boş.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Gösterilecek fiyatlı varlık yok.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "Son işlemler",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Gösterilecek son eylem yok",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "Cüzdan bakiyesi",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "Mevcut fiyatla hesaplanan varlıkların 24 saatlik piyasa fiyatı hareketi: $change$ USD ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "Bakiyeleri gizle",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Bakiyeleri göster",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Gizli",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Bakiye mevcut değil",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Fiyat mevcut değil",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Kısmi değerleme - bazı varlıkların doğrulanmış USD fiyatı yoktur",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Gözlemlenen cüzdan geçmişi",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Geçmiş aralığı",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Henüz yeterli gözlem yok",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Bazı aralıklar veya değerleme kapsamı eksik",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandInspectHistory": {
+    "message": "Gözlemlenen geçmişi inceleyin",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Yalnızca bu cihazla ilgili gözlemler. Boşluklar doldurulmaz.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "Başlayın",
@@ -5924,6 +6171,10 @@
     "message": "Adresinizi gönderin",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "Bu adresi kopyalayamadım. Manuel olarak kopyalamak için aşağıdan seçin.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "Başka bir ağdan",
     "englishSource": "From another network"
@@ -7451,6 +7702,10 @@
   "receiveAt": {
     "message": "Şu adrese al",
     "englishSource": "Receive at"
+  },
+  "receiveNoPendingTransfers": {
+    "message": "İncelenecek gelen transfer yok",
+    "englishSource": "No incoming transfers to review"
   },
   "earnTitle": {
     "message": "Kazançlarınız",
