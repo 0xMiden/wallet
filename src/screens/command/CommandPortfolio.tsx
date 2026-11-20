@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Button, ButtonVariant, SegmentedControl, SectionHeader } from 'components/ui';
+import { AnimatedNumber, Button, ButtonVariant, SegmentedControl, SectionHeader } from 'components/ui';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { getNumberSymbols } from 'lib/i18n/core';
 import {
@@ -23,6 +23,8 @@ import { useCommandPrivacy } from './useCommandPrivacy';
 const BUCKET_MS = 15 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 const BALANCE_PLACEHOLDER = '---';
+const PORTFOLIO_COLUMN_PADDING = 'px-5 py-6 sm:px-8';
+const PORTFOLIO_HEADER = 'flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1';
 const RANGES = { '1W': 7, '1M': 30, '3M': 90, '1Y': 365 };
 const ALLOCATION_COLORS = [
   'text-accent-primary',
@@ -57,7 +59,8 @@ export function CommandPortfolio({
   };
   const [hidden, setHidden] = useCommandPrivacy();
   const portfolio = useCommandPortfolio(scope);
-  const [range, setRange] = useState<HistoryRange>('1M');
+  const [selectedRange, setSelectedRange] = useState<HistoryRange | null>(null);
+  const range = selectedRange ?? '1M';
   const [history, setHistory] = useState<{ key: string; rows: readonly PortfolioObservation[] } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const accountId = useWalletStore(state => state.currentAccount?.publicKey);
@@ -177,19 +180,19 @@ export function CommandPortfolio({
         data-testid="command-portfolio-surface"
         className="relative isolate grid min-w-0 overflow-hidden rounded-3xl border border-hairline bg-linear-to-b from-fill/65 to-page lg:col-span-12 lg:grid-cols-12"
       >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_left,var(--ds-accent-tint),transparent_74%)] opacity-80"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-2/3 bg-[radial-gradient(circle,currentColor_1px,transparent_1px)] bg-size-[18px_18px] text-accent-tint-ink opacity-[0.14] mask-[radial-gradient(ellipse_at_top_right,black,transparent_72%)]"
+        />
         <section
-          className={`relative isolate min-w-0 px-5 py-6 sm:px-8 lg:row-start-1 ${hidden ? 'lg:col-span-12' : 'lg:col-span-8'}`}
+          className={`min-w-0 lg:row-start-1 ${PORTFOLIO_COLUMN_PADDING} ${hidden ? 'lg:col-span-12' : 'lg:col-span-8'}`}
           aria-label={t('commandPortfolio')}
         >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_left,var(--ds-accent-tint),transparent_74%)] opacity-80"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-2/3 bg-[radial-gradient(circle,currentColor_1px,transparent_1px)] bg-size-[18px_18px] text-accent-tint-ink opacity-[0.14] mask-[radial-gradient(ellipse_at_top_right,black,transparent_72%)]"
-          />
-          <div className="flex items-center justify-between gap-3">
+          <div className={PORTFOLIO_HEADER}>
             <SectionHeader size="xl">{t('commandPortfolio')}</SectionHeader>
             <Button
               size="sm"
@@ -211,7 +214,12 @@ export function CommandPortfolio({
                 <span className="sr-only">{t('commandBalanceUnavailable')}</span>
               </>
             ) : (
-              `${formatAmountDisplay(value, displayOptions)} USD`
+              <AnimatedNumber
+                key={key}
+                data-testid="command-live-balance"
+                value={Number(value)}
+                format={amount => `${formatAmountDisplay(amount, displayOptions)} USD`}
+              />
             )}
           </p>
           {!hidden && value !== null && coverage === 'partial' && (
@@ -227,7 +235,7 @@ export function CommandPortfolio({
           )}
         </section>
         <section
-          className="min-w-0 border-t border-hairline bg-[radial-gradient(ellipse_at_bottom_right,var(--ds-accent-tint),transparent_72%)] px-5 py-5 sm:px-8 lg:col-span-12 lg:row-start-2"
+          className="min-w-0 border-t border-hairline bg-page bg-[radial-gradient(ellipse_at_bottom_right,var(--ds-accent-tint),transparent_72%)] px-5 py-5 sm:px-8 lg:col-span-12 lg:row-start-2"
           aria-label={t('commandObservedHistory')}
           aria-busy={history?.key !== key}
           data-testid="command-history"
@@ -242,7 +250,7 @@ export function CommandPortfolio({
               value={range}
               items={RANGE_ITEMS}
               onChange={next => {
-                setRange(next);
+                setSelectedRange(next);
                 setSelected(null);
               }}
             />
@@ -283,7 +291,7 @@ export function CommandPortfolio({
                   }
                 }}
               >
-                <CommandHistoryTrace points={chartPoints} />
+                <CommandHistoryTrace key={range} points={chartPoints} reveal={selectedRange !== null} />
                 {activePoint && (
                   <div
                     aria-hidden="true"
@@ -321,12 +329,12 @@ export function CommandPortfolio({
         </section>
         {!hidden && (
           <section
-            className="flex min-w-0 flex-col justify-center gap-4 border-t border-hairline bg-page/30 px-5 py-5 sm:px-8 lg:col-span-4 lg:row-start-1 lg:border-t-0 lg:border-l"
+            className={`flex min-w-0 flex-col gap-4 border-t border-hairline lg:col-span-4 lg:row-start-1 lg:border-t-0 ${PORTFOLIO_COLUMN_PADDING}`}
             aria-label={t('commandAllocation')}
           >
-            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-              <SectionHeader>{t('commandAllocation')}</SectionHeader>
-              <p className="text-caption text-muted">{t('commandPricedAssets')}</p>
+            <div className={PORTFOLIO_HEADER}>
+              <SectionHeader size="xl">{t('commandAllocation')}</SectionHeader>
+              <p className="text-label text-muted">{t('commandPricedAssets')}</p>
             </div>
             {allocation.length === 0 ? (
               <p className="border-t border-hairline py-4 text-body-sm text-muted">

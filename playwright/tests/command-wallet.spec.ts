@@ -162,6 +162,12 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await command.setViewportSize({ width: 1600, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-1600x1000');
   await command.setViewportSize({ width: 1440, height: 1000 });
+  const portfolioHeading = command.getByRole('heading', { name: 'Portfolio', exact: true });
+  const allocationHeading = allocation.getByRole('heading', { name: 'Allocation', exact: true });
+  const headingY = (heading: Element) => heading.getBoundingClientRect().top;
+  expect(
+    Math.abs((await portfolioHeading.evaluate(headingY)) - (await allocationHeading.evaluate(headingY)))
+  ).toBeLessThanOrEqual(1);
   await captureCommand(command, info, 'command-dashboard-1440x1000');
   const assetSearch = await command.getByRole('textbox', { name: 'Search assets...' }).boundingBox();
   const assetList = await command.getByRole('main').locator('[aria-label="Assets"]').boundingBox();
@@ -183,6 +189,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(week).toHaveAttribute('aria-checked', 'true');
   const area = command.locator('[data-command-chart-area]');
   await expect(area).toHaveAttribute('d', /^M [^M]+ Z$/);
+  await expect(command.locator('[data-command-chart-sweep]')).toHaveCount(0);
   // The range selection and point marker must fit, including at the right endpoint.
   await expect(week).toBeInViewport({ ratio: 1 });
   await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
@@ -193,8 +200,12 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await captureCommand(command, info, 'command-dashboard-chart-390x844');
   await expect(week).toBeInViewport({ ratio: 1 });
   await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
-  await command.emulateMedia({ reducedMotion: null });
+  await command.emulateMedia({ reducedMotion: 'no-preference' });
   await command.setViewportSize({ width: 1440, height: 1000 });
+  await command.getByRole('radio', { name: '1M', exact: true }).click();
+  await expect(command.locator('[data-command-chart-sweep]')).toHaveCount(1);
+  await expect(area).toBeAttached();
+  await command.emulateMedia({ reducedMotion: null });
 
   await command.keyboard.press('Control+k');
   const search = command.getByRole('combobox', { name: 'Search wallet actions' });

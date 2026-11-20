@@ -125,7 +125,11 @@ it('shows a scoped value during refresh and a quiet placeholder when no value is
   store.hidden = false;
   mockCurrent = false;
   const { rerender } = render(<CommandPortfolio scope={scope} />);
-  expect(within(screen.getByRole('region', { name: 'commandPortfolio' })).getByText('6.00 USD')).toBeVisible();
+  const balance = within(screen.getByRole('region', { name: 'commandPortfolio' })).getByText('6.00 USD');
+  expect(balance).toBeVisible();
+  expect(balance).toHaveAttribute('aria-live', 'off');
+  rerender(<CommandPortfolio scope={{ ...scope, accountId: 'account-b' }} />);
+  expect(screen.getByTestId('command-live-balance')).not.toBe(balance);
   mockValue = null;
   rerender(<CommandPortfolio scope={scope} />);
   expect(screen.getByText('---')).toBeVisible();

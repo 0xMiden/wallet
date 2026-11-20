@@ -1,5 +1,9 @@
 import React, { useId } from 'react';
 
+import { motion, useReducedMotion } from 'framer-motion';
+
+import { presets } from 'lib/animation';
+
 interface HistoryTracePoint {
   x: number;
   y: number;
@@ -7,8 +11,10 @@ interface HistoryTracePoint {
   run: number;
 }
 
-export function CommandHistoryTrace({ points }: { points: HistoryTracePoint[] }) {
+export function CommandHistoryTrace({ points, reveal = false }: { points: HistoryTracePoint[]; reveal?: boolean }) {
   const fillId = useId();
+  const sweepId = useId();
+  const sweep = useReducedMotion() === false && reveal;
   const area: string[] = [];
   const trace: string[] = [];
   for (let start = 0; start < points.length; ) {
@@ -33,6 +39,18 @@ export function CommandHistoryTrace({ points }: { points: HistoryTracePoint[] })
           <stop stopColor="var(--accent-primary)" stopOpacity="0.38" />
           <stop offset="1" stopColor="var(--accent-primary)" stopOpacity="0" />
         </linearGradient>
+        {sweep && path && (
+          <clipPath id={sweepId}>
+            <motion.rect
+              data-command-chart-sweep=""
+              height="100"
+              width="100"
+              initial={{ width: 0 }}
+              animate={{ width: 100 }}
+              transition={presets.fade.transition}
+            />
+          </clipPath>
+        )}
       </defs>
       {[25, 50, 75].map(y => (
         <line
@@ -50,7 +68,12 @@ export function CommandHistoryTrace({ points }: { points: HistoryTracePoint[] })
       {path && (
         <>
           <path data-command-chart-area="" d={area.join(' ')} fill={`url(#${fillId})`} />
-          <g fill="none" stroke="var(--accent-primary)" strokeLinecap="round">
+          <g
+            fill="none"
+            stroke="var(--accent-primary)"
+            strokeLinecap="round"
+            clipPath={sweep ? `url(#${sweepId})` : undefined}
+          >
             <path
               d={path}
               strokeWidth="7"

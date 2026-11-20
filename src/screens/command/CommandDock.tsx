@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useId } from 'react';
 
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/ui/Button';
+import { resolveTabBarMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
 import type { CommandAction } from './command-routes';
@@ -26,6 +28,9 @@ export const COMMAND_ACTION_ICONS = [
 
 export function CommandDock({ activeAction }: { activeAction?: CommandAction }): React.ReactElement {
   const { t } = useTranslation();
+  const id = useId();
+  const canMove = useReducedMotion() === false;
+  const { highlight } = resolveTabBarMotion(!canMove);
   return (
     <nav
       aria-label={t('commandActions')}
@@ -37,9 +42,20 @@ export function CommandDock({ activeAction }: { activeAction?: CommandAction }):
           size="sm"
           variant={ButtonVariant.CommandShortcut}
           aria-current={activeAction === action ? 'page' : undefined}
-          className="h-auto min-h-14 gap-1.5 rounded-2xl px-1 py-2 text-caption hover:bg-accent-tint hover:text-accent-tint-ink focus-visible:ring-offset-0 aria-[current=page]:bg-accent-tint aria-[current=page]:text-accent-tint-ink aria-[current=page]:ring-1 aria-[current=page]:ring-inset aria-[current=page]:ring-accent-primary/30 sm:px-2"
+          className="isolate h-auto min-h-14 gap-1.5 rounded-2xl px-1 py-2 text-caption hover:bg-fill-pressed hover:text-accent-tint-ink focus-visible:ring-offset-0 aria-[current=page]:text-accent-tint-ink sm:px-2"
           onClick={() => navigate(COMMAND_DESTINATIONS[action])}
         >
+          {activeAction === action && (
+            <motion.span
+              aria-hidden="true"
+              data-testid="command-dock-highlight"
+              layoutId={canMove ? `${id}-command-dock-pill` : undefined}
+              initial={false}
+              transition={highlight}
+              style={{ borderRadius: '1rem' }}
+              className="pointer-events-none absolute inset-0 -z-10 bg-accent-tint ring-1 ring-inset ring-accent-primary/30"
+            />
+          )}
           <Icon name={icon} aria-hidden="true" className="h-5 w-5 shrink-0" />
           <span className="w-full wrap-anywhere text-center leading-tight">
             {t(action === 'bridge' ? 'commandBridge' : action)}
