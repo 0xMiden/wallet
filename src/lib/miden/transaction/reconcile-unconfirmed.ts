@@ -149,7 +149,8 @@ const notesOfTransaction = (row: Pick<ITransaction, 'submitEvidence'>, transacti
  * id, naming the note, their window admitting its block) all read the same private notes, the agreement
  * {@link notesOfTransaction} asks. A script whose notes depend on state can create other notes on a replay, and the
  * note alone cannot say which attempt landed, so with none that can, or two that disagree, nothing is owed and the row
- * keeps the warning that a private note may not have been delivered.
+ * keeps the warning that a private note may not have been delivered. An unbound landing of any proof kind selects
+ * through {@link unboundLandingStamp}, which keeps this filter for a note.
  */
 export const landedNoteStamp = (
   row: Pick<ITransaction, 'submitEvidence'>,
@@ -162,6 +163,62 @@ export const landedNoteStamp = (
       entry.transactionId !== undefined &&
       entry.outputNoteIds?.includes(proof.noteId) === true &&
       admitsInclusionAt(entry, proof.block)
+  );
+  const owed = candidates.map(entry => privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds));
+  const [first] = candidates;
+  const [firstOwed] = owed;
+  if (first === undefined || firstOwed === undefined) return undefined;
+  return owed.every(noteIds => noteIds !== undefined && noteSetKey(noteIds) === noteSetKey(firstOwed))
+    ? first
+    : undefined;
+};
+
+/**
+ * Attempts that can have produced an unbound landing of `proof`, the execute mark aside. Unresolved is the stored
+ * row, the same {@link isUnresolvedEntry} test {@link landedNoteStamp} uses, and not judged never-committed by this
+ * pass: the write runs before those verdicts are stored, and an attempt the pass proved dead cannot have produced the
+ * landing. A note admits one that names it and whose window admits its block, without that pass's verdict, so the
+ * order candidates stay the note filter above. A commitment admits one whose recorded final commitment is absent or
+ * the landed attempt's. A nullifier admits one a recorded nullifier list does not omit the proof's nullifier from, and
+ * whose recorded final commitment does not differ from the proof's.
+ */
+const unboundLandingAttempts = (
+  row: Pick<ITransaction, 'submitEvidence'>,
+  proof: LandingProof,
+  landedFinal: string | undefined,
+  deadThisPass: ReadonlySet<string>
+): ISubmitEvidence[] =>
+  (row.submitEvidence ?? []).filter(entry => {
+    if (!isUnresolvedEntry(entry) || entry.transactionId === undefined) return false;
+    if (proof.kind === 'note') {
+      return entry.outputNoteIds?.includes(proof.noteId) === true && admitsInclusionAt(entry, proof.block);
+    }
+    if (deadThisPass.has(entry.attemptId)) return false;
+    if (proof.kind === 'commitment') {
+      return entry.finalCommitment === undefined || entry.finalCommitment === landedFinal;
+    }
+    // The judge's nullifier ruled-out test, copied: a list that omits the nullifier, or a different final commitment.
+    return !(
+      (entry.nullifiers !== undefined && !entry.nullifiers.includes(proof.nullifier)) ||
+      (entry.finalCommitment !== undefined && entry.finalCommitment !== proof.finalCommitment)
+    );
+  });
+
+/**
+ * The execute stamp an unbound landing owes. A note proof is {@link landedNoteStamp}. A commitment or nullifier proof
+ * owes what every execute {@link unboundLandingAttempts} admits agrees on: each private list reads and the sets match,
+ * including an empty list, and the stamp is the first of them. Disagreement, or a list that does not read, owes
+ * nothing.
+ */
+const unboundLandingStamp = (
+  row: Pick<ITransaction, 'submitEvidence'>,
+  proof: LandingProof,
+  landedFinal: string | undefined,
+  deadThisPass: ReadonlySet<string>
+): ISubmitEvidence | undefined => {
+  if (proof.kind === 'note') return landedNoteStamp(row, proof);
+  const candidates = unboundLandingAttempts(row, proof, landedFinal, deadThisPass).filter(
+    entry => entry.fromExecute === true
   );
   const owed = candidates.map(entry => privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds));
   const [first] = candidates;
@@ -368,16 +425,26 @@ async function writeLanding(
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
     // An execute whose tail recorded nothing before its row was failed (its realm died after the apply, or its landed
-    // write spent its budget and the reaper failed it) owes the private notes the landing attempt's stamp read. Read
-    // from the row as found, before the landed fields label an execute with a recipient undelivered; such a row never
-    // took the completion's write, so its recipient is the one its request named. A note landing that binds no id
-    // names no attempt, so it owes only what every attempt that can have created the note read.
+    // write spent its budget and the reaper failed it) owes the private notes its stamp read. Read from the row as
+    // found, before the landed fields label an execute with a recipient undelivered; such a row never took the
+    // completion's write, so its recipient is the one its request named. A landing that binds no transaction id names
+    // no attempt, so it owes only what every attempt that can have produced it agrees on.
+    const deadThisPass = new Set(
+      judgement.entries.filter(judged => judged.result === 'never-committed').map(judged => judged.attemptId)
+    );
+    const landedAttempt = fresh.submitEvidence?.find(entry => entry.attemptId === landing.attemptId);
+    const landedFinal = landedAttempt?.finalCommitment;
+    const unboundAttempts =
+      landing.boundTransactionId === undefined
+        ? unboundLandingAttempts(fresh, landing.proof, landedFinal, deadThisPass)
+        : undefined;
     const landedStamp =
-      landing.proof.kind === 'note' && landing.boundTransactionId === undefined
-        ? landedNoteStamp(fresh, landing.proof)
-        : fresh.submitEvidence?.find(entry => entry.attemptId === landing.attemptId);
+      landing.boundTransactionId === undefined
+        ? unboundLandingStamp(fresh, landing.proof, landedFinal, deadThisPass)
+        : landedAttempt;
     const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
-    // A single-key swap saves no request, so its order is the one the landed attempt's stamp recorded.
+    // A single-key swap saves no request. A landing that binds an attempt opens that attempt's order; one that binds
+    // none opens an order only when every attempt the proof admits, and that names an order, names the same one.
     applyVerifiedLanding(
       fresh,
       {
@@ -387,7 +454,9 @@ async function writeLanding(
         completedAt: fresh.completedAt
       },
       (sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined) ??
-        submittedSwapOrder(fresh.submitEvidence, entry => entry.attemptId === landing.attemptId)
+        submittedSwapOrder(fresh.submitEvidence, entry =>
+          unboundAttempts !== undefined ? unboundAttempts.includes(entry) : entry.attemptId === landing.attemptId
+        )
     );
     const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);

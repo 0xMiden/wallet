@@ -461,6 +461,164 @@ describe('the landed write (#1081)', () => {
       expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, transactionId: hex(2) });
     });
   });
+
+  // A landing that binds no attempt owes a private list, or a swap order, only when every attempt that can have
+  // produced it reads the same one.
+  describe('an unbound landing owes only what every compatible attempt agrees on', () => {
+    const RECIPIENT = 'mtst1recip';
+    const NULLIFIER = hex(30);
+    const THE_NOTE = 'Executed - the private note could not be delivered';
+    const A_NOTE = 'Executed - a private note could not be delivered';
+    const bare = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence =>
+      entry({ outputNoteIds: [], nullifiers: [], fromExecute: true, privateOutputNoteIds: [], ...overrides });
+    const executeRow = (first: Partial<ISubmitEvidence>, second: Partial<ISubmitEvidence>) =>
+      unconfirmed({
+        type: 'execute',
+        displayIcon: 'DEFAULT',
+        secondaryAccountId: RECIPIENT,
+        submitEvidence: [bare(first), bare({ attemptId: 'a2', transactionId: hex(3), ...second })]
+      });
+    const atFinal = (notes?: Record<string, number>) =>
+      context(node({ blockNum: 150, commitment: FINAL, nonce: '6' }, notes === undefined ? {} : { notes }));
+    const withNullifier = (notes?: Record<string, number>): NodeReads => ({
+      ...node({ blockNum: 160, commitment: FINAL, nonce: '6' }, notes === undefined ? {} : { notes }),
+      nullifierHeight: async () => 150
+    });
+
+    // The note on chain is the second attempt's, and the judge's first landed entry is the note-less one.
+    it('a commitment landing whose attempts disagree on private notes is not labelled clean', async () => {
+      await Repo.transactions.put(executeRow({}, { outputNoteIds: [NOTE], privateOutputNoteIds: [NOTE] }));
+
+      expect((await judgeAndWrite('tx-1', atFinal({ [NOTE]: 140 }))).kind).toBe('landed');
+
+      const row = await read();
+      expect(row?.displayMessage).toBe(THE_NOTE);
+      expect(row?.relayNoteIds).toBeUndefined();
+      expect(row?.noteDelivery).toBe('undelivered');
+      expect(row?.transactionId).toBeUndefined();
+    });
+
+    it('both attempts agree on [] and the row stays Executed with no relayNoteIds', async () => {
+      await Repo.transactions.put(executeRow({}, { outputNoteIds: [], privateOutputNoteIds: [] }));
+
+      expect((await judgeAndWrite('tx-1', atFinal())).kind).toBe('landed');
+
+      const row = await read();
+      expect(row?.displayMessage).toBe('Executed');
+      expect(row?.relayNoteIds).toBeUndefined();
+      expect(row?.noteDelivery).toBeUndefined();
+    });
+
+    // A row 1 attempt recorded no output note, so the only list it can share is empty. Both attempts here record the
+    // note and the nullifier; the proof matches both and binds neither, and the shared private list is what is owed.
+    it('both attempts agree on [NOTE]', async () => {
+      const noted = { outputNoteIds: [NOTE], nullifiers: [NULLIFIER], privateOutputNoteIds: [NOTE] };
+      await Repo.transactions.put(executeRow(noted, noted));
+
+      expect((await judgeAndWrite('tx-1', context(withNullifier()))).kind).toBe('landed');
+
+      expect(await read()).toMatchObject({
+        noteDelivery: 'undelivered',
+        relayNoteIds: [NOTE],
+        relayRecipientId: RECIPIENT,
+        displayMessage: A_NOTE
+      });
+      expect((await read())?.transactionId).toBeUndefined();
+    });
+
+    it('a second attempt whose finalCommitment differs does not block the clean Executed label', async () => {
+      await Repo.transactions.put(
+        executeRow({}, { outputNoteIds: [NOTE], privateOutputNoteIds: [NOTE], finalCommitment: OTHER })
+      );
+
+      expect((await judgeAndWrite('tx-1', atFinal({ [NOTE]: 140 }))).kind).toBe('landed');
+
+      const row = await read();
+      expect(row?.displayMessage).toBe('Executed');
+      expect(row?.relayNoteIds).toBeUndefined();
+      expect(row?.noteDelivery).toBeUndefined();
+    });
+
+    it('a second attempt this pass judges never-committed does not block the clean Executed label', async () => {
+      await Repo.transactions.put(executeRow({}, { outputNoteIds: [NOTE], privateOutputNoteIds: [NOTE] }));
+      const reads: NodeReads = {
+        ...node({ blockNum: 720, commitment: FINAL, nonce: '6' }),
+        account: async (_id, atBlock) => ({
+          ok: true,
+          state:
+            atBlock === 700 ? { blockNum: 700, commitment: INITIAL } : { blockNum: 720, commitment: FINAL, nonce: '6' }
+        })
+      };
+
+      expect((await judgeAndWrite('tx-1', context(reads))).kind).toBe('landed');
+
+      const row = await read();
+      expect(row?.displayMessage).toBe('Executed');
+      expect(row?.relayNoteIds).toBeUndefined();
+      expect(row?.noteDelivery).toBeUndefined();
+    });
+
+    it('a nullifier landing whose attempts disagree on private notes is not labelled clean', async () => {
+      await Repo.transactions.put(
+        executeRow(
+          { nullifiers: [NULLIFIER] },
+          { outputNoteIds: [NOTE], nullifiers: [NULLIFIER], privateOutputNoteIds: [NOTE] }
+        )
+      );
+
+      expect((await judgeAndWrite('tx-1', context(withNullifier({ [NOTE]: 140 })))).kind).toBe('landed');
+
+      const row = await read();
+      expect(row?.displayMessage).toBe(THE_NOTE);
+      expect(row?.relayNoteIds).toBeUndefined();
+      expect(row?.transactionId).toBeUndefined();
+    });
+
+    const swapRow = (secondOrder: { orderId: string; orderNoteId: string }, same: boolean) => {
+      const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+      const order = { orderId: '42', orderNoteId: NOTE };
+      return unconfirmed({
+        type: 'swap',
+        displayIcon: 'SWAP',
+        extraInputs,
+        submitEvidence: [
+          entry({ outputNoteIds: [], nullifiers: [], ...order }),
+          entry({
+            attemptId: 'a2',
+            transactionId: hex(3),
+            outputNoteIds: [],
+            nullifiers: [],
+            ...(same ? order : secondOrder)
+          })
+        ]
+      });
+    };
+
+    it('a single-key swap landed by an unbound commitment proof opens no order when its attempts stamped different ones', async () => {
+      await Repo.transactions.put(swapRow({ orderId: '7', orderNoteId: hex(21) }, false));
+
+      expect((await judgeAndWrite('tx-1', atFinal())).kind).toBe('landed');
+
+      const row = await read();
+      expect(row?.extraInputs).toEqual({ requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 });
+      expect(row?.outputNoteIds).toBeUndefined();
+    });
+
+    it('a single-key swap landed by an unbound commitment proof opens the order its attempts stamped', async () => {
+      await Repo.transactions.put(swapRow({ orderId: '42', orderNoteId: NOTE }, true));
+
+      expect((await judgeAndWrite('tx-1', atFinal())).kind).toBe('landed');
+
+      expect((await read())?.extraInputs).toEqual({
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: 9n,
+        expirySeconds: 100,
+        orderId: 42n,
+        expiresAt: NOW - 100 + 100
+      });
+      expect((await read())?.outputNoteIds).toEqual([NOTE]);
+    });
+  });
 });
 
 describe('the never-committed write (#1081)', () => {
