@@ -19,8 +19,6 @@ import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
 import { TokenUsdValue } from 'components/TokenUsdValue';
-import type { StoryHop } from 'components/tx-stage/tx-story';
-import { TxStory } from 'components/tx-stage/TxStory';
 import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
@@ -1203,49 +1201,21 @@ export const ReviewTransaction: React.FC = () => {
             value={<TokenAmount amount={amount} symbol={tokenLabel} formatting="exact" />}
             subtitle={
               token?.scaleIsKnown && (
-                <TokenUsdValue amount={amount} decimals={token.decimals} faucetId={token.id} symbol={token.name} />
+                <span className="font-heading text-base leading-[22px] font-bold">
+                  <TokenUsdValue amount={amount} decimals={token.decimals} faucetId={token.id} symbol={token.name} />
+                </span>
               )
             }
           />
 
-          <TxStory
-            className="mt-6"
-            hops={
-              [
-                {
-                  from: { role: 'you', name: '' },
-                  to: { role: 'recipient', name: to },
-                  amount: `${amount} ${tokenLabel}`.trim(),
-                  via: isBridge ? undefined : sharePrivately ? t('private') : t('public')
-                },
-                ...(isBridge && youReceiveAmount != null
-                  ? [
-                      {
-                        from: { role: 'you' as const, name: '' },
-                        to: { role: 'recipient' as const, name: bridgeNetworkObj?.name ?? '' },
-                        amount: `${youReceiveAmount} ${youReceiveSymbol}`.trim()
-                      }
-                    ]
-                  : []),
-                ...(networkFee && !isUsdcxBurn
-                  ? [
-                      {
-                        from: { role: 'you' as const, name: '' },
-                        to: { role: 'network' as const, name: '' },
-                        amount: networkFee
-                      }
-                    ]
-                  : [])
-              ] satisfies StoryHop[]
-            }
-          />
-
           <DetailCard surface="outline" face="heading" className="tx-stage-list mt-6">
-            {/* The full address, never truncated: this is the last look before funds move. Set in body
-              text rather than the bold value face, so it reads as something to check, not a headline. */}
+            {/* The full address, never truncated: this is the last look before funds move. Right-aligned
+              like the other rows, small enough to sit on one line; the short label drops the label column's
+              minimum width to leave it room, and it wraps rather than overflow. A first-time recipient
+              carries a tag beside the label. */}
             <DetailRow
               label={t('to')}
-              stacked
+              className="[&>span:first-child]:min-w-0"
               data-testid="review-row-to"
               badge={
                 isNewRecipient ? (
@@ -1257,7 +1227,7 @@ export const ReviewTransaction: React.FC = () => {
                 ) : undefined
               }
             >
-              <span className="text-body-sm font-semibold break-all text-ink">{to}</span>
+              <span className="min-w-0 text-[11px] break-all">{to}</span>
             </DetailRow>
             {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
             <DetailRow label={t('network')}>
@@ -1353,7 +1323,9 @@ export const ReviewTransaction: React.FC = () => {
               // both fold under one row, whose summary line names them while it is closed.
               <DetailDisclosure
                 title={t('advancedOptions')}
-                summary={t('advancedOptionsSummary', { transferType: t(transferType), expiration: expirationLabel })}
+                summary={t(transferType)}
+                summarySub={expirationLabel}
+                summaryPlacement="end"
                 summaryEmphasis={!sharePrivately}
                 open={advancedOpen}
                 onOpenChange={setAdvancedOpen}
@@ -1409,7 +1381,10 @@ export const ReviewTransaction: React.FC = () => {
           {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
           {!isBridge && (recallBlocks || (command && calendarTarget !== undefined)) ? (
-            <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="review-recall-note">
+            <p
+              className="mt-3 px-4 text-base leading-[22px] font-semibold face-heading text-muted"
+              data-testid="review-recall-note"
+            >
               {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
             </p>
           ) : null}
