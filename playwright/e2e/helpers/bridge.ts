@@ -791,10 +791,12 @@ function payoutRowValue(scope: Page | Locator, testId: string): Locator {
 
 function readNetworkChips(page: Page): Promise<NetworkChipState[]> {
   return page.locator(`${OPEN_SHEET} [data-testid^="send-network-"]`).evaluateAll(elements =>
-    elements.map(element => ({
-      testId: element.getAttribute('data-testid') ?? '',
-      pressed: element.getAttribute('aria-pressed')
-    }))
+    elements
+      .map(element => ({
+        testId: element.getAttribute('data-testid') ?? '',
+        pressed: element.getAttribute('aria-pressed')
+      }))
+      .filter(({ testId }) => testId !== 'send-network-picker' && testId !== 'send-network-options')
   );
 }
 

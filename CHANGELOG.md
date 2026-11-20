@@ -61,6 +61,7 @@
 ## 1.18.0 (2026-11-17)
 
 - [FIX][extension] Restore background settings after wallet setup so incoming notes can be claimed automatically when enabled.
+- [FIX][ci] Check the four USDCx burn destinations without counting the network picker and its container as destinations.
 
 - [FIX][all] USDCx burn confirmation shows and records a source-bound native fee maximum. Both signing paths accept only the exact protocol sponsorship for the approved burn within that total cap, and receipts include its actual cost.
 
