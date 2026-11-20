@@ -571,8 +571,8 @@ const writePinnedLanding = async (
         return { write: 'declined' };
       }
       if (noteClaimedElsewhere(fresh, pinned.noteId, await accountRowsOf(fresh))) return { write: 'claimed' };
-      // Read from the row as found, before the landed fields label an execute with a recipient undelivered. The pinned
-      // check cannot say which attempt created the note, so only what every attempt that can have created it read.
+      // Read from the row as found, before the landed fields label an execute undelivered. The pinned check cannot
+      // say which attempt created the note, so only what every attempt that can have created it read.
       const notePin = { noteId: pinned.noteId, block: pinned.block };
       const landedStamp = landedNoteStamp(fresh, notePin);
       const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);

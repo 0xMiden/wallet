@@ -437,9 +437,9 @@ async function writeLanding(
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
     // An execute whose tail recorded nothing before its row was failed (its realm died after the apply, or its landed
     // write spent its budget and the reaper failed it) owes the private notes its stamp read. Read from the row as
-    // found, before the landed fields label an execute with a recipient undelivered; such a row never took the
-    // completion's write, so its recipient is the one its request named. A landing that binds no transaction id names
-    // no attempt, so it owes only what every attempt that can have produced it agrees on.
+    // found, before the landed fields label an execute undelivered; such a row never took the completion's write, so
+    // its recipient is the one its request named. A landing that binds no transaction id names no attempt, so it owes
+    // only what every attempt that can have produced it agrees on.
     const deadThisPass = new Set(
       judgement.entries.filter(judged => judged.result === 'never-committed').map(judged => judged.attemptId)
     );

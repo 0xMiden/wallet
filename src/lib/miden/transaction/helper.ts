@@ -702,9 +702,10 @@ export const completedSwapFields = (
  *
  * An execute's private notes are relayed only by `completeCustomTransaction`, so the same holds for
  * the `privateOutputNotes` its failure counted. Without a count (a refusal, Retry, an unreadable
- * transaction) the recipient its request named says notes were owed, and an 'undelivered' the row
- * already recorded is kept under a label that says so, counting the owed notes the transport did not
- * acknowledge when the row records which it did.
+ * transaction) notes are taken as owed whether or not its request named a recipient, since a dApp
+ * can create a private note without naming one, and an 'undelivered' the row already recorded is
+ * kept under a label that says so, counting the owed notes the transport did not acknowledge when
+ * the row records which it did.
  *
  * A post-submit tail can throw after its relay ran (PR #2183), so a 'relayed' or 'confirmed' the row records is kept
  * under the clean label whenever no positive count says the relay could not have run.
@@ -733,9 +734,7 @@ export const landedValueRowFields = (
   if (!privateOutputNotes && (tx.noteDelivery === 'relayed' || tx.noteDelivery === 'confirmed'))
     return { displayMessage };
   if (tx.type === 'execute') {
-    const owed =
-      tx.noteDelivery === 'undelivered' ||
-      (privateOutputNotes === undefined ? Boolean(tx.secondaryAccountId) : privateOutputNotes > 0);
+    const owed = tx.noteDelivery === 'undelivered' || privateOutputNotes === undefined || privateOutputNotes > 0;
     // Only a custom row's relay records `relayNoteIds`, and with them which notes the transport took.
     const count = privateOutputNotes ?? (tx.relayNoteIds ? unacknowledgedNotesOf(tx) : undefined);
     const notes = count !== undefined && count > 0 ? count : undefined;
