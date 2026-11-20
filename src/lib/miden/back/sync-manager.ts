@@ -275,6 +275,7 @@ async function runSync(force: boolean): Promise<void> {
       );
       consecutiveSyncFailures = 0;
       syncSucceededAt = Date.now();
+      if (process.env.MIDEN_E2E_TEST === 'true') console.info('[claim-probe] sync-ok');
       syncBackoffUntilMs = null;
       syncFusedUntilMs = null;
       breakerTripCount = 0;
@@ -494,6 +495,7 @@ async function runSync(force: boolean): Promise<void> {
             stillOurs('inside the consumable-note read', step)
           );
           stillOurs('after the consumable-note read');
+          if (process.env.MIDEN_E2E_TEST === 'true') console.info('[claim-probe] raw-notes', rawNotes.length);
           // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
           // custom transaction — hidden from the claimable UI until the user
           // confirms (or forever, if they cancel). See note-quarantine.ts.
@@ -658,11 +660,13 @@ async function runSync(force: boolean): Promise<void> {
       // worth one on its own. See `initiateConsumeNotesTransaction`.
       let nativeAutoConsumeBaseFee: number | null = null;
       try {
-        if (
-          !isRotationPendingAccount(accountPubKey) &&
-          (await areBackgroundSettingsMirrored()) &&
-          (await isAutoConsumeEnabledAsync())
-        ) {
+        const notRotating = !isRotationPendingAccount(accountPubKey);
+        const mirrored = notRotating && (await areBackgroundSettingsMirrored());
+        const autoConsume = mirrored && (await isAutoConsumeEnabledAsync());
+        if (process.env.MIDEN_E2E_TEST === 'true') {
+          console.info('[claim-probe] parsed-gates', parsedNotes.length, notRotating, mirrored, autoConsume);
+        }
+        if (autoConsume) {
           const nativeFaucetId = await getNativeAssetId();
           if (nativeFaucetId) {
             // Notes already held by a consume or a dApp transaction (live, or awaiting its verdict) are
@@ -701,6 +705,14 @@ async function runSync(force: boolean): Promise<void> {
             // totalling 100x.
             nativeAutoConsumeBaseFee = candidates.length > 0 ? await getClaimFloorBaseFee() : null;
             noteUnknownClaimFloor(`sync:${accountPubKey}`, nativeAutoConsumeBaseFee, candidates.length > 0);
+            if (process.env.MIDEN_E2E_TEST === 'true') {
+              console.info(
+                '[claim-probe] eligible',
+                nativeNotes.length,
+                candidates.length,
+                nativeAutoConsumeBaseFee !== null
+              );
+            }
             if (
               candidates.length > 0 &&
               isWorthClaiming(totalClaimableAmount(candidates.map(n => n.amountBaseUnits)), nativeAutoConsumeBaseFee)
@@ -857,6 +869,9 @@ async function runSync(force: boolean): Promise<void> {
       // Only while the vault is unlocked: a locked worker cannot sign the claim, so its row would only be deferred
       // until it expired as a failure, reported and notified for a claim the user never started. The note stays
       // auto-consume's (the prompt above still leaves it out) and the first lap after unlock queues it.
+      if (process.env.MIDEN_E2E_TEST === 'true') {
+        console.info('[claim-probe] enqueue-gate', nativeAutoConsumeNotes.length, isUnlocked(store.getState()));
+      }
       if (nativeAutoConsumeNotes.length > 0 && isUnlocked(store.getState())) {
         try {
           const delegate = await isDelegateProofEnabledAsync();
