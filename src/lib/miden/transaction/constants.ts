@@ -389,7 +389,7 @@ function formatOffscreenDeadlineFacts(link: Error): string {
   const trigger = safeOwnDiagnosticData(deadline, 'killer');
   const observed = snapshotOffscreenDeadline(link);
   return (
-    ` [offscreen deadline: owner=${'own'};` +
+    ` [offscreen deadline: owner=${owner === 'own' || owner === 'collateral' ? owner : 'unavailable'};` +
     ` timer=${['dispatch', 'backstop', 'started', 'resumed'].find(value => value === timer) ?? 'unavailable'};` +
     ` trigger=${trigger === 'read' || trigger === 'write' ? trigger : 'unavailable'};` +
     ` method=${observed?.offscreenDeadlineMethod ?? 'unobserved'};` +
