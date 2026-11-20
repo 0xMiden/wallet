@@ -201,6 +201,11 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   const lastPrunedAccounts = useRef<string | null>(null);
 
   useEffect(() => {
+    // Setup clears the startup mirror without necessarily remounting this page.
+    if (ready && status === WalletStatus.Ready && isExtension()) mirrorBackgroundSettings();
+  }, [ready, status]);
+
+  useEffect(() => {
     if (!ready || status !== WalletStatus.Ready) {
       lastPrunedAccounts.current = null;
       return;
