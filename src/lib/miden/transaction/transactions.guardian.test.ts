@@ -15408,8 +15408,8 @@ describe('generateTransaction - Guardian routing', () => {
       label: 'unreadable output notes and no recipient',
       notes: null,
       recipient: undefined,
-      delivery: undefined,
-      message: 'Executed'
+      delivery: 'undelivered',
+      message: 'Executed - the private note could not be delivered'
     }
   ])('Guardian execute landed with $label reads as its notes were delivered or not (#1233)', async args => {
     const { notes, recipient, delivery, message } = args;

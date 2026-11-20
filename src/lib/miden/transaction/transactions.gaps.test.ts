@@ -613,7 +613,13 @@ describe('apply-after-submit on an execute', () => {
       delivery: 'undelivered',
       message: 'Executed - the private note could not be delivered'
     },
-    { privateOutputNotes: undefined, recipient: undefined, delivery: undefined, message: 'Executed' }
+    // A dApp can create a private note without naming its recipient, so an unknown count is owed either way.
+    {
+      privateOutputNotes: undefined,
+      recipient: undefined,
+      delivery: 'undelivered',
+      message: 'Executed - the private note could not be delivered'
+    }
   ])(
     'a landed execute with $privateOutputNotes private output notes and recipient $recipient reads $message (#1233)',
     async ({ privateOutputNotes, recipient, delivery, message }) => {

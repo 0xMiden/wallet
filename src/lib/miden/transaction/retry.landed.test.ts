@@ -77,21 +77,26 @@ const DELIVERY_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undef
   ]
 ];
 
-// Retry's landed row reads as the landed catches write one: the label the type's normal completion
-// writes (#1233).
-const LABEL_CASES: [string, Partial<ITransaction>, string][] = [
-  ['swap', { type: 'swap' }, 'Swapped'],
-  ['execute', { type: 'execute' }, 'Executed'],
-  ['Agglayer bridged-send', { type: 'bridged-send', extraInputs: { provider: 'agglayer' } }, 'Bridged to EVM']
-];
-
 const UNDELIVERED_EXECUTE = 'Executed - the private note could not be delivered';
 
-// Retry reads no count off the executed transaction, so a landed execute owes the recipient its request named,
-// and one whose relay was recorded as failed never reads as a clean success (#1233).
+// Retry's landed row reads as the landed catches write one: the label the type's normal completion
+// writes (#1233), which for an execute whose notes Retry cannot count says a private note may be owed.
+const LABEL_CASES: [string, Partial<ITransaction>, string, INoteDeliveryState | undefined][] = [
+  ['swap', { type: 'swap' }, 'Swapped', undefined],
+  ['execute', { type: 'execute' }, UNDELIVERED_EXECUTE, 'undelivered'],
+  [
+    'Agglayer bridged-send',
+    { type: 'bridged-send', extraInputs: { provider: 'agglayer' } },
+    'Bridged to EVM',
+    undefined
+  ]
+];
+
+// Retry reads no count off the executed transaction, so a landed execute is taken to owe a private note whether or
+// not its request named a recipient, and one whose relay was recorded as failed never reads as a clean success (#1233).
 const EXECUTE_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undefined, string][] = [
   ['names a recipient', { type: 'execute', secondaryAccountId: 'recipient' }, 'undelivered', UNDELIVERED_EXECUTE],
-  ['names no recipient', { type: 'execute' }, undefined, 'Executed'],
+  ['names no recipient', { type: 'execute' }, 'undelivered', UNDELIVERED_EXECUTE],
   ['recorded its relay as failed', { type: 'execute', noteDelivery: 'undelivered' }, 'undelivered', UNDELIVERED_EXECUTE]
 ];
 
@@ -173,7 +178,7 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
 
   it.each(LABEL_CASES)(
     'completes a landed %s under its completion label (#1233)',
-    async (_label, overrides, message) => {
+    async (_label, overrides, message, delivery) => {
       await Repo.transactions.put(failedSend({ id: 'tx-landed-label', ...overrides }));
       mockVerifySendLanded.mockResolvedValue('landed');
 
@@ -182,7 +187,7 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
       const row = await Repo.transactions.where({ id: 'tx-landed-label' }).first();
       expect(row?.status).toBe(ITransactionStatus.Completed);
       expect(row?.displayMessage).toBe(message);
-      expect(row?.noteDelivery).toBeUndefined();
+      expect(row?.noteDelivery).toBe(delivery);
     }
   );
 

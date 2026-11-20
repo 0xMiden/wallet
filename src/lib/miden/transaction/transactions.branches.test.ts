@@ -1955,7 +1955,12 @@ describe('generateTransactionsLoop error paths', () => {
       },
       'Swapped'
     ],
-    ['execute', { type: 'execute', requestBytes: new Uint8Array([8]) }, 'Executed']
+    // No private-note count is known, so the execute may owe one.
+    [
+      'execute',
+      { type: 'execute', requestBytes: new Uint8Array([8]) },
+      'Executed - the private note could not be delivered'
+    ]
   ])(
     'labels a landed %s as its completion handler would on the apply-after-submit error (#1233)',
     async (_label, fields, label) => {
