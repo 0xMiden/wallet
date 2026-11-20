@@ -783,6 +783,8 @@
   "commandHistoryRange": "Діапазон історії",
   "commandHistoryInsufficient": "Поки що недостатньо спостережень",
   "commandHistoryGaps": "Відсутні деякі інтервали або охоплення оцінки",
+  "commandHistoryObservationsOnly": "Лише зафіксовані спостереження",
+  "commandEarnDepositsPaused": "Прийом нових депозитів у програмі «Earn» призупинено. Ви все ще можете переглядати та виводити існуючі позиції.",
   "commandInspectHistory": "Переглянути історію спостережень",
   "commandObservedOnDevice": "Зауваження стосуються лише цього пристрою. Пропуски не заповнюються.",
   "getStarted": "Почніть",

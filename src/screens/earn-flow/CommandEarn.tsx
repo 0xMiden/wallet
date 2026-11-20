@@ -6,6 +6,7 @@ import { IconName } from 'app/icons/v2';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
+import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useCommandDrafts } from 'screens/command/command-drafts';
@@ -49,6 +50,11 @@ export function CommandEarn({
   const draft = drafts.readDraft('earn');
   const deposit = useFeatureAvailability('earnDeposit', { hold: !notOnNetwork && !vaultsPending });
   const failed = Boolean(error || loadError);
+  const depositsPaused =
+    deposit.state === 'available' &&
+    !vaultsPending &&
+    vaults.length > 0 &&
+    vaults.every(vault => vault.depositsEnabled === false);
   const openDeposit = (vaultId: string) => {
     drafts.writeDraft('earn', {
       mode: 'deposit',
@@ -72,6 +78,7 @@ export function CommandEarn({
   return (
     <div data-testid="command-earn" className="flex flex-col gap-5">
       <FeatureUnavailableNotice feature="earnDeposit" availability={deposit} data-testid="earn-unavailable-notice" />
+      {depositsPaused && <Notice>{t('commandEarnDepositsPaused')}</Notice>}
       {failed && <EarnLoadError isRetrying={isRefreshing} onRetry={onRetry} />}
       {isLoading && positions.length === 0 && vaults.length === 0 && !failed ? <EarnLoading /> : null}
       {!(positions.length === 0 && (isLoading || failed)) && (

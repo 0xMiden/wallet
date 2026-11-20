@@ -245,6 +245,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 import { navigate } from 'lib/woozie';
 import { CommandBridge } from 'screens/command/bridge/CommandBridge';
+import { selectCommandBridgeRoute } from 'screens/command/bridge/testing/select-route';
 import { CommandDraftProvider } from 'screens/command/command-drafts';
 import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
@@ -654,7 +655,7 @@ describe('reviewed Agglayer native admission uses the existing queue', () => {
         item => item.mode === 'send' && item.provider === 'agglayer' && item.source.symbol === 'USDC'
       );
       if (!route) throw new Error('Missing real catalog route');
-      fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+      selectCommandBridgeRoute(route);
       fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
         target: { value: accounts.evmAddress }
       });

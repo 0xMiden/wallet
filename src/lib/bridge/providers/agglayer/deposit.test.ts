@@ -39,6 +39,7 @@ import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
 import { readEvmReceiptOutcome } from 'lib/walletconnect/receipt';
 import { navigate } from 'lib/woozie';
 import { CommandBridge } from 'screens/command/bridge/CommandBridge';
+import { selectCommandBridgeRoute } from 'screens/command/bridge/testing/select-route';
 import { CommandDraftProvider } from 'screens/command/command-drafts';
 import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
@@ -400,7 +401,7 @@ async function renderReceive() {
       })
     })
   );
-  fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+  selectCommandBridgeRoute(route);
   fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1.00000000' } });
   const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
   if (!form) throw new Error('Missing actual form');

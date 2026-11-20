@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { FlowPresentationProvider, type FlowPresentation } from 'components/flow/FlowPresentation';
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
@@ -149,7 +150,10 @@ const consume = (over: Partial<SwapSettlementTransaction> = {}): SwapSettlementT
   ...over
 });
 
-const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {}) =>
+const renderDetail = (
+  over: Partial<React.ComponentProps<typeof SwapDetail>> = {},
+  presentation: FlowPresentation = 'compact'
+) =>
   render(
     <SwapDetail
       entry={entry}
@@ -170,7 +174,8 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       cancelOrderError={null}
       onCancelOrder={mockCancelOrder}
       {...over}
-    />
+    />,
+    { wrapper: ({ children }) => <FlowPresentationProvider value={presentation}>{children}</FlowPresentationProvider> }
   );
 
 beforeEach(() => {
@@ -183,6 +188,14 @@ const rowByLabel = (label: string) =>
   Array.from(document.querySelectorAll('[data-testid="detail-row"]')).find(
     el => el.getAttribute('data-label') === label
   );
+
+it('delegates Command receipt scrolling to the workbench but retains the compact scroll area', () => {
+  const compact = renderDetail();
+  expect(screen.getByTestId('swap-order-card').querySelector('.overflow-y-auto')).not.toBeNull();
+  compact.unmount();
+  renderDetail({}, 'command');
+  expect(screen.getByTestId('swap-order-card').querySelector('.overflow-y-auto')).toBeNull();
+});
 
 describe('SwapDetail faucet ids', () => {
   it('names both faucets, each under its own side of the order', () => {

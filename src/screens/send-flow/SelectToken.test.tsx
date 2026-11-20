@@ -257,6 +257,33 @@ it('keeps unread availability warnings out of the picker while search remains us
   expect(search()).toHaveValue('BTC');
 });
 
+it('keeps all 32 assets searchable in the anchored desktop picker and picks the exact match', async () => {
+  const anchorRef = React.createRef<HTMLButtonElement>();
+  const options = Array.from({ length: 32 }, (_, i) => ({
+    ...XYZ,
+    tokenId: `asset-${i}`,
+    metadata: { ...XYZ.metadata, symbol: `Asset ${i}` }
+  }));
+  setBalances(options);
+  const onSelect = jest.fn();
+  const onOpenChange = jest.fn();
+  render(
+    <>
+      <button ref={anchorRef}>Pick an asset</button>
+      <SelectTokenDrawer open anchorRef={anchorRef} onSelect={onSelect} onOpenChange={onOpenChange} />
+    </>
+  );
+  const panel = await screen.findByRole('dialog', { name: 'selectAToken' });
+  expect(panel).toHaveClass('overflow-y-auto', 'overscroll-contain');
+  expect(within(panel).getAllByTestId(/^send-token-Asset /)).toHaveLength(32);
+  fireEvent.change(search(), { target: { value: 'asset 31' } });
+  const [match] = within(panel).getAllByTestId(/^send-token-Asset /);
+  expect(within(panel).getAllByTestId(/^send-token-Asset /)).toHaveLength(1);
+  fireEvent.click(match!);
+  expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'asset-31' }));
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
 describe('SelectTokenDrawer', () => {
   it('disables other tokens when the destination requires USDCx', () => {
     const usdcx = { ...MIDEN, metadata: { ...MIDEN.metadata, symbol: 'USDCx' } };

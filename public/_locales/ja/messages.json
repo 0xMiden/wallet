@@ -3614,6 +3614,14 @@
     "message": "一部の間隔や評価範囲が欠落しています",
     "englishSource": "Some intervals or valuation coverage are missing"
   },
+  "commandHistoryObservationsOnly": {
+    "message": "記録された観察事項のみ",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "「Earn」への新規入金は一時停止されています。既存のポジションの確認および引き出しは引き続き可能です。",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
   "commandInspectHistory": {
     "message": "観測された履歴を検査する",
     "englishSource": "Inspect observed history"

@@ -783,6 +783,8 @@
   "commandHistoryRange": "내역 범위",
   "commandHistoryInsufficient": "아직 충분한 관찰 결과가 없습니다",
   "commandHistoryGaps": "일부 간격이나 평가 범위가 누락되어 있습니다.",
+  "commandHistoryObservationsOnly": "기록된 관찰 사항만",
+  "commandEarnDepositsPaused": "새로운 'Earn' 예치 기능이 일시 중단되었습니다. 기존 포지션은 여전히 조회 및 인출이 가능합니다.",
   "commandInspectHistory": "관찰된 내역 확인",
   "commandObservedOnDevice": "이 장치에 대한 관찰 사항만 해당됩니다. 빈칸은 채워지지 않습니다.",
   "getStarted": "시작하기",

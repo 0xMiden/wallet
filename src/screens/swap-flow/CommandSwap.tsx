@@ -26,9 +26,11 @@ export function CommandSwap({
   offerAmount,
   onOfferAmountChange,
   onSelectOfferToken,
+  offerTokenAnchorRef,
   requestToken,
   requestAmount,
   onSelectRequestToken,
+  requestTokenAnchorRef,
   requestLoading,
   quoteLoading,
   onSwapDirection,
@@ -116,6 +118,7 @@ export function CommandSwap({
           amountMaxLength={80}
           onAmountChange={onOfferAmountChange}
           onSelectToken={onSelectOfferToken}
+          tokenAnchorRef={offerTokenAnchorRef}
         />
         {feeAssetMissing && (
           <ErrorLine errorId="insufficientFeeAssetShort" role="note" data-testid="swap-fee-notice">
@@ -157,8 +160,10 @@ export function CommandSwap({
             )}
           </DetailRow>
           <button
+            ref={requestTokenAnchorRef}
             type="button"
-            className="flex items-center gap-2 text-action text-accent-swap-ink"
+            aria-haspopup={requestTokenAnchorRef ? 'dialog' : undefined}
+            className="flex w-full items-center gap-2 px-4 py-3 text-action text-accent-swap-ink hover:bg-fill-pressed focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-swap-ink"
             onClick={() => {
               hapticLight();
               onSelectRequestToken();
