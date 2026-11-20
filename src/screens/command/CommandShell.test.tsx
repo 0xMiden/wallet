@@ -1,6 +1,6 @@
 import React, { Suspense, useState } from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MotionConfig } from 'framer-motion';
 
 import ErrorBoundary from 'app/ErrorBoundary';
@@ -17,6 +17,7 @@ import { CommandShell } from './CommandShell';
 import { useCommandWorkbenchSlots } from './CommandWorkbench';
 
 let mockHidden = false;
+let mockPrivacyRead: Promise<void> | undefined;
 let mockBackdropRead: Promise<unknown> | Error | undefined;
 let mockRecentEntries: IHistoryEntry[] = [];
 let mockHistoryInputs: { address: string; numItems?: number; pendingItems?: unknown[] } | undefined;
@@ -81,7 +82,12 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
   getEffectiveRpcUrl: () => 'https://rpc.test'
 }));
-jest.mock('./useCommandPrivacy', () => ({ useCommandPrivacy: () => [mockHidden, jest.fn()] }));
+jest.mock('./useCommandPrivacy', () => ({
+  useCommandPrivacy: () => {
+    if (mockPrivacyRead) throw mockPrivacyRead;
+    return [mockHidden, jest.fn()];
+  }
+}));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 jest.mock('./CommandHomePrompts', () => ({
@@ -120,6 +126,7 @@ const scope = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc
 beforeEach(() => {
   jest.clearAllMocks();
   mockHidden = false;
+  mockPrivacyRead = undefined;
   mockBackdropRead = undefined;
   mockRecentEntries = [];
   mockHistoryInputs = undefined;
@@ -609,6 +616,40 @@ it('reopens the same persisted operation by ID after a cold Command shell mount'
   );
   expect(screen.getByText('Existing row receipt')).toBeInTheDocument();
   expect(navigate).not.toHaveBeenCalled();
+});
+
+it.each([false, true])('keeps the cold operation portal mounted while reading privacy (hidden: %s)', async hidden => {
+  let finishRead!: () => void;
+  mockPrivacyRead = new Promise<void>(resolve => {
+    finishRead = resolve;
+  });
+  mockHidden = hidden;
+
+  render(
+    <Suspense fallback={<p>Waiting for the wallet</p>}>
+      <CommandShell scope={scope} route={{ kind: 'operation', id: 'original' }}>
+        <button>Retry original</button>
+      </CommandShell>
+    </Suspense>
+  );
+
+  const workbench = screen.getByRole('dialog', { name: 'commandOperation' });
+  expect(screen.getByRole('main')).toContainElement(workbench);
+  expect(screen.queryByText('Waiting for the wallet')).not.toBeInTheDocument();
+  expect(screen.queryByText('Retry original')).not.toBeInTheDocument();
+
+  await act(async () => {
+    mockPrivacyRead = undefined;
+    finishRead();
+  });
+
+  expect(screen.getByRole('dialog', { name: 'commandOperation' })).toBe(workbench);
+  if (hidden) {
+    expect(screen.getByText('commandMaskedBalance')).toBeVisible();
+    expect(screen.queryByText('Retry original')).not.toBeInTheDocument();
+  } else {
+    expect(screen.getByRole('button', { name: 'Retry original' })).toBeEnabled();
+  }
 });
 
 it('withholds an existing operation and all of its actions while Command privacy is on, then restores the original view', () => {
