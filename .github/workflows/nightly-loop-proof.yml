@@ -1,7 +1,7 @@
 name: Independent NEAR custody audit (read only)
 on:
   push:
-    branches: [wiktor/green04-restored-history-once]
+    branches: [wiktor/green04-guardian-delta-once]
 permissions:
   contents: read
   actions: read
@@ -25,9 +25,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green04-restored-history-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green04-guardian-delta-once
           base=f39fed842bf613fe7195fe6a48e7b09012e407e5
-          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git rev-parse HEAD^^)" = "$base"
           gh api "repos/0xMiden/wallet/compare/$base...main" --jq .status | grep -Ex 'identical|ahead'
           test "$(gh run list --workflow e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44681947124:completed
           gh run view 44318071333 --json headSha,attempt,conclusion,jobs | jq -e '.headSha=="eb23473d006c3564a30cdb991f177e64ff89ec24" and .attempt==1 and .conclusion=="failure" and ([.jobs[].steps[]|select(.name=="Wait for mainnet NEAR forward" and .conclusion=="failure")]|length)==1' >/dev/null
