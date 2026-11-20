@@ -485,13 +485,13 @@ it('keeps a searched holding masked while the privacy preference hides quantitie
   expect(within(holdings).queryByText('4.00 OTHER')).not.toBeInTheDocument();
 });
 
-it('keeps Allocation visible for an empty wallet without showing an allocation strip', () => {
+it('keeps Allocation visible for an empty wallet without showing a distribution ring', () => {
   store.hidden = false;
   mockEmpty = true;
   render(<CommandPortfolio scope={scope} />);
   const allocation = screen.getByRole('region', { name: 'commandAllocation' });
   expect(within(allocation).getByText('commandWalletEmpty')).toBeInTheDocument();
-  expect(within(allocation).queryByTestId('command-allocation-strip')).not.toBeInTheDocument();
+  expect(within(allocation).queryByTestId('command-allocation-ring')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'commandHideBalances' }));
   expect(screen.queryByRole('region', { name: 'commandAllocation' })).not.toBeInTheDocument();
 });
@@ -521,15 +521,21 @@ it('shows priced-subset allocation independent of holdings search and masks all 
     rows[1]!
   ];
   mockAllocation = [
-    { tokenId: 'priced', value: 6, percentage: 75 },
-    { tokenId: 'beta', value: 2, percentage: 25 }
+    { tokenId: 'beta', value: 2, percentage: 25 },
+    { tokenId: 'priced', value: 6, percentage: 75 }
   ];
   render(<CommandPortfolio scope={scope} />);
   const allocation = screen.getByRole('region', { name: 'commandAllocation' });
-  const strip = within(allocation).getByTestId('command-allocation-strip');
-  expect(strip).toHaveAttribute('aria-hidden', 'true');
-  expect(strip.children[0]).toHaveStyle({ flexGrow: '75' });
-  expect(strip.children[1]).toHaveStyle({ flexGrow: '25' });
+  const ring = within(allocation).getByTestId('command-allocation-ring');
+  expect(ring).toHaveAttribute('aria-hidden', 'true');
+  const arcs = ring.querySelectorAll('[stroke-dasharray]');
+  expect(arcs).toHaveLength(2);
+  expect(arcs[0]).toHaveAttribute('stroke-dasharray', '75 100');
+  expect(arcs[1]).toHaveAttribute('stroke-dasharray', '25 100');
+  expect(arcs[1]).toHaveAttribute('stroke-dashoffset', '-75');
+  const legend = within(allocation).getAllByRole('listitem');
+  expect(legend[0]).toHaveTextContent(/Ethereum.*6.00 USD.*75%/);
+  expect(legend[1]).toHaveTextContent(/Beta.*2.00 USD.*25%/);
   expect(within(allocation).getByText('Ethereum')).toBeInTheDocument();
   expect(within(allocation).getByText('Beta')).toBeInTheDocument();
   expect(within(allocation).queryByText('Voucher')).not.toBeInTheDocument();
@@ -546,7 +552,7 @@ it('shows priced-subset allocation independent of holdings search and masks all 
   expect(screen.queryByText('2.00 USD')).not.toBeInTheDocument();
   expect(screen.queryByText('75%')).not.toBeInTheDocument();
   expect(screen.queryByText('25%')).not.toBeInTheDocument();
-  expect(screen.queryByTestId('command-allocation-strip')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('command-allocation-ring')).not.toBeInTheDocument();
   const maskedMarkup = screen.queryByRole('region', { name: 'commandAllocation' })?.outerHTML ?? '';
   expect(maskedMarkup).not.toMatch(/(?:75|25)%|(?:6|2)\.00/);
 });

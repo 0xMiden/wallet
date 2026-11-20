@@ -24,7 +24,13 @@ const BUCKET_MS = 15 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 const BALANCE_PLACEHOLDER = '---';
 const RANGES = { '1W': 7, '1M': 30, '3M': 90, '1Y': 365 };
-const ALLOCATION_COLORS = ['bg-accent-primary', 'bg-accent-tint-ink', 'bg-muted'] as const;
+const ALLOCATION_COLORS = [
+  'text-accent-primary',
+  'text-accent-receive-ink',
+  'text-accent-swap-ink',
+  'text-accent-earn-ink',
+  'text-accent-tint-ink'
+] as const;
 type HistoryRange = keyof typeof RANGES;
 const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
   { id: '1W', label: '1W' },
@@ -150,6 +156,21 @@ export function CommandPortfolio({
     run
   }));
   const activePoint = chartPoints[sampleIndex];
+  const assetsById = new Map(portfolio.assets.map(asset => [asset.tokenId, asset.metadata]));
+  let allocationOffset = 0;
+  const allocation = [...portfolio.allocation]
+    .sort((a, b) => b.value - a.value)
+    .map((entry, index) => {
+      const offset = allocationOffset;
+      allocationOffset += entry.percentage;
+      const asset = assetsById.get(entry.tokenId);
+      return {
+        ...entry,
+        offset,
+        name: asset?.name || asset?.symbol || entry.tokenId,
+        color: ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]
+      };
+    });
   return (
     <div className="mx-auto grid w-full min-w-0 max-w-[90rem] grid-cols-1 gap-6 px-4 py-6 sm:px-8 lg:grid-cols-12 lg:px-[4vw] lg:py-10">
       <div
@@ -264,12 +285,17 @@ export function CommandPortfolio({
               >
                 <CommandHistoryTrace points={chartPoints} />
                 {activePoint && (
-                  <span
+                  <div
                     aria-hidden="true"
-                    data-testid="command-chart-marker"
-                    className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
-                    style={{ left: `${activePoint.x}%`, top: `${activePoint.y}%` }}
-                  />
+                    className="pointer-events-none absolute inset-y-0 w-px bg-linear-to-b from-accent-primary/45 to-transparent"
+                    style={{ left: `${activePoint.x}%` }}
+                  >
+                    <span
+                      data-testid="command-chart-marker"
+                      className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
+                      style={{ top: `${activePoint.y}%` }}
+                    />
+                  </div>
                 )}
               </div>
               <input
@@ -302,44 +328,63 @@ export function CommandPortfolio({
               <SectionHeader>{t('commandAllocation')}</SectionHeader>
               <p className="text-caption text-muted">{t('commandPricedAssets')}</p>
             </div>
-            {portfolio.allocation.length === 0 ? (
+            {allocation.length === 0 ? (
               <p className="border-t border-hairline py-4 text-body-sm text-muted">
                 {t(portfolio.empty ? 'commandWalletEmpty' : 'commandAllocationUnavailable')}
               </p>
             ) : (
               <>
-                <div aria-hidden="true" className="flex h-1.5 gap-1" data-testid="command-allocation-strip">
-                  {portfolio.allocation.map((entry, index) => (
-                    <span
-                      key={entry.tokenId}
-                      className={`min-w-0 basis-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
-                      style={{ flexGrow: entry.percentage }}
-                    />
-                  ))}
-                </div>
-                {coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
-                {portfolio.allocation.map((entry, index) => {
-                  const asset = portfolio.assets.find(row => row.tokenId === entry.tokenId);
-                  if (!asset) return null;
-                  return (
-                    <div key={entry.tokenId} className="flex items-center justify-between gap-3 text-body-sm text-ink">
-                      <span className="flex min-w-0 items-center gap-2">
+                <div className="grid items-center gap-4 min-[460px]:grid-cols-[6rem_minmax(0,1fr)] lg:grid-cols-1 xl:grid-cols-[6rem_minmax(0,1fr)]">
+                  <svg
+                    aria-hidden="true"
+                    className="mx-auto size-24 shrink-0"
+                    data-testid="command-allocation-ring"
+                    viewBox="0 0 100 100"
+                    fill="none"
+                  >
+                    <circle cx="50" cy="50" r="42" className="stroke-hairline" strokeWidth="10" />
+                    <g transform="rotate(-90 50 50)" strokeWidth="10">
+                      {allocation.map(entry => (
+                        <circle
+                          key={entry.tokenId}
+                          cx="50"
+                          cy="50"
+                          r="42"
+                          pathLength="100"
+                          stroke="currentColor"
+                          className={entry.color}
+                          strokeDasharray={`${entry.percentage} 100`}
+                          strokeDashoffset={-entry.offset}
+                        />
+                      ))}
+                    </g>
+                  </svg>
+                  <ul className="max-h-48 min-w-0 space-y-2.5 overflow-y-auto overscroll-contain pr-1">
+                    {allocation.map(entry => (
+                      <li key={entry.tokenId} className="flex min-w-0 items-start gap-2 text-body-sm text-ink">
                         <span
                           aria-hidden="true"
-                          className={`size-1.5 shrink-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
+                          className={`mt-1.5 size-2 shrink-0 rounded-full bg-current ${entry.color}`}
                         />
-                        <span className="truncate">{asset.metadata.name || asset.metadata.symbol}</span>
-                      </span>
-                      <span className="shrink-0 text-muted">
-                        {formatAmountDisplay(entry.value, displayOptions)} USD
-                      </span>
-                      <span className="shrink-0">
-                        {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}
-                        {t('percentSign')}
-                      </span>
-                    </div>
-                  );
-                })}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate" title={entry.name}>
+                            {entry.name}
+                          </span>
+                          <span className="block break-words text-caption text-muted tabular-nums">
+                            {formatAmountDisplay(entry.value, displayOptions)} USD
+                          </span>
+                        </span>
+                        <span className="shrink-0 font-semibold tabular-nums">
+                          {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}
+                          {t('percentSign')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                {coverage === 'partial' && (
+                  <p className="border-t border-hairline pt-3 text-caption text-muted">{t('commandPartialCoverage')}</p>
+                )}
               </>
             )}
           </section>

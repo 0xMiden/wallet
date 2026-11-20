@@ -158,7 +158,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(command.getByTestId('command-workbench')).toHaveCount(0);
   const allocation = command.getByRole('region', { name: 'Allocation' });
   await expect(allocation.getByText('Your wallet is empty.')).toBeVisible();
-  await expect(allocation.getByTestId('command-allocation-strip')).toHaveCount(0);
+  await expect(allocation.getByTestId('command-allocation-ring')).toHaveCount(0);
   await command.setViewportSize({ width: 1600, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-1600x1000');
   await command.setViewportSize({ width: 1440, height: 1000 });
