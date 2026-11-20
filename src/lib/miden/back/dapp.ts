@@ -1665,6 +1665,7 @@ export async function requestTransaction(
   sessionId?: string
 ): Promise<MidenDAppTransactionResponse> {
   dappDebug('requestTransaction, dapp.ts', req);
+  if (process.env.MIDEN_E2E_TEST === 'true') console.info(`MIDEN_R5_TIMING request ${Math.round(performance.now())}`);
   if (!req?.sourcePublicKey || !req?.transaction) {
     throw new Error(MidenDAppErrorType.InvalidParams);
   }
@@ -2394,8 +2395,12 @@ const generatePromisifyTransaction = async (
   // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error.
   // A decode trap reaches the lock, which retires the client before the refusal.
   await ensureSdkWasmReady();
+  if (process.env.MIDEN_E2E_TEST === 'true') console.info(`MIDEN_R5_TIMING ready ${Math.round(performance.now())}`);
   try {
     await withWasmClientLock(async () => {
+      if (process.env.MIDEN_E2E_TEST === 'true') {
+        console.info(`MIDEN_R5_TIMING decode-lock ${Math.round(performance.now())}`);
+      }
       TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
     });
   } catch (e) {
@@ -2434,6 +2439,7 @@ const generatePromisifyTransaction = async (
           return null;
         });
         const feeScope = cacheScope();
+        if (process.env.MIDEN_E2E_TEST === 'true') console.info(`MIDEN_R5_TIMING simulate ${Math.round(performance.now())}`);
         try {
           const simulated = await simulateCustomTransaction({
             address: customTransaction.address,

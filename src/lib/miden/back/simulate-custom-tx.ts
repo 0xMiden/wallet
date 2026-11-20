@@ -230,11 +230,19 @@ export function measureApprovalDryRun(dryRun: SimulateCustomTxResult, feeScope?:
  * as a follow-up.
  */
 export async function simulateCustomTransaction(input: SimulateCustomTxInput): Promise<SimulateCustomTxResult> {
+  const timingStart = process.env.MIDEN_E2E_TEST === 'true' ? performance.now() : 0;
+  const mark = (stage: string) => {
+    if (process.env.MIDEN_E2E_TEST === 'true') {
+      console.info(`MIDEN_R5_TIMING ${stage} ${Math.round(performance.now() - timingStart)}`);
+    }
+  };
   const attempt = beginQuarantineAttempt();
   const work: Promise<SimulateCustomTxResult> = (async () => {
     try {
       return await withWasmClientLock(async hold => {
+        mark('lock');
         const client = await getMidenClient();
+        mark('client');
         // The client build is a parking await (on a cold start it is the long
         // one); an eviction during it hands the mutex to a successor without
         // stopping this callback, so every WASM call below would be a second
@@ -251,6 +259,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         const carriedIds = importedNoteIds(input.importNotes, IN_HOLD);
         await client.syncState();
         assertWasmHoldCurrent(hold, 'after the provenance sync');
+        mark('sync');
 
         // Quarantine BEFORE importing: these notes are about to land in the
         // real client DB purely so `executeForSummaryAtTip` can resolve them for
@@ -322,7 +331,10 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // set does not already name (case-insensitively). One the store does not hold was brought in; one it holds
         // is the user's own. A carried id is not looked up again (the import above would make it look held), and
         // an embedded id is not imported or quarantined, because it was never written to the store.
-        const dryRun = await dryRunPreparedCustomRequest(client.client, accountIdHex, preparedBytes, hold);
+        mark('prepared');
+        const dryRun = await dryRunPreparedCustomRequest(client.client, accountIdHex, preparedBytes, hold).finally(
+          () => mark('dry-run')
+        );
         assertWasmHoldCurrent(hold, 'after the dry run');
         const consumed = consumedNoteIds(dryRun);
         if ('error' in consumed) return consumed;
@@ -369,6 +381,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
   );
 
   const result = await Promise.race([work, timeout]);
+  mark('result');
   // The timeout does not cancel the locked work. Abandon the attempt and let a quarantine write
   // already in the queue finish before rejecting, or the lookup still in flight quarantines the
   // ids again after the caller releases them.

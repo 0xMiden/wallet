@@ -155,8 +155,8 @@ jobs:
   # e2e-dapp-browser.yml and e2e-blockchain.yml use; each step's reason is kept with it.
   dapp-e2e-ios:
     name: dapp-e2e-ios (${{ matrix.network }}, ${{ matrix.axis }})
-    # A push has no inputs, so every surface runs.
-    if: ${{ inputs.surface != 'extension' }}
+    # Scratch diagnostic: only measure Android.
+    if: ${{ false }}
     runs-on: macos-26-xlarge
     # At most about 50 min of setup (a cold CLI compile, idb, the iOS build on a cache miss and the stagger), the
     # 95-minute run step, and 15 for the steps after it: a job cut here loses its records and its judge.
@@ -487,6 +487,14 @@ jobs:
         run: yarn playwright test --config playwright.android.dapp-e2e.config.ts --grep " - ${{ matrix.axis }} account" --retries=0
       # Reads the whole log buffer, checks the app is alive and always prints a raw tail: after a long hang the last
       # lines of the ring buffer are idle chatter, so a filtered tail alone left nothing (e2e-android.yml).
+      - name: Collect R5 timing scalars
+        if: always()
+        timeout-minutes: 1
+        run: |
+          for serial in emulator-5554 emulator-5556; do
+            timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
+              | grep -oE 'MIDEN_R5_TIMING (lock|client|sync|prepared|dry-run|result) [0-9]+' || true
+          done
       - name: Collect emulator logs
         if: steps.run.outcome != 'success'
         timeout-minutes: 10
