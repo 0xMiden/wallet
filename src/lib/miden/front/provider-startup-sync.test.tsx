@@ -164,6 +164,30 @@ it('hydrates the live extension backend during local startup so its first wallet
   expect(views).toEqual(['app']);
 });
 
+it('restores the background settings mirror after setup wipes it without remounting the provider', async () => {
+  const mirror = jest.requireMock('lib/settings/helpers').mirrorBackgroundSettings;
+  let mirrored = false;
+  mirror.mockImplementation(() => {
+    mirrored = true;
+  });
+  startupIntercom.request.mockResolvedValue(stateResponse({ ...readyState, status: WalletStatus.Idle }));
+  try {
+    render(
+      <MidenProvider>
+        <WalletView />
+      </MidenProvider>
+    );
+    await waitFor(() => expect(startupStore.getState().isInitialized).toBe(true));
+    expect(mirrored).toBe(true);
+    mirrored = false; // Setup clears platform storage after the provider's initial effect.
+    act(() => startupStore.setState({ status: WalletStatus.Ready }));
+    expect(screen.getByTestId('boot-view')).toHaveTextContent('app:');
+    expect(mirrored).toBe(true);
+  } finally {
+    mirror.mockReset();
+  }
+});
+
 it('keeps genuine cold backend startup loading until the authoritative response arrives', async () => {
   const finish = holdLocalStartup();
   let reply!: (value: object) => void;
