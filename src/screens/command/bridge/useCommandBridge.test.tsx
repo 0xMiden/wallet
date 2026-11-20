@@ -175,6 +175,17 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
+it('disables both selectors and review when the current catalog offers no route', () => {
+  mockSnapshot = { ...mockSnapshot, config: null, derived: null, status: 'loading' };
+  render(<CommandBridge />, { wrapper });
+  expect(screen.getByTestId('command-bridge-source')).toBeDisabled();
+  expect(screen.getByTestId('command-bridge-destination')).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeDisabled();
+  expect(screen.getByText('commandBridgeNoRoutes')).toBeVisible();
+  expect(quoteBridgeTransfer).not.toHaveBeenCalled();
+  expect(submitReviewedBridge).not.toHaveBeenCalled();
+});
+
 it('the real Bridge consumer stores exact unsigned direction, amount and external account in the shared Command draft', () => {
   const { result } = renderHook(useConsumer, { wrapper });
   act(() => {
