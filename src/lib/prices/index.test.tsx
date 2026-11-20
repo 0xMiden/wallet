@@ -2,9 +2,10 @@ import React from 'react';
 
 import { act, render, renderHook } from '@testing-library/react';
 
+import { basketKlines } from './basket';
 import { fetchBasketPrices } from './basket-nav';
-import { fetchTokenPrices, hasNoUsdMarket } from './feed';
-import { PriceProvider, useTokenSparkline } from './index';
+import { fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket } from './feed';
+import { PriceProvider, useBasketSparkline, useTokenSparkline } from './index';
 import { writeUsdPriceCache } from './usd';
 
 let mockNetwork = 'testnet';
@@ -55,6 +56,7 @@ jest.mock('lib/miden/front', () => ({ useMidenContext: () => mockWallet }));
 jest.mock('./feed', () => ({
   fetchTokenPrices: jest.fn(async () => ({})),
   fetchKlineData: jest.fn(),
+  fetchKlineSeries: jest.fn(),
   hasNoUsdMarket: jest.fn(() => false)
 }));
 jest.mock('./basket-nav', () => ({
@@ -408,5 +410,63 @@ describe('useTokenSparkline', () => {
       expect.any(Function),
       expect.objectContaining({ refreshInterval: 300000, dedupingInterval: 60000 })
     );
+  });
+});
+
+describe('useBasketSparkline', () => {
+  const composition = [
+    { faucetId: 'f-btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.6 },
+    { faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 0.4 }
+  ];
+  const basketQuote = { price: 2, change24h: 0, percentageChange24h: 0, source: 'basket' as const, composition };
+  const btc = {
+    stepMs: 10,
+    points: [
+      { time: 0, value: 100 },
+      { time: 10, value: 110 }
+    ]
+  };
+  const eth = {
+    stepMs: 10,
+    points: [
+      { time: 0, value: 50 },
+      { time: 10, value: 40 }
+    ]
+  };
+
+  it("draws the basket's line from its tokens' candles, fetched once per mix and re-anchored locally", async () => {
+    mockUseRetryableSWR.mockReturnValue({ data: [btc, eth] });
+
+    const { result } = renderHook(() => useBasketSparkline(basketQuote, {}, '1D'));
+
+    expect(result.current).toEqual(basketKlines(composition, [btc, eth], 2, {}).map(p => p.value));
+    expect(result.current.length).toBe(2);
+    const [key, fetcher, options] = mockUseRetryableSWR.mock.calls.at(-1)!;
+    // The key has no price in it: a new net asset value re-anchors the line without another fetch.
+    expect(key).toEqual(['basket-candles', 'BTC,ETH', '1D']);
+    expect(options).toEqual(expect.objectContaining({ refreshInterval: 300000, dedupingInterval: 60000 }));
+    jest.mocked(fetchKlineSeries).mockResolvedValueOnce(btc).mockResolvedValueOnce(eth);
+    await expect(fetcher()).resolves.toEqual([btc, eth]);
+    expect(fetchKlineSeries).toHaveBeenCalledWith('BTC', '1D');
+    expect(fetchKlineSeries).toHaveBeenCalledWith('ETH', '1D');
+  });
+
+  it('fetches nothing and returns an empty line for a quote that is not a basket', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: undefined });
+
+    const { result } = renderHook(() =>
+      useBasketSparkline({ price: 2, change24h: 0, percentageChange24h: 0 }, {}, '1D')
+    );
+
+    expect(result.current).toEqual([]);
+    expect(mockUseRetryableSWR.mock.calls.at(-1)![0]).toBeNull();
+  });
+
+  it('returns an empty line while the candles load', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: undefined });
+
+    const { result } = renderHook(() => useBasketSparkline(basketQuote, {}, '1D'));
+
+    expect(result.current).toEqual([]);
   });
 });

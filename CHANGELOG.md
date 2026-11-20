@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FEATURE][all] A basket's row in the asset list moves like its tokens: its 24h move and a 1D line weighted by the vault's mix, as on its token page, instead of a flat grey line.
+
 - [FIX][all] Match the bundled testnet Explore catalog to the published catalog.
 
 - [FIX][ci] Exercise the fullscreen Command launcher and wallet actions in existing browser/localnet jobs, and refuse a missing requested E2E Send token instead of selecting another asset.

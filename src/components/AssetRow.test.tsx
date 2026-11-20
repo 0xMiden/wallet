@@ -15,7 +15,7 @@ import {
   getNativeAssetMetadataSync,
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
-import { useTokenSparkline } from 'lib/prices';
+import { useBasketSparkline, useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -136,10 +136,12 @@ jest.mock('lib/token-list/useTokenVerification', () => ({ useTokenVerification: 
 // The sparkline hook fetches, so it is stubbed; the price lookup is the real one.
 jest.mock('lib/prices', () => ({
   quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
-  useTokenSparkline: jest.fn()
+  useTokenSparkline: jest.fn(),
+  useBasketSparkline: jest.fn(() => [])
 }));
 
 const mockUseTokenSparkline = useTokenSparkline as jest.MockedFunction<typeof useTokenSparkline>;
+const mockUseBasketSparkline = useBasketSparkline as jest.MockedFunction<typeof useBasketSparkline>;
 
 let tokenPrices: TokenPrices;
 
@@ -551,10 +553,33 @@ it('shows a native fixed quote with a flat line and a flat move, fetching no mar
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });
 
-it("shows a basket's net asset value with no move, fetching no market series", () => {
-  const basketQuote = priceInfo({ price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket' });
-  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={{ BTC: basketQuote }} />);
+it("shows a basket's net asset value with its tokens' weighted move and line", () => {
+  const composition = [
+    { faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 0.6 },
+    { faucetId: 'f-sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.4 }
+  ];
+  const basketQuote = priceInfo({ price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket', composition });
+  const prices = {
+    BTC: basketQuote,
+    ETH: priceInfo({ price: 2000, percentageChange24h: -10 }),
+    SOL: priceInfo({ price: 100, percentageChange24h: -5 })
+  };
+  mockUseBasketSparkline.mockReturnValue([1.6, 1.55, 1.5]);
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} />);
   expect(screen.getByTestId('row-price')).toHaveTextContent('$3.00');
+  expect(screen.getByTestId('row-delta')).toHaveTextContent('-');
+  const spark = screen.getByTestId('sparkline');
+  expect(spark).toHaveAttribute('data-color', 'var(--status-negative)');
+  expect(spark).toHaveAttribute('data-points', JSON.stringify([1.6, 1.55, 1.5]));
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(basketQuote, prices, '1D');
+  expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
+});
+
+it('keeps a basket whose tokens are not quoted flat, with no move', () => {
+  const composition = [{ faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 1 }];
+  const basketQuote = priceInfo({ price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket', composition });
+  mockUseBasketSparkline.mockReturnValue([]);
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={{ BTC: basketQuote }} />);
   expect(screen.queryByTestId('row-delta')).toBeNull();
   expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');

@@ -15,9 +15,10 @@ import {
 } from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
+import { basketKlines } from './basket';
 import { basketPriceSources, fetchBasketPrices } from './basket-nav';
-import type { Timeframe } from './binance';
-import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket } from './feed';
+import type { Timeframe, TokenPriceInfo, TokenPrices } from './binance';
+import { fetchKlineData, fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { writeUsdPriceCache } from './usd';
 
 export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
@@ -37,6 +38,35 @@ export function useTokenSparkline(symbol: string | undefined, timeframe: Timefra
   );
 
   return useMemo(() => (data ?? []).map(p => p.value), [data]);
+}
+
+/**
+ * useBasketSparkline — a basket's close prices over the timeframe: its tokens' candles weighted by the vault's mix
+ * and anchored at its net asset value, as its token page draws it. The candles are fetched per mix (deduped across
+ * rows); a new net asset value or quote re-anchors the line locally, without another fetch. Empty while loading, or
+ * when `quote` is not a basket quote with a composition.
+ */
+export function useBasketSparkline(
+  quote: TokenPriceInfo | undefined,
+  prices: TokenPrices,
+  timeframe: Timeframe = '1D'
+): number[] {
+  const composition = quote?.source === 'basket' ? quote.composition : undefined;
+  const price = quote?.price;
+  const symbols = composition?.map(c => c.priceSymbol).join(',');
+  const { data: candles } = useRetryableSWR(
+    symbols ? ['basket-candles', symbols, timeframe] : null,
+    () => Promise.all((symbols ?? '').split(',').map(symbol => fetchKlineSeries(symbol, timeframe))),
+    { refreshInterval: 5 * 60_000, dedupingInterval: 60_000 }
+  );
+
+  return useMemo(
+    () =>
+      composition && candles && price !== undefined && candles.length === composition.length
+        ? basketKlines(composition, candles, price, prices).map(p => p.value)
+        : [],
+    [composition, candles, price, prices]
+  );
 }
 
 function entries<T>(map: Map<string, T> | null | undefined): [string, T][] | null | undefined {
