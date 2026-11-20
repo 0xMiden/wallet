@@ -6,6 +6,8 @@ import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
+import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
+import { snapshotOffscreenDeadline } from 'lib/telemetry/offscreen-deadline-diagnostics';
 
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
@@ -377,7 +379,25 @@ export const isUserCancelledTransaction = (error: unknown): boolean => error ===
  */
 const PROVING_STAGES: ITransactionStage[] = ['proving', 'sending'];
 
-/** The raw `name: message` string persisted on `ITransaction.rawError`. */
+function formatOffscreenDeadlineFacts(link: Error): string {
+  if (safeOwnDiagnosticData(link, 'name') !== 'OperationAbortedError') return '';
+  const reason = safeOwnDiagnosticData(link, 'reason');
+  if (reason !== 'deadline' && reason !== 'deadline-no-kill') return '';
+  const deadline = safeOwnDiagnosticData(safeOwnDiagnosticData(link, 'facts'), 'deadline');
+  const owner = safeOwnDiagnosticData(deadline, 'owner');
+  const timer = safeOwnDiagnosticData(deadline, 'timer');
+  const trigger = safeOwnDiagnosticData(deadline, 'killer');
+  const observed = snapshotOffscreenDeadline(link);
+  return (
+    ` [offscreen deadline: owner=${owner === 'own' || owner === 'collateral' ? owner : 'unavailable'};` +
+    ` timer=${['dispatch', 'backstop', 'started', 'resumed'].find(value => value === timer) ?? 'unavailable'};` +
+    ` trigger=${trigger === 'read' || trigger === 'write' ? trigger : 'unavailable'};` +
+    ` method=${observed?.offscreenDeadlineMethod ?? 'unobserved'};` +
+    ` stage=${observed?.offscreenDeadlineStage ?? 'not_observed'}]`
+  );
+}
+
+/** The raw error chain and validated deadline facts persisted on `ITransaction.rawError`. */
 export function formatRawTransactionError(error: unknown): string {
   if (!(error instanceof Error)) return String(error);
   // Walk `cause`. Several wrappers in this pipeline say "see the cause chain" in
@@ -396,7 +416,7 @@ export function formatRawTransactionError(error: unknown): string {
     try {
       if (link instanceof Error) {
         isError = true;
-        parts.push(`${link.name}: ${link.message}`);
+        parts.push(`${link.name}: ${link.message}${formatOffscreenDeadlineFacts(link)}`);
       } else if (link !== undefined) {
         parts.push(String(link));
       }

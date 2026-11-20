@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][extension] Retain timeout ownership and validated offscreen deadline facts in saved transaction errors and local exports.
+
 - [CHANGE][extension] Give fullscreen Bread Command a wider portfolio, steadier action switching, and desktop controls for sending, bridging, and viewing activity.
 
 - [FIX][all] Match the bundled testnet Explore catalog to the published catalog.
