@@ -553,6 +553,7 @@ export const markTransactionUnconfirmed = async (
     row.completedAt = nowSec;
     row.mayHaveSubmitted = true;
     row.error = displayError;
+    if (displayError !== rawError) row.rawError = rawError;
     entered = true;
     committed = { ...row };
     return undefined;
