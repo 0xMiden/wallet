@@ -390,7 +390,7 @@ function formatOffscreenDeadlineFacts(link: Error): string {
   const observed = snapshotOffscreenDeadline(link);
   return (
     ` [offscreen deadline: owner=${owner === 'own' || owner === 'collateral' ? owner : 'unavailable'};` +
-    ` timer=${'started'};` +
+    ` timer=${['dispatch', 'backstop', 'started', 'resumed'].find(value => value === timer) ?? 'unavailable'};` +
     ` trigger=${trigger === 'read' || trigger === 'write' ? trigger : 'unavailable'};` +
     ` method=${observed?.offscreenDeadlineMethod ?? 'unobserved'};` +
     ` stage=${observed?.offscreenDeadlineStage ?? 'not_observed'}]`
