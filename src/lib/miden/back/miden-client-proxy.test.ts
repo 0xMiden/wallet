@@ -4560,30 +4560,53 @@ describe('MidenClientProxy - the single-key writes submit gate (#1081)', () => {
     expect(envelope).not.toHaveProperty('submitGated');
   });
 
-  // Inline, the leaf awaits the stamp itself before its submit, so the gate has nothing to add.
-  it('flag OFF → the inline leaf gets its stage callback as before and the gate is never asked', async () => {
+  // Inline, a send or swap leaf awaits the stamp itself before its submit, so the gate has nothing to add. An inline
+  // newTransaction asks its gate in place of the 'submitting' stamp instead, since a reviewed bridge source's caller
+  // reads whether the gate opened (see 'the inline newTransaction waits for the same gate').
+  it('flag OFF → an inline send or swap gets its stage callback as before and the gate is never asked', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const onStage = jest.fn(async () => {});
     const submitGate = jest.fn(async () => true);
     const send = sendTx();
     const swap = swapTx();
-    const requestBytes = new Uint8Array([1]);
 
     await callWrite(midenClientProxy, 'sendTransaction', [send, signer(), onStage, submitGate]);
     await callWrite(midenClientProxy, 'swapTransaction', [swap, signer(), onStage, submitGate]);
+
+    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(send, onStage);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage, expect.objectContaining({ baseFee: 7n }));
+    expect(submitGate).not.toHaveBeenCalled();
+  });
+
+  it('flag OFF → an inline newTransaction stamps its other stages and asks the gate for its submit', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const onStage = jest.fn(async () => {});
+    const submitGate = jest.fn(async () => true);
+    G.__px.inlineNewTransaction.mockImplementation(
+      async (
+        _account: string,
+        _bytes: Uint8Array,
+        _delegated: boolean,
+        stage?: (s: 'proving' | 'submitting', detail?: { evidence: { refBlock: number } }) => void | Promise<void>
+      ) => {
+        await stage?.('proving');
+        await stage?.('submitting', { evidence: { refBlock: 4 } });
+        return { __inlineNewResult: true };
+      }
+    );
+
     await callWrite(midenClientProxy, 'newTransaction', [
       'mtst1qacc',
-      requestBytes,
+      new Uint8Array([1]),
       true,
       signer(),
       onStage,
       submitGate
     ]);
 
-    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(send, onStage);
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage, expect.objectContaining({ baseFee: 7n }));
-    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', requestBytes, true, onStage);
-    expect(submitGate).not.toHaveBeenCalled();
+    expect(onStage).toHaveBeenCalledWith('proving', undefined);
+    expect(onStage).not.toHaveBeenCalledWith('submitting', expect.anything());
+    expect(submitGate).toHaveBeenCalledWith({ refBlock: 4 });
   });
 });
 
