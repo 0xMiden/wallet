@@ -72,11 +72,9 @@ jest.mock('lib/remote-config/runtime', () => {
   return fixtures.remoteConfigRuntimeMock(() => fixtures.TEST_BRIDGE_CONFIG_SNAPSHOT);
 });
 jest.mock('lib/miden/metadata/utils', () => ({
-  ...jest.requireActual('lib/miden/metadata/utils'),
   getTokenMetadata: async () => ({ symbol: 'SYN', name: 'Synthetic', decimals: 0 })
 }));
 jest.mock('lib/miden/guardian/account', () => ({
-  ...jest.requireActual('lib/miden/guardian/account'),
   getSignerDetailsFromAccount: async () => ({ commitment: 'synthetic-signer' }),
   resolveGuardianEndpoint: () => 'https://current.synthetic.invalid'
 }));
