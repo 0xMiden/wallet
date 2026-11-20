@@ -16987,68 +16987,95 @@ describe('generateTransaction - Guardian routing', () => {
         }
       });
 
-      // Only the landing attempt's own stamp read the transaction that landed, and only the row names who is owed.
-      it.each([
-        {
-          name: 'its only private-note stamp belongs to another attempt',
-          row: {
-            submitEvidence: [
-              {
-                attemptId: 'earlier',
-                capturedAt: 1,
-                source: 'stage',
-                transactionId: 'exec-tx-hash',
-                outputNoteIds: [OWED_NOTE],
-                privateOutputNoteIds: [OWED_NOTE],
-                fromExecute: true
-              }
-            ]
-          },
-          stamped: undefined,
-          message: 'Executed - the private note could not be delivered'
-        },
-        {
-          name: 'its row names no recipient',
-          row: { secondaryAccountId: undefined },
-          stamped: [OWED_NOTE],
-          message: 'Executed'
-        }
-      ])(
-        'a Guardian execute whose result traps at its first read owes no note when $name',
-        async ({ row: fields, stamped, message }) => {
-          const restore = installLandedTrapRetirement(jest.fn());
-          const { result, apply } = armedResult({
-            notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
-            stamped,
-            privateStamped: stamped,
-            trapping: 'executedTransaction'
+      // Only the landing attempt's own stamp read the transaction that landed. An earlier attempt's private notes
+      // are not this landing's, so the row keeps the unknown-count label and records no note ids.
+      it('a Guardian execute whose result traps at its first read owes no note when its only private-note stamp belongs to another attempt', async () => {
+        const restore = installLandedTrapRetirement(jest.fn());
+        const { result, apply } = armedResult({
+          notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+          trapping: 'executedTransaction'
+        });
+        const client = sweepClient(result, apply);
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            {
+              ...executeRow('guardian-execute-first-read-other-attempt'),
+              submitEvidence: [
+                {
+                  attemptId: 'earlier',
+                  capturedAt: 1,
+                  source: 'stage',
+                  transactionId: 'exec-tx-hash',
+                  outputNoteIds: [OWED_NOTE],
+                  privateOutputNoteIds: [OWED_NOTE],
+                  fromExecute: true
+                }
+              ]
+            },
+            { result, replace: () => {}, log: [] },
+            executeProposal(),
+            client
+          );
+
+          expect(row).toMatchObject({
+            status: ITransactionStatus.Completed,
+            displayMessage: 'Executed - the private note could not be delivered'
           });
-          const client = sweepClient(result, apply);
-          const writes = noteDeliveryWriteCount();
-          const quiet = silence();
-
-          try {
-            const { row } = await runGuardianValueRow(
-              { ...executeRow('guardian-execute-first-read-owes-nobody'), ...fields },
-              { result, replace: () => {}, log: [] },
-              executeProposal(),
-              client
-            );
-
-            expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: message });
-            expect(row.relayNoteIds).toBeUndefined();
-            expect(row.relayRecipientId).toBeUndefined();
-            expect(noteDeliveryWriteCount()).toBe(writes);
-            const landing = Math.floor(Date.now() / 1000);
-            await sweepAt(landing);
-            await sweepAt(landing + 10 * 60);
-            expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
-          } finally {
-            quiet();
-            restore();
-          }
+          expect(row.relayNoteIds).toBeUndefined();
+          expect(row.relayRecipientId).toBeUndefined();
+          expect(noteDeliveryWriteCount()).toBe(writes);
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          await sweepAt(landing + 10 * 60);
+          expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+        } finally {
+          quiet();
+          restore();
         }
-      );
+      });
+
+      // A private note whose row names no recipient is still undelivered: the ids are recorded, the relay recipient
+      // stays unset, and the sweep has nobody to push to.
+      it('a Guardian execute whose result traps at its first read records the private note undelivered when its row names no recipient', async () => {
+        const restore = installLandedTrapRetirement(jest.fn());
+        const { result, apply } = armedResult({
+          notes: [fixtureNote(OWED_NOTE, NoteType.Private)],
+          stamped: [OWED_NOTE],
+          privateStamped: [OWED_NOTE],
+          trapping: 'executedTransaction'
+        });
+        const client = sweepClient(result, apply);
+        const writes = noteDeliveryWriteCount();
+        const quiet = silence();
+
+        try {
+          const { row } = await runGuardianValueRow(
+            { ...executeRow('guardian-execute-first-read-no-recipient'), secondaryAccountId: undefined },
+            { result, replace: () => {}, log: [] },
+            executeProposal(),
+            client
+          );
+
+          expect(row).toMatchObject({
+            status: ITransactionStatus.Completed,
+            displayMessage: 'Executed - a private note could not be delivered',
+            noteDelivery: 'undelivered',
+            relayNoteIds: [OWED_NOTE]
+          });
+          expect(row.relayRecipientId).toBeUndefined();
+          expect(noteDeliveryWriteCount()).toBe(writes + 1);
+          const landing = Math.floor(Date.now() / 1000);
+          await sweepAt(landing);
+          await sweepAt(landing + 10 * 60);
+          expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+        } finally {
+          quiet();
+          restore();
+        }
+      });
 
       // A stamp naming another note makes an overwrite visible: the tail's own record is the one the sweep reads.
       it('a Guardian execute whose tail recorded the notes it owes before failing keeps that record when it lands', async () => {

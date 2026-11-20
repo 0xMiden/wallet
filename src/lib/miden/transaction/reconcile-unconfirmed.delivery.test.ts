@@ -894,8 +894,9 @@ describe('landedDeliveryTargetValues records what recordLandedDeliveryTarget rec
   });
 });
 
-// An applied execute's landing owes the private notes its own stamp read off the executed transaction, to the recipient
-// its row names: nothing else on the row, and nothing when the row names no recipient or the tail recorded its own.
+// An applied execute's landing owes the private notes its own stamp read off the executed transaction. A named
+// recipient is who they are relayed to; a missing or empty one still records them undelivered and names nobody.
+// Nothing else on the row, and nothing when the tail recorded its own.
 describe('landedExecuteDeliveryValues', () => {
   /** `count` distinct note ids, none of them a fixture's. */
   const distinctNotes = (count: number) => Array.from({ length: count }, (_, i) => hex(0xd0000 + i));
@@ -950,8 +951,6 @@ describe('landedExecuteDeliveryValues', () => {
     ['a stamp with no transaction', {}, { transactionId: undefined }],
     ['a row whose tail recorded what it owes', { relayNoteIds: [OTHER_NOTE], relayRecipientId: RECIPIENT }, {}],
     ['a row whose tail recorded that it owes nothing', { relayNoteIds: [] }, {}],
-    ['a row that names no recipient', { secondaryAccountId: undefined }, {}],
-    ['a row whose recipient is empty', { secondaryAccountId: '' }, {}],
     ['a stamp that did not read the types of its notes', {}, { privateOutputNoteIds: undefined }],
     ['a private list that is not part of the stamp notes', {}, { privateOutputNoteIds: [SIBLING_NOTE] }],
     ['a private list that repeats a note', {}, { privateOutputNoteIds: [NOTE, NOTE] }],
@@ -961,6 +960,31 @@ describe('landedExecuteDeliveryValues', () => {
     ['a stamp naming more notes than a transaction can create', {}, { outputNoteIds: [NOTE, ...distinctNotes(1024)] }]
   ])('owes nothing for %s', (_name, rowOverrides, stampOverrides) => {
     expect(landedExecuteDeliveryValues(landedExecute(rowOverrides), stamp(stampOverrides))).toBeUndefined();
+  });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['a row that names no recipient', { secondaryAccountId: undefined }],
+    ['a row whose recipient is empty', { secondaryAccountId: '' }]
+  ])('%s records the private note undelivered and names no relay recipient', (_name, rowOverrides) => {
+    expect(landedExecuteDeliveryValues(landedExecute(rowOverrides), stamp())).toEqual({
+      relayNoteIds: [NOTE],
+      relayRecipientId: undefined,
+      displayMessage: 'Executed - a private note could not be delivered',
+      noteDelivery: 'undelivered',
+      relayAttempts: undefined,
+      nextRelayAt: undefined,
+      relayRetriesStopped: undefined
+    });
+  });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['names no recipient', { secondaryAccountId: undefined }],
+    ['names an empty recipient', { secondaryAccountId: '' }]
+  ])('an empty private list on a row that %s still reads Executed', (_name, rowOverrides) => {
+    expect(landedExecuteDeliveryValues(landedExecute(rowOverrides), stamp({ privateOutputNoteIds: [] }))).toEqual({
+      displayMessage: 'Executed',
+      noteDelivery: undefined
+    });
   });
 
   // A transaction can create up to 1024 notes, so a stamp naming 300 read them all.

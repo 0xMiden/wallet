@@ -275,13 +275,14 @@ export const landedDeliveryTargetValues = (
 /**
  * The delivery an applied execute's landing owes when its tail recorded none, from `entry`, the landing attempt's own
  * stamp: the private notes it read off the executed transaction its leaf then submitted and applied, so the store holds
- * them, owed to the recipient the row names, as `completeCustomTransaction` relays them. `row` is the row as the write
- * finds it. A stamp that proves no private note leaves the clean label on a row that recorded no delivery. Undefined
- * when the tail recorded which notes it owes, the row names no recipient, so nobody is owed, or the stamp did not read
- * its notes' types. Never the root `outputNoteIds`, which the sweep would read as owed, public notes and all. The
- * pipeline binds `entry` to an applied landing, since an apply that failed left the notes out of the store; the
- * reconciler's landing and Retry's two (on its pinned note, on the transaction the node verified) cannot tell the two
- * apart, and the sweep records a note the store never took dead at its push.
+ * them. A recipient the row names is who `completeCustomTransaction` relays them to. A missing or empty recipient still
+ * records the note ids and the undelivered label, with the relay recipient left unset, as that completion counts a
+ * recipient-less private note. `row` is the row as the write finds it. A stamp that proves no private note leaves the
+ * clean label on a row that recorded no delivery. Undefined when the tail recorded which notes it owes, including an
+ * empty list, or the stamp did not read its notes' types. Never the root `outputNoteIds`, which the sweep would read
+ * as owed, public notes and all. The pipeline binds `entry` to an applied landing, since an apply that failed left
+ * the notes out of the store; the reconciler's landing and Retry's two (on its pinned note, on the transaction the
+ * node verified) cannot tell the two apart, and the sweep records a note the store never took dead at its push.
  */
 export const landedExecuteDeliveryValues = (
   row: ITransaction,
@@ -299,7 +300,7 @@ export const landedExecuteDeliveryValues = (
     >
   | undefined => {
   if (row.type !== 'execute' || entry.fromExecute !== true || entry.transactionId === undefined) return undefined;
-  if (row.relayNoteIds != null || !row.secondaryAccountId) return undefined;
+  if (row.relayNoteIds != null) return undefined;
   const owed = privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds);
   if (owed === undefined) return undefined;
   const fields = landedValueRowFields(row, owed.length);
@@ -308,10 +309,12 @@ export const landedExecuteDeliveryValues = (
       ? { displayMessage: fields.displayMessage, noteDelivery: undefined }
       : undefined;
   }
-  // Nothing pushed these notes yet, so their delivery window opens with the landed write's completedAt.
+  // Nothing pushed these notes yet, so their delivery window opens with the landed write's completedAt. A missing or
+  // empty recipient is left unset: the notes are still owed, and the sweep has nobody to push them to.
+  const relayRecipientId = row.secondaryAccountId ? row.secondaryAccountId : undefined;
   return {
     relayNoteIds: owed,
-    relayRecipientId: row.secondaryAccountId,
+    relayRecipientId,
     ...fields,
     relayAttempts: undefined,
     nextRelayAt: undefined,
