@@ -30,6 +30,7 @@ jest.mock('lib/platform', () => ({
 import { act, renderHook } from '@testing-library/react';
 
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { updateBalancesFromSyncData } from 'lib/store/utils/updateBalancesFromSyncData';
 
 import { fetchStateFromBackend, retryFetchState, useIntercomSync } from './useIntercomSync';
 
@@ -168,6 +169,28 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
     delete _g.chrome;
     _g.__intSyncTest.walletState = {};
     _g.__intSyncTest.hasExtensionRuntime = true;
+  });
+
+  it('lands the last matching vault before publishing Ready on popup startup', async () => {
+    const syncFromBackend = jest.fn();
+    _g.__intSyncTest.walletState = { currentAccount: null, syncFromBackend, setSyncStatus: jest.fn() };
+    const state = { ...readyResponse.state, currentAccount: { publicKey: 'A' } };
+    intercom.request.mockResolvedValue({ ...readyResponse, state });
+    const snapshot = { network: 'testnet', rpcUrl: 'https://node.example', accountNonce: '1' };
+    const vaultAssets = [{ faucetId: 'test-token', amountBaseUnits: '5000000' }];
+    get.mockImplementationOnce((_key, cb) =>
+      cb({ miden_sync_data: { accountPublicKey: 'A', vaultAssets, balanceSnapshot: snapshot } })
+    );
+    let finish!: () => void;
+    jest.mocked(updateBalancesFromSyncData).mockReturnValueOnce(new Promise<void>(resolve => (finish = resolve)));
+
+    renderHook(() => useIntercomSync());
+    await act(async () => jest.advanceTimersByTimeAsync(0));
+    expect(updateBalancesFromSyncData).toHaveBeenCalledWith('A', vaultAssets, snapshot);
+    expect(syncFromBackend).not.toHaveBeenCalled();
+
+    await act(async () => finish());
+    expect(syncFromBackend).toHaveBeenCalledWith(state);
   });
 
   it('stops reading extension storage once the runtime is gone', async () => {
