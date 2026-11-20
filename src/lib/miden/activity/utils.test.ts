@@ -1,6 +1,25 @@
 import { compareAccountIds } from './utils';
 
+jest.mock('../sdk/helpers', () => ({
+  sameWalletAccountId: (a: string, b: string) => {
+    const canonical = (id: string) => {
+      const address = id.split('_')[0] ?? id;
+      return address === '0x817edea77acc5d71616e493afecea3' || address === 'mtst1azqhah480tx96utpdeyn4lkw5v5fsdmw'
+        ? 'canonical-account-id'
+        : address;
+    };
+    return canonical(a) === canonical(b);
+  }
+}));
+
 describe('compareAccountIds', () => {
+  it('matches a valid hex ID with its equivalent bech32 form through canonical account comparison', () => {
+    // The production behavior that makes this pass is compareAccountIds delegating to sameWalletAccountId.
+    expect(
+      compareAccountIds('0x817edea77acc5d71616e493afecea3', 'mtst1azqhah480tx96utpdeyn4lkw5v5fsdmw_qr7qqq9wr6w')
+    ).toBe(true);
+  });
+
   it('returns true for identical IDs without tags', () => {
     expect(compareAccountIds('acc1', 'acc1')).toBe(true);
   });
