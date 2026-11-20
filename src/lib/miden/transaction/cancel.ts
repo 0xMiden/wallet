@@ -259,7 +259,6 @@ export const cancelTransaction = async (
     dbTx.status = ITransactionStatus.Failed;
     dbTx.error = displayError;
     // Keep the untouched thrown error around when the display message rewrote it.
-    if (displayError !== rawError) dbTx.rawError = rawError;
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
     // The node's verdict is recorded in the write that fails the row, so no reader sees it unmarked (#1233).
