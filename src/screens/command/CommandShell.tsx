@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useLayoutEffect, useState } from 'react';
+import React, { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import * as Dialog from '@radix-ui/react-dialog';
 
@@ -20,12 +20,8 @@ import { CommandPortfolio } from './CommandPortfolio';
 import { CommandRecentActions } from './CommandRecentActions';
 import { CommandWorkbench } from './CommandWorkbench';
 
-function makeInert(node: HTMLDivElement | null) {
-  node?.setAttribute('inert', '');
-}
-
-// A decorative portfolio must not replace an active workbench with wallet loading or error UI.
-class BackdropBoundary extends React.Component<{ children: React.ReactNode }> {
+// A dashboard read must not suspend or replace an active workbench.
+class DashboardBoundary extends React.Component<{ children: React.ReactNode }> {
   state = { failed: false };
 
   static getDerivedStateFromError() {
@@ -69,6 +65,11 @@ export function CommandShell({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [portalHost, setPortalHost] = useState<HTMLDivElement | null>(null);
   const scopeKey = JSON.stringify([scope.accountId, scope.network, scope.rpcUrl]);
+  const dashboard = useRef<HTMLDivElement>(null);
+  const hasWorkbench = route.kind !== 'dashboard';
+  useLayoutEffect(() => {
+    dashboard.current?.toggleAttribute('inert', hasWorkbench);
+  }, [hasWorkbench]);
 
   useLayoutEffect(() => {
     const html = document.documentElement;
@@ -114,49 +115,37 @@ export function CommandShell({
               className="dark relative flex h-full min-h-0 w-full flex-col bg-page text-ink"
             >
               <CommandHeader scope={scope} />
-              <main className="relative min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_top_right,rgba(231,117,55,0.08),transparent_55%)] pb-28">
-                {route.kind === 'dashboard' && <CommandDashboard key={scopeKey} scope={scope} />}
-                {route.kind === 'flow' && (
-                  <div
-                    ref={makeInert}
-                    aria-hidden="true"
-                    data-testid="command-workbench-backdrop"
-                    className="pointer-events-none absolute inset-0 overflow-hidden opacity-35 [filter:blur(5px)]"
-                  >
-                    <BackdropBoundary key={`${scopeKey}:${route.action}`}>
-                      <Suspense fallback={null}>
-                        <CommandPortfolio scope={scope} backdrop />
-                      </Suspense>
-                    </BackdropBoundary>
-                  </div>
-                )}
+              <main className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_top_right,var(--ds-accent-tint),transparent_58%)]">
+                <div
+                  ref={dashboard}
+                  aria-hidden={hasWorkbench || undefined}
+                  data-testid={hasWorkbench ? 'command-workbench-backdrop' : 'command-dashboard'}
+                  className={`absolute inset-0 overflow-y-auto pb-28 [scrollbar-gutter:stable] ${hasWorkbench ? 'pointer-events-none opacity-30' : ''}`}
+                >
+                  <DashboardBoundary key={scopeKey}>
+                    <Suspense fallback={null}>
+                      <CommandDashboard scope={scope} />
+                    </Suspense>
+                  </DashboardBoundary>
+                </div>
                 <div
                   ref={setPortalHost}
                   data-command-portals="true"
-                  className={
-                    route.kind === 'dashboard'
-                      ? ''
-                      : 'relative grid h-full min-h-0 place-items-center px-3 py-3 sm:px-7 sm:py-6'
-                  }
+                  className="pointer-events-none absolute inset-0 grid min-h-0 place-items-center px-3 pt-3 pb-28 sm:px-7 sm:pt-6"
                 />
                 {route.kind !== 'dashboard' && portalHost && (
-                  <CommandWorkbench
-                    key={route.kind === 'operation' ? `operation:${route.id}` : `flow:${route.action}`}
-                    route={route}
-                    container={portalHost}
-                  >
-                    {/* Keep a cold privacy read from suspending the shell and cycling its portal host ref. */}
+                  <CommandWorkbench route={route} container={portalHost}>
                     {route.kind === 'operation' ? (
-                      <Suspense fallback={null}>
+                      <Suspense key={route.id} fallback={null}>
                         <CommandOperation>{children}</CommandOperation>
                       </Suspense>
                     ) : (
-                      children
+                      <React.Fragment key={route.action}>{children}</React.Fragment>
                     )}
                   </CommandWorkbench>
                 )}
               </main>
-              <CommandDock />
+              <CommandDock activeAction={route.kind === 'flow' ? route.action : undefined} />
               <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} container={portalHost} />
             </div>
           </Dialog.Root>

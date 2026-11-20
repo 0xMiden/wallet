@@ -783,6 +783,8 @@
   "commandHistoryRange": "Intervalo de historial",
   "commandHistoryInsufficient": "Aún no hay suficientes observaciones",
   "commandHistoryGaps": "Faltan algunos intervalos o la cobertura de valoración",
+  "commandHistoryObservationsOnly": "Solo observaciones registradas",
+  "commandEarnDepositsPaused": "Se han suspendido los nuevos depósitos en «Earn». Aún puedes consultar y retirar las posiciones existentes.",
   "commandInspectHistory": "Revisar el historial observado",
   "commandObservedOnDevice": "Observaciones exclusivas sobre este dispositivo. Las lagunas no se rellenan.",
   "getStarted": "Empezar",

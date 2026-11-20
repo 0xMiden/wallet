@@ -783,6 +783,8 @@
   "commandHistoryRange": "Geçmiş aralığı",
   "commandHistoryInsufficient": "Henüz yeterli gözlem yok",
   "commandHistoryGaps": "Bazı aralıklar veya değerleme kapsamı eksik",
+  "commandHistoryObservationsOnly": "Yalnızca kaydedilmiş gözlemler",
+  "commandEarnDepositsPaused": "Yeni Earn mevduatları askıya alınmıştır. Mevcut pozisyonlarınızı görüntüleyebilir ve çekebilirsiniz.",
   "commandInspectHistory": "Gözlemlenen geçmişi inceleyin",
   "commandObservedOnDevice": "Yalnızca bu cihazla ilgili gözlemler. Boşluklar doldurulmaz.",
   "getStarted": "Başlayın",

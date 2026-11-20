@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Button, ButtonVariant, Card, SegmentedControl, SectionHeader } from 'components/ui';
+import { AnimatedNumber, Button, ButtonVariant, SegmentedControl, SectionHeader } from 'components/ui';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { getNumberSymbols } from 'lib/i18n/core';
 import {
@@ -22,8 +22,17 @@ import { useCommandPrivacy } from './useCommandPrivacy';
 
 const BUCKET_MS = 15 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
+const BALANCE_PLACEHOLDER = '---';
+const PORTFOLIO_COLUMN_PADDING = 'px-5 py-6 sm:px-8';
+const PORTFOLIO_HEADER = 'flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1';
 const RANGES = { '1W': 7, '1M': 30, '3M': 90, '1Y': 365 };
-const ALLOCATION_COLORS = ['bg-accent-primary', 'bg-accent-tint-ink', 'bg-muted'] as const;
+const ALLOCATION_COLORS = [
+  'text-accent-primary',
+  'text-accent-receive-ink',
+  'text-accent-swap-ink',
+  'text-accent-earn-ink',
+  'text-accent-tint-ink'
+] as const;
 type HistoryRange = keyof typeof RANGES;
 const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
   { id: '1W', label: '1W' },
@@ -35,13 +44,11 @@ const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
 export function CommandPortfolio({
   scope,
   prompts,
-  recentActions,
-  backdrop = false
+  recentActions
 }: {
   scope: AccountScope;
   prompts?: React.ReactNode;
   recentActions?: React.ReactNode;
-  backdrop?: boolean;
 }): React.ReactElement {
   const { t } = useTranslation();
   const displayOptions = {
@@ -52,7 +59,8 @@ export function CommandPortfolio({
   };
   const [hidden, setHidden] = useCommandPrivacy();
   const portfolio = useCommandPortfolio(scope);
-  const [range, setRange] = useState<HistoryRange>('1M');
+  const [selectedRange, setSelectedRange] = useState<HistoryRange | null>(null);
+  const range = selectedRange ?? '1M';
   const [history, setHistory] = useState<{ key: string; rows: readonly PortfolioObservation[] } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const accountId = useWalletStore(state => state.currentAccount?.publicKey);
@@ -67,7 +75,6 @@ export function CommandPortfolio({
 
   useEffect(() => {
     if (
-      backdrop ||
       !canRecord ||
       capturedAt === undefined ||
       value === null ||
@@ -101,7 +108,7 @@ export function CommandPortfolio({
     return () => {
       cancelled = true;
     };
-  }, [accountId, backdrop, canRecord, capturedAt, coverage, coverageKey, key, ready, stableScope, value]);
+  }, [accountId, canRecord, capturedAt, coverage, coverageKey, key, ready, stableScope, value]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,51 +148,100 @@ export function CommandPortfolio({
     : '';
   const values = samples.map(({ row }) => Number(row.value));
   const min = Math.min(...values);
-  const span = Math.max(...values) - min || 1;
+  const span = Math.max(...values) - min;
+  const hasTrace = samples.some((sample, index) => index > 0 && samples[index - 1]?.run === sample.run);
   const rangeMs = RANGES[range] * DAY_MS;
   const rangeStart = Date.now() - rangeMs;
   const chartPoints = samples.map(({ row, run }) => ({
     x: Math.max(0, Math.min(100, (100 * (row.capturedAt - rangeStart)) / rangeMs)),
-    y: 90 - (80 * (Number(row.value) - min)) / span,
+    y: span ? 82 - (64 * (Number(row.value) - min)) / span : 50,
     bucket: row.bucket,
     run
   }));
   const activePoint = chartPoints[sampleIndex];
+  const assetsById = new Map(portfolio.assets.map(asset => [asset.tokenId, asset.metadata]));
+  let allocationOffset = 0;
+  const allocation = [...portfolio.allocation]
+    .sort((a, b) => b.value - a.value)
+    .map((entry, index) => {
+      const offset = allocationOffset;
+      allocationOffset += entry.percentage;
+      const asset = assetsById.get(entry.tokenId);
+      return {
+        ...entry,
+        offset,
+        name: asset?.name || asset?.symbol || entry.tokenId,
+        color: ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]
+      };
+    });
   return (
-    <div className="mx-auto grid w-full min-w-0 max-w-[90rem] grid-cols-1 gap-y-8 px-4 py-8 sm:px-8 lg:grid-cols-12 lg:gap-x-10 lg:px-[5vw] lg:py-12">
-      <section className="min-w-0 lg:col-span-9" aria-label={t('commandPortfolio')}>
-        <div className="flex items-center justify-between gap-3">
-          <SectionHeader size="xl">{t('commandPortfolio')}</SectionHeader>
-          <Button
-            size="sm"
-            variant={ButtonVariant.Secondary}
-            onClick={() => {
-              void setHidden(!hidden).catch(() => console.warn('[portfolio] privacy preference unavailable'));
-            }}
-          >
-            {hidden ? t('commandShowBalances') : t('commandHideBalances')}
-          </Button>
-        </div>
-        <p className="text-label text-muted">{t('commandWalletBalance')}</p>
-        <p className="break-words text-display tracking-tight text-ink sm:text-6xl xl:text-8xl">
-          {hidden
-            ? t('commandMaskedBalance')
-            : !portfolio.current || value === null
-              ? t('commandBalanceUnavailable')
-              : `${formatAmountDisplay(value, displayOptions)} USD`}
-        </p>
-        {!hidden && coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
-        {!hidden && portfolio.current && portfolio.priceMovement24h && value !== null && (
-          <p className="text-caption text-muted">
-            {t('commandMarketPriceMovement24h', {
-              change: `${portfolio.priceMovement24h.absolute < 0 ? '-' : '+'}${formatAmountDisplay(Math.abs(portfolio.priceMovement24h.absolute), { ...displayOptions, formatting: 'fixed' })}`,
-              percentage: `${portfolio.priceMovement24h.percentage < 0 ? '-' : '+'}${formatAmountDisplay(Math.abs(portfolio.priceMovement24h.percentage), { ...displayOptions, formatting: 'fixed' })}`
-            })}
+    <div className="mx-auto grid w-full min-w-0 max-w-[90rem] grid-cols-1 gap-6 px-4 py-6 sm:px-8 lg:grid-cols-12 lg:px-[4vw] lg:py-10">
+      <div
+        data-testid="command-portfolio-surface"
+        className="relative isolate grid min-w-0 overflow-hidden rounded-3xl border border-hairline bg-linear-to-b from-fill/65 to-page lg:col-span-12 lg:grid-cols-12"
+      >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_left,var(--ds-accent-tint),transparent_74%)] opacity-80"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-2/3 bg-[radial-gradient(circle,currentColor_1px,transparent_1px)] bg-size-[18px_18px] text-accent-tint-ink opacity-[0.14] mask-[radial-gradient(ellipse_at_top_right,black,transparent_72%)]"
+        />
+        <section
+          className={`min-w-0 lg:row-start-1 ${PORTFOLIO_COLUMN_PADDING} ${hidden ? 'lg:col-span-12' : 'lg:col-span-8'}`}
+          aria-label={t('commandPortfolio')}
+        >
+          <div className={PORTFOLIO_HEADER}>
+            <SectionHeader size="xl">{t('commandPortfolio')}</SectionHeader>
+            <Button
+              size="sm"
+              variant={ButtonVariant.Secondary}
+              onClick={() => {
+                void setHidden(!hidden).catch(() => console.warn('[portfolio] privacy preference unavailable'));
+              }}
+            >
+              {hidden ? t('commandShowBalances') : t('commandHideBalances')}
+            </Button>
+          </div>
+          <p className="mt-7 text-label text-muted">{t('commandWalletBalance')}</p>
+          <p className="my-2 break-words text-display tracking-tight text-ink tabular-nums sm:text-6xl xl:text-8xl">
+            {hidden ? (
+              t('commandMaskedBalance')
+            ) : value === null ? (
+              <>
+                <span aria-hidden="true">{BALANCE_PLACEHOLDER}</span>
+                <span className="sr-only">{t('commandBalanceUnavailable')}</span>
+              </>
+            ) : (
+              <AnimatedNumber
+                key={key}
+                data-testid="command-live-balance"
+                value={Number(value)}
+                format={amount => `${formatAmountDisplay(amount, displayOptions)} USD`}
+              />
+            )}
           </p>
-        )}
-        <div className="mt-8 min-w-0" aria-busy={history?.key !== key} data-testid="command-history">
+          {!hidden && value !== null && coverage === 'partial' && (
+            <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>
+          )}
+          {!hidden && portfolio.current && portfolio.priceMovement24h && value !== null && (
+            <p className="text-caption text-muted">
+              {t('commandMarketPriceMovement24h', {
+                change: `${portfolio.priceMovement24h.absolute < 0 ? '-' : '+'}${formatAmountDisplay(Math.abs(portfolio.priceMovement24h.absolute), { ...displayOptions, formatting: 'fixed' })}`,
+                percentage: `${portfolio.priceMovement24h.percentage < 0 ? '-' : '+'}${formatAmountDisplay(Math.abs(portfolio.priceMovement24h.percentage), { ...displayOptions, formatting: 'fixed' })}`
+              })}
+            </p>
+          )}
+        </section>
+        <section
+          className="min-w-0 border-t border-hairline bg-page bg-[radial-gradient(ellipse_at_bottom_right,var(--ds-accent-tint),transparent_72%)] px-5 py-5 sm:px-8 lg:col-span-12 lg:row-start-2"
+          aria-label={t('commandObservedHistory')}
+          aria-busy={history?.key !== key}
+          data-testid="command-history"
+        >
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            <SectionHeader>{t('commandObservedHistory')}</SectionHeader>
+            <SectionHeader size="lg">{t('commandObservedHistory')}</SectionHeader>
             <SegmentedControl<HistoryRange>
               aria-label={t('commandHistoryRange')}
               size="sm"
@@ -194,7 +250,7 @@ export function CommandPortfolio({
               value={range}
               items={RANGE_ITEMS}
               onChange={next => {
-                setRange(next);
+                setSelectedRange(next);
                 setSelected(null);
               }}
             />
@@ -202,12 +258,25 @@ export function CommandPortfolio({
           {hidden ? (
             <p className="text-body-sm text-muted">{t('commandMaskedBalance')}</p>
           ) : samples.length < 2 ? (
-            <p className="text-body-sm text-muted">{t('commandHistoryInsufficient')}</p>
+            <div className="mt-4 grid min-h-36 place-content-center gap-2 rounded-2xl border border-dashed border-hairline p-6 text-center">
+              {sample ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="mx-auto size-2 rounded-full bg-accent-primary ring-4 ring-accent-tint"
+                  />
+                  <p className="text-body-sm text-ink tabular-nums">{inspected}</p>
+                </>
+              ) : history?.key === key ? (
+                <p className="text-body-sm text-muted">{t('commandHistoryInsufficient')}</p>
+              ) : null}
+            </div>
           ) : (
             <>
               <div
                 data-testid="command-chart"
-                className="relative mx-2 mt-5 h-44 sm:h-56"
+                data-history-kind={hasTrace ? 'trace' : 'observations'}
+                className={hasTrace ? 'relative mx-2 mt-5 h-44 sm:h-56' : 'relative mx-2 mt-5 h-28 sm:h-36'}
                 onMouseMove={event => {
                   const rect = event.currentTarget.getBoundingClientRect();
                   if (rect.width) {
@@ -222,14 +291,19 @@ export function CommandPortfolio({
                   }
                 }}
               >
-                <CommandHistoryTrace points={chartPoints} />
+                <CommandHistoryTrace key={range} points={chartPoints} reveal={selectedRange !== null} />
                 {activePoint && (
-                  <span
+                  <div
                     aria-hidden="true"
-                    data-testid="command-chart-marker"
-                    className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
-                    style={{ left: `${activePoint.x}%`, top: `${activePoint.y}%` }}
-                  />
+                    className="pointer-events-none absolute inset-y-0 w-px bg-linear-to-b from-accent-primary/45 to-transparent"
+                    style={{ left: `${activePoint.x}%` }}
+                  >
+                    <span
+                      data-testid="command-chart-marker"
+                      className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
+                      style={{ top: `${activePoint.y}%` }}
+                    />
+                  </div>
                 )}
               </div>
               <input
@@ -242,66 +316,88 @@ export function CommandPortfolio({
                 onChange={event => setSelected(Number(event.target.value))}
                 className="mx-2 block w-[calc(100%-1rem)] accent-accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
               />
-              <output className="text-caption text-muted">{inspected}</output>
-              {gaps && <p className="text-caption text-muted">{t('commandHistoryGaps')}</p>}
+              <div className="mt-3 flex flex-wrap justify-between gap-x-4 gap-y-1 px-2">
+                <output className="text-caption text-ink tabular-nums">{inspected}</output>
+                {gaps && (
+                  <span className="text-caption text-muted" title={t('commandHistoryGaps')}>
+                    {t('commandHistoryObservationsOnly')}
+                  </span>
+                )}
+              </div>
             </>
           )}
-          <p className="text-caption text-muted">{t('commandObservedOnDevice')}</p>
-        </div>
-      </section>
-      {!hidden && (
-        <section className="min-w-0 lg:col-span-3" aria-label={t('commandAllocation')}>
-          <Card
-            surface="outline"
-            className="flex flex-col gap-3 border-accent-tint-ink/25 bg-linear-to-br from-fill to-page shadow-lg"
+        </section>
+        {!hidden && (
+          <section
+            className={`flex min-w-0 flex-col gap-4 border-t border-hairline lg:col-span-4 lg:row-start-1 lg:border-t-0 ${PORTFOLIO_COLUMN_PADDING}`}
+            aria-label={t('commandAllocation')}
           >
-            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-              <SectionHeader>{t('commandAllocation')}</SectionHeader>
-              <p className="text-caption text-muted">{t('commandPricedAssets')}</p>
+            <div className={PORTFOLIO_HEADER}>
+              <SectionHeader size="xl">{t('commandAllocation')}</SectionHeader>
+              <p className="text-label text-muted">{t('commandPricedAssets')}</p>
             </div>
-            {portfolio.allocation.length === 0 ? (
+            {allocation.length === 0 ? (
               <p className="border-t border-hairline py-4 text-body-sm text-muted">
                 {t(portfolio.empty ? 'commandWalletEmpty' : 'commandAllocationUnavailable')}
               </p>
             ) : (
               <>
-                <div aria-hidden="true" className="flex h-1.5 gap-1" data-testid="command-allocation-strip">
-                  {portfolio.allocation.map((entry, index) => (
-                    <span
-                      key={entry.tokenId}
-                      className={`min-w-0 basis-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
-                      style={{ flexGrow: entry.percentage }}
-                    />
-                  ))}
-                </div>
-                {coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
-                {portfolio.allocation.map((entry, index) => {
-                  const asset = portfolio.assets.find(row => row.tokenId === entry.tokenId);
-                  if (!asset) return null;
-                  return (
-                    <div key={entry.tokenId} className="flex items-center justify-between gap-3 text-body-sm text-ink">
-                      <span className="flex min-w-0 items-center gap-2">
+                <div className="grid items-center gap-4 min-[460px]:grid-cols-[6rem_minmax(0,1fr)] lg:grid-cols-1 xl:grid-cols-[6rem_minmax(0,1fr)]">
+                  <svg
+                    aria-hidden="true"
+                    className="mx-auto size-24 shrink-0"
+                    data-testid="command-allocation-ring"
+                    viewBox="0 0 100 100"
+                    fill="none"
+                  >
+                    <circle cx="50" cy="50" r="42" className="stroke-hairline" strokeWidth="10" />
+                    <g transform="rotate(-90 50 50)" strokeWidth="10">
+                      {allocation.map(entry => (
+                        <circle
+                          key={entry.tokenId}
+                          cx="50"
+                          cy="50"
+                          r="42"
+                          pathLength="100"
+                          stroke="currentColor"
+                          className={entry.color}
+                          strokeDasharray={`${entry.percentage} 100`}
+                          strokeDashoffset={-entry.offset}
+                        />
+                      ))}
+                    </g>
+                  </svg>
+                  <ul className="max-h-48 min-w-0 space-y-2.5 overflow-y-auto overscroll-contain pr-1">
+                    {allocation.map(entry => (
+                      <li key={entry.tokenId} className="flex min-w-0 items-start gap-2 text-body-sm text-ink">
                         <span
                           aria-hidden="true"
-                          className={`size-1.5 shrink-0 rounded-full ${ALLOCATION_COLORS[index % ALLOCATION_COLORS.length]}`}
+                          className={`mt-1.5 size-2 shrink-0 rounded-full bg-current ${entry.color}`}
                         />
-                        <span className="truncate">{asset.metadata.name || asset.metadata.symbol}</span>
-                      </span>
-                      <span className="shrink-0 text-muted">
-                        {formatAmountDisplay(entry.value, displayOptions)} USD
-                      </span>
-                      <span className="shrink-0">
-                        {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}
-                        {t('percentSign')}
-                      </span>
-                    </div>
-                  );
-                })}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate" title={entry.name}>
+                            {entry.name}
+                          </span>
+                          <span className="block break-words text-caption text-muted tabular-nums">
+                            {formatAmountDisplay(entry.value, displayOptions)} USD
+                          </span>
+                        </span>
+                        <span className="shrink-0 font-semibold tabular-nums">
+                          {formatAmountDisplay(entry.percentage, { ...displayOptions, trimTrailingZeros: true })}
+                          {t('percentSign')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                {coverage === 'partial' && (
+                  <p className="border-t border-hairline pt-3 text-caption text-muted">{t('commandPartialCoverage')}</p>
+                )}
               </>
             )}
-          </Card>
-        </section>
-      )}
+          </section>
+        )}
+      </div>
       {prompts && <div className="lg:col-span-12">{prompts}</div>}
       <div className={recentActions ? 'min-w-0 lg:col-span-7' : 'min-w-0 lg:col-span-12'}>
         <CommandAssets
