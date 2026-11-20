@@ -3614,6 +3614,14 @@
     "message": "Отсутствуют некоторые интервалы или диапазоны оценки",
     "englishSource": "Some intervals or valuation coverage are missing"
   },
+  "commandHistoryObservationsOnly": {
+    "message": "Только зафиксированные наблюдения",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "Прием новых депозитов в программе Earn приостановлен. Вы по-прежнему можете просматривать и выводить средства с существующих позиций.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
   "commandInspectHistory": {
     "message": "Проверьте историю наблюдений",
     "englishSource": "Inspect observed history"

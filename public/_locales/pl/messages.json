@@ -3614,6 +3614,14 @@
     "message": "Brakuje niektórych przedziałów czasowych lub zakresu wyceny",
     "englishSource": "Some intervals or valuation coverage are missing"
   },
+  "commandHistoryObservationsOnly": {
+    "message": "Wyłącznie odnotowane obserwacje",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "Nowe wpłaty w ramach programu Earn zostały wstrzymane. Nadal można przeglądać i wypłacać istniejące pozycje.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
   "commandInspectHistory": {
     "message": "Sprawdź historię obserwacji",
     "englishSource": "Inspect observed history"

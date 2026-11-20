@@ -783,6 +783,8 @@
   "commandHistoryRange": "历史范围",
   "commandHistoryInsufficient": "目前观察数据尚不充分",
   "commandHistoryGaps": "部分时间间隔或估值范围存在缺失",
+  "commandHistoryObservationsOnly": "仅限记录观察结果",
+  "commandEarnDepositsPaused": "“Earn”的新存款功能已暂停。您仍可查看并提取现有头寸。",
   "commandInspectHistory": "检查已观察到的历史数据",
   "commandObservedOnDevice": "仅针对本设备进行说明。未填补的空缺不予补全。",
   "getStarted": "开始使用",

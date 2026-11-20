@@ -783,6 +783,8 @@
   "commandHistoryRange": "履歴の範囲",
   "commandHistoryInsufficient": "まだ観察例が不十分です",
   "commandHistoryGaps": "一部の間隔や評価範囲が欠落しています",
+  "commandHistoryObservationsOnly": "記録された観察事項のみ",
+  "commandEarnDepositsPaused": "「Earn」への新規入金は一時停止されています。既存のポジションの確認および引き出しは引き続き可能です。",
   "commandInspectHistory": "観測された履歴を検査する",
   "commandObservedOnDevice": "本デバイスに関する注意事項のみ。空白は埋めない。",
   "getStarted": "はじめに",
