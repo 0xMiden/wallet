@@ -347,7 +347,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     return (
       <>
         {amountField}
-        {amountShortcuts}
+        {amountShortcuts && <div className="mt-2">{amountShortcuts}</div>}
       </>
     );
   }
