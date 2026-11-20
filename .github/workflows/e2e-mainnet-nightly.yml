@@ -270,6 +270,7 @@ jobs:
           (code=0; GITHUB_OUTPUT="$RUNNER_TEMP/swap-recover.outputs" MAINNET_SWAP_MODE=recover MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.recover.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-recover-results" bash scripts/wallet-e2e/run.sh swap-recover xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-recover.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-recover.exit"; if [ "$code" = 0 ]; then touch test-results/mainnet-swap-state/roundtrip.json.recover.done.ready; fi) &
           echo $! > "$RUNNER_TEMP/swap-recover.pid"
       - name: Upload original swap recovery claim authority
+        id: swap-recover-claim-auth
         if: steps.swap-recover.outputs.needs_claim == 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -295,6 +296,7 @@ jobs:
           appendFileSync(process.env.GITHUB_OUTPUT, `required=${state.phase === 'reverse-authorized' && state.authorizationRunId === process.env.GITHUB_RUN_ID}\n`);
           NODE
       - name: Upload mainnet swap reverse authorization
+        id: swap-recovered-return-auth
         if: steps.swap-recovery-return.outputs.required == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -310,6 +312,7 @@ jobs:
           (code=0; MAINNET_SWAP_MODE=reverse MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.reverse.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-recovered-return-results" bash scripts/wallet-e2e/run.sh swap-recovered-return xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-recovered-return.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-recovered-return.exit") &
           echo $! > "$RUNNER_TEMP/swap-recovered-return.pid"
       - name: Upload recovered swap SDK return authority
+        id: swap-recovered-return-sdk-auth
         if: steps.swap-recovery-return.outputs.required == 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -319,6 +322,7 @@ jobs:
           process-id: ${{ runner.temp }}/swap-recovered-return.pid
           snapshot-directory: ${{ runner.temp }}/swap-recovered-return-auth
       - name: Upload recovered swap SDK return claim authority
+        id: swap-recovered-return-claim-auth
         if: steps.swap-recovery-return.outputs.required == 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -383,6 +387,7 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-recover.pid
           snapshot-directory: ${{ runner.temp }}/epoch-recover-evm2
       - name: Upload mainnet epoch signed EVM 3
+        id: epoch-recover-evm3
         if: steps.epoch-recover-auth.outputs.skipped != 'true' && steps.epoch-recover-evm1.outputs.envelope-kind != 'deposit' && steps.epoch-recover-evm2.outputs.envelope-kind != 'deposit'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -392,6 +397,7 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-recover.pid
           snapshot-directory: ${{ runner.temp }}/epoch-recover-evm3
       - name: Upload mainnet epoch native return claim
+        id: epoch-recover-new-claim
         if: steps.epoch-recover-auth.outputs.skipped != 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -401,6 +407,7 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-recover.pid
           snapshot-directory: ${{ runner.temp }}/epoch-recover-new-claim
       - name: Authorize original epoch return claim
+        id: epoch-recover-old-claim
         if: steps.epoch-recover-auth.outputs.alternative-gate == 'test-results/mainnet-epoch-state/roundtrip.json.recover.claim'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -410,6 +417,7 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-recover.pid
           snapshot-directory: ${{ runner.temp }}/epoch-recover-old-claim
       - name: Authorize original epoch refund
+        id: epoch-recover-refund
         if: steps.epoch-recover-auth.outputs.alternative-gate == 'test-results/mainnet-epoch-state/roundtrip.json.refund'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -454,6 +462,7 @@ jobs:
             test-results/mainnet-1click-state/roundtrip.json.recover.refund.claim
             test-results/mainnet-1click-state/roundtrip.json.recover.done
       - name: Upload mainnet near signed EVM 1
+        id: near-recover-evm1
         if: steps.near-recover-auth.outputs.skipped != 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -463,6 +472,7 @@ jobs:
           process-id: ${{ runner.temp }}/near-recover.pid
           snapshot-directory: ${{ runner.temp }}/near-recover-evm
       - name: Upload mainnet near native return claim
+        id: near-recover-new-claim
         if: steps.near-recover-auth.outputs.skipped != 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -472,6 +482,7 @@ jobs:
           process-id: ${{ runner.temp }}/near-recover.pid
           snapshot-directory: ${{ runner.temp }}/near-recover-new-claim
       - name: Authorize original near return claim
+        id: near-recover-old-claim
         if: steps.near-recover-auth.outputs.alternative-gate == 'test-results/mainnet-1click-state/roundtrip.json.recover.claim'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -481,6 +492,7 @@ jobs:
           process-id: ${{ runner.temp }}/near-recover.pid
           snapshot-directory: ${{ runner.temp }}/near-recover-old-claim
       - name: Authorize original near refund
+        id: near-recover-refund
         if: steps.near-recover-auth.outputs.alternative-gate == 'test-results/mainnet-1click-state/roundtrip.json.recover.refund.claim'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -863,9 +875,24 @@ jobs:
         timeout-minutes: 1
         env:
           REPORT_BUILD_OUTCOME: ${{ steps.wallet-build.outcome }}
-          REPORT_SWAP_RECOVERY_OUTCOME: ${{ steps.swap-recovery-wait.outcome }}
-          REPORT_EPOCH_RECOVERY_OUTCOME: ${{ steps.epoch-recovered.outcome }}
-          REPORT_NEAR_RECOVERY_OUTCOME: ${{ steps.near-recovered.outcome }}
+          REPORT_RECOVERY_AUTH_OUTCOMES: >-
+            ${{ steps.swap-recover-claim-auth.outcome }}
+            ${{ steps.swap-recovery-return.outcome }}
+            ${{ steps.swap-recovered-return-auth.outcome }}
+            ${{ steps.swap-recovered-return-sdk-auth.outcome }}
+            ${{ steps.swap-recovered-return-claim-auth.outcome }}
+            ${{ steps.epoch-recover-auth.outcome }}
+            ${{ steps.epoch-recover-evm1.outcome }}
+            ${{ steps.epoch-recover-evm2.outcome }}
+            ${{ steps.epoch-recover-evm3.outcome }}
+            ${{ steps.epoch-recover-new-claim.outcome }}
+            ${{ steps.epoch-recover-old-claim.outcome }}
+            ${{ steps.epoch-recover-refund.outcome }}
+            ${{ steps.near-recover-auth.outcome }}
+            ${{ steps.near-recover-evm1.outcome }}
+            ${{ steps.near-recover-new-claim.outcome }}
+            ${{ steps.near-recover-old-claim.outcome }}
+            ${{ steps.near-recover-refund.outcome }}
           REPORT_BARRIER_OUTCOME: ${{ steps.recovery-barrier.outcome }}
           REPORT_RECOVERY_ONLY: ${{ steps.recovery-barrier.outputs.recovery_only }}
           REPORT_INVOCATION_SWAP_RECOVERY_GRANT: ${{ steps.wallet-observe-swap-recovery-grant.outcome }}

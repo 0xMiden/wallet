@@ -51,7 +51,8 @@ test('mainnet Epoch staged round trip', async ({ walletB }, info) => {
   )
     throw new Error('Epoch requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetEpochCheckpoint(STATE_PATH);
-  const chain = previous ? (previous.evm.chainId === 1 ? 'Ethereum' : 'Arbitrum') : undefined;
+  const chainId = previous?.evm?.chainId;
+  const chain = chainId === 1 ? 'Ethereum' : chainId === 42161 ? 'Arbitrum' : undefined;
   const observe = observeNightly(info, {
     key: mode === 'recover' ? 'epoch-recovery' : mode === 'reverse' ? 'epoch-reverse' : 'epoch-forward',
     kind: mode === 'recover' ? 'recovery' : mode === 'prepare' ? 'setup' : 'bridge',
@@ -100,8 +101,15 @@ test('mainnet Epoch staged round trip', async ({ walletB }, info) => {
     const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
     if (!keyPair) throw new Error('Existing funded Guardian key pair is required for Epoch recovery');
     await restoreMainnetLoopGuardian(walletB, keyPair);
-    if ((await walletB.getAccountAddress()) !== previous.account)
+    if ((await walletB.getAccountAddress()) !== previous.account) {
+      observe(undefined, {
+        key: 'recovery_gate',
+        status: 'failed',
+        origin: 'wallet_assertion',
+        errorCode: 'recovery_checkpoint_account_mismatch'
+      });
       throw new Error('Epoch recovery Guardian account changed');
+    }
     const signal = AbortSignal.timeout(1_100_000);
     const returnOriginalProceeds = async () => {
       if (

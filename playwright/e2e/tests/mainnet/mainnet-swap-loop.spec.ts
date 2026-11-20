@@ -451,6 +451,17 @@ async function settle(
     orderId: authority.orderId
   };
   let found: MainnetSwapPaybackEvidence | undefined;
+  let reportedInclusion = false;
+  const onOriginalIncluded = process.env.E2E_WALLET_REPORT_INVOCATION
+    ? () => {
+        if (reportedInclusion) return;
+        reportedInclusion = true;
+        observe(
+          { outcome: 'included' },
+          { key: 'inclusion', origin: 'sdk_read', status: 'passed', endpoint: 'miden_mainnet_rpc' }
+        );
+      }
+    : undefined;
   await observedStage(
     observe,
     {
@@ -464,7 +475,7 @@ async function settle(
       expect
         .poll(
           async () => {
-            found = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope);
+            found = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope, onOriginalIncluded);
             return found !== undefined;
           },
           { timeout: 300_000, intervals: [5_000], message: 'Exact original full-fill payback not proved' }
@@ -499,16 +510,9 @@ async function settle(
   )
     throw new Error('Existing claim or unrelated wallet activity prevents native claim');
   claimStage = 'creator-proof';
-  const creator = await observedStage(
-    observe,
-    { key: 'inclusion', origin: 'sdk_read', errorCode: 'inclusion_unconfirmed', endpoint: 'miden_mainnet_rpc' },
-    async () => {
-      const evidence = await readMainnetMidenOwnNoteCreator(authority.noteId, scope.accountId);
-      if (evidence.blockNumber !== payback.originalCreatedAtBlock)
-        throw new Error('Original swap creator block differs from its inclusion proof');
-      return evidence;
-    }
-  );
+  const creator = await readMainnetMidenOwnNoteCreator(authority.noteId, scope.accountId);
+  if (creator.blockNumber !== payback.originalCreatedAtBlock)
+    throw new Error('Original swap creator block differs from its inclusion proof');
   claimStage = 'input-discovery';
   await wallet.triggerSync(true);
   const file = await exportPublicInputNote(wallet, payback.noteId);
@@ -700,12 +704,31 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   );
   let state = loadMainnetSwapCheckpoint(STATE_PATH);
   const account = await walletB.getAccountAddress();
-  if (state && state.account !== account) throw new Error('The checkpoint belongs to a different Guardian account');
+  if (state && state.account !== account) {
+    if (mode === 'recover' || mode === 'authorize-recovery-return') {
+      observeSwap(reportedLeg, state)(undefined, {
+        key: 'recovery_gate',
+        origin: 'wallet_assertion',
+        status: 'failed',
+        errorCode: 'recovery_checkpoint_account_mismatch'
+      });
+    }
+    throw new Error('The checkpoint belongs to a different Guardian account');
+  }
   if (mode === 'authorize-recovery-return') {
     const replacement = process.env.MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED === 'true';
     const first = process.env.MAINNET_SWAP_RECOVERY_RETURN_APPROVED === 'true';
-    if (first === replacement || !state?.forwardRequestAuthority)
+    if (first === replacement || !state?.forwardRequestAuthority) {
+      if (!first && !replacement) {
+        observeSwap('reverse', state)(undefined, {
+          key: 'recovery_gate',
+          origin: 'wallet_assertion',
+          status: 'failed',
+          errorCode: 'recovery_approval_missing'
+        });
+      }
       throw new Error('Missing distinct explicit recovery-return approval or original signed checkpoint');
+    }
     const original = state;
     const authority = state.forwardRequestAuthority;
     const scope: MainnetSwapPaybackScope = {
@@ -1013,14 +1036,19 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
               }
             })
           ]);
-          observe({ outcome: 'executed' }, { key: 'execution', origin: 'wallet_assertion', status: 'passed' });
-          observe(undefined, {
-            key: 'proof',
-            origin: 'sdk_read',
-            status: 'unknown',
-            evidence: 'not_recorded',
-            reason: 'not_instrumented'
-          });
+          observe(
+            { outcome: 'authorization_released' },
+            { key: 'execution', origin: 'wallet_assertion', status: 'passed' }
+          );
+          for (const key of ['proof', 'submission'] as const) {
+            observe(undefined, {
+              key,
+              origin: 'sdk_read',
+              status: 'unknown',
+              evidence: 'not_recorded',
+              reason: 'not_instrumented'
+            });
+          }
           return snapshot;
         } finally {
           controller.abort();

@@ -211,10 +211,24 @@ function workflowObservations(env) {
   ]);
   const stages = [];
   const build = statuses.get(env.REPORT_BUILD_OUTCOME);
-  const recovery = statuses.get(env.REPORT_SWAP_RECOVERY_OUTCOME);
-  const providerRecoveryFailed = [env.REPORT_EPOCH_RECOVERY_OUTCOME, env.REPORT_NEAR_RECOVERY_OUTCOME].includes(
-    'failure'
-  );
+  const recoveryOutcomes = [
+    env.REPORT_INVOCATION_SWAP_RECOVERY_GRANT,
+    env.REPORT_INVOCATION_SWAP_RECOVER,
+    env.REPORT_WAIT_SWAP_RECOVER,
+    env.REPORT_INVOCATION_SWAP_RECOVERED_RETURN,
+    env.REPORT_WAIT_SWAP_RECOVERED_RETURN,
+    env.REPORT_INVOCATION_EPOCH_RECOVER,
+    env.REPORT_WAIT_EPOCH_RECOVER,
+    env.REPORT_INVOCATION_NEAR_RECOVER,
+    env.REPORT_WAIT_NEAR_RECOVER,
+    env.REPORT_BARRIER_OUTCOME,
+    ...(env.REPORT_RECOVERY_AUTH_OUTCOMES ?? '').split(/\s+/)
+  ];
+  const recovery = recoveryOutcomes.includes('failure')
+    ? 'failed'
+    : recoveryOutcomes.includes('cancelled')
+      ? 'interrupted'
+      : statuses.get(env.REPORT_BARRIER_OUTCOME);
   if (build) {
     stages.push(
       createStage({
@@ -225,22 +239,17 @@ function workflowObservations(env) {
       })
     );
   }
-  if (recovery || providerRecoveryFailed || env.REPORT_BARRIER_OUTCOME === 'failure') {
-    const outcome = providerRecoveryFailed || env.REPORT_BARRIER_OUTCOME === 'failure' ? 'failed' : recovery;
+  if (recovery) {
     stages.push(
       createStage({
         key: 'recovery_gate',
-        status: outcome,
+        status: recovery,
         origin: 'workflow',
-        errorCode: outcome === 'failed' ? 'recovery_gate_failed' : null
+        errorCode: recovery === 'failed' ? 'recovery_gate_failed' : null
       })
     );
   }
-  const blockedByRecovery =
-    recovery === 'failed' ||
-    providerRecoveryFailed ||
-    env.REPORT_BARRIER_OUTCOME === 'failure' ||
-    env.REPORT_RECOVERY_ONLY === 'true';
+  const blockedByRecovery = recovery === 'failed' || recovery === 'interrupted' || env.REPORT_RECOVERY_ONLY === 'true';
   return {
     stages,
     blocked: blockedByRecovery ? 'blocked_by_recovery' : build === 'failed' ? 'blocked_by_setup' : undefined

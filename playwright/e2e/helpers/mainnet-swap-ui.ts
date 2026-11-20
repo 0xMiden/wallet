@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import type { SavedSwapHolding, SwapOrderEvidence } from './mainnet-swap-checkpoint';
 import type { SwapLegBound } from './mainnet-swap-plan';
-import { nightlyDuration, observedStage, type ObserveNightly } from '../reporting/nightly-observation';
+import { nightlyDuration, type ObserveNightly } from '../reporting/nightly-observation';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from '../../../src/lib/miden/swap/slippage-bounds';
 import { parseSwapPairs, type SwapPairs } from '../../../src/lib/remote-config/swap-pairs';
 import { readTimestampedEntry } from '../../../src/lib/remote-json';
@@ -11,6 +11,26 @@ import { parseTokenList } from '../../../src/lib/token-list/parse';
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 const integer = (value: unknown): value is string => typeof value === 'string' && /^\d{1,40}$/.test(value);
+const PRICE_MAX_AGE_MS = 60_000;
+const PRICE_MAX_CLOCK_SKEW_MS = 30_000;
+const QUOTE_REQUEST_TIMEOUT_MS = 15_000;
+
+type QuoteEndpoint = 'inicio_pair_price' | 'inicio_swap_eta';
+type QuoteRefusalCode =
+  | 'quote_price_stale'
+  | 'quote_price_clock_skew'
+  | 'quote_settlement_paused'
+  | 'quote_liquidity_insufficient'
+  | 'quote_price_out_of_band';
+
+class QuoteRefusal extends Error {
+  constructor(
+    message: string,
+    readonly code: QuoteRefusalCode
+  ) {
+    super(message);
+  }
+}
 
 export function quotedSwapMinimum(
   body: unknown,
@@ -36,12 +56,18 @@ export function quotedSwapMinimum(
     amount <= 0n ||
     typeof body.asOf !== 'number' ||
     !Number.isSafeInteger(body.asOf) ||
-    now - body.asOf * 1000 > 60_000 ||
-    body.asOf * 1000 - now > 30_000 ||
     typeof body.fillPrice !== 'string' ||
     !/^\d{1,20}(\.\d{1,30})?$/.test(body.fillPrice)
   ) {
     throw new Error('Stale, mismatched or invalid mainnet swap price');
+  }
+  const ageMs = now - body.asOf * 1000;
+  if (ageMs > PRICE_MAX_AGE_MS || ageMs < -PRICE_MAX_CLOCK_SKEW_MS) {
+    const message = 'Stale, mismatched or invalid mainnet swap price';
+    if (body.asOf > 0 && Number.isSafeInteger(ageMs)) {
+      throw new QuoteRefusal(message, ageMs > PRICE_MAX_AGE_MS ? 'quote_price_stale' : 'quote_price_clock_skew');
+    }
+    throw new Error(message);
   }
   const [whole = '0', fraction = ''] = body.fillPrice.split('.');
   const price = BigInt(whole + fraction.padEnd(18, '0').slice(0, 18));
@@ -53,22 +79,45 @@ export function quotedSwapMinimum(
 }
 
 export function validateSwapEta(body: unknown, offer: string, request: string, amount: bigint, minimum: bigint): void {
+  const message = 'Mainnet swap is not fully fillable at the exact authorized terms';
   if (
     !record(body) ||
     body.offeredFaucet !== offer ||
     body.requestedFaucet !== request ||
     body.offeredAmount !== amount.toString() ||
     body.requestedAmount !== minimum.toString() ||
+    !integer(body.fillableOfferedAmount) ||
+    !integer(body.fillableRequestedAmount)
+  ) {
+    throw new Error(message);
+  }
+  if (body.settlementsRunning === false) throw new QuoteRefusal(message, 'quote_settlement_paused');
+  if (body.settlementsRunning === true) {
+    if (
+      body.fillStatus === 'none' &&
+      body.reason === 'liquidity' &&
+      (body.priceBand === 'at_market' || body.priceBand === 'tolerated')
+    ) {
+      throw new QuoteRefusal(message, 'quote_liquidity_insufficient');
+    }
+    if (
+      (body.priceBand === 'off_market' && body.fillStatus === 'none' && body.reason === 'price') ||
+      (body.priceBand === 'tolerated' &&
+        (body.fillStatus === 'full' || body.fillStatus === 'partial') &&
+        body.reason === null)
+    ) {
+      throw new QuoteRefusal(message, 'quote_price_out_of_band');
+    }
+  }
+  if (
     body.settlementsRunning !== true ||
     body.fillStatus !== 'full' ||
     body.priceBand !== 'at_market' ||
     body.reason !== null ||
-    !integer(body.fillableOfferedAmount) ||
     BigInt(body.fillableOfferedAmount) < amount ||
-    !integer(body.fillableRequestedAmount) ||
     BigInt(body.fillableRequestedAmount) < minimum
   ) {
-    throw new Error('Mainnet swap is not fully fillable at the exact authorized terms');
+    throw new Error(message);
   }
 }
 
@@ -147,10 +196,54 @@ export function swapDisplayAmount(amount: bigint, decimals: number): string {
 }
 
 export async function swapJson(url: URL | string, onResponse?: (status: number) => void): Promise<unknown> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: { Accept: 'application/json' } });
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(QUOTE_REQUEST_TIMEOUT_MS),
+    headers: { Accept: 'application/json' }
+  });
   onResponse?.(response.status);
   if (!response.ok) throw new Error(`Live swap read failed: HTTP ${response.status}`);
   return response.json();
+}
+
+async function readSolverQuote(url: URL, endpoint: QuoteEndpoint, observe?: ObserveNightly): Promise<unknown> {
+  if (!observe) return swapJson(url);
+  const timing = nightlyDuration();
+  let httpStatus: number | undefined;
+  const details = { key: 'quote_request', origin: 'provider', endpoint, timeoutMs: QUOTE_REQUEST_TIMEOUT_MS } as const;
+  try {
+    const body = await swapJson(url, status => {
+      httpStatus = status;
+    });
+    observe(undefined, { ...details, status: 'passed', httpStatus, ...timing() });
+    return body;
+  } catch (error) {
+    observe(undefined, { ...details, status: 'failed', errorCode: 'quote_request_failed', httpStatus, ...timing() });
+    throw error;
+  }
+}
+
+async function observedQuoteAvailability<T>(
+  observe: ObserveNightly | undefined,
+  endpoint: QuoteEndpoint,
+  validate: () => T | Promise<T>,
+  priceAgeMs?: number
+): Promise<T> {
+  if (!observe) return validate();
+  const timing = nightlyDuration();
+  const details = { key: 'quote_availability', origin: 'wallet_assertion', endpoint } as const;
+  try {
+    const result = await validate();
+    observe(undefined, { ...details, status: 'passed', priceAgeMs, ...timing() });
+    return result;
+  } catch (error) {
+    observe(undefined, {
+      ...details,
+      status: 'failed',
+      errorCode: error instanceof QuoteRefusal ? error.code : 'quote_unavailable',
+      ...timing()
+    });
+    throw error;
+  }
 }
 
 export async function readLiveSwapLeg(
@@ -162,67 +255,16 @@ export async function readLiveSwapLeg(
 ): Promise<SwapLegBound> {
   const priceUrl = new URL(`${service}/v2/pair-price`);
   priceUrl.search = new URLSearchParams({ offered_faucet: offered.hex, requested_faucet: requested.hex }).toString();
-  const timing = observe ? nightlyDuration() : undefined;
-  let status: number | undefined;
-  const body = await swapJson(
-    priceUrl,
-    observe
-      ? code => {
-          status = code;
-        }
-      : undefined
-  ).catch((error: unknown) => {
-    observe?.(undefined, {
-      key: 'quote_request',
-      origin: 'provider',
-      status: 'failed',
-      errorCode: 'quote_request_failed',
-      endpoint: 'inicio_pair_price',
-      httpStatus: status,
-      timeoutMs: 15_000,
-      ...timing?.()
-    });
-    throw error;
-  });
+  const body = await readSolverQuote(priceUrl, 'inicio_pair_price', observe);
   const now = Date.now();
   const age = record(body) && typeof body.asOf === 'number' ? now - body.asOf * 1000 : undefined;
-  observe?.(undefined, {
-    key: 'quote_request',
-    origin: 'provider',
-    status: 'passed',
-    endpoint: 'inicio_pair_price',
-    httpStatus: status,
-    timeoutMs: 15_000,
-    priceAgeMs: age !== undefined && Number.isSafeInteger(age) && age >= -30_000 && age <= 60_000 ? age : undefined,
-    ...timing?.()
-  });
-  let minimum: bigint;
-  try {
-    minimum = quotedSwapMinimum(body, offered.hex, requested.hex, offered.decimals, requested.decimals, amount, now);
-  } catch (error) {
-    observe?.(undefined, {
-      key: 'quote_availability',
-      origin: 'wallet_assertion',
-      status: 'failed',
-      errorCode: 'quote_unavailable',
-      endpoint: 'inicio_pair_price'
-    });
-    throw error;
-  }
-  if (observe) {
-    await observedStage(
-      observe,
-      {
-        key: 'quote_availability',
-        origin: 'wallet_assertion',
-        errorCode: 'quote_unavailable',
-        endpoint: 'inicio_swap_eta'
-      },
-      () => checkLiveSwapEta(service, offered, requested, amount, minimum)
-    );
-  } else {
-    await checkLiveSwapEta(service, offered, requested, amount, minimum);
-  }
+  const minimum = await observedQuoteAvailability(
+    observe,
+    'inicio_pair_price',
+    () => quotedSwapMinimum(body, offered.hex, requested.hex, offered.decimals, requested.decimals, amount, now),
+    Number.isSafeInteger(age) ? age : undefined
+  );
+  await checkLiveSwapEta(service, offered, requested, amount, minimum, observe);
   return {
     offered: { ...offered, balance: BigInt(offered.balance), usdMicros: BigInt(offered.usdMicros) },
     requested: { ...requested, balance: BigInt(requested.balance), usdMicros: BigInt(requested.usdMicros) },
@@ -238,7 +280,8 @@ async function checkLiveSwapEta(
   offered: SavedSwapHolding,
   requested: SavedSwapHolding,
   amount: bigint,
-  minimum: bigint
+  minimum: bigint,
+  observe?: ObserveNightly
 ): Promise<void> {
   const url = new URL(`${service}/v2/swap-eta`);
   url.search = new URLSearchParams({
@@ -247,7 +290,10 @@ async function checkLiveSwapEta(
     offered_amount: amount.toString(),
     requested_amount: minimum.toString()
   }).toString();
-  validateSwapEta(await swapJson(url), offered.hex, requested.hex, amount, minimum);
+  const body = await readSolverQuote(url, 'inicio_swap_eta', observe);
+  await observedQuoteAvailability(observe, 'inicio_swap_eta', () =>
+    validateSwapEta(body, offered.hex, requested.hex, amount, minimum)
+  );
 }
 
 function units(text: string, decimals: number): bigint {
@@ -322,22 +368,13 @@ export async function prepareMainnetSwapReview(
     ...quoteTiming()
   });
   if (!accepted) throw new Error('The wallet quote request failed');
-  const quoted = await observedStage(
-    observe,
-    {
-      key: 'quote_availability',
-      origin: 'wallet_assertion',
-      errorCode: 'quote_unavailable',
-      endpoint: 'inicio_swap_eta'
-    },
-    async () => {
-      const verdict: unknown = await response.json();
-      if (!record(verdict) || !integer(verdict.requestedAmount))
-        throw new Error('The wallet quote has no requested amount');
-      validateSwapEta(verdict, offered.hex, requested.hex, amount, BigInt(verdict.requestedAmount));
-      return verdict.requestedAmount;
-    }
-  );
+  const quoted = await observedQuoteAvailability(observe, 'inicio_swap_eta', async () => {
+    const verdict: unknown = await response.json();
+    if (!record(verdict) || !integer(verdict.requestedAmount))
+      throw new Error('The wallet quote has no requested amount');
+    validateSwapEta(verdict, offered.hex, requested.hex, amount, BigInt(verdict.requestedAmount));
+    return verdict.requestedAmount;
+  });
   await receive.waitFor({ state: 'visible' });
   // The response event can precede React's committed quote projection.
   await page.waitForFunction(
@@ -353,7 +390,7 @@ export async function prepareMainnetSwapReview(
   const actualOffer = units(await pay.inputValue(), offered.decimals);
   const actualMinimum = units(await receive.inputValue(), requested.decimals);
   validateSwapReview(actualOffer, actualMinimum, amount, minimum);
-  await checkLiveSwapEta(service, offered, requested, actualOffer, actualMinimum);
+  await checkLiveSwapEta(service, offered, requested, actualOffer, actualMinimum, observe);
   await page.getByTestId('swap-review-submit').click();
   await page.getByTestId('swap-submit').waitFor({ state: 'visible' });
   const autoConsume = page.getByTestId('swap-auto-consume');

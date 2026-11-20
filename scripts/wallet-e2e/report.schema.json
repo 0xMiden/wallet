@@ -465,6 +465,69 @@
           "additionalProperties": false,
           "required": ["code", "explanation"],
           "properties": {
+            "code": {"const": "quote_price_stale"},
+            "explanation": {"const": "The quoted price was older than the accepted freshness limit."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "quote_price_clock_skew"},
+            "explanation": {"const": "The quoted price timestamp was too far ahead of the wallet clock."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "quote_settlement_paused"},
+            "explanation": {"const": "The solver reported that settlement was paused."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "quote_liquidity_insufficient"},
+            "explanation": {"const": "The solver reported insufficient liquidity for the requested swap."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "quote_price_out_of_band"},
+            "explanation": {"const": "The quoted price was outside the accepted range."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "recovery_checkpoint_account_mismatch"},
+            "explanation": {"const": "The recovery checkpoint did not match the wallet account."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
+            "code": {"const": "recovery_approval_missing"},
+            "explanation": {"const": "The approval required for recovery was missing."}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "explanation"],
+          "properties": {
             "code": {"const": "recovery_gate_failed"},
             "explanation": {"const": "Prior swap recovery did not clear the gate. The underlying cause is unavailable."}
           }
@@ -730,6 +793,7 @@
             "not_started",
             "prepared",
             "executed",
+            "authorization_released",
             "included",
             "partial_fill",
             "fully_filled",

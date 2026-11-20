@@ -1,11 +1,14 @@
 /** @jest-environment node */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { TestInfo } from '@playwright/test';
 import type { FullConfig, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 
+import { readLiveSwapLeg } from '../playwright/e2e/helpers/mainnet-swap-ui';
+import { observeNightly } from '../playwright/e2e/reporting/nightly-observation';
 import WalletE2eReporter from '../playwright/e2e/reporting/wallet-e2e-reporter';
 import { INVOCATIONS, TITLES } from './wallet-e2e/invocations.cjs';
 import { main } from './wallet-e2e/job.cjs';
@@ -18,6 +21,8 @@ type Invocation = {
   status: string;
   tests: { status: string; attempts: { operations: Operation[] }[] }[];
 };
+
+const evidenceDirectory = process.env.WALLET_REPORT_EVIDENCE_DIR;
 
 let directory: string;
 let env: NodeJS.ProcessEnv;
@@ -55,7 +60,22 @@ function operation(key: string, kind: string, outcome: string, stages: Stage[], 
   return { ...createOperation({ key, kind, outcome, provider }), stages };
 }
 
-async function observe(invocationId: string, status: 'passed' | 'failed', operations: Operation[]) {
+function observe(invocationId: string, status: 'passed' | 'failed', operations: Operation[]) {
+  return replayAnnotations(
+    invocationId,
+    status,
+    operations.map(value => ({
+      type: 'wallet-e2e-observation-v1',
+      description: JSON.stringify({ operation: value, timeout: 30_000 })
+    }))
+  );
+}
+
+async function replayAnnotations(
+  invocationId: string,
+  status: 'passed' | 'failed',
+  annotations: TestResult['annotations']
+) {
   const invocation = INVOCATIONS.get(invocationId);
   if (!invocation) throw new Error('Unknown fixture invocation');
   env.E2E_WALLET_REPORT_INVOCATION = invocationId;
@@ -68,10 +88,6 @@ async function observe(invocationId: string, status: 'passed' | 'failed', operat
     expectedStatus: 'passed',
     outcome: () => (status === 'passed' ? 'expected' : 'unexpected')
   } as unknown as TestCase;
-  const annotations = operations.map(value => ({
-    type: 'wallet-e2e-observation-v1',
-    description: JSON.stringify({ operation: value, timeout: 30_000 })
-  }));
   const result = {
     retry: 0,
     workerIndex: 0,
@@ -89,10 +105,14 @@ async function observe(invocationId: string, status: 'passed' | 'failed', operat
   await main(env, ['invocation-end', invocationId, status === 'passed' ? '0' : '1']);
 }
 
-async function assembled(workflow: NodeJS.ProcessEnv = {}) {
+async function assembled(workflow: NodeJS.ProcessEnv = {}, fixtureName?: string) {
   await main({ ...env, ...workflow }, ['assemble']);
   const bytes = readFileSync(join(directory, REPORT_FILENAME), 'utf8');
   expect(bytes).not.toContain('private_checkpoint_sentinel');
+  if (evidenceDirectory && fixtureName) {
+    mkdirSync(evidenceDirectory, { recursive: true });
+    writeFileSync(join(evidenceDirectory, fixtureName + '.json'), bytes);
+  }
   return JSON.parse(bytes) as {
     coverage: { swap: { status: string }; bridge: { status: string }; freshSwapsStarted: { value: number | null } };
     invocations: Invocation[];
@@ -106,6 +126,134 @@ function evidence(row: Invocation) {
 }
 
 const freshStart = () => stage('execution', 'in_progress', 'wallet_ui');
+
+const offered = {
+  hex: 'a',
+  faucetId: 'private_checkpoint_sentinel',
+  symbol: 'USDC',
+  decimals: 6,
+  balance: '987654321',
+  usdMicros: '1000000'
+};
+const requested = { ...offered, hex: 'b', symbol: 'USDT' };
+const eta = {
+  offeredFaucet: 'a',
+  requestedFaucet: 'b',
+  offeredAmount: '1010000',
+  requestedAmount: '1009444',
+  settlementsRunning: true,
+  fillStatus: 'full',
+  priceBand: 'at_market',
+  reason: null,
+  fillableOfferedAmount: '1010000',
+  fillableRequestedAmount: '1009444'
+};
+
+const quoteRefusals = [
+  { code: 'quote_price_stale', priceOffset: -61 },
+  { code: 'quote_price_clock_skew', priceOffset: 31 },
+  { code: 'quote_settlement_paused', verdict: { ...eta, settlementsRunning: false } },
+  {
+    code: 'quote_liquidity_insufficient',
+    verdict: {
+      ...eta,
+      fillStatus: 'none',
+      reason: 'liquidity',
+      fillableOfferedAmount: '0',
+      fillableRequestedAmount: '0'
+    }
+  },
+  {
+    code: 'quote_price_out_of_band',
+    verdict: {
+      ...eta,
+      fillStatus: 'none',
+      priceBand: 'off_market',
+      reason: 'price',
+      fillableOfferedAmount: '0',
+      fillableRequestedAmount: '0'
+    }
+  },
+  { code: 'quote_unavailable', verdict: { ...eta, requestedFaucet: 'different-pair', settlementsRunning: false } }
+];
+
+it.each(quoteRefusals)('emits $code only from bound solver quote evidence', async ({ code, priceOffset, verdict }) => {
+  const price = {
+    offeredFaucet: offered.hex,
+    requestedFaucet: requested.hex,
+    offeredDecimals: 6,
+    requestedDecimals: 6,
+    fillPrice: '0.99995',
+    asOf: Math.floor(Date.now() / 1000) + (priceOffset ?? 0)
+  };
+  const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json(price));
+  if (verdict) fetch.mockResolvedValueOnce(Response.json(verdict));
+  env.E2E_WALLET_REPORT_INVOCATION = 'swap-forward';
+  const annotations: TestInfo['annotations'] = [];
+  const record = observeNightly({ annotations, timeout: 30_000 } as TestInfo, {
+    key: 'swap-forward',
+    kind: 'swap',
+    provider: 'solver'
+  });
+  await expect(readLiveSwapLeg('https://solver.example', offered, requested, 1_010_000n, record)).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledTimes(verdict ? 2 : 1);
+  await replayAnnotations('swap-forward', 'failed', annotations);
+  const report = await assembled({}, code.replaceAll('_', '-'));
+  const quote = evidence(report.invocations[0]!);
+  expect(quote.provider).toBe('solver');
+  expect(quote.outcome).toBe('unknown');
+  expect(quote.stages.at(-1)).toMatchObject({
+    key: 'quote_availability',
+    origin: 'wallet_assertion',
+    status: 'failed',
+    endpoint: verdict ? 'inicio_swap_eta' : 'inicio_pair_price',
+    error: { code },
+    priceAgeMs: { value: null }
+  });
+  expect(
+    quote.stages
+      .filter(value => value.key === 'quote_request')
+      .map(({ endpoint, httpStatus }) => [endpoint, httpStatus.value])
+  ).toEqual(
+    verdict
+      ? [
+          ['inicio_pair_price', 200],
+          ['inicio_swap_eta', 200]
+        ]
+      : [['inicio_pair_price', 200]]
+  );
+  expect(quote.stages.some(value => value.key === 'execution')).toBe(false);
+  expect(report.coverage.freshSwapsStarted.value).toBeNull();
+  expect(JSON.stringify(report)).not.toContain(offered.balance);
+});
+
+it.each([
+  ['near-recover', 'near-recovery', 'NEAR', 'recovery_checkpoint_account_mismatch'],
+  ['swap-recovery-grant', 'swap-recovery', 'solver', 'recovery_approval_missing']
+])('preserves the observed %s refusal without releasing new authority', async (invocation, key, provider, code) => {
+  await observe(invocation, 'failed', [
+    operation(
+      key,
+      'recovery',
+      'unknown',
+      [createStage({ key: 'recovery_gate', status: 'failed', origin: 'wallet_assertion', errorCode: code })],
+      provider
+    )
+  ]);
+  const report = await assembled(
+    {
+      REPORT_BARRIER_OUTCOME: 'failure',
+      REPORT_INVOCATION_SWAP_FORWARD: 'skipped'
+    },
+    code.replaceAll('_', '-')
+  );
+  expect(evidence(report.invocations[0]!)).toMatchObject({
+    provider,
+    outcome: 'unknown',
+    stages: [{ key: 'recovery_gate', status: 'failed', error: { code } }]
+  });
+  expect(report.coverage.freshSwapsStarted.value).toBe(0);
+});
 
 it('uses actual Epoch forward and return observations even with an unchanged prepare-only summary', async () => {
   writeFileSync(
@@ -170,6 +318,108 @@ it.each([
   expect(observation.outcome).toBe(outcome);
   expect(observation.stages.map(value => value.key)).toEqual(['execution', key]);
   expect(report.coverage.swap.status).toBe('failed');
+});
+
+const unobserved = (key: string) =>
+  createStage({ key, status: 'unknown', origin: 'sdk_read', evidence: 'not_recorded', reason: 'not_instrumented' });
+
+const authorizationReleased = () =>
+  operation('swap-forward', 'swap', 'authorization_released', [
+    freshStart(),
+    stage('approval', 'passed', 'wallet_ui'),
+    stage('execution'),
+    unobserved('proof'),
+    unobserved('submission')
+  ]);
+
+const originalIncluded = () =>
+  createStage({
+    key: 'inclusion',
+    status: 'passed',
+    origin: 'sdk_read',
+    endpoint: 'miden_mainnet_rpc'
+  });
+
+it('keeps releasing authorization separate from proof and network submission', async () => {
+  await observe('swap-forward', 'failed', [authorizationReleased()]);
+  const report = await assembled({}, 'authorization-released');
+  const observation = evidence(report.invocations[0]!);
+  expect(observation.outcome).toBe('authorization_released');
+  expect(observation.stages.map(value => [value.key, value.status])).toEqual([
+    ['execution', 'in_progress'],
+    ['approval', 'passed'],
+    ['execution', 'passed'],
+    ['proof', 'unknown'],
+    ['submission', 'unknown']
+  ]);
+});
+
+it('keeps canonical original inclusion when the wait for exact payback expires', async () => {
+  await observe('swap-forward', 'failed', [
+    authorizationReleased(),
+    operation('swap-forward', 'swap', 'included', [originalIncluded()]),
+    operation('swap-forward', 'swap', 'unknown', [
+      createStage({
+        key: 'payback',
+        status: 'failed',
+        origin: 'sdk_read',
+        endpoint: 'miden_mainnet_rpc',
+        errorCode: 'order_outcome_unconfirmed',
+        elapsedMs: 300_000,
+        timeoutMs: 300_000
+      })
+    ])
+  ]);
+  const report = await assembled({}, 'included-payback-timeout');
+  const observation = evidence(report.invocations[0]!);
+  expect(observation.outcome).toBe('included');
+  expect(observation.received.value).toBeNull();
+  expect(observation.fee.value).toBeNull();
+  expect(observation.stages.map(value => [value.key, value.status])).toEqual(
+    expect.arrayContaining([
+      ['inclusion', 'passed'],
+      ['payback', 'failed']
+    ])
+  );
+  expect(report.coverage.swap.status).toBe('failed');
+});
+
+it('reports usable received funds after inclusion, full-fill proof and native claim', async () => {
+  const received = { asset: 'USDC', baseUnits: '1200000', decimals: 6 };
+  await observe('swap-forward', 'passed', [
+    authorizationReleased(),
+    operation('swap-forward', 'swap', 'included', [originalIncluded()]),
+    operation('swap-forward', 'swap', 'fully_filled', [
+      stage('payback', 'passed', 'sdk_read'),
+      stage('order', 'passed', 'sdk_read')
+    ]),
+    operation('swap-forward', 'swap', 'claimed', [stage('claim')]),
+    {
+      ...createOperation({
+        key: 'swap-forward',
+        kind: 'swap',
+        outcome: 'usable_receipt',
+        provider: 'solver',
+        received
+      }),
+      stages: [stage('usable_receipt')]
+    }
+  ]);
+  await observe('swap-reverse', 'passed', [
+    operation('swap-reverse', 'swap', 'full_swap_asserted', [stage('usable_receipt')])
+  ]);
+  const report = await assembled({}, 'verified-wallet-receipt');
+  const observation = evidence(report.invocations[0]!);
+  expect(observation.outcome).toBe('usable_receipt');
+  expect(observation.received.value).toEqual(received);
+  expect(observation.stages.slice(-5).map(value => [value.key, value.status])).toEqual([
+    ['inclusion', 'passed'],
+    ['payback', 'passed'],
+    ['order', 'passed'],
+    ['claim', 'passed'],
+    ['usable_receipt', 'passed']
+  ]);
+  expect(report.coverage.swap.status).toBe('passed');
 });
 
 it.each(['swap-reverse', 'usdcx-round-trip'])(

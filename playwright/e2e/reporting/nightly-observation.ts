@@ -37,6 +37,7 @@ type OperationOutcome = {
   outcome?:
     | 'prepared'
     | 'executed'
+    | 'authorization_released'
     | 'included'
     | 'fully_filled'
     | 'partially_filled_and_refunded'
@@ -70,7 +71,8 @@ type Stage = {
     | 'usable_receipt'
     | 'cleanup'
     | 'provider'
-    | 'bridge_finality';
+    | 'bridge_finality'
+    | 'recovery_gate';
   origin: 'playwright' | 'wallet_assertion' | 'wallet_ui' | 'sdk_read' | 'provider';
   status: 'passed' | 'failed' | 'in_progress' | 'unknown';
   errorCode?: string;

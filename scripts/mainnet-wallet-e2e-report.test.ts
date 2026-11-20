@@ -170,7 +170,6 @@ describe('wallet report command boundary', () => {
       {
         ...bridgeOnly,
         REPORT_BUILD_OUTCOME: 'success',
-        REPORT_SWAP_RECOVERY_OUTCOME: 'failure',
         REPORT_WAIT_SWAP_RECOVER: 'failure',
         REPORT_INVOCATION_SWAP_FORWARD: 'skipped'
       },
@@ -194,7 +193,6 @@ describe('wallet report command boundary', () => {
       {
         ...env,
         REPORT_BUILD_OUTCOME: 'success',
-        REPORT_SWAP_RECOVERY_OUTCOME: 'failure',
         REPORT_WAIT_SWAP_RECOVER: 'failure',
         REPORT_INVOCATION_SWAP_FORWARD: 'skipped'
       },
@@ -212,6 +210,45 @@ describe('wallet report command boundary', () => {
     assembled = JSON.parse(report());
     expect(assembled.coverage.bridge.reason).toBe('blocked_by_setup');
     expect(assembled.stages[0].error.code).toBe('setup_failed');
+    assertSanitized(report());
+  });
+
+  // GitHub Actions steps 49–59 in the two referenced mainnet jobs.
+  it.each([
+    ['164', 'success', 'failure', 'failed', 'recovery_gate_failed'],
+    ['153', 'cancelled', 'skipped', 'interrupted', null]
+  ])('replays the public NEAR recovery and fresh-swap outcomes from run %s', async (_, launch, auth, status, code) => {
+    const { env, report } = sandbox();
+    await main(env, ['initialize']);
+    await main(
+      {
+        ...env,
+        REPORT_BUILD_OUTCOME: 'success',
+        REPORT_INVOCATION_SWAP_RECOVER: 'success',
+        REPORT_WAIT_SWAP_RECOVER: 'success',
+        REPORT_INVOCATION_EPOCH_RECOVER: 'success',
+        REPORT_WAIT_EPOCH_RECOVER: 'success',
+        REPORT_INVOCATION_NEAR_RECOVER: launch,
+        REPORT_RECOVERY_AUTH_OUTCOMES: ['success', auth, 'skipped'].join(' '),
+        REPORT_WAIT_NEAR_RECOVER: 'skipped',
+        REPORT_BARRIER_OUTCOME: 'skipped',
+        REPORT_INVOCATION_SWAP_PREPARE: 'skipped',
+        REPORT_INVOCATION_SWAP_FORWARD: 'skipped'
+      },
+      ['assemble']
+    );
+    expect(JSON.parse(report())).toMatchObject({
+      availability: 'partial',
+      invocations: [],
+      coverage: {
+        swap: { selection: 'selected', status: 'not_started', reason: 'blocked_by_recovery' },
+        bridge: { selection: 'selected', status: 'not_started', reason: 'blocked_by_recovery' },
+        freshSwapsStarted: { value: 0, reason: null }
+      },
+      stages: expect.arrayContaining([
+        expect.objectContaining({ key: 'recovery_gate', origin: 'workflow', status, error: errorFor(code) })
+      ])
+    });
     assertSanitized(report());
   });
 
@@ -293,6 +330,32 @@ describe('nightly workflow report wiring', () => {
       expect(source).toContain('> "$RUNNER_TEMP/' + id + '.exit"');
       expect(source).toMatch(new RegExp('read -r code < "\\$RUNNER_TEMP/' + id + '\\.exit"'));
     }
+  });
+
+  it('projects the original provider recovery steps into the report without changing their verdicts', () => {
+    const jobs = record(record(YAML.parse(source)).jobs);
+    const mainJob = record(jobs['mainnet-nightly']);
+    if (!Array.isArray(mainJob.steps)) throw new Error('Expected mainnet steps');
+    const steps = mainJob.steps.map(record);
+    const assemble = steps.find(step => step.name === 'Assemble Wallet E2E report');
+    const variables = record(assemble?.env);
+    const authorizationOutcomes = String(variables.REPORT_RECOVERY_AUTH_OUTCOMES);
+    expect(authorizationOutcomes).toContain('${{ steps.epoch-recover-auth.outcome }}');
+    expect(authorizationOutcomes).toContain('${{ steps.near-recover-auth.outcome }}');
+    const referenced = Array.from(authorizationOutcomes.matchAll(/steps\.([a-z0-9-]+)\.outcome/g), match => match[1]);
+    const recoveryBarrier = steps.findIndex(step => step.id === 'recovery-barrier');
+    for (const id of referenced) {
+      const index = steps.findIndex(step => step.id === id);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(index).toBeLessThan(recoveryBarrier);
+      expect(steps[index]?.['continue-on-error']).toBeUndefined();
+    }
+    expect(variables).toMatchObject({
+      REPORT_INVOCATION_NEAR_RECOVER: '${{ steps.wallet-observe-near-recover.outcome }}',
+      REPORT_WAIT_NEAR_RECOVER: '${{ steps.near-recovered.outcome }}',
+      REPORT_BARRIER_OUTCOME: '${{ steps.recovery-barrier.outcome }}',
+      REPORT_INVOCATION_SWAP_FORWARD: '${{ steps.swap-forward-run.outcome }}'
+    });
   });
 
   it('isolates projection and upload failures from verdicts and uploads only the fixed safe filename', () => {

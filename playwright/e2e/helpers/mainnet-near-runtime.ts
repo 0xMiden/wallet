@@ -95,18 +95,17 @@ export async function runMainnetNearStage(
   )
     throw new Error('Native NEAR requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH);
-  const chain = previous ? (previous.evm.chainId === 1 ? 'Ethereum' : 'Arbitrum') : undefined;
-  const observe = info
-    ? observeNightly(info, {
-        key: mode === 'recover' ? 'near-recovery' : mode === 'reverse' ? 'near-reverse' : 'near-forward',
-        kind: mode === 'recover' ? 'recovery' : mode === 'prepare' ? 'setup' : 'bridge',
-        surface: 'wallet_ui_and_helper',
-        provider: 'NEAR',
-        sourceRunId: previous?.sourceRunId,
-        sourceNetwork: mode === 'forward' ? 'Miden' : mode === 'reverse' ? chain : undefined,
-        destinationNetwork: mode === 'forward' ? chain : mode === 'reverse' ? 'Miden' : undefined
-      })
-    : () => {};
+  const chainId = previous?.evm?.chainId;
+  const chain = chainId === 1 ? 'Ethereum' : chainId === 42161 ? 'Arbitrum' : undefined;
+  const observe = observeNightly(info, {
+    key: mode === 'recover' ? 'near-recovery' : mode === 'reverse' ? 'near-reverse' : 'near-forward',
+    kind: mode === 'recover' ? 'recovery' : mode === 'prepare' ? 'setup' : 'bridge',
+    surface: 'wallet_ui_and_helper',
+    provider: 'NEAR',
+    sourceRunId: previous?.sourceRunId,
+    sourceNetwork: mode === 'forward' ? 'Miden' : mode === 'reverse' ? chain : undefined,
+    destinationNetwork: mode === 'forward' ? chain : mode === 'reverse' ? 'Miden' : undefined
+  });
   if (mode === 'recover') {
     if (
       process.env.MAINNET_NEAR_PREAUTH_UNSPENT === 'true' &&
@@ -157,8 +156,15 @@ export async function runMainnetNearStage(
       const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
       if (!keyPair) throw new Error('Existing original Guardian key pair is required for native NEAR recovery');
       await restoreMainnetLoopGuardian(wallet, keyPair);
-      if ((await wallet.getAccountAddress()) !== previous.account)
+      if ((await wallet.getAccountAddress()) !== previous.account) {
+        observe(undefined, {
+          key: 'recovery_gate',
+          status: 'failed',
+          origin: 'wallet_assertion',
+          errorCode: 'recovery_checkpoint_account_mismatch'
+        });
         throw new Error('Original native NEAR recovery Guardian changed');
+      }
       try {
         await recoverMainnetNear(
           wallet,
