@@ -522,8 +522,8 @@ function postStageEvent(context: DispatchContext, stage: ITransactionStage, evid
   }
 }
 
-// A single-key write's stage stamps. Where the service worker gates the op (`gated`: the call's `submitGated`, or a
-// reviewed bridge source's own flag), its 'submitting' stamp is that gate, awaited before the submit (#1081): posted
+// A single-key write's stage stamps. Where the service worker gates the op (`gated`: the call's `submitGated`, or the
+// positional flag a gated newTransaction also carries), its 'submitting' stamp is that gate, awaited before the submit (#1081): posted
 // fire-and-forget, a stamp whose one write failed left an attempt that crossed with no record of its notes. A refusal is
 // no prover failure, so it leaves as an unrecorded crossing that nothing re-proves, tagged as before the submit. The
 // await parks inside this op's hold, so the client asks ownership again before it submits.
@@ -1007,10 +1007,10 @@ const DISPATCH: Record<string, DispatchFn> = {
     return serializeLandedResult(context, result);
   },
 
-  // Positional args (accountId, requestBytes, delegateTransaction) mirroring the
-  // SDK signature, then a reviewed bridge source's submit-gate flag — `requestBytes` crossed as raw bytes, not JSON. `?? undefined`
-  // maps a JSON-`null` delegate arg (an `undefined` round-tripped through
-  // encodeArg) back to the SDK's optional-boolean shape.
+  // Positional args (accountId, requestBytes, delegateTransaction) mirroring the SDK signature, then the submit-gate
+  // flag the proxy sends with every gated call, beside the envelope's `submitGated`. `requestBytes` crossed as raw
+  // bytes, not JSON. `?? undefined` maps a JSON-`null` delegate arg (an `undefined` round-tripped through encodeArg)
+  // back to the SDK's optional-boolean shape.
   newTransaction: async (
     context,
     client,
