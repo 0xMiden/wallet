@@ -3,6 +3,16 @@
 ## 1.18.1 (TBD)
 
 - [CHANGE][ci] Emit a sanitized mainnet nightly report for the Wallet E2E dashboard with test and recovery evidence.
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.1 clients.
+- [FIX][ci] Measure the mobile R5 refusal with adjacent WebView sync samples while retaining the two-block limit.
+- [FIX][ci] Create only the deposit wallet in the live iOS USDCx tests.
+- [FIX][all] Switch Guardians when the outgoing Guardian holds an old pending proposal that a replaced device key signed. The recovery key now signs the switch proposal without a read of the Guardian's full pending list.
+
+- [FIX][all] Register the account again when its Guardian rejects both the everyday key and the recovery key. The repair runs only when this device is still the account's signer, the operator serves the Guardian key the account names, and the chain holds this device's state.
+- [FIX][ci] Keep polling the same faucet note after an interrupted limits read, within the existing deadline.
+
+- [FIX][ci] Wait for the Guardian to settle the funding claim before testing candidate abandonment.
+
 - [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.
 
 - [FIX][ci] Allow a first explicitly approved Swap recovery return when an unsigned plan was retained and still matches the verified proceeds and vault balances. Previously issued return authority remains ineligible.

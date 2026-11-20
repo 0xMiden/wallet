@@ -83,6 +83,13 @@ describe('the burn half the live iOS specs share', () => {
 describe('the live iOS USDCx deposits on the executor route', () => {
   const executorSpec = read('../ios/tests/usdcx-live-executor-deposit.ios.spec.ts');
 
+  it('creates only the deposit wallet in each live route', () => {
+    expect([arcSpec, executorSpec].map(spec => between(spec, 'create_wallet', 'native_asset').match(/\bwallet[AB]\.create\w+Wallet\(/g))).toEqual([
+      ['walletA.createGuardianWallet('],
+      ['walletA.createGuardianWallet(']
+    ]);
+  });
+
   // Each job runs one source chain; a slug that names none fails the file instead of running nothing.
   it('defines one test per executor source, only the one USDCX_LIVE_SOURCE names when it is set', () => {
     expect(executorSpec).toMatch(

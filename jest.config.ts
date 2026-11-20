@@ -171,7 +171,7 @@ export default {
   // adapter release while reporting the reason as a missing export.
   // @openzeppelin/guardian-client is ESM too: its stub re-exports the real error-code list from dist.
   transformIgnorePatterns: [
-    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown|@miden-sdk/miden-wallet-adapter-base|@miden-sdk/miden-wallet-adapter-miden|@openzeppelin/guardian-client)/)'
+    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown|@miden-sdk/miden-wallet-adapter-base|@miden-sdk/miden-wallet-adapter-miden|@openzeppelin/guardian-client|@openzeppelin/miden-multisig-client|@noble/hashes)/)'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a

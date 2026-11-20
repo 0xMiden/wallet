@@ -80,7 +80,8 @@ export interface FailureEvidence {
   /** Driver envelopes, not simulation-only latency; recorded before the unchanged refusal block assertion. */
   refusalTiming?: {
     beforeHeight: number;
-    afterHeight: number;
+    afterHeight?: number;
+    trailingReadFailed?: boolean;
     beforeSyncMs: number;
     requestMs: number;
     afterSyncMs: number;
