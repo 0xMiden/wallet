@@ -24,8 +24,10 @@
 - [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
 - [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
 - [CHANGE][all] Guardian accounts use the stable Guardian 0.19.0 clients.
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.1 clients.
 - [FIX][ci] Measure the mobile R5 refusal with adjacent WebView sync samples while retaining the two-block limit.
 - [FIX][ci] Create only the deposit wallet in the live iOS USDCx tests.
+- [FIX][all] Switch Guardians when the outgoing Guardian holds an old pending proposal that a replaced device key signed. The recovery key now signs the switch proposal without a read of the Guardian's full pending list.
 
 - [FIX][all] Register the account again when its Guardian rejects both the everyday key and the recovery key. The repair runs only when this device is still the account's signer, the operator serves the Guardian key the account names, and the chain holds this device's state.
 - [FIX][ci] Keep polling the same faucet note after an interrupted limits read, within the existing deadline.
