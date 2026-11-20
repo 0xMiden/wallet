@@ -36,6 +36,46 @@ async function captureCommand(page: Page, info: TestInfo, name: string): Promise
   await info.attach(name, { path: screenshot, contentType: 'image/png' });
 }
 
+async function assertWorkbenchFrames(page: Page, act: () => Promise<void>, dialogCounts: number[]): Promise<void> {
+  const recorder = await page.evaluateHandle(() => {
+    const dashboard = document.querySelector(
+      '[data-testid="command-dashboard"], [data-testid="command-workbench-backdrop"]'
+    );
+    let dialog = document.querySelector('[data-command-portals] [role="dialog"]');
+    let stable = Boolean(dashboard);
+    let frame = 0;
+    const counts: number[] = [];
+    const sample = () => {
+      const visible = document.querySelectorAll('[data-command-portals] [role="dialog"]');
+      const next = visible[0];
+      stable &&= Boolean(dashboard?.isConnected);
+      if (next) {
+        const style = getComputedStyle(next);
+        stable &&= (!dialog || dialog === next) && style.opacity === '1' && next.getBoundingClientRect().height > 0;
+        dialog = next;
+      }
+      if (counts.at(-1) !== visible.length) counts.push(visible.length);
+      frame = requestAnimationFrame(sample);
+    };
+    sample();
+    return {
+      async finish() {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        cancelAnimationFrame(frame);
+        return { counts, stable };
+      }
+    };
+  });
+  let sample;
+  try {
+    await act();
+  } finally {
+    sample = await recorder.evaluate(probe => probe.finish());
+    await recorder.dispose();
+  }
+  expect(sample).toEqual({ counts: dialogCounts, stable: true });
+}
+
 async function seedChartPreview(page: Page, accountId: string) {
   // Only the isolated, imported mock wallet receives these illustrative observations.
   await page.evaluate(
@@ -167,10 +207,12 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await palette.getByRole('button', { name: 'Close' }).click();
   await expect(search).toHaveCount(0);
 
-  await command.getByRole('navigation', { name: 'Wallet actions' }).getByRole('button', { name: 'Send' }).click();
   const workbench = command.getByTestId('command-workbench');
   const composer = workbench.getByTestId('command-send-composer');
-  await expect(composer).toBeVisible();
+  await assertWorkbenchFrames(command, async () => {
+    await command.getByRole('navigation', { name: 'Wallet actions' }).getByRole('button', { name: 'Send' }).click();
+    await expect(composer).toBeVisible();
+  }, [0, 1]);
   await expect(command.getByRole('dialog', { name: 'Send' })).toHaveCSS('transform', 'none');
   const backdrop = command.getByTestId('command-workbench-backdrop');
   await expect(backdrop).toHaveAttribute('inert', '');
@@ -180,14 +222,21 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(backdrop.locator('[data-command-chart-area]')).toHaveAttribute('d', /^M /);
   await composer.getByTestId('send-amount-input').fill('1.234500');
   await captureCommand(command, info, 'command-send-1440x1000');
-  await workbench.getByRole('button', { name: 'Minimize' }).click();
-  await expect(workbench).toHaveCount(0);
+  await assertWorkbenchFrames(command, async () => {
+    await workbench.getByRole('button', { name: 'Minimize' }).click();
+    await expect(workbench).toHaveCount(0);
+  }, [1, 0]);
   expect(
     await dashboardHandle?.evaluate(node => node === document.querySelector('[data-testid="command-dashboard"]'))
   ).toBe(true);
   await command.getByRole('navigation', { name: 'Wallet actions' }).getByRole('button', { name: 'Send' }).click();
   await expect(workbench.getByTestId('command-send-composer').getByTestId('send-amount-input')).toHaveValue('1.234500');
   await expect(workbench.getByTestId('command-footer').getByTestId('command-send-review')).toBeDisabled();
+  await assertWorkbenchFrames(command, async () => {
+    await workbench.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(command).toHaveURL(/#\/$/);
+    await expect(workbench).toHaveCount(0);
+  }, [1, 0]);
 
   const actions = command.getByRole('navigation', { name: 'Wallet actions' });
   await actions.getByRole('button', { name: 'Earn' }).click();
@@ -195,27 +244,16 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(workbench.getByTestId('command-earn')).toBeVisible();
   await captureCommand(command, info, 'command-earn-1440x1000');
 
-  const dialogHandle = await command.getByRole('dialog', { name: 'Earn' }).elementHandle();
   // This mock profile has no Swap eligibility; the local Swap workflow exercises that composition.
   for (const { action, surface } of [
     { action: 'Receive', surface: 'command-receive' },
     { action: 'Bridge', surface: 'command-bridge' }
   ]) {
-    await actions.getByRole('button', { name: action, exact: true }).click();
-    await expect(workbench.getByTestId(surface)).toBeVisible();
-    await expect(actions.getByRole('button', { name: action, exact: true })).toHaveAttribute('aria-current', 'page');
-    expect(
-      await dialogHandle?.evaluate(node => node === document.querySelector('[data-command-portals] [role="dialog"]'))
-    ).toBe(true);
-    const stableFrames = await dialogHandle?.evaluate(async node => {
-      for (let frame = 0; frame < 8; frame++) {
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        if (!node.isConnected || getComputedStyle(node).opacity !== '1' || node.getBoundingClientRect().height === 0)
-          return false;
-      }
-      return true;
-    });
-    expect(stableFrames).toBe(true);
+    await assertWorkbenchFrames(command, async () => {
+      await actions.getByRole('button', { name: action, exact: true }).click();
+      await expect(workbench.getByTestId(surface)).toBeVisible();
+      await expect(actions.getByRole('button', { name: action, exact: true })).toHaveAttribute('aria-current', 'page');
+    }, [1]);
     await captureCommand(command, info, `command-${action.toLowerCase()}-1440x1000`);
   }
 
@@ -272,6 +310,10 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await command.keyboard.press('Escape');
   await expect(tokenDrawer).toHaveCount(0);
   await expect(composer.getByTestId('send-token-selector')).toBeFocused();
+  await assertWorkbenchFrames(command, async () => {
+    await command.keyboard.press('Escape');
+    await expect(workbench).toHaveCount(0);
+  }, [1, 0]);
 
   await command.setViewportSize({ width: 640, height: 420 });
   await command.keyboard.press('Control+k');
