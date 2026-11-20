@@ -179,7 +179,9 @@ describe('withFreshProof', () => {
       })
       .mockImplementation(() => new Promise<number>(() => {}));
     const { pending, executions } = run([STALE], readTip);
-    const rejected = expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+    const rejected = (async () => {
+      await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+    })();
     await jest.advanceTimersByTimeAsync(1);
     await rejected;
     expect(readTip).toHaveBeenCalledTimes(2);
@@ -216,7 +218,9 @@ describe('withFreshProof', () => {
   it('fails before submit when the tip read outlasts its bound', async () => {
     jest.useFakeTimers();
     const { pending, executions } = run([STALE], () => new Promise<number>(() => {}));
-    const rejected = expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+    const rejected = (async () => {
+      await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+    })();
     await jest.advanceTimersByTimeAsync(CHAIN_TIP_READ_TIMEOUT_MS);
     await rejected;
     expect(executions).toEqual([false]);
@@ -229,7 +233,9 @@ describe('withFreshProof', () => {
     try {
       let answer!: (tip: number) => void;
       const { pending, executions } = run([STALE], () => new Promise<number>(resolve => (answer = resolve)));
-      const rejected = expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+      const rejected = (async () => {
+        await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+      })();
       await jest.advanceTimersByTimeAsync(0);
       now += CHAIN_TIP_READ_TIMEOUT_MS;
       answer(TIP);
