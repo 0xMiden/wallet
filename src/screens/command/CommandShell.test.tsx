@@ -1,6 +1,6 @@
 import React, { Suspense, useState } from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MotionConfig } from 'framer-motion';
 
 import ErrorBoundary from 'app/ErrorBoundary';
@@ -94,16 +94,8 @@ jest.mock('./CommandHomePrompts', () => ({
   CommandHomePrompts: () => <div data-testid="command-home-prompts" />
 }));
 jest.mock('./CommandPortfolio', () => ({
-  CommandPortfolio: ({
-    prompts,
-    recentActions,
-    backdrop
-  }: {
-    prompts: React.ReactNode;
-    recentActions: React.ReactNode;
-    backdrop?: boolean;
-  }) => {
-    if (backdrop && mockBackdropRead) throw mockBackdropRead;
+  CommandPortfolio: ({ prompts, recentActions }: { prompts: React.ReactNode; recentActions: React.ReactNode }) => {
+    if (mockBackdropRead) throw mockBackdropRead;
     return (
       <div data-testid="command-portfolio">
         Live wallet portfolio
@@ -466,31 +458,52 @@ it.each([
   expect(navigate).toHaveBeenCalledWith(path);
 });
 
-it('mounts the existing home notices only in the ready Command dashboard, not in a workbench', () => {
+it('preserves the dashboard and dialog nodes across flow switches and keeps the dashboard inert', () => {
   const { rerender } = render(
     <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
       {null}
     </CommandShell>
   );
-  expect(screen.getByTestId('command-home-prompts')).toBeVisible();
-  expect(screen.getByTestId('command-portfolio')).toBeVisible();
+  const portfolio = screen.getByTestId('command-portfolio');
+  const prompts = screen.getByTestId('command-home-prompts');
+  expect(prompts).toBeVisible();
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+      <div>Receive controller</div>
+    </CommandShell>
+  );
+  const dialog = screen.getByRole('dialog', { name: 'receive' });
+  const dashboard = screen.getByTestId('command-workbench-backdrop');
+  expect(dashboard).toHaveAttribute('inert');
+  expect(dashboard).toHaveAttribute('aria-hidden', 'true');
+  expect(portfolio).toBe(screen.getByTestId('command-portfolio'));
+  expect(screen.getByRole('button', { name: 'receive' })).toHaveAttribute('aria-current', 'page');
   rerender(
     <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
       <div>Send controller</div>
     </CommandShell>
   );
-  expect(screen.queryByTestId('command-home-prompts')).not.toBeInTheDocument();
+  expect(screen.getByRole('dialog', { name: 'send' })).toBe(dialog);
+  expect(screen.getByRole('button', { name: 'send' })).toHaveAttribute('aria-current', 'page');
+  expect(screen.getByRole('button', { name: 'receive' })).not.toHaveAttribute('aria-current');
+  rerender(
+    <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
+      {null}
+    </CommandShell>
+  );
+  expect(screen.getByTestId('command-portfolio')).toBe(portfolio);
+  expect(screen.getByTestId('command-home-prompts')).toBe(prompts);
+  expect(dashboard).not.toHaveAttribute('inert');
+  expect(screen.getByRole('button', { name: 'send' })).not.toHaveAttribute('aria-current');
 });
 
-it('keeps the existing Profile route visible in a narrow Command tab', () => {
+it('omits Profile from the Command header', () => {
   render(
     <CommandShell scope={scope} route={{ kind: 'dashboard' }}>
       {null}
     </CommandShell>
   );
-  const profile = screen.getByRole('button', { name: /profile/i });
-  fireEvent.click(profile);
-  expect(navigate).toHaveBeenCalledWith('/me');
+  expect(screen.queryByRole('button', { name: /profile/i })).not.toBeInTheDocument();
 });
 
 it('keeps existing Explore reachable from the keyboard palette', () => {
@@ -644,7 +657,7 @@ it.each([false, true])('keeps the cold operation portal mounted while reading pr
   });
 
   expect(screen.getByRole('dialog', { name: 'commandOperation' })).toBe(workbench);
-  expect(hidden ? screen.getByText('commandMaskedBalance') : workbench).toBeVisible();
+  expect(hidden ? within(workbench).getByText('commandMaskedBalance') : workbench).toBeVisible();
   expect(screen.queryAllByText('Retry original')).toHaveLength(hidden ? 0 : 1);
   expect(
     screen.queryAllByRole<HTMLButtonElement>('button', { name: 'Retry original' }).map(button => button.disabled)

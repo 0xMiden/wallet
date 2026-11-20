@@ -175,12 +175,16 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   const backdrop = command.getByTestId('command-workbench-backdrop');
   await expect(backdrop).toHaveAttribute('inert', '');
   await expect(backdrop).toHaveAttribute('aria-hidden', 'true');
-  await expect(backdrop).toHaveCSS('filter', 'blur(5px)');
+  await expect(backdrop).toHaveCSS('opacity', '0.3');
+  const dashboardHandle = await backdrop.elementHandle();
   await expect(backdrop.locator('[data-command-chart-area]')).toHaveAttribute('d', /^M /);
   await composer.getByTestId('send-amount-input').fill('1.234500');
   await captureCommand(command, info, 'command-send-1440x1000');
   await workbench.getByRole('button', { name: 'Minimize' }).click();
   await expect(workbench).toHaveCount(0);
+  expect(
+    await dashboardHandle?.evaluate(node => node === document.querySelector('[data-testid="command-dashboard"]'))
+  ).toBe(true);
   await command.getByRole('navigation', { name: 'Wallet actions' }).getByRole('button', { name: 'Send' }).click();
   await expect(workbench.getByTestId('command-send-composer').getByTestId('send-amount-input')).toHaveValue('1.234500');
   await expect(workbench.getByTestId('command-footer').getByTestId('command-send-review')).toBeDisabled();
@@ -191,6 +195,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(workbench.getByTestId('command-earn')).toBeVisible();
   await captureCommand(command, info, 'command-earn-1440x1000');
 
+  const dialogHandle = await command.getByRole('dialog', { name: 'Earn' }).elementHandle();
   // This mock profile has no Swap eligibility; the local Swap workflow exercises that composition.
   for (const { action, surface } of [
     { action: 'Receive', surface: 'command-receive' },
@@ -198,6 +203,19 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   ]) {
     await actions.getByRole('button', { name: action, exact: true }).click();
     await expect(workbench.getByTestId(surface)).toBeVisible();
+    await expect(actions.getByRole('button', { name: action, exact: true })).toHaveAttribute('aria-current', 'page');
+    expect(
+      await dialogHandle?.evaluate(node => node === document.querySelector('[data-command-portals] [role="dialog"]'))
+    ).toBe(true);
+    const stableFrames = await dialogHandle?.evaluate(async node => {
+      for (let frame = 0; frame < 8; frame++) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        if (!node.isConnected || getComputedStyle(node).opacity !== '1' || node.getBoundingClientRect().height === 0)
+          return false;
+      }
+      return true;
+    });
+    expect(stableFrames).toBe(true);
     await captureCommand(command, info, `command-${action.toLowerCase()}-1440x1000`);
   }
 
@@ -209,24 +227,15 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(command.locator('html')).toHaveClass(/dark/);
   await expect(workbench.getByTestId('command-bridge')).toBeVisible();
   await captureCommand(command, info, 'command-bridge-dark-reduced-motion-1440x1000');
-  const routePicker = workbench.getByRole('radiogroup', { name: 'Asset, network and provider' });
-  const routes = await routePicker.boundingBox();
-  const externalAccount = await workbench.getByText('External account', { exact: true }).boundingBox();
-  expect(routes).not.toBeNull();
-  expect(externalAccount).not.toBeNull();
-  const accountGap = externalAccount!.y - (routes!.y + routes!.height);
-  expect(accountGap).toBeGreaterThanOrEqual(12);
-  expect(accountGap).toBeLessThanOrEqual(24);
-  await routePicker.getByRole('radio', { checked: true }).focus();
-  await command.keyboard.press('ArrowDown');
-  const focusedRoute = routePicker.getByRole('radio', { checked: true });
-  await expect(focusedRoute).toBeFocused();
-  await expect(focusedRoute).toHaveCSS('outline-style', 'solid');
-  await expect(focusedRoute).toHaveCSS('outline-width', '2px');
-  await expect(focusedRoute).toHaveCSS('outline-offset', '-5px');
-  await expect
-    .poll(() => focusedRoute.evaluate(card => getComputedStyle(card, '::before').borderLeftWidth))
-    .toBe('2px');
+  const sourcePicker = workbench.getByRole('combobox', { name: 'From', exact: true });
+  const destinationPicker = workbench.getByRole('combobox', { name: 'To', exact: true });
+  const connect = await workbench.getByRole('button', { name: 'Connect an EVM wallet', exact: true }).boundingBox();
+  const source = await sourcePicker.boundingBox();
+  expect(connect!.y).toBeLessThan(source!.y);
+  await sourcePicker.focus();
+  await command.keyboard.press('Tab');
+  await expect(destinationPicker).toBeFocused();
+  await expect(destinationPicker).toHaveCSS('outline-width', '2px');
   await captureCommand(command, info, 'command-bridge-route-keyboard-focus-1440x1000');
 
   const sidebar = await extensionContext.newPage();
@@ -258,8 +267,11 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(tokenDrawer).toBeVisible();
   await expect(tokenDrawer).toHaveCSS('background-color', 'rgb(25, 25, 25)');
   await captureCommand(command, info, 'command-send-token-picker-light-wallet-1440x1000');
-  await tokenDrawer.getByRole('button', { name: 'Close' }).click();
+  const pickerBounds = await tokenDrawer.boundingBox();
+  expect(pickerBounds?.width).toBeLessThan(480);
+  await command.keyboard.press('Escape');
   await expect(tokenDrawer).toHaveCount(0);
+  await expect(composer.getByTestId('send-token-selector')).toBeFocused();
 
   await command.setViewportSize({ width: 640, height: 420 });
   await command.keyboard.press('Control+k');

@@ -35,13 +35,11 @@ const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
 export function CommandPortfolio({
   scope,
   prompts,
-  recentActions,
-  backdrop = false
+  recentActions
 }: {
   scope: AccountScope;
   prompts?: React.ReactNode;
   recentActions?: React.ReactNode;
-  backdrop?: boolean;
 }): React.ReactElement {
   const { t } = useTranslation();
   const displayOptions = {
@@ -67,7 +65,6 @@ export function CommandPortfolio({
 
   useEffect(() => {
     if (
-      backdrop ||
       !canRecord ||
       capturedAt === undefined ||
       value === null ||
@@ -101,7 +98,7 @@ export function CommandPortfolio({
     return () => {
       cancelled = true;
     };
-  }, [accountId, backdrop, canRecord, capturedAt, coverage, coverageKey, key, ready, stableScope, value]);
+  }, [accountId, canRecord, capturedAt, coverage, coverageKey, key, ready, stableScope, value]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,19 +138,31 @@ export function CommandPortfolio({
     : '';
   const values = samples.map(({ row }) => Number(row.value));
   const min = Math.min(...values);
-  const span = Math.max(...values) - min || 1;
+  const span = Math.max(...values) - min;
+  const hasTrace = samples.some((sample, index) => index > 0 && samples[index - 1]?.run === sample.run);
   const rangeMs = RANGES[range] * DAY_MS;
   const rangeStart = Date.now() - rangeMs;
   const chartPoints = samples.map(({ row, run }) => ({
     x: Math.max(0, Math.min(100, (100 * (row.capturedAt - rangeStart)) / rangeMs)),
-    y: 90 - (80 * (Number(row.value) - min)) / span,
+    y: span ? 82 - (64 * (Number(row.value) - min)) / span : 50,
     bucket: row.bucket,
     run
   }));
   const activePoint = chartPoints[sampleIndex];
   return (
-    <div className="mx-auto grid w-full min-w-0 max-w-[90rem] grid-cols-1 gap-y-8 px-4 py-8 sm:px-8 lg:grid-cols-12 lg:gap-x-10 lg:px-[5vw] lg:py-12">
-      <section className="min-w-0 lg:col-span-9" aria-label={t('commandPortfolio')}>
+    <div className="mx-auto grid w-full min-w-0 max-w-[90rem] grid-cols-1 gap-6 px-4 py-6 sm:px-8 lg:grid-cols-12 lg:px-[4vw] lg:py-10">
+      <section
+        className={`relative isolate min-w-0 overflow-hidden rounded-3xl border border-hairline bg-fill/40 p-5 sm:p-8 lg:row-start-1 ${hidden ? 'lg:col-span-12' : 'lg:col-span-8'}`}
+        aria-label={t('commandPortfolio')}
+      >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,var(--ds-accent-tint),transparent_68%)] opacity-75"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-2/3 bg-[radial-gradient(circle,currentColor_1px,transparent_1px)] bg-size-[18px_18px] text-accent-tint-ink opacity-[0.14] mask-[radial-gradient(ellipse_at_top_right,black,transparent_72%)]"
+        />
         <div className="flex items-center justify-between gap-3">
           <SectionHeader size="xl">{t('commandPortfolio')}</SectionHeader>
           <Button
@@ -166,15 +175,22 @@ export function CommandPortfolio({
             {hidden ? t('commandShowBalances') : t('commandHideBalances')}
           </Button>
         </div>
-        <p className="text-label text-muted">{t('commandWalletBalance')}</p>
-        <p className="break-words text-display tracking-tight text-ink sm:text-6xl xl:text-8xl">
-          {hidden
-            ? t('commandMaskedBalance')
-            : !portfolio.current || value === null
-              ? t('commandBalanceUnavailable')
-              : `${formatAmountDisplay(value, displayOptions)} USD`}
+        <p className="mt-7 text-label text-muted">{t('commandWalletBalance')}</p>
+        <p className="my-2 break-words text-display tracking-tight text-ink tabular-nums sm:text-6xl xl:text-8xl">
+          {hidden ? (
+            t('commandMaskedBalance')
+          ) : value === null ? (
+            <>
+              <span aria-hidden="true">---</span>
+              <span className="sr-only">{t('commandBalanceUnavailable')}</span>
+            </>
+          ) : (
+            `${formatAmountDisplay(value, displayOptions)} USD`
+          )}
         </p>
-        {!hidden && coverage === 'partial' && <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>}
+        {!hidden && value !== null && coverage === 'partial' && (
+          <p className="text-caption text-muted">{t('commandPartialCoverage')}</p>
+        )}
         {!hidden && portfolio.current && portfolio.priceMovement24h && value !== null && (
           <p className="text-caption text-muted">
             {t('commandMarketPriceMovement24h', {
@@ -183,77 +199,100 @@ export function CommandPortfolio({
             })}
           </p>
         )}
-        <div className="mt-8 min-w-0" aria-busy={history?.key !== key} data-testid="command-history">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            <SectionHeader>{t('commandObservedHistory')}</SectionHeader>
-            <SegmentedControl<HistoryRange>
-              aria-label={t('commandHistoryRange')}
-              size="sm"
-              layout="fill"
-              className="w-52 min-w-0 max-w-full px-1"
-              value={range}
-              items={RANGE_ITEMS}
-              onChange={next => {
-                setRange(next);
-                setSelected(null);
-              }}
-            />
-          </div>
-          {hidden ? (
-            <p className="text-body-sm text-muted">{t('commandMaskedBalance')}</p>
-          ) : samples.length < 2 ? (
-            <p className="text-body-sm text-muted">{t('commandHistoryInsufficient')}</p>
-          ) : (
-            <>
-              <div
-                data-testid="command-chart"
-                className="relative mx-2 mt-5 h-44 sm:h-56"
-                onMouseMove={event => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  if (rect.width) {
-                    const x = 100 * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-                    setSelected(
-                      chartPoints.reduce(
-                        (nearest, point, index) =>
-                          Math.abs(point.x - x) < Math.abs(chartPoints[nearest]!.x - x) ? index : nearest,
-                        0
-                      )
-                    );
-                  }
-                }}
-              >
-                <CommandHistoryTrace points={chartPoints} />
-                {activePoint && (
-                  <span
-                    aria-hidden="true"
-                    data-testid="command-chart-marker"
-                    className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
-                    style={{ left: `${activePoint.x}%`, top: `${activePoint.y}%` }}
-                  />
-                )}
-              </div>
-              <input
-                type="range"
-                min="0"
-                max={samples.length - 1}
-                value={sampleIndex}
-                aria-label={t('commandInspectHistory')}
-                aria-valuetext={inspected}
-                onChange={event => setSelected(Number(event.target.value))}
-                className="mx-2 block w-[calc(100%-1rem)] accent-accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
-              />
-              <output className="text-caption text-muted">{inspected}</output>
-              {gaps && <p className="text-caption text-muted">{t('commandHistoryGaps')}</p>}
-            </>
-          )}
-          <p className="text-caption text-muted">{t('commandObservedOnDevice')}</p>
+      </section>
+      <section
+        className="min-w-0 overflow-hidden rounded-3xl border border-hairline bg-linear-to-b from-fill/45 to-page px-4 py-5 sm:px-7 lg:col-span-12 lg:row-start-2"
+        aria-label={t('commandObservedHistory')}
+        aria-busy={history?.key !== key}
+        data-testid="command-history"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <SectionHeader size="lg">{t('commandObservedHistory')}</SectionHeader>
+          <SegmentedControl<HistoryRange>
+            aria-label={t('commandHistoryRange')}
+            size="sm"
+            layout="fill"
+            className="w-52 min-w-0 max-w-full px-1"
+            value={range}
+            items={RANGE_ITEMS}
+            onChange={next => {
+              setRange(next);
+              setSelected(null);
+            }}
+          />
         </div>
+        {hidden ? (
+          <p className="text-body-sm text-muted">{t('commandMaskedBalance')}</p>
+        ) : samples.length < 2 ? (
+          <div className="mt-4 grid min-h-36 place-content-center gap-2 rounded-2xl border border-dashed border-hairline p-6 text-center">
+            {sample ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="mx-auto size-2 rounded-full bg-accent-primary ring-4 ring-accent-tint"
+                />
+                <p className="text-body-sm text-ink tabular-nums">{inspected}</p>
+              </>
+            ) : history?.key === key ? (
+              <p className="text-body-sm text-muted">{t('commandHistoryInsufficient')}</p>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div
+              data-testid="command-chart"
+              data-history-kind={hasTrace ? 'trace' : 'observations'}
+              className={hasTrace ? 'relative mx-2 mt-5 h-44 sm:h-56' : 'relative mx-2 mt-5 h-28 sm:h-36'}
+              onMouseMove={event => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                if (rect.width) {
+                  const x = 100 * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+                  setSelected(
+                    chartPoints.reduce(
+                      (nearest, point, index) =>
+                        Math.abs(point.x - x) < Math.abs(chartPoints[nearest]!.x - x) ? index : nearest,
+                      0
+                    )
+                  );
+                }
+              }}
+            >
+              <CommandHistoryTrace points={chartPoints} />
+              {activePoint && (
+                <span
+                  aria-hidden="true"
+                  data-testid="command-chart-marker"
+                  className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
+                  style={{ left: `${activePoint.x}%`, top: `${activePoint.y}%` }}
+                />
+              )}
+            </div>
+            <input
+              type="range"
+              min="0"
+              max={samples.length - 1}
+              value={sampleIndex}
+              aria-label={t('commandInspectHistory')}
+              aria-valuetext={inspected}
+              onChange={event => setSelected(Number(event.target.value))}
+              className="mx-2 block w-[calc(100%-1rem)] accent-accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
+            />
+            <div className="mt-3 flex flex-wrap justify-between gap-x-4 gap-y-1 px-2">
+              <output className="text-caption text-ink tabular-nums">{inspected}</output>
+              {gaps && (
+                <span className="text-caption text-muted" title={t('commandHistoryGaps')}>
+                  {t('commandHistoryObservationsOnly')}
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </section>
       {!hidden && (
-        <section className="min-w-0 lg:col-span-3" aria-label={t('commandAllocation')}>
+        <section className="min-w-0 lg:col-span-4 lg:row-start-1" aria-label={t('commandAllocation')}>
           <Card
             surface="outline"
-            className="flex flex-col gap-3 border-accent-tint-ink/25 bg-linear-to-br from-fill to-page shadow-lg"
+            className="flex h-full flex-col justify-center gap-4 rounded-3xl bg-linear-to-br from-fill/80 to-page p-5 sm:p-7"
           >
             <div className="flex flex-wrap items-baseline justify-between gap-x-2">
               <SectionHeader>{t('commandAllocation')}</SectionHeader>

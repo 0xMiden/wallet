@@ -898,7 +898,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             onRetryPayback={actions.onRetryPayback}
           />
         ) : (
-          <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
+          <div className={cn('flex-1 flex min-w-0 flex-col', !command && 'overflow-y-auto overflow-x-hidden')}>
             {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (

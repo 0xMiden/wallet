@@ -24,7 +24,7 @@ export const COMMAND_ACTION_ICONS = [
   ['bridge', IconName.BridgeIn]
 ] as const;
 
-export function CommandDock(): React.ReactElement {
+export function CommandDock({ activeAction }: { activeAction?: CommandAction }): React.ReactElement {
   const { t } = useTranslation();
   return (
     <nav
@@ -36,7 +36,8 @@ export function CommandDock(): React.ReactElement {
           key={action}
           size="sm"
           variant={ButtonVariant.CommandShortcut}
-          className="h-auto min-h-14 gap-1.5 rounded-2xl px-1 py-2 text-caption hover:bg-accent-tint hover:text-accent-tint-ink focus-visible:ring-offset-0 sm:px-2"
+          aria-current={activeAction === action ? 'page' : undefined}
+          className="h-auto min-h-14 gap-1.5 rounded-2xl px-1 py-2 text-caption hover:bg-accent-tint hover:text-accent-tint-ink focus-visible:ring-offset-0 aria-[current=page]:bg-accent-tint aria-[current=page]:text-accent-tint-ink aria-[current=page]:ring-1 aria-[current=page]:ring-inset aria-[current=page]:ring-accent-primary/30 sm:px-2"
           onClick={() => navigate(COMMAND_DESTINATIONS[action])}
         >
           <Icon name={icon} aria-hidden="true" className="h-5 w-5 shrink-0" />

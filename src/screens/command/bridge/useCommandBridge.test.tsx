@@ -26,6 +26,7 @@ import { createLocationState, HistoryAction } from 'lib/woozie';
 import { CommandDraftProvider, useCommandDrafts } from '../command-drafts';
 import { CommandWorkbench } from '../CommandWorkbench';
 import { CommandBridge } from './CommandBridge';
+import { selectCommandBridgeRoute } from './testing/select-route';
 import { useCommandBridge } from './useCommandBridge';
 
 jest.mock('framer-motion', () => ({
@@ -438,7 +439,7 @@ it('shows the exact reviewed native maximum in the actual Command Bridge workben
   fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
   const route = deriveBridgeRoutes(mockSnapshot).find(item => item.provider === 'xreserve' && item.mode === 'send');
   if (!route) throw new Error('Missing native Circle fixture');
-  fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+  selectCommandBridgeRoute(route);
   fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
   fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
     target: { value: accounts.evmAddress }
@@ -456,14 +457,14 @@ it('shows the exact reviewed native maximum in the actual Command Bridge workben
     item => item.provider === 'xreserve' && item.mode === 'receive' && item.source.network === 'sepolia'
   );
   if (!incoming) throw new Error('Missing actual CCTP source fixture');
-  fireEvent.click(screen.getByTestId(`command-bridge-route-${incoming.id}`));
+  selectCommandBridgeRoute(incoming);
   fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1' } });
   await waitFor(() => expect(within(details).getByText('1.01 USDC', { exact: true })).toBeVisible());
   expect(within(details).getByText('commandBridgeSourceTotal')).toBeVisible();
   expect(within(details).queryByText('networkFeeMax')).toBeNull();
 
   fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
-  fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+  selectCommandBridgeRoute(route);
   fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
   fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
     target: { value: accounts.evmAddress }
@@ -730,7 +731,7 @@ it('keeps the rejected admitted workbench readonly with original disclosure and 
   fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
   const route = deriveBridgeRoutes(mockSnapshot).find(item => item.provider === 'xreserve' && item.mode === 'send');
   if (!route) throw new Error('Missing enabled Circle source');
-  fireEvent.click(screen.getByTestId(`command-bridge-route-${route.id}`));
+  selectCommandBridgeRoute(route);
   fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
   fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
     target: { value: accounts.evmAddress }

@@ -51,6 +51,7 @@ export interface SelectAmountProps {
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
+  tokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Required in the default (page) variant, which renders its own Confirm CTA. */
   onConfirm?: () => void;
   /**
@@ -122,6 +123,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   children,
   onAmountChange,
   onSelectToken,
+  tokenAnchorRef,
   onConfirm,
   embedded = false,
   accent = 'brand',
@@ -165,13 +167,18 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
 
   const tokenSelector = (
     <button
+      ref={tokenAnchorRef}
       type="button"
+      aria-haspopup={tokenAnchorRef ? 'dialog' : undefined}
       data-testid="send-token-selector"
       onClick={() => {
         hapticLight();
         onSelectToken();
       }}
-      className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
+      className={clsx(
+        'flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg',
+        tokenAnchorRef ? 'px-3 py-2 hover:bg-fill-pressed' : 'py-1.5 pr-2.5 pl-1.5'
+      )}
     >
       {token ? (
         <TokenLogo faucetId={token.id} size="sm" />

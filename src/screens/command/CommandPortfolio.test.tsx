@@ -39,7 +39,7 @@ let mockCanRecord = false;
 let mockMarketMove: { absolute: number; percentage: number } | null = null;
 let mockCurrent = true;
 let mockEmpty = false;
-let mockValue = '6';
+let mockValue: string | null = '6';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, string>) => {
@@ -92,7 +92,7 @@ jest.mock('./useCommandPortfolio', () => ({
     assets: mockAssets,
     allocation: mockAllocation,
     tokenPrices: {},
-    value: mockCurrent ? mockValue : null,
+    value: mockValue,
     priceMovement24h: mockMarketMove,
     coverage: 'partial',
     coverageKey: 'priced:priced|unpriced:unpriced',
@@ -120,6 +120,36 @@ beforeEach(async () => {
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+it('shows a scoped value during refresh and a quiet placeholder when no value is safe', () => {
+  store.hidden = false;
+  mockCurrent = false;
+  const { rerender } = render(<CommandPortfolio scope={scope} />);
+  expect(within(screen.getByRole('region', { name: 'commandPortfolio' })).getByText('6.00 USD')).toBeVisible();
+  mockValue = null;
+  rerender(<CommandPortfolio scope={scope} />);
+  expect(screen.getByText('---')).toBeVisible();
+});
+
+it('gives history its own full-width row and shows a single dated observation without an empty chart', async () => {
+  store.hidden = false;
+  await realRecord({
+    ...scope,
+    bucket: capturedAt,
+    capturedAt,
+    currency: 'USD',
+    value: '4',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  render(<CommandPortfolio scope={scope} />);
+  const history = screen.getByRole('region', { name: 'commandObservedHistory' });
+  expect(history).toHaveClass('lg:col-span-12');
+  expect(await within(history).findByText(/4.00 USD/)).toBeVisible();
+  expect(within(history).queryByRole('slider')).not.toBeInTheDocument();
+  expect(within(history).queryByTestId('command-chart')).not.toBeInTheDocument();
+  expect(within(history).queryByText('commandObservedOnDevice')).not.toBeInTheDocument();
+});
 
 it('keeps an observation just inside the 1W edge and plots its captured time', async () => {
   store.hidden = false;
@@ -156,7 +186,9 @@ it('keeps an observation just inside the 1W edge and plots its captured time', a
   render(<CommandPortfolio scope={scope} />);
   fireEvent.click(screen.getByRole('radio', { name: '1W' }));
   const chart = await screen.findByTestId('command-chart');
+  expect(chart).toHaveAttribute('data-history-kind', 'observations');
   expect(chart.querySelectorAll('circle')).toHaveLength(2);
+  expect(chart.querySelector('[data-command-chart-area]')).not.toBeInTheDocument();
   expect(Number(chart.querySelector('circle')?.getAttribute('cx'))).toBeGreaterThan(0);
   fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
   expect(screen.getByRole('status').textContent).toContain('4.00 USD');
@@ -184,7 +216,7 @@ it('keeps dense captured runs continuous after thinning but breaks at a real gap
   const area = chart.querySelector('[data-command-chart-area]')?.getAttribute('d');
   expect(area?.match(/M /g)).toHaveLength(3);
   expect(chart.querySelectorAll('circle').length).toBeLessThanOrEqual(365);
-  expect(screen.getByText('commandHistoryGaps')).toBeInTheDocument();
+  expect(screen.getByText('commandHistoryObservationsOnly')).toBeInTheDocument();
 });
 
 it('formats the current and inspected USD values without floating-point tails', async () => {
@@ -315,7 +347,7 @@ it('reveals labelled USD, unknown-priced holdings and the same observed chart sa
   fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
   expect(screen.getByRole('status').textContent).toBe(mouseValue);
   expect(mouseValue).toContain('4.00 USD');
-  expect(screen.getByText('commandHistoryGaps')).toBeInTheDocument();
+  expect(screen.getByText('commandHistoryObservationsOnly')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('radio', { name: '1W' }));
   expect(screen.getByRole('radio', { name: '1W' })).toHaveAttribute('aria-checked', 'true');
 });

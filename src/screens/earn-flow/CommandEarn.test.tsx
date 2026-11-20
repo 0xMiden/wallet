@@ -78,12 +78,13 @@ test('keeps an owned withdrawal enabled while the Command Earn notice names pend
 
 test('keeps owned withdrawals available when deposits are closed and refuses stale positions', () => {
   show({
-    vaults: [{ ...EARN_DATA.vaults[0]!, canOpen: false }],
+    vaults: [{ ...EARN_DATA.vaults[0]!, canOpen: false, depositsEnabled: false }],
     positions: [EARN_DATA.positions[0]!, { ...EARN_DATA.positions[0]!, id: 'stale-position', stale: true }]
   });
   expect(screen.getByTestId(`command-earn-deposit-${EARN_DATA.vaults[0]!.id}`)).toBeDisabled();
   expect(screen.getByTestId(`command-earn-withdraw-${EARN_DATA.positions[0]!.id}`)).toBeEnabled();
   expect(screen.getByTestId('command-earn-withdraw-stale-position')).toBeDisabled();
+  expect(screen.getByText('commandEarnDepositsPaused')).toBeVisible();
 });
 
 test('failed first load offers retry without showing an empty balance or deposit action', () => {

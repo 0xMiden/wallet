@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [CHANGE][extension] Give fullscreen Bread Command a wider portfolio, steadier action switching, and desktop controls for sending, bridging, and viewing activity.
+
 - [FIX][all] Match the bundled testnet Explore catalog to the published catalog.
 
 - [FIX][ci] Exercise the fullscreen Command launcher and wallet actions in existing browser/localnet jobs, and refuse a missing requested E2E Send token instead of selecting another asset.

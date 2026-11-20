@@ -47,11 +47,21 @@ export function CommandHistoryTrace({ points }: { points: HistoryTracePoint[] })
           vectorEffect="non-scaling-stroke"
         />
       ))}
-      <path data-command-chart-area="" d={area.join(' ')} fill={`url(#${fillId})`} />
-      <g fill="none" stroke="var(--accent-primary)" strokeLinecap="round">
-        <path d={path} strokeWidth="7" opacity="0.4" className="[filter:blur(4px)]" vectorEffect="non-scaling-stroke" />
-        <path d={path} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-      </g>
+      {path && (
+        <>
+          <path data-command-chart-area="" d={area.join(' ')} fill={`url(#${fillId})`} />
+          <g fill="none" stroke="var(--accent-primary)" strokeLinecap="round">
+            <path
+              d={path}
+              strokeWidth="7"
+              opacity="0.4"
+              className="[filter:blur(4px)]"
+              vectorEffect="non-scaling-stroke"
+            />
+            <path d={path} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+          </g>
+        </>
+      )}
       {points.map(point => (
         <circle key={point.bucket} cx={point.x} cy={point.y} r="0.35" fill="var(--accent-primary)" />
       ))}
