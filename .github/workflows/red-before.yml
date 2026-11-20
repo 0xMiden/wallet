@@ -177,9 +177,29 @@ jobs:
         run: |
           set -uo pipefail
           read -ra files <<< "$TESTS"
+          # Written outside the checkout, so the tested commit's tree stays as it is.
+          cat > "$RUNNER_TEMP/bigint-json-processor.cjs" <<'PROCESSOR'
+          // Jest's --json writer cannot serialize a bigint, and a failed matcher's result can hold one.
+          module.exports = (results) => {
+            const seen = new WeakSet();
+            const stack = [results];
+            while (stack.length > 0) {
+              const node = stack.pop();
+              if (node === null || typeof node !== 'object' || seen.has(node)) continue;
+              seen.add(node);
+              for (const key of Object.keys(node)) {
+                const value = node[key];
+                if (typeof value === 'bigint') node[key] = `${value}n`;
+                else stack.push(value);
+              }
+            }
+            return results;
+          };
+          PROCESSOR
           # --runTestsByPath: positional paths are exact, not regexes that can
           # match a neighbouring file.
-          args=(--ci --maxWorkers=2 --runTestsByPath --json --outputFile="$RUNNER_TEMP/jest.json")
+          args=(--ci --maxWorkers=2 --runTestsByPath --json --outputFile="$RUNNER_TEMP/jest.json"
+            --testResultsProcessor="$RUNNER_TEMP/bigint-json-processor.cjs")
           if [[ -n "$PATTERN" ]]; then args+=(-t "$PATTERN"); fi
           # The default run shell is `bash -e`: a failing test exits Jest 1,
           # which must not end this step before its exit code is recorded.
