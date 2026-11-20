@@ -532,7 +532,8 @@ describe("Retry's pinned landing takes the private notes of the attempts that ca
     expect(await pushesAfterTheFirstWait(NOW)).toEqual([[OWED, RECIPIENT]]);
   });
 
-  // A stamp with no transaction id, or not made by an execute, binds no landing, so it does not void the one that can.
+  // A stamp the leaf wrote with no transaction id (a hold no longer current, which never submits), or one not made by an
+  // execute, binds no landing, so it does not void the one that can.
   it.each<[string, Partial<ISubmitEvidence>]>([
     ['no transaction id', { transactionId: undefined }],
     ['no execute mark', { fromExecute: undefined }]
@@ -549,5 +550,41 @@ describe("Retry's pinned landing takes the private notes of the attempts that ca
       relayRecipientId: RECIPIENT
     });
     expect(await pushesAfterTheFirstWait(NOW)).toEqual([[OWED, RECIPIENT]]);
+  });
+
+  // Attempt a1 is a Guardian pin whose replayed stamp never arrived (its realm died between the submit and the replay):
+  // it may be the attempt that created P, and nothing on record says what it owes.
+  it.each<[string, Partial<ISubmitEvidence>]>([
+    ['owes a private note', A2],
+    ['proves only public notes', { ...A2, outputNoteIds: [PUBLIC_NOTE], privateOutputNoteIds: [] }]
+  ])('a pinned attempt whose stamp never arrived voids the list of an attempt that %s', async (_t, second) => {
+    const pinned: ISubmitEvidence = {
+      attemptId: 'a1',
+      capturedAt: NOW - 60,
+      source: 'pin',
+      fromExecute: true,
+      raisedFlag: true,
+      endedBy: 'out-of-band',
+      endedAt: NOW - MAX_WAIT_BEFORE_CANCEL - 60
+    };
+    await Repo.transactions.put(
+      failedExecute({ attemptId: 'a2', submitEvidence: [pinned, entry({ capturedAt: NOW - 30, ...second })] })
+    );
+    decodesTo(PUBLIC_NOTE);
+    nodeHolds(PUBLIC_NOTE, OWED);
+    const writes = noteDeliveryWriteCount();
+
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a2' } });
+
+    const row = await read();
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      noteDelivery: 'undelivered',
+      displayMessage: UNDELIVERED
+    });
+    expect(row?.relayNoteIds).toBeUndefined();
+    expect(row?.relayRecipientId).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+    expect(await pushesAfterTheFirstWait(NOW)).toEqual([]);
   });
 });

@@ -574,6 +574,51 @@ describe('the landed write (#1081)', () => {
       expect(row?.transactionId).toBeUndefined();
     });
 
+    // Attempt a2 is a Guardian pin whose replayed stamp never arrived: it may be the attempt that landed, and it read
+    // nothing of what it owes. An id-less stamp the leaf wrote itself is a hold's that was no longer current, which
+    // never submits.
+    const pinnedBeside = (first: Partial<ISubmitEvidence>, source: 'pin' | 'stage') =>
+      unconfirmed({
+        type: 'execute',
+        displayIcon: 'DEFAULT',
+        secondaryAccountId: RECIPIENT,
+        submitEvidence: [bare(first), { attemptId: 'a2', capturedAt: NOW - 30, source, fromExecute: true }]
+      });
+    const LANDINGS: [string, Partial<ISubmitEvidence>, () => NodeReads][] = [
+      ['commitment', {}, () => atFinal().node],
+      ['note', { outputNoteIds: [NOTE] }, () => atFinal({ [NOTE]: 140 }).node],
+      ['nullifier', { nullifiers: [NULLIFIER] }, () => withNullifier()]
+    ];
+
+    it.each(LANDINGS)(
+      'a %s landing beside a pinned attempt whose stamp never arrived is not labelled clean',
+      async (_kind, first, reads) => {
+        await Repo.transactions.put(pinnedBeside(first, 'pin'));
+
+        expect((await judgeAndWrite('tx-1', context(reads()))).kind).toBe('landed');
+
+        const row = await read();
+        expect(row?.displayMessage).toBe(THE_NOTE);
+        expect(row?.noteDelivery).toBe('undelivered');
+        expect(row?.relayNoteIds).toBeUndefined();
+        expect(row?.transactionId).toBeUndefined();
+      }
+    );
+
+    it.each(LANDINGS)(
+      'a %s landing beside an id-less stamp of a hold no longer current keeps the clean Executed label',
+      async (_kind, first, reads) => {
+        await Repo.transactions.put(pinnedBeside(first, 'stage'));
+
+        expect((await judgeAndWrite('tx-1', context(reads()))).kind).toBe('landed');
+
+        const row = await read();
+        expect(row?.displayMessage).toBe('Executed');
+        expect(row?.noteDelivery).toBeUndefined();
+        expect(row?.relayNoteIds).toBeUndefined();
+      }
+    );
+
     const swapRow = (secondOrder: { orderId: string; orderNoteId: string }, same: boolean) => {
       const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
       const order = { orderId: '42', orderNoteId: NOTE };
