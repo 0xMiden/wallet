@@ -1,5 +1,5 @@
 import { DELEGATED_PROVE_TIMEOUT_MS } from 'lib/miden/sdk/delegated-prove-timeout';
-import { someInCauseChain } from 'lib/miden/sdk/sdk-error-code';
+import { markErrorBeforeSubmit, someInCauseChain } from 'lib/miden/sdk/sdk-error-code';
 import { WASM_LOCK_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 
@@ -72,36 +72,65 @@ export function markFailedReexecution(error: unknown): unknown {
 export const isFailedReexecution = (error: unknown): boolean =>
   someInCauseChain(error, link => 'failedReexecution' in link && link.failedReexecution === true);
 
+/** A proof cannot be sent unless a chain tip establishes its freshness within the bounded read. */
+export class ProofFreshnessUnknownError extends Error {
+  readonly errorBeforeSubmit = true;
+
+  constructor() {
+    super(`Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`);
+    this.name = 'ProofFreshnessUnknownError';
+  }
+}
+
+export const isProofFreshnessUnknownError = (error: unknown): boolean =>
+  someInCauseChain(error, link => link instanceof ProofFreshnessUnknownError);
+
 /**
- * The tip, or undefined when it cannot be learned in time. The timeout abandons a read on an RpcClient of its own, so
- * nothing it leaves running touches the WASM client. A failed read gets one more inside the same bound, because the
- * first request after a resume is the one likely to fail and this check matters most then. A freeze across the read
- * still fails open: the running clock keeps one 5 s pulse of every freeze, which outlasts this bound.
+ * The timeout abandons a read on an RpcClient of its own, so nothing it leaves running touches the WASM client. A
+ * failed read gets one more inside the same bound, because the first request after a resume is the one likely to fail.
+ * Check running time when accepting a response as well as when the timer fires: its callback can be delayed.
  */
 const readTipInTime = (readTip: () => Promise<number>): Promise<number | undefined> =>
   new Promise(resolve => {
-    const cancelBound = setRunningTimeout(() => {
-      console.warn('[Guardian] chain tip read outlasted its bound; submitting without a freshness check');
-      resolve(undefined);
+    const startedAt = runningNow();
+    let settled = false;
+    let cancelBound = () => {};
+    const finish = (tip: number | undefined): void => {
+      if (settled) return;
+      settled = true;
+      cancelBound();
+      resolve(tip);
+    };
+    const accept = (tip: number): void => {
+      if (runningNow() - startedAt >= CHAIN_TIP_READ_TIMEOUT_MS) {
+        console.warn('[Guardian] chain tip read outlasted its bound; freshness is unknown');
+        finish(undefined);
+      } else {
+        finish(tip);
+      }
+    };
+    cancelBound = setRunningTimeout(() => {
+      console.warn('[Guardian] chain tip read outlasted its bound; freshness is unknown');
+      finish(undefined);
     }, CHAIN_TIP_READ_TIMEOUT_MS);
-    (async () => {
+    void (async () => {
       try {
-        return await readTip();
+        accept(await readTip());
       } catch (error) {
+        if (runningNow() - startedAt >= CHAIN_TIP_READ_TIMEOUT_MS) {
+          console.warn('[Guardian] chain tip read outlasted its bound; freshness is unknown', error);
+          finish(undefined);
+          return;
+        }
         console.warn('[Guardian] chain tip read failed; reading it once more', error);
-        return readTip();
+        try {
+          accept(await readTip());
+        } catch (retryError) {
+          console.warn('[Guardian] chain tip read failed; freshness is unknown', retryError);
+          finish(undefined);
+        }
       }
-    })().then(
-      tip => {
-        cancelBound();
-        resolve(tip);
-      },
-      error => {
-        cancelBound();
-        console.warn('[Guardian] chain tip read failed; submitting without a freshness check', error);
-        resolve(undefined);
-      }
-    );
+    })();
   });
 
 export interface ProofPass {
@@ -130,7 +159,7 @@ interface FreshProofSteps<T> {
  * so a proof that went stale never counts as sent. A later execution reference block is a later tip, and the
  * co-signatures bind the proposal's own block rather than that one, so the same approval executes again (#2060).
  *
- * An unreadable tip fails open and the proof is sent, since the reconciler still decides whatever the node answers.
+ * An unreadable tip fails before submit: reconciliation cannot establish whether an unchecked proof was accepted.
  * The tip is read every time: a stall can hide in the client's lagging sync height, which no clock here can see.
  *
  * A delegated prove that fails is waited on once. A remote prover's timeout is more than twice a mainnet proof's
@@ -161,7 +190,8 @@ export async function withFreshProof<T>({
     if (expirationBlock === undefined) return proven;
     const tip = await readTipInTime(readTip);
     assertLive();
-    if (tip === undefined || !isProofStale(expirationBlock, tip)) return proven;
+    if (tip === undefined) throw markErrorBeforeSubmit(new ProofFreshnessUnknownError());
+    if (!isProofStale(expirationBlock, tip)) return proven;
     const now = runningNow();
     const elapsed = now - startedAt;
     const pace = now - paceFrom;
