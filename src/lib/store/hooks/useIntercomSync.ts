@@ -163,8 +163,8 @@ export function useIntercomSync() {
         currentRefetchToken.cancelled = true;
         const token = { cancelled: false };
         currentRefetchToken = token;
-        retryFetchState(() => token.cancelled).then(state => {
-          if (state && !token.cancelled) return publishState(state, () => !token.cancelled, syncFromBackend);
+        void retryFetchState(() => token.cancelled).then(async state => {
+          if (state && !token.cancelled) await publishState(state, () => !token.cancelled, syncFromBackend);
         });
       } else if (msg?.type === WalletMessageType.SyncCompleted) {
         // Service worker finished a sync cycle — update sync status

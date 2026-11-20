@@ -2,6 +2,11 @@ import type { BrowserContext, Page } from '@playwright/test';
 
 import { IMPORTED_WALLET_PASSWORD, importWallet } from '../e2e/helpers/import-wallet';
 import { expect, test } from '../fixtures/extension';
+import {
+  NATIVE_ASSET_ID_CACHE,
+  NATIVE_ASSET_META_CACHE,
+  NATIVE_ASSET_SYNCED_ID_CACHE
+} from '../../src/lib/miden-chain/native-asset-cache-keys';
 import type { SyncData } from '../../src/lib/shared/types';
 
 /**
@@ -89,15 +94,22 @@ test.describe('Home network naming', () => {
       .poll(async () => (await readSnapshot())?.balanceSnapshot?.accountNonce, { timeout: 30_000 })
       .toBeDefined();
     const snapshot = await readSnapshot();
+    const scope = `${snapshot.balanceSnapshot?.rpcUrl}|${snapshot.balanceSnapshot?.effectiveNetwork}`;
+    const syncedKey = `${NATIVE_ASSET_SYNCED_ID_CACHE}:${scope}`;
+    // The mock chain uses its own native faucet. Declare its cached display metadata as USDCx
+    // so the real fixed-quote path is exercised without relying on a live token list or feed.
+    await expect
+      .poll(() => worker.evaluate(async key => (await chrome.storage.local.get(key))[key], syncedKey))
+      .toEqual(expect.any(String));
+    const faucetId: string = await worker.evaluate(async key => (await chrome.storage.local.get(key))[key], syncedKey);
+    const metadata = { symbol: 'USDCX', name: 'USDCx', decimals: 6 };
+    await worker.evaluate(values => chrome.storage.local.set(values), {
+      [`${NATIVE_ASSET_ID_CACHE}:${scope}`]: faucetId,
+      [`${NATIVE_ASSET_META_CACHE}:${scope}`]: { ...metadata, faucetId }
+    });
     const page = await openPopup(extensionContext, extensionId, 'en', {
       ...snapshot,
-      vaultAssets: [
-        {
-          faucetId: 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0',
-          amountBaseUnits: '7250000',
-          metadata: { symbol: 'USDCX', name: 'USDCx', decimals: 6 }
-        }
-      ]
+      vaultAssets: [{ faucetId, amountBaseUnits: '7250000', metadata }]
     });
     await expect(page.getByTestId('balance-card-currency')).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-first-balance', '7.25');
