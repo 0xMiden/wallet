@@ -78,9 +78,10 @@ jest.mock('lib/miden-chain/constants', () => ({
 // The pass hydrates the config document before it reads the network's operators.
 const mockInitBridgeConfig = jest.fn(async () => undefined);
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: () => mockInitBridgeConfig() }));
+let mockEffectiveNetwork = 'testnet';
 const mockProvenBadgeNetwork = jest.fn<string | undefined, []>(() => 'testnet');
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
   provenBadgeNetwork: () => mockProvenBadgeNetwork()
 }));
 // The node a terminal fee answer came from: the effective RPC URL and network name.
@@ -151,6 +152,7 @@ function source(endpoint: string, pages: HistoryPage[]) {
 beforeEach(async () => {
   jest.clearAllMocks();
   mockProvenBadgeNetwork.mockReturnValue('testnet');
+  mockEffectiveNetwork = 'testnet';
   forgetUnsupportedHistorySources();
   mockFeeScope = 'rpc-a|testnet';
   await transactions.clear();
@@ -797,6 +799,137 @@ function startRun(context: Partial<Parameters<typeof recoverGuardianHistory>[1]>
     });
   return { state, events, done };
 }
+
+it('publishes the page head while its first output import is pending', async () => {
+  fakeTimers();
+  const firstImport = held();
+  const completedNotes: string[] = [];
+  const checkpoints: Array<{ completed: boolean; notes: string[] }> = [];
+  const actualSave = jest.requireActual<typeof import('../guardian/history-storage')>('../guardian/history-storage')
+    .saveGuardianHistoryCheckpoint;
+  source('https://one', [{ entries: [entry(3), entry(2)] }]);
+  source('https://two', []);
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => ({
+    accountId: account.publicKey,
+    inputNotes: [],
+    outputNotes: [0, 1].map(index => ({
+      id: `note-${encoded}-${index}`,
+      visibility: 'public',
+      assets: [{ faucetId: 'asset', amount: '7' }]
+    }))
+  }));
+  jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async (_encoded, _account, id) => {
+    if (id === 'note-3-0') await firstImport.promise;
+    if (id) completedNotes.push(id);
+  });
+  jest.mocked(saveGuardianHistoryCheckpoint).mockImplementation(async (generation, checkpoint) => {
+    checkpoints.push({ completed: checkpoint.completed, notes: [...completedNotes] });
+    return actualSave(generation, checkpoint);
+  });
+  const pass = startRun();
+  try {
+    await until(() => jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mock.calls.length === 1);
+    const headRow = (await transactions.toArray()).find(row => row.recovery?.nonce === 3);
+    expect(headRow).toBeDefined();
+    expect(headRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      recovered: true,
+      restoredFromBackup: true,
+      recovery: { nonce: 3, finalCommitment: 'commitment-3' }
+    });
+    expect(await transactions.count()).toBe(1);
+    expect((await transactions.toArray()).some(row => row.recovery?.nonce === 2)).toBe(false);
+    expect((await operatorCheckpoint('https://one'))?.cursor).toBeUndefined();
+    expect((await operatorCheckpoint('https://one'))?.completed).not.toBe(true);
+    expect(pass.state.resolved).toBe(false);
+    expect(completedNotes).toEqual([]);
+
+    firstImport.release();
+    await until(() => pass.state.resolved);
+    expect(completedNotes).toEqual(['note-3-0', 'note-3-1', 'note-2-0', 'note-2-1']);
+    expect(checkpoints.filter(checkpoint => checkpoint.completed).every(checkpoint => checkpoint.notes.length === 4)).toBe(
+      true
+    );
+    expect((await operatorCheckpoint('https://one'))?.completed).toBe(true);
+    expect(await transactions.count()).toBe(2);
+  } finally {
+    firstImport.release();
+    try {
+      await until(() => pass.state.resolved);
+      await pass.done;
+    } finally {
+      jest.mocked(saveGuardianHistoryCheckpoint).mockImplementation(actualSave);
+      jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async () => undefined);
+      jest.useRealTimers();
+    }
+  }
+});
+
+it('prefetches only the next delta while current note work is pending', async () => {
+  fakeTimers();
+  const firstImport = held();
+  const secondImport = held();
+  const requestedNonces: number[] = [];
+  const answeredNonces: number[] = [];
+  const completedNotes: string[] = [];
+  const consumed: string[] = [];
+  const client = source('https://one', [{ entries: [entry(3), entry(2), entry(1)] }]);
+  source('https://two', []);
+  jest.spyOn(client, 'getDelta').mockImplementation(async (_account, nonce) => {
+    requestedNonces.push(nonce);
+    await Promise.resolve();
+    answeredNonces.push(nonce);
+    return delta(nonce);
+  });
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => {
+    consumed.push(encoded);
+    return {
+      accountId: account.publicKey,
+      inputNotes: [],
+      outputNotes: [{ id: `note-${encoded}`, visibility: 'public', assets: [] }]
+    };
+  });
+  jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async (encoded, _account, id) => {
+    if (encoded === '3') await firstImport.promise;
+    if (encoded === '2') await secondImport.promise;
+    if (id) completedNotes.push(id);
+  });
+  const pass = startRun();
+  try {
+    await until(() => jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mock.calls.length === 1);
+    expect(requestedNonces).toEqual([3, 2]);
+    expect(answeredNonces).toEqual([3, 2]);
+    expect(consumed).toEqual(['3']);
+    expect(completedNotes).toEqual([]);
+    expect((await transactions.toArray()).map(row => row.recovery?.nonce)).toEqual([3]);
+
+    firstImport.release();
+    await until(() => jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mock.calls.length === 2);
+    expect(requestedNonces).toEqual([3, 2, 1]);
+    expect(answeredNonces).toEqual([3, 2, 1]);
+    expect(consumed).toEqual(['3', '2']);
+    expect(completedNotes).toEqual(['note-3']);
+    expect((await transactions.toArray()).some(row => row.recovery?.nonce === 1)).toBe(false);
+    expect((await operatorCheckpoint('https://one'))?.completed).not.toBe(true);
+
+    secondImport.release();
+    await until(() => pass.state.resolved);
+    expect(consumed).toEqual(['3', '2', '1']);
+    expect(completedNotes).toEqual(['note-3', 'note-2', 'note-1']);
+    expect(await transactions.count()).toBe(3);
+    expect((await operatorCheckpoint('https://one'))?.completed).toBe(true);
+  } finally {
+    firstImport.release();
+    secondImport.release();
+    try {
+      await until(() => pass.state.resolved);
+      await pass.done;
+    } finally {
+      jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async () => undefined);
+      jest.useRealTimers();
+    }
+  }
+});
 
 /** A createClient that waits on `built` for operator two. */
 function slowOperatorTwo(built: { promise: Promise<void> }) {
