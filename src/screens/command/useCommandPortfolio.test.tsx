@@ -4,6 +4,7 @@ import { act, render, screen } from '@testing-library/react';
 
 import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { fixedQuote } from 'lib/prices/fixed';
 import { useWalletStore } from 'lib/store';
 
 import { useCommandPortfolio } from './useCommandPortfolio';
@@ -23,9 +24,13 @@ jest.mock('app/hooks/useHiddenTokens', () => ({
   useHiddenTokens: () => ({ loaded: hiddenReady, isHidden: (id: string) => hidden && id === 'hidden' })
 }));
 jest.mock('lib/miden/swap/tokens', () => ({
-  tokenQuote: (prices: Record<string, typeof quote>, id: string) => prices[id]
+  tokenQuote: (prices: Record<string, typeof quote>, id: string) =>
+    id === 'fixed' ? jest.requireActual('lib/prices/fixed').fixedQuote('USDCX') : prices[id]
 }));
-jest.mock('lib/prices/binance', () => ({ isNominalQuote: (price: { price: number }) => price.price === 1 }));
+jest.mock('lib/prices/binance', () => ({
+  isNominalQuote: (price: { price: number }) =>
+    price.price === 1 && !jest.requireActual('lib/prices/fixed').isFixedQuote(price)
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
   getEffectiveRpcUrl: () => 'https://node-a'
@@ -114,6 +119,26 @@ it('keeps current token identities when quote service is loading or failed, with
     expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
     expect(screen.getByRole('status').textContent).toContain('"priceMovement24h":null');
   }
+});
+
+it('shows a proven USDCx balance while the unrelated market feed is loading, without recording history', () => {
+  expect(fixedQuote('USDCX')?.price).toBe(1);
+  rows = [row('fixed', 7.25)];
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: {}, tokenPricesStatus: 'loading' });
+  render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":"7.25"');
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
 });
 
 it('uses the existing landed store rows without starting a second balance polling hook', () => {

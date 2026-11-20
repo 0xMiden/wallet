@@ -3,6 +3,7 @@
 ## 1.18.1 (TBD)
 
 - [FIX][ci] Verify the original NEAR deposit fee against Guardian history when a restored nightly wallet lacks the local send record.
+- [FIX][extension] Restore the selected account’s last synced balance when reopening the wallet, without waiting for another sync.
 
 - [FIX][ci] Recognize a 1Click mainnet payout that identifies the independently verified Miden deposit note instead of its creator transaction, without relaxing quote or payout verification.
 - [CHANGE][extension] Give fullscreen Bread Command a wider portfolio, steadier action switching, and desktop controls for sending, bridging, and viewing activity.
