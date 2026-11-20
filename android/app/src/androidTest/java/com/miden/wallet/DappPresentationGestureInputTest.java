@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;
@@ -93,17 +94,19 @@ public class DappPresentationGestureInputTest {
                             integer(point, "y", 0, device.getDisplayHeight() - 1));
                     }
                     boolean observeFirstSwipe = executed == 0 && Boolean.TRUE.equals(command.opt("observeFirstSwipe"));
+                    AtomicInteger swipeCheckpoint = new AtomicInteger();
+                    if (observeFirstSwipe) observeSwipeMilestones(swipeCheckpoint);
                     long inputStarted = SystemClock.elapsedRealtime();
                     output.println(reply(id, "started", executed, device).put("inputStartedMs", inputStarted));
-                    if (observeFirstSwipe) reportSwipeMilestone("enter");
+                    if (observeFirstSwipe) swipeCheckpoint.set(1);
                     assertTrue("one continuous UiDevice swipe must inject successfully", device.swipe(path, steps));
                     executed++;
                     long inputEnded = SystemClock.elapsedRealtime();
-                    if (observeFirstSwipe) reportSwipeMilestone("swipe-succeeded");
+                    if (observeFirstSwipe) swipeCheckpoint.set(2);
                     JSONObject injected = reply(id, "injected", executed, device).put("inputEndedMs", inputEnded);
-                    if (observeFirstSwipe) reportSwipeMilestone("reply-built");
+                    if (observeFirstSwipe) swipeCheckpoint.set(3);
                     output.println(injected);
-                    if (observeFirstSwipe) reportSwipeMilestone("write-returned");
+                    if (observeFirstSwipe) swipeCheckpoint.set(4);
                     assertEquals("wallet remains foreground after input", PACKAGE, device.getCurrentPackageName());
                     output.println(reply(id, "done", executed, device)
                         .put("inputStartedMs", inputStarted).put("inputEndedMs", inputEnded));
@@ -113,13 +116,34 @@ public class DappPresentationGestureInputTest {
         }
     }
 
-    private static void reportSwipeMilestone(String milestone) {
-        Bundle status = new Bundle();
-        status.putString("stream", "\nDAPP_SWIPE_MILESTONE_V1 " + milestone + "\n");
+    private static void observeSwipeMilestones(AtomicInteger checkpoint) {
         try {
-            InstrumentationRegistry.getInstrumentation().sendStatus(0, status);
+            Thread observer = new Thread(() -> {
+                try {
+                    Thread.sleep(10_000);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                int stage = checkpoint.get();
+                if (stage == 0) return;
+                String[] milestones = {"enter", "swipe-succeeded", "reply-built", "write-returned"};
+                StringBuilder prefix = new StringBuilder();
+                for (int index = 0; index < stage; index++) {
+                    prefix.append("\nDAPP_SWIPE_MILESTONE_V1 ").append(milestones[index]).append("\n");
+                }
+                Bundle status = new Bundle();
+                status.putString("stream", prefix.toString());
+                try {
+                    InstrumentationRegistry.getInstrumentation().sendStatus(0, status);
+                } catch (RuntimeException ignored) {
+                    // Unavailable instrumentation status must not replace a gesture result.
+                }
+            });
+            observer.setDaemon(true);
+            observer.start();
         } catch (RuntimeException ignored) {
-            // Unavailable instrumentation status must not replace a gesture result.
+            // Unavailable observation must not replace a gesture result.
         }
     }
 
