@@ -144,6 +144,10 @@ it('gives history its own full-width row and shows a single dated observation wi
   });
   render(<CommandPortfolio scope={scope} />);
   const history = screen.getByRole('region', { name: 'commandObservedHistory' });
+  const surface = screen.getByTestId('command-portfolio-surface');
+  expect(surface).toContainElement(screen.getByRole('region', { name: 'commandPortfolio' }));
+  expect(surface).toContainElement(screen.getByRole('region', { name: 'commandAllocation' }));
+  expect(surface).toContainElement(history);
   expect(history).toHaveClass('lg:col-span-12');
   expect(await within(history).findByText(/4.00 USD/)).toBeVisible();
   expect(within(history).queryByRole('slider')).not.toBeInTheDocument();
