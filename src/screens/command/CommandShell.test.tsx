@@ -644,12 +644,11 @@ it.each([false, true])('keeps the cold operation portal mounted while reading pr
   });
 
   expect(screen.getByRole('dialog', { name: 'commandOperation' })).toBe(workbench);
-  if (hidden) {
-    expect(screen.getByText('commandMaskedBalance')).toBeVisible();
-    expect(screen.queryByText('Retry original')).not.toBeInTheDocument();
-  } else {
-    expect(screen.getByRole('button', { name: 'Retry original' })).toBeEnabled();
-  }
+  expect(hidden ? screen.getByText('commandMaskedBalance') : workbench).toBeVisible();
+  expect(screen.queryAllByText('Retry original')).toHaveLength(hidden ? 0 : 1);
+  expect(
+    screen.queryAllByRole<HTMLButtonElement>('button', { name: 'Retry original' }).map(button => button.disabled)
+  ).toEqual(hidden ? [] : [false]);
 });
 
 it('withholds an existing operation and all of its actions while Command privacy is on, then restores the original view', () => {
