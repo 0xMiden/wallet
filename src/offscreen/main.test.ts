@@ -3987,6 +3987,90 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     }
   );
 
+  it.each([
+    ['refused', { ok: false, error: 'operation no longer owns this source' }],
+    ['missing', undefined]
+  ])('owned newTransaction never submits when the existing SW gate response is %s', async (_label, answer) => {
+    await loadModule();
+    const submit = jest.fn();
+    G.__off.clientNewTransaction.mockImplementation(
+      async (
+        _account: string,
+        _bytes: Uint8Array,
+        _delegated: boolean,
+        onStage: (stage: string, detail?: { evidence: { refBlock: number } }) => void | Promise<void>
+      ) => {
+        await onStage('submitting', { evidence: { refBlock: 4 } });
+        submit();
+        return { serialize: () => new Uint8Array([88, 99]) };
+      }
+    );
+    G.chrome.runtime.sendMessage = jest.fn(async (message: { type?: string }) =>
+      message.type === OFFSCREEN_SUBMIT_GATE ? answer : undefined
+    );
+    const reply = new Promise<unknown>(resolve => {
+      capturedListener!(
+        callReq({
+          method: 'newTransaction',
+          argsB64: [encodeArg('acct'), encodeArg(new Uint8Array([1])), encodeArg(false), encodeArg(true)]
+        }),
+        {},
+        resolve
+      );
+    });
+    expect(await reply).toMatchObject({ ok: false });
+    expect(submit).not.toHaveBeenCalled();
+    expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: OFFSCREEN_SUBMIT_GATE,
+        op_id: 'op-abc',
+        evidence: { refBlock: 4 }
+      })
+    );
+  });
+
+  it('owned newTransaction waits for the authoritative gate before its one source submission', async () => {
+    await loadModule();
+    let open: (answer: unknown) => void = () => undefined;
+    const gate = new Promise(resolve => {
+      open = resolve;
+    });
+    const submit = jest.fn();
+    G.chrome.runtime.sendMessage = jest.fn(async (message: { type?: string }) =>
+      message.type === OFFSCREEN_SUBMIT_GATE ? gate : undefined
+    );
+    G.__off.clientNewTransaction.mockImplementation(
+      async (
+        _account: string,
+        _bytes: Uint8Array,
+        _delegated: boolean,
+        onStage: (stage: string, detail?: { evidence: { refBlock: number } }) => void | Promise<void>
+      ) => {
+        await onStage('submitting', { evidence: { refBlock: 4 } });
+        submit();
+        return { serialize: () => new Uint8Array([88, 99]) };
+      }
+    );
+    const reply = new Promise<unknown>(resolve => {
+      capturedListener!(
+        callReq({
+          method: 'newTransaction',
+          argsB64: [encodeArg('acct'), encodeArg(new Uint8Array([1])), encodeArg(false), encodeArg(true)]
+        }),
+        {},
+        resolve
+      );
+    });
+    try {
+      await flush();
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      open({ ok: true });
+    }
+    expect(await reply).toMatchObject({ ok: true });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
   it('dispatches newTransaction (execute) with positional args — requestBytes as raw bytes — and serializes the result (slice 5b)', async () => {
     await loadModule();
     const sendResponse = jest.fn();

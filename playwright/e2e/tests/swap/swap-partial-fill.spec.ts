@@ -60,7 +60,6 @@ test.describe('swap: partial fill + remainder', () => {
     const orderId = await createSwapOrder(walletA, {
       offerSymbol: 'SWPA',
       requestSymbol: 'SWPB',
-      amountAnchor: 'pay',
       payAmount: '10',
       receiveAmount: '9.995'
     });

@@ -2,7 +2,31 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] Match the bundled testnet Explore catalog to the published catalog.
+
+- [FIX][ci] Exercise the fullscreen Command launcher and wallet actions in existing browser/localnet jobs, and refuse a missing requested E2E Send token instead of selecting another asset.
+
+- [FEATURE][extension] Command shows recent wallet activity and existing claim cards, and opens the original transaction progress or receipt without changing settlement, recovery, privacy or signing authority.
+
+- [FEATURE][extension] Bridge in the fullscreen Command workbench reviews real provider quotes, restores unsigned choices and follows original wallet operations without duplicate funding; fixed-input Epoch bridge-in remains unavailable with the installed provider.
+
+- [FEATURE][extension] Open the wallet's existing Recover locked bridge funds page directly from the fullscreen Command Bridge entry.
+
+- [FIX][all] Bind Circle bridge quotes, approvals, burn receipts and manual executions to the original wallet operation, preserving exact payout proof and conservative recovery without duplicate funding or gas prompts.
+
+- [CHANGE][all] Port bridge route, quote-review and recovery contracts from the bridge portal, using accepted wallet configuration and verified token identities without changing transaction execution.
+- [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
+- [FEATURE][extension] Fullscreen Earn lets you select live vaults and owned positions, keeps unsigned deposit and withdrawal amounts across Back and minimize, and uses the existing risk, quote and transaction reviews.
+- [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
+- [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
+- [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.
+- [FEATURE][extension] Add a guarded fullscreen Command shell with direct access to the existing Send, Receive, Swap, Earn and Bridge screens, scoped unsigned drafts and a keyboard action palette; compact, native, locked and confirmation views retain their existing presentation.
+- [FEATURE][extension] Open the unlocked wallet in a new fullscreen tab from a prominent button on the compact Home and action pages; a failed tab opening keeps the compact wallet available to retry.
+- [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
+- [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
+- [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
 - [CHANGE][all] Guardian accounts use the stable Guardian 0.19.0 clients.
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.1 clients.
 - [FIX][ci] Measure the mobile R5 refusal with adjacent WebView sync samples while retaining the two-block limit.
 - [FIX][ci] Create only the deposit wallet in the live iOS USDCx tests.
 - [FIX][all] Switch Guardians when the outgoing Guardian holds an old pending proposal that a replaced device key signed. The recovery key now signs the switch proposal without a read of the Guardian's full pending list.
@@ -51,7 +75,17 @@
 - [FIX][chrome] When the network shows that one of several attempts of a Guardian dApp transaction went through but not which one, and the extension closed before it recorded what one of them sent, the transaction keeps saying a private note could not be delivered instead of taking the other attempt's private notes or showing a plain success.
 - [FIX][all] A dApp transaction that went through without naming a recipient, whose private notes the wallet cannot count afterwards, now says the private note could not be delivered, as one that names its recipient does, instead of showing a plain success.
 
+- [CHANGE][all] Polish onboarding's Guardian steps and wallet-ready screen: new intro illustration on a stage, filled card icons, a Learn more pill, a provider sheet with outlined cards, the fastest operator first under a Fastest pill, and a new wallet-ready illustration with a larger headline.
+- [CHANGE][extension] Redesign the dApp connect window: the site and connecting account up top, what the site can and cannot do as a fact list, matching warning and error notices, Connect held until the private-data consent is ticked, and the app's page header on every confirm window.
+- [CHANGE][extension] Redesign the dApp transaction windows (send, consume, custom): the amount with a summary pill up top, who the money moves between with the network fee, then the request's site, network, note type and note details; a failed Confirm keeps the request in view and offers Try again.
+- [CHANGE][extension] Redesign the dApp signature windows (sign-in, raw value, arbitrary, blind, transaction summary): the Bread and site tiles up top, a heading with a short explanation (a key for sign-in, a caution for values Bread can't preview), the raw value shown open, the transaction summary with the transaction windows' amount header, and the request's site and network on every window.
+- [CHANGE][extension] Restyle the dApp data-request windows (private notes, assets, consumable notes, private-note import) to open like Connect: the Bread and site tiles with the site up top, what it asks for under it, the payload as a titled card, and the private-note download below it; a failed Confirm shows the Couldn't confirm notice and offers Try again.
+- [CHANGE][all] Tidy the Send review: drop the recipient bubble and amount and fee pills that repeated the card below, show the full recipient address right-aligned in the To row, set the USD value and the pending-transfer note in Nunito at 16px, and lay out Advanced options like the other rows, with the transfer type on the right and the expiration under it.
+
 ## 1.18.0 (2026-11-17)
+
+- [FIX][extension] Restore background settings after wallet setup so incoming notes can be claimed automatically when enabled.
+- [FIX][ci] Check the four USDCx burn destinations without counting the network picker and its container as destinations.
 
 - [FIX][all] USDCx burn confirmation shows and records a source-bound native fee maximum. Both signing paths accept only the exact protocol sponsorship for the approved burn within that total cap, and receipts include its actual cost.
 

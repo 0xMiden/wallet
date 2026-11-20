@@ -116,6 +116,7 @@ export interface OffscreenSendDto {
   delegateTransaction?: boolean;
   extraInputs: {
     recallBlocks?: number;
+    calendarRecallTarget?: string;
     oneClick?: {
       fundingDeadline?: string;
       request: { deadline: string };

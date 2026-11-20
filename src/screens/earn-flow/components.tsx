@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
+import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { NetworkChipKind, NetworkLogo } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
@@ -132,6 +133,10 @@ export const EarnVaultClosedNotice: FC<{ canOpen?: boolean; depositsEnabled?: bo
 export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
   const { t } = useTranslation();
   const assetFaucetId = useEarnAssetFaucetId();
+  const command = useFlowPresentation() === 'command';
+  useRegisterCommandFlowBack(goBack);
+
+  if (command) return null;
 
   // No subject (loading, failed or unknown): the header names the route rather than a placeholder
   // vault, so the page keeps its h1.

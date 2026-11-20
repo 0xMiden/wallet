@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import Dexie from 'dexie';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import type { Erc20Holding } from 'lib/agglayer/token-holdings';
@@ -16,6 +17,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -24,9 +26,22 @@ import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure'
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
+import { legacyBridgeReceiveFixture } from './bridge-receive-test-fixture';
 import type { DepositToken } from './deposit-token';
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
+let restoreTrackingLookup: () => void = () => undefined;
+beforeEach(() => {
+  const get = Repo.transactions.get.bind(Repo.transactions);
+  const lookup = jest.spyOn(Repo.transactions, 'get').mockImplementation(key => {
+    const args = jest.mocked(initiateBridgedReceiveTransaction).mock.calls.at(-1)?.[0];
+    if (typeof key === 'string' && key === 'bridge-tx' && args)
+      return Dexie.Promise.resolve(legacyBridgeReceiveFixture(args, key));
+    return get(key);
+  });
+  restoreTrackingLookup = () => lookup.mockRestore();
+});
+afterEach(() => restoreTrackingLookup());
 jest.mock('lib/epoch/bridge-in-lock-scan', () => ({
   compactLockId: () => 42n,
   readCompactLockConfig: jest.fn().mockResolvedValue({

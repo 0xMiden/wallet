@@ -150,7 +150,8 @@ import {
   isPrivateNoteType,
   mayConsume,
   noteConsumeRestriction,
-  reclaimDisabledP2ideTarget
+  reclaimDisabledP2ideTarget,
+  resolveSendReclaimHeight
 } from '../helpers';
 
 export interface GuardianAccountCreationResult {
@@ -1921,38 +1922,40 @@ export class MidenClientInterface {
       : undefined;
     const assertQuotedDeadline = fundingDeadline ? () => assertOneClickDeadline(fundingDeadline) : undefined;
 
-    // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
-    // producer — send UI, dApp path, epoch bridge — passes an offset). This is
-    // the ONE place it becomes an absolute reclaim height; the SDK bakes
-    // `reclaimAfter` verbatim into the P2IDE note inputs. Adding an
-    // already-absolute value here doubles the chain height and makes recall
-    // fail for days (#308).
-    let reclaimAfter: number | undefined;
-    if (extraInputs?.recallBlocks) {
+    const { recallBlocks, calendarRecallTarget } = extraInputs ?? {};
+    let recallSyncHeight = 0;
+    if (recallBlocks || calendarRecallTarget !== undefined) {
       try {
-        const syncResult = await this.syncState();
-        reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
+        recallSyncHeight = (await this.syncState()).blockNum();
       } catch (error) {
         // Before any request exists, so the attempt provably never crossed (#1081).
         throw markErrorBeforeSubmit(error);
       }
     }
+    const resolveReclaimAfter = () => resolveSendReclaimHeight(recallSyncHeight, recallBlocks, calendarRecallTarget);
+    // Local fallback must keep the original note, not build a new one using an expired approval.
+    let calendarRequestBytes: Uint8Array | undefined;
 
     return proveWithFallback(
       async (prover, attempt) => {
         if (this.shouldUseOffscreenProver(prover)) {
           return await this.proveLocallyViaOffscreen(
             async (wasm, inner) => {
-              const args = await buildSendExecuteArgs(
-                wasm,
-                inner,
-                accountId,
-                secondaryAccountId,
-                faucetId,
-                noteType,
-                amount,
-                reclaimAfter
-              );
+              const args = calendarRequestBytes
+                ? {
+                    accountId: resolveAccountId(wasm, accountId),
+                    request: TransactionRequest.deserialize(calendarRequestBytes)
+                  }
+                : await buildSendExecuteArgs(
+                    wasm,
+                    inner,
+                    accountId,
+                    secondaryAccountId,
+                    faucetId,
+                    noteType,
+                    amount,
+                    resolveReclaimAfter
+                  );
               await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), args.request);
               return args;
             },
@@ -1974,19 +1977,22 @@ export class MidenClientInterface {
         const access = this.innerClientAccess();
         // The callback returns the serialized request bytes, which cross the lock
         // boundary safely (a live wasm-bindgen request can't).
-        const requestBytes = await access._withInnerWebClient(async inner => {
-          const { request } = await buildSendExecuteArgs(
-            wasm,
-            inner,
-            accountId,
-            secondaryAccountId,
-            faucetId,
-            noteType,
-            amount,
-            reclaimAfter
-          );
-          return request.serialize();
-        });
+        const requestBytes =
+          calendarRequestBytes ??
+          (await access._withInnerWebClient(async inner => {
+            const { request } = await buildSendExecuteArgs(
+              wasm,
+              inner,
+              accountId,
+              secondaryAccountId,
+              faucetId,
+              noteType,
+              amount,
+              resolveReclaimAfter
+            );
+            return request.serialize();
+          }));
+        if (calendarRecallTarget !== undefined) calendarRequestBytes = requestBytes;
         await onStage?.('executing');
         await awaitTestSendAuthorization(walletAccountIdToSdk(accountId).toString(), { serialize: () => requestBytes });
         // The canonical id, which is what `buildSendExecuteArgs` read the vault
@@ -2261,7 +2267,7 @@ export class MidenClientInterface {
     // A gated write's stamp waits for the service worker to record the crossing, a real parking point, so ownership is
     // asked again whether or not the write has a check of its own before its submit (#1081).
     if (attempt.evicted()) {
-      throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove'));
+      throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove or submit gate'));
     }
     beforeSubmit?.();
     attempt.markSubmitting();
@@ -2438,13 +2444,22 @@ export class MidenClientInterface {
       if (onStage) {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
-      if (beforeSubmit && attempt.evicted()) {
-        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after offscreen prove'));
+      if (attempt.evicted()) {
+        throw new WasmClientPoisonedError(
+          'watchdog',
+          new Error('operation abandoned after offscreen prove or submit gate')
+        );
       }
       beforeSubmit?.();
       // Point of no return — see the identical mark on the inline send path.
       attempt.markSubmitting();
       await access._withInnerWebClient(async inner => {
+        if (attempt.evicted()) {
+          throw new WasmClientPoisonedError(
+            'watchdog',
+            new Error('operation abandoned while acquiring offscreen submit client')
+          );
+        }
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; submit');
         const height = await inner.submitProvenTransaction(proven, txResult);
         recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);
@@ -2980,7 +2995,7 @@ async function buildSendExecuteArgs(
   faucetId: string,
   noteType: NoteType | string,
   amount: string | bigint,
-  reclaimAfter: number | undefined
+  resolveReclaimAfter: () => number | undefined
 ): Promise<{ accountId: any; request: TransactionRequest }> {
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
@@ -3001,7 +3016,7 @@ async function buildSendExecuteArgs(
     typeof amount === 'string' ? BigInt(amount) : amount,
     nt,
     EXPIRATION_DELTA_BLOCKS,
-    reclaimAfter
+    resolveReclaimAfter()
   );
   const senderIdForExec = resolveAccountId(wasm, senderAccountId);
   return { accountId: senderIdForExec, request };

@@ -8,7 +8,6 @@ import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUn
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { Spinner } from 'components/ui/Spinner';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { cn } from 'lib/ui/util';
@@ -26,6 +25,7 @@ import {
 import { EARN_PLACEHOLDER, formatApy, placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnLoading } from './EarnLoading';
+import { EarnPageLayout } from './EarnPageLayout';
 import { ChartDotProps, EarnRiskLevel, EarnVault } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -47,8 +47,9 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   return (
     // The shared pushed-page frame: the header, a body whose sections sit 20px apart, and the CTA
     // pinned under it instead of scrolling away at the end of the page.
-    <SubPageLayout
+    <EarnPageLayout
       data-testid="earn-vault-detail-page"
+      showCommandSubject
       // Named as every earn page names a vault: the protocol over its asset and network, the mark
       // beside them decorative. Until the vault is found the header names the route, never a
       // placeholder vault.
@@ -141,7 +142,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           <VaultAbout vault={vault} />
         </>
       )}
-    </SubPageLayout>
+    </EarnPageLayout>
   );
 };
 

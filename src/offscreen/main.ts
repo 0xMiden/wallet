@@ -522,16 +522,17 @@ function postStageEvent(context: DispatchContext, stage: ITransactionStage, evid
   }
 }
 
-// A single-key write's stage stamps. Where the service worker gates the op, its 'submitting' stamp is that gate,
-// awaited before the submit (#1081): posted fire-and-forget, a stamp whose one write failed left an attempt that crossed
-// with no record of its notes. A refusal is no prover failure, so it leaves as an unrecorded crossing that nothing
-// re-proves, tagged as before the submit. The await parks inside this op's hold, so the client asks ownership again
-// before it submits.
+// A single-key write's stage stamps. Where the service worker gates the op (`gated`: the call's `submitGated`, or a
+// reviewed bridge source's own flag), its 'submitting' stamp is that gate, awaited before the submit (#1081): posted
+// fire-and-forget, a stamp whose one write failed left an attempt that crossed with no record of its notes. A refusal is
+// no prover failure, so it leaves as an unrecorded crossing that nothing re-proves, tagged as before the submit. The
+// await parks inside this op's hold, so the client asks ownership again before it submits.
 function leafStageStamp(
-  context: DispatchContext
+  context: DispatchContext,
+  gated = context.submitGated
 ): (stage: ITransactionStage, detail?: StageDetail) => Promise<void> | void {
   return (stage, detail) => {
-    if (stage !== 'submitting' || !context.submitGated) return postStageEvent(context, stage, detail?.evidence);
+    if (stage !== 'submitting' || !gated) return postStageEvent(context, stage, detail?.evidence);
     return passSubmitGate(context, detail?.evidence).catch(error => {
       throw new SubmitCrossingUnrecordedError(context.op_id, error);
     });
@@ -1007,7 +1008,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   },
 
   // Positional args (accountId, requestBytes, delegateTransaction) mirroring the
-  // SDK signature — `requestBytes` crossed as raw bytes, not JSON. `?? undefined`
+  // SDK signature, then a reviewed bridge source's submit-gate flag — `requestBytes` crossed as raw bytes, not JSON. `?? undefined`
   // maps a JSON-`null` delegate arg (an `undefined` round-tripped through
   // encodeArg) back to the SDK's optional-boolean shape.
   newTransaction: async (
@@ -1015,13 +1016,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     client,
     accountId: string,
     requestBytes: Uint8Array,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    submitGateRequired = false
   ) => {
     const result = await client.newTransaction(
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      leafStageStamp(context)
+      leafStageStamp(context, submitGateRequired || context.submitGated)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has

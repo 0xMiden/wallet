@@ -40,7 +40,7 @@ import {
   TRANSACTION_FORCE_CANCELLED_ERROR,
   INVALID_NOTE_ERROR
 } from './index';
-import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
+import { BridgedSendTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
@@ -712,6 +712,25 @@ describe('transactions utilities', () => {
         expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
       }
     );
+
+    it('copies original Epoch collateral bytes before exposing the native row to its queue', async () => {
+      const bytes = new Uint8Array([81, 82]);
+      await initiateBridgedSendTransaction(
+        'account-a',
+        10n,
+        'faucet-a',
+        '0xrecipient',
+        1,
+        'epoch',
+        'original-note',
+        bytes
+      );
+      const queued = mockQueueOutgoingTransaction.mock.calls.at(-1)?.[0];
+      if (!(queued instanceof BridgedSendTransaction)) throw new Error('Missing actual Epoch row');
+      expect(queued.extraInputs.epochCollateralRequestBytes).toEqual(bytes);
+      expect(queued.extraInputs.epochCollateralRequestBytes?.buffer).not.toBe(bytes.buffer);
+      expect(queued.requestBytes).toBe(bytes);
+    });
 
     it('atomically persists the USDCx burn identity alongside its replayable request', async () => {
       const requestBytes = new Uint8Array([1, 2, 3]);

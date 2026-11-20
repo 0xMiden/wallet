@@ -1,0 +1,224 @@
+{
+  "revision": "c9fa03b273f91d919f0d4eacdaddd63c1387f9bc",
+  "schemaVersion": 1,
+  "id": "mainnet:8",
+  "environment": "mainnet",
+  "document": {
+    "network": "mainnet",
+    "version": 8,
+    "features": {
+      "fastBridge": false,
+      "bridgeIn": true,
+      "bridgeOut": true
+    },
+    "bridge-providers": {
+      "agglayer": {
+        "indexerUrl": "https://bridge-cedar-miden.eu-north-3.gateway.fm/api"
+      },
+      "usdcx": {
+        "midenDomain": 10007,
+        "attestationUrl": "https://xreserve-api.circle.com",
+        "irisUrl": "https://iris-api.circle.com"
+      }
+    },
+    "supportedEvmChains": {
+      "arc": {
+        "chainId": 5042,
+        "bridges": {
+          "usdcx": {
+            "depositEnabled": true,
+            "withdrawalEnabled": true,
+            "domain": 26,
+            "tokens": {
+              "USDC": {
+                "contractAddress": "0x3600000000000000000000000000000000000000"
+              }
+            },
+            "deposit": {
+              "route": "xreserve",
+              "xReserve": "0x8888888199b2Df864bf678259607d6D5EBb4e3Ce"
+            },
+            "executor": {
+              "address": "0xFa7be2f04F3Ad4ca969260729c6d45B5625984A7",
+              "handler": "0x16529813203f77e036576666336554a1210dce4d"
+            }
+          }
+        }
+      },
+      "ethereum": {
+        "chainId": 1,
+        "bridges": {
+          "agglayer": {
+            "depositEnabled": true,
+            "withdrawalEnabled": true,
+            "contractAddress": "0x2a3dd3eb832af982ec71669e178424b10dca2ede",
+            "midenBridgeId": "0x69980662db6f43915a1f4750adabd3",
+            "tokens": {
+              "WBTC": {
+                "contractAddress": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"
+              },
+              "WSOL": {
+                "contractAddress": "0xD31a59c85aE9D8edEFeC411D448f90841571b89c"
+              },
+              "NEAR": {
+                "contractAddress": "0x85F17Cf997934a597031b2E18a9aB6ebD4B9f6a4"
+              },
+              "PAXG": {
+                "contractAddress": "0x45804880De22913dAFE09f4980848ECE6EcbAf78"
+              },
+              "USDT": {
+                "contractAddress": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+              },
+              "WBNB": {
+                "contractAddress": "0x418D75f65a02b3D53B2418FB8E1fe493759c7605"
+              },
+              "PYUSD": {
+                "contractAddress": "0x6c3ea9036406852006290770BEdFcAbA0e23A0e8"
+              }
+            }
+          },
+          "usdcx": {
+            "depositEnabled": true,
+            "withdrawalEnabled": true,
+            "domain": 0,
+            "tokens": {
+              "USDC": {
+                "contractAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+              }
+            },
+            "deposit": {
+              "route": "executor",
+              "executorChain": "arc",
+              "tokenMessenger": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d",
+              "tokenMessengerWithFees": "0x71f54F818671cD0D7ea140Da213e5C8b5C92a408"
+            }
+          }
+        }
+      },
+      "base": {
+        "chainId": 8453,
+        "bridges": {
+          "usdcx": {
+            "depositEnabled": true,
+            "withdrawalEnabled": true,
+            "domain": 6,
+            "tokens": {
+              "USDC": {
+                "contractAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+              }
+            },
+            "deposit": {
+              "route": "executor",
+              "executorChain": "arc",
+              "tokenMessenger": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d",
+              "tokenMessengerWithFees": "0x71f54F818671cD0D7ea140Da213e5C8b5C92a408"
+            }
+          }
+        }
+      },
+      "arbitrum": {
+        "chainId": 42161,
+        "bridges": {
+          "usdcx": {
+            "depositEnabled": true,
+            "withdrawalEnabled": true,
+            "domain": 3,
+            "tokens": {
+              "USDC": {
+                "contractAddress": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+              }
+            },
+            "deposit": {
+              "route": "executor",
+              "executorChain": "arc",
+              "tokenMessenger": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d",
+              "tokenMessengerWithFees": "0x71f54F818671cD0D7ea140Da213e5C8b5C92a408"
+            }
+          }
+        }
+      }
+    }
+  },
+  "derived": {
+    "rollupId": 30,
+    "eth": {
+      "faucetId": "0x419f8f4bff72959132aa7cea15a4c1",
+      "decimals": 8
+    },
+    "usdcxFaucetId": "0xe69e6ca6e39df1b10c1e5399399feb",
+    "agglayerTokens": [
+      {
+        "symbol": "WBTC",
+        "name": "Wrapped BTC",
+        "address": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+        "decimals": 8,
+        "faucetId": "0x3084d3c389ececd15fda9770d18c8a",
+        "midenDecimals": 8
+      },
+      {
+        "symbol": "WSOL",
+        "name": "Wrapped SOL",
+        "address": "0xd31a59c85ae9d8edefec411d448f90841571b89c",
+        "decimals": 9,
+        "faucetId": "0xf4f3dd3678997811522164320be4be",
+        "midenDecimals": 8
+      },
+      {
+        "symbol": "NEAR",
+        "name": "NEAR",
+        "address": "0x85f17cf997934a597031b2e18a9ab6ebd4b9f6a4",
+        "decimals": 24,
+        "faucetId": "0x5fcca2d015cf44d15da1a641d4d06a",
+        "midenDecimals": 8
+      },
+      {
+        "symbol": "PAXG",
+        "name": "Paxos Gold",
+        "address": "0x45804880de22913dafe09f4980848ece6ecbaf78",
+        "decimals": 18,
+        "faucetId": "0x24b95ee2aa5c2ad1679a0316163375",
+        "midenDecimals": 8
+      },
+      {
+        "symbol": "USDT",
+        "name": "Tether USD",
+        "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "decimals": 6,
+        "faucetId": "0x5cb79d29507d3ad17bb6dc60279e89",
+        "midenDecimals": 6
+      },
+      {
+        "symbol": "WBNB",
+        "name": "Wrapped BNB",
+        "address": "0x418d75f65a02b3d53b2418fb8e1fe493759c7605",
+        "decimals": 18,
+        "faucetId": "0x79e82d69d99d9f116f43cb5c063c04",
+        "midenDecimals": 8
+      },
+      {
+        "symbol": "PYUSD",
+        "name": "PayPal USD",
+        "address": "0x6c3ea9036406852006290770bedfcaba0e23a0e8",
+        "decimals": 6,
+        "faucetId": "0xeb4266c94493b091380b25349fddd3",
+        "midenDecimals": 6
+      },
+      {
+        "symbol": "POL",
+        "name": "Polygon Ecosystem Token",
+        "address": "0x455e53cbb86018ac2b8092fdcd39d8444affc3f6",
+        "decimals": 18,
+        "faucetId": "0xa5b56b51edbda2514c711385dc6f31",
+        "midenDecimals": 8
+      },
+      {
+        "symbol": "USDG",
+        "name": "Global Dollar",
+        "address": "0xe343167631d89b6ffc58b88d6b7fb0228795491d",
+        "decimals": 6,
+        "faucetId": "0xfc340a73c8fb25d1412f3fa1fd6d3a",
+        "midenDecimals": 6
+      }
+    ]
+  }
+}

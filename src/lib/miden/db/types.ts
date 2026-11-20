@@ -1,6 +1,8 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { BridgeOperationSnapshot } from 'lib/bridge/operation';
+import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type {
   OneClickAsset,
@@ -228,6 +230,8 @@ export interface IOneClickTrackingData {
 
 export interface ISendExtraInputs {
   recallBlocks?: number;
+  /** Exact ISO date approved by Command Send; authoritative for the first request build. */
+  calendarRecallTarget?: string;
   oneClick?: IOneClickTrackingData;
 }
 
@@ -371,6 +375,11 @@ export interface IConsumedNote {
 export interface IUsdcxCctpLeg {
   /** Circle's domain of the source chain, the key of its Iris messages. */
   sourceDomain: number;
+  /** Verified original source receipt facts, never source or execute consent. */
+  sourceMessage?: string;
+  messageTransmitter?: string;
+  /** Destination wallet invocation ownership; hashless uncertainty never grants another gas prompt. */
+  executeAttempt?: { id: string; phase: 'uncertain' | 'known'; hash?: string };
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
   message?: string;
   attestation?: string;
@@ -408,6 +417,7 @@ export interface IAgglayerDelivery {
 }
 
 export interface IBridgedReceiveExtraInputs {
+  bridgeOperation?: BridgeOperationSnapshot;
   agglayerRoute?: AgglayerRecoveryConfig;
   /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
   agglayerDelivery?: IAgglayerDelivery;
@@ -572,6 +582,10 @@ export interface IUsdcxBurn {
 
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  epochReviewedOutput?: EpochReviewedOutput;
+  /** Local original unsigned collateral, for handoff comparison only; never signing authority or backup data. */
+  epochCollateralRequestBytes?: Uint8Array;
+  bridgeOperation?: BridgeOperationSnapshot;
   agglayerRoute?: AgglayerRecoveryConfig;
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;

@@ -1,3 +1,11 @@
+import {
+  BridgeOperationAlreadyAdmittedError,
+  captureBridgeWalletScope,
+  prepareBridgeOperation,
+  type BridgeOperationInput
+} from 'lib/bridge/operation';
+import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
+import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -55,7 +63,12 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
+import {
+  assertValidRecallBlocks,
+  CalendarRecallReviewRequiredError,
+  resolveSendReclaimHeight,
+  toNoteTypeString
+} from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -1058,7 +1071,8 @@ export const initiateSendTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
   dappOrigin?: string,
-  oneClick?: IOneClickTrackingData
+  oneClick?: IOneClickTrackingData,
+  calendarRecallTarget?: string
 ): Promise<string> => {
   // Every send funnels through here - the wallet's own review screen and the
   // dApp boundary both - so this is where the reclaim window has to be sound.
@@ -1069,6 +1083,10 @@ export const initiateSendTransaction = async (
   // `parseInt`ing a date the user picked from a calendar, so an out-of-range
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
+  if (calendarRecallTarget !== undefined) {
+    if (dappOrigin !== undefined || oneClick !== undefined) throw new CalendarRecallReviewRequiredError();
+    resolveSendReclaimHeight(0, recallBlocks, calendarRecallTarget);
+  }
 
   if (oneClick) {
     assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
@@ -1112,6 +1130,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  if (calendarRecallTarget !== undefined) dbTransaction.extraInputs.calendarRecallTarget = calendarRecallTarget;
   if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(
@@ -1151,8 +1170,11 @@ export const initiateBridgedSendTransaction = async (
   agglayerExitTxHash?: string,
   usdcxBurn?: IUsdcxBurn,
   agglayerRoute?: AgglayerRecoveryConfig,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  operation?: BridgeOperationInput,
+  epochReviewedOutput?: EpochReviewedOutput
 ): Promise<string> => {
+  const walletScope = operation ? captureBridgeWalletScope() : undefined;
   if (!requestBytes?.length) throw new Error(BRIDGED_SEND_MISSING_REQUEST_ERROR);
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -1170,14 +1192,46 @@ export const initiateBridgedSendTransaction = async (
     if (!agglayerRoute) throw new Error('AggLayer recovery values are required');
     dbTransaction.extraInputs.agglayerRoute = agglayerRoute;
   }
-  if (provider === 'epoch') dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+  if (provider === 'epoch') {
+    dbTransaction.extraInputs.epochCollateralRequestBytes = new Uint8Array(requestBytes);
+    dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+    if (epochReviewedOutput !== undefined)
+      dbTransaction.extraInputs.epochReviewedOutput = structuredClone(epochReviewedOutput);
+  }
   if (provider === 'usdcx') {
     if (!requestBytes || !usdcxBurn) throw new Error('USDCx burn requires a persisted request and note id');
     dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
     dbTransaction.noteType = NoteTypeEnum.Public;
   }
   dbTransaction.approvedOutputNoteIds = [ownNoteId];
-  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
+  try {
+    if ((operation && walletScope) || epochReviewedOutput !== undefined) {
+      await queueOutgoingTransaction(
+        dbTransaction,
+        spendsOf(dbTransaction),
+        spendingLimitAuthorization,
+        undefined,
+        async () => {
+          if (operation && walletScope) {
+            dbTransaction.extraInputs.bridgeOperation = await prepareBridgeOperation(
+              dbTransaction,
+              operation,
+              walletScope
+            );
+          }
+          if (epochReviewedOutput !== undefined) {
+            assertEpochReviewedOutput(dbTransaction.extraInputs.epochReviewedOutput);
+            if (!operation) assertCompactEpochScope(dbTransaction.extraInputs.epochReviewedOutput);
+          }
+        }
+      );
+    } else {
+      await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
+    }
+  } catch (error) {
+    if (error instanceof BridgeOperationAlreadyAdmittedError) return error.rowId;
+    throw error;
+  }
 
   return dbTransaction.id;
 };
@@ -1280,7 +1334,9 @@ export const initiateBridgedReceiveTransaction = async (args: {
   sourceSymbol: string;
   outputAmount?: string;
   outputSymbol?: string;
+  operation?: BridgeOperationInput;
 }): Promise<string> => {
+  const walletScope = args.operation ? captureBridgeWalletScope() : undefined;
   const dbTransaction = new BridgedReceiveTransaction(
     args.accountId,
     args.amount,
@@ -1304,8 +1360,21 @@ export const initiateBridgedReceiveTransaction = async (args: {
     dbTransaction.extraInputs.usdcxMidenDomain =
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
-  await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
-  return dbTransaction.id;
+  if (!args.operation || !walletScope) {
+    await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+    return dbTransaction.id;
+  }
+  const operation = args.operation;
+  try {
+    return await Repo.db.transaction('rw', Repo.transactions, async () => {
+      dbTransaction.extraInputs.bridgeOperation = await prepareBridgeOperation(dbTransaction, operation, walletScope);
+      await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+      return dbTransaction.id;
+    });
+  } catch (error) {
+    if (error instanceof BridgeOperationAlreadyAdmittedError) return error.rowId;
+    throw error;
+  }
 };
 
 /**

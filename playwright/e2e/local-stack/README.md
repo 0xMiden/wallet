@@ -14,7 +14,7 @@ those files currently say; when they disagree, the files win.
 | `miden-node` / `miden-validator` / `miden-ntx-builder` / `miden-remote-prover` | built from **rust-sdk `v0.18.2`** (`502b7b79`) | `NODE_SRC_REPO` / `NODE_SRC_REF` in `versions.env` |
 | `miden-note-transport` | built with the node at `NODE_SRC_REF` | installed by `start-test-node.sh` |
 | `miden-client-cli` | `0.18.2` (rev `502b7b79`) | `package.json` `midenClientCliVersion` / `midenClientCliGit.rev` |
-| `guardian` (Tier-2) | `v0.19.0` | `GUARDIAN_IMAGE_TAG` in `versions.env` |
+| `guardian` (Tier-2) | `v0.19.1` | `GUARDIAN_IMAGE_TAG` in `versions.env` |
 
 > **No node image tag.** The published `ghcr.io/0xmiden/*` node images lag the node the SDK is
 > built against, so the node is **compiled and run from source** — miden-client's
@@ -22,7 +22,7 @@ those files currently say; when they disagree, the files win.
 
 > **Move `GUARDIAN_IMAGE_TAG` with the clients.** It names the same version as
 > `@openzeppelin/miden-multisig-client` and `@openzeppelin/guardian-client` in `package.json`, and
-> `playwright/e2e/harness/guardian-pins.test.ts` checks it. Guardian 0.19.0 runs on
+> `playwright/e2e/harness/guardian-pins.test.ts` checks it. Guardian 0.19.1 runs on
 > Miden 0.18. The lifecycle workflow accepts separate image tags for Guardian A and B
 > to test mixed versions. The server and client have to agree on the MASM procedure
 > roots. The lifecycle suite checks that compatibility at runtime.

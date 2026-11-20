@@ -51,7 +51,7 @@ async function openEarn(extensionContext: BrowserContext, extensionId: string, p
   await target.setViewportSize({ width: 900, height: 700 });
   const url = `chrome-extension://${extensionId}/fullpage.html#/earn`;
   await target.goto(url, { waitUntil: 'domcontentloaded' });
-  const earn = target.getByTestId('earn-page');
+  const earn = target.getByTestId('command-earn');
   const unlock = target.getByTestId('unlock-password');
   await earn.or(unlock).first().waitFor({ timeout: 30_000 });
   if (await unlock.isVisible().catch(() => false)) {
@@ -98,7 +98,7 @@ test('renders the wallet while the lookup is pending and enables features when i
   await setEligibilityFixtureState('loading');
   await page.reload({ waitUntil: 'domcontentloaded' });
   const heldSince = Date.now();
-  const earn = page.getByTestId('earn-page');
+  const earn = page.getByTestId('command-earn');
   const swap = page.getByTestId('swap-flow');
   await expect(page.getByTestId('wallet-access-gate')).toHaveCount(0);
   await expect(earn.getByTestId('earn-unavailable-notice')).toHaveAttribute('data-reason', 'pending', {
@@ -136,7 +136,7 @@ test('wallet opens with Earn and Swap unavailable when the lookup fails', async 
   await openEarn(extensionContext, extensionId, page);
 
   await expect(page.getByTestId('wallet-access-gate')).toHaveCount(0);
-  const earnNotice = page.getByTestId('earn-page').getByTestId('earn-unavailable-notice');
+  const earnNotice = page.getByTestId('command-earn').getByTestId('earn-unavailable-notice');
   await expect(earnNotice).toHaveAttribute('data-reason', 'service-down', { timeout: 30_000 });
   await expect(earnNotice).toContainText('Temporarily unavailable');
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`, { waitUntil: 'domcontentloaded' });

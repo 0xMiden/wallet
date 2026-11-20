@@ -1,6 +1,6 @@
 import '../../../../test/jest-mocks';
 
-import { isBalanceReflected } from 'lib/miden/balance-snapshot';
+import { isBalanceReflected, readBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { SerializedVaultAsset } from 'lib/shared/types';
@@ -48,6 +48,32 @@ jest.mock('lib/miden/metadata/overrides', () => ({
 }));
 
 describe('updateBalancesFromSyncData', () => {
+  it('does not turn an old RPC or cached worker payload into a current portfolio proof on landing', async () => {
+    const scope = { accountId: 'account-1', network: 'testnet', rpcUrl: 'https://new-node' };
+    const assets = [
+      { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
+    ];
+    await updateBalancesFromSyncData(scope.accountId, assets, {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: 'https://old-node',
+      capturedAt: Date.now(),
+      accountNonce: '3'
+    });
+    expect(readBalanceSnapshot(useWalletStore.getState().balances[scope.accountId]!, scope)).toBeNull();
+    await updateBalancesFromSyncData(scope.accountId, assets, {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      capturedAt: Date.now(),
+      accountNonce: '3'
+    });
+    expect(readBalanceSnapshot(useWalletStore.getState().balances[scope.accountId]!, scope)).toMatchObject({
+      rpcUrl: scope.rpcUrl
+    });
+    await updateBalancesFromSyncData(scope.accountId, assets);
+    expect(readBalanceSnapshot(useWalletStore.getState().balances[scope.accountId]!, scope)).toBeNull();
+  });
   it('tags only landed balances with the original worker nonce/network, never a fresh arrival time', async () => {
     const assets = [
       { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }

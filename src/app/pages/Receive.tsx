@@ -2,22 +2,35 @@ import React, { useCallback, useEffect, useRef } from 'react';
 
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
+import { CommandReceive } from 'app/pages/Receive/CommandReceive';
+import { useFlowPresentation, type FlowPresentation } from 'components/flow/FlowPresentation';
 import { useAccount } from 'lib/miden/front';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
+import { isBridgeInOfferedOnNetwork, useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { navigate, useLocation } from 'lib/woozie';
 
-export interface ReceiveProps {}
+export interface ReceiveProps {
+  presentation?: FlowPresentation;
+}
 
 /**
- * Receive surface - shows the account address (QR + copy/share). Pending
- * (claimable) notes live in the Activity tab's Pending filter
- * (`ACTIVITY_PENDING_PATH`).
+ * Receive surface: compact shares the current address; Command also reviews
+ * pending notes with the same Activity claim controller.
  */
-const ReceiveManager: React.FC<ReceiveProps> = () => {
+const ReceiveManager: React.FC<ReceiveProps> = ({ presentation }) => {
   const account = useAccount();
+  const flowPresentation = useFlowPresentation();
+  const command = (presentation ?? flowPresentation) === 'command';
   const { pathname } = useLocation();
   const address = account.publicKey;
+  const hasBridgeDocument = useBridgeConfigSnapshot().config !== null;
+  // The same network-offer rule keeps unavailable Bridge visible and controls its polling hold.
+  const bridgeAvailability = useBridgeInAvailability({
+    hold: availability => isBridgeInOfferedOnNetwork(hasBridgeDocument, availability)
+  });
+  const bridgeOffered = isBridgeInOfferedOnNetwork(hasBridgeDocument, bridgeAvailability);
 
   /**
    * `receive_share` is a view flow, and this surface's purpose is to put a
@@ -71,10 +84,23 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
     navigate('/bridge/deposit');
   }, []);
 
+  if (command)
+    return (
+      <CommandReceive
+        address={address}
+        onBridgeDeposit={openBridgeDeposit}
+        bridgeAvailability={bridgeAvailability}
+        bridgeOffered={bridgeOffered}
+      />
+    );
   return (
-    // The shared home-group pane box, the same one Send, Earn and Swap are drawn in.
     <HomeGroupPaneRoot testId="receive-flow">
-      <AddressTab address={address} onBridgeDeposit={openBridgeDeposit} />
+      <AddressTab
+        address={address}
+        onBridgeDeposit={openBridgeDeposit}
+        bridgeAvailability={bridgeAvailability}
+        bridgeOffered={bridgeOffered}
+      />
     </HomeGroupPaneRoot>
   );
 };

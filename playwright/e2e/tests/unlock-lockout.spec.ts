@@ -221,7 +221,7 @@ test.describe('Unlock — wrong password, lockout escalation, and balance contin
 
     await steps.step('unlock_with_the_correct_password', async () => {
       // Reaching the home surface is itself the proof that this password
-      // decrypted the vault key — `unlockWallet` throws if `explore-page` never
+      // decrypted the vault key — `unlockWallet` throws if `command-shell` never
       // renders. wallet-lifecycle.spec.ts already covers that transition on its
       // own; here it is the precondition for the assertion that follows.
       await walletA.unlockWallet();

@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
@@ -34,6 +35,8 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 import { findUsdcxDestinationTransaction } from 'lib/usdcx/destination-transaction';
 import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
+import { CommandOperation } from 'screens/command/CommandOperation';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
@@ -76,6 +79,9 @@ let mockNativeChainMetadata: { symbol: string; decimals: number } | null = { sym
 let mockMaxNetworkFee: string | undefined;
 let mockRow: Tx | undefined;
 let mockRowLoaded = true;
+let mockRowReadFailed = false;
+let mockCommandPrivacyHidden = false;
+const mockRowSubscriptionStart = jest.fn();
 let mockSettlementNotes: {
   settled: string[];
   reclaimed: string[];
@@ -229,7 +235,15 @@ jest.mock('lib/woozie', () => ({
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
-  useTransactionRow: () => ({ row: mockRow, loaded: mockRowLoaded })
+  useTransactionRow: (id: string) => {
+    React.useEffect(() => {
+      mockRowSubscriptionStart(id);
+    }, [id]);
+    return { row: mockRow, loaded: mockRowLoaded, readFailed: mockRowReadFailed };
+  }
+}));
+jest.mock('screens/command/useCommandPrivacy', () => ({
+  useCommandPrivacy: () => [mockCommandPrivacyHidden, jest.fn()]
 }));
 
 let mockPaybackState: { stuck: boolean; failedClaimId?: string; reason?: string } | null = null;
@@ -535,6 +549,8 @@ beforeEach(() => {
 
   mockRow = undefined;
   mockRowLoaded = true;
+  mockRowReadFailed = false;
+  mockCommandPrivacyHidden = false;
   mockPaybackState = null;
   setMockSettlementNotes(settlementNotes([]));
   trackingStore().useSwapOrderTrackingStore.setState({ entries: {} });
@@ -581,6 +597,61 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  it('uses only the Command workbench header when reopening the original receipt', async () => {
+    setMockRow(baseSendTx);
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandWorkbench route={{ kind: 'operation', id: 'tx-1' }} container={document.body}>
+          <HistoryDetails transactionId="tx-1" />
+        </CommandWorkbench>
+      </FlowPresentationProvider>
+    );
+    await flush();
+    expect(screen.getByTestId('command-workbench')).toBeInTheDocument();
+    expect(screen.queryByTestId('screen-header')).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+  });
+
+  it('opens an original Command receipt with exactly one row subscription after privacy reveal', async () => {
+    setMockRow(baseSendTx);
+    mockCommandPrivacyHidden = true;
+    const commandReceipt = () => (
+      <FlowPresentationProvider value="command">
+        <CommandWorkbench route={{ kind: 'operation', id: 'tx-1' }} container={document.body}>
+          <CommandOperation>
+            <HistoryDetails transactionId="tx-1" />
+          </CommandOperation>
+        </CommandWorkbench>
+      </FlowPresentationProvider>
+    );
+    const view = render(commandReceipt());
+    expect(mockRowSubscriptionStart).not.toHaveBeenCalled();
+    mockCommandPrivacyHidden = false;
+    view.rerender(commandReceipt());
+    await flush();
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+    expect(mockRowSubscriptionStart).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('keeps an unknown Command receipt in the original detail error boundary without retry actions', async () => {
+    mockRow = undefined;
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandWorkbench route={{ kind: 'operation', id: 'missing-id' }} container={document.body}>
+          <CommandOperation>
+            <HistoryDetails transactionId="missing-id" />
+          </CommandOperation>
+        </CommandWorkbench>
+      </FlowPresentationProvider>
+    );
+    await flush();
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByTestId('history-retry-button')).not.toBeInTheDocument();
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+    expect(mockRowSubscriptionStart).toHaveBeenCalledWith('missing-id');
+  });
+
   const setOneClickHistoryRow = (
     originBlockchain = 'eth',
     destinationBlockchain = 'miden',
@@ -1441,6 +1512,25 @@ describe('HistoryDetails', () => {
       mockGetTokenMetadata.mockRejectedValue('a plain string');
       await renderAndLoad();
       expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    });
+
+    it('hides stale Retry on a failed row read and restores the same receipt after recovery', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_FAILED, error: 'previous failure' });
+      const view = await renderAndLoad();
+      expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
+
+      mockRowReadFailed = true;
+      view.rerender(<HistoryDetails transactionId="tx-1" />);
+      await flush();
+      expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+      expect(screen.queryByTestId('history-retry-button')).not.toBeInTheDocument();
+      expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+
+      mockRowReadFailed = false;
+      view.rerender(<HistoryDetails transactionId="tx-1" />);
+      await flush();
+      expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
+      expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
     });
 
     it('shows the not-found error when the row subscription settles empty', async () => {
@@ -3836,6 +3926,46 @@ describe('HistoryDetails', () => {
       extraInputs: bridgedReceiveInputs
     };
 
+    it.each([false, true])(
+      'shows a pre-source stop on the original Command receipt only while no approval fact exists (late approval=%s)',
+      async lateApproval => {
+        setMockRow({
+          ...bridgedReceiveTx,
+          extraInputs: {
+            ...bridgedReceiveInputs,
+            provider: 'agglayer',
+            phase: 'submitting',
+            evmTxHash: undefined,
+            bridgeOperation: {
+              version: 1,
+              owner: 'wallet',
+              operationId: 'bridge-in',
+              revision: 'claim',
+              review: {},
+              sourceAttempt: { phase: 'stopped-before-source' },
+              ...(lateApproval && {
+                approvals: [
+                  {
+                    chainId: 11155111,
+                    account: `0x${'1'.repeat(40)}`,
+                    token: `0x${'2'.repeat(40)}`,
+                    spender: `0x${'3'.repeat(40)}`,
+                    amount: '1000000',
+                    hash: `0x${'4'.repeat(64)}`
+                  }
+                ]
+              })
+            }
+          }
+        });
+        await renderAndLoad({ transactionId: 'bridge-in' });
+        expect(screen.getByTestId('history-status-pill')).toHaveTextContent(
+          lateApproval ? 'pending' : 'bridgeStoppedBeforeSending'
+        );
+        expect(screen.queryByText('bridgeReviewChanged')).not.toBeInTheDocument();
+      }
+    );
+
     it('passes the RPC transfer hash to the confirmed USDCx withdrawal details', async () => {
       const hash = `0x${'a'.repeat(64)}`;
       jest.mocked(findUsdcxDestinationTransaction).mockResolvedValueOnce(hash);
@@ -4380,7 +4510,8 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('history-status-pill')).toHaveTextContent('notConfirmed');
     });
 
-    it('hands the bridge section the stamped reclaim height and note id of an unconfirmed bridge-out (#1250)', async () => {
+    it('hands the bridge section the original reclaim account, stamped height and note id (#1250)', async () => {
+      mockAccount = { publicKey: 'acct-B', name: 'Other' };
       setMockRow({
         ...bridgedSendTx,
         status: 3,
@@ -4396,6 +4527,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad({ transactionId: 'bridge-out' });
 
       expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
+        address: 'acct-A',
         isUnconfirmed: true,
         bridgeReclaimHeight: 3016,
         bridgeReclaimNoteId: 'note-stamped'

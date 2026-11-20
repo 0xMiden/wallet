@@ -29,6 +29,7 @@ import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
 
 export interface SendAmountProps {
+  embedded?: boolean;
   /** The token with its spendable balance (the native token's fee reserve already taken off). */
   token?: UIToken;
   amount: string;
@@ -60,6 +61,7 @@ export interface SendAmountProps {
  * made of: the token (with its available balance and Max) and where it goes.
  */
 export const SendAmount: React.FC<SendAmountProps> = ({
+  embedded,
   token,
   amount,
   isValidAmount,
@@ -105,6 +107,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
 
   return (
     <SendStepLayout
+      embedded={embedded}
       title={t('enterAmount')}
       onBack={onBack}
       footer={
@@ -205,22 +208,24 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           </button>
         </div>
 
-        <div className="mx-4 border-t border-rule-default" />
+        {!embedded && <div className="mx-4 border-t border-rule-default" />}
 
-        <div className="flex items-center gap-3 px-4 py-3">
-          <span className="text-sm text-text-muted">{t('to')}</span>
-          <span
-            data-testid="send-amount-recipient"
-            className="min-w-0 flex-1 truncate font-heading text-base font-bold text-ink"
-          >
-            {recipientName ?? truncateAddress(recipientAddress)}
-          </span>
-          {bridgeNetwork ? (
-            <NetworkChip kind="ethereum" network={bridgeNetwork.id} label={bridgeNetwork.name} />
-          ) : (
-            <NetworkChip kind="miden" label={t('miden')} />
-          )}
-        </div>
+        {!embedded && (
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="text-sm text-text-muted">{t('to')}</span>
+            <span
+              data-testid="send-amount-recipient"
+              className="min-w-0 flex-1 truncate font-heading text-base font-bold text-ink"
+            >
+              {recipientName ?? truncateAddress(recipientAddress)}
+            </span>
+            {bridgeNetwork ? (
+              <NetworkChip kind="ethereum" network={bridgeNetwork.id} label={bridgeNetwork.name} />
+            ) : (
+              <NetworkChip kind="miden" label={t('miden')} />
+            )}
+          </div>
+        )}
       </Card>
 
       {tokenHeld && (

@@ -142,6 +142,21 @@ const pendingQuote = () => {
   return { promise, resolve };
 };
 
+it('keeps the provider validity bound to the request, and removes it immediately on input change', async () => {
+  jest.mocked(quoteEpochSendOutput).mockResolvedValue({
+    amount: '4.9',
+    symbol: 'USDC',
+    validity: { kind: 'provider' }
+  });
+  const { result, rerender } = renderHook(props => useEpochQuote(props), { initialProps: READY });
+  await act(async () => undefined);
+  expect(result.current).toEqual(expect.objectContaining({ amount: '4.9', validity: { kind: 'provider' } }));
+  mockHoldDebounce = true;
+  rerender({ ...READY, amount: 6n });
+  expect(result.current.validity).toBeUndefined();
+  expect(result.current.amount).toBeUndefined();
+});
+
 it('names the configured output token until a quote names its own', async () => {
   jest.mocked(quoteEpochSendOutput).mockResolvedValue({ amount: '4.9', symbol: 'USDT' });
   const { result, rerender } = renderHook(props => useEpochQuote(props), {

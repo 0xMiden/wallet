@@ -4,6 +4,7 @@ import { hexFaucetToBech32 } from './faucet-address';
 import { forgetFixtureConfig, setEligibilityFixtureConfig } from './feature-eligibility';
 import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
+import { installSwapTestTokens, openSwapDocument, type SwapTokenDescriptor } from './swap-document';
 import type { ChromeWalletPageApi } from './wallet-page';
 import { IS_LOCALNET } from '../config/environments';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
@@ -47,13 +48,6 @@ const QUOTE_HEADERS = { 'access-control-allow-origin': '*', 'cross-origin-resour
 
 /** Default base-unit amount minted to each side's faucet. */
 export const DEFAULT_FUND_AMOUNT = 100_000_000_000;
-
-export interface SwapTokenDescriptor {
-  symbol: string;
-  /** bech32 faucet id, as the wallet keys balances. */
-  faucetId: string;
-  decimals: number;
-}
 
 export interface SwapPair {
   offer: SwapTokenDescriptor;
@@ -229,15 +223,7 @@ export async function fundSwapPair(
     if (opts.stubQuoteService ?? true) await serveStubQuoteService(w.page, decimalsOf);
     else await w.page.route(`${TESTNET_QUOTE_URL}/**`, route => route.abort());
     // The override lives in the page realm's memory, so it is set after the reload, once the hook is back.
-    await w.page.waitForFunction(
-      () => typeof (window as never as { __TEST_SET_SWAP_TOKENS__?: unknown }).__TEST_SET_SWAP_TOKENS__ === 'function',
-      undefined,
-      { timeout: 60_000 }
-    );
-    await w.page.evaluate(
-      t => (window as never as { __TEST_SET_SWAP_TOKENS__: (t: unknown) => void }).__TEST_SET_SWAP_TOKENS__(t),
-      tokens
-    );
+    await installSwapTestTokens(w.page, tokens);
   }
   return { offer, request, offerFaucetHex, requestFaucetHex };
 }
@@ -245,36 +231,46 @@ export async function fundSwapPair(
 export interface CreateOrderOptions {
   offerSymbol: string;
   requestSymbol: string;
-  /** Only this side is typed; the opposite side must match its quoted expected amount. */
-  amountAnchor: 'pay' | 'receive';
-  /** Expected human amounts, e.g. '10'. */
+  /** Exact human amounts: pay is typed and the readonly receive quote must match. */
   payAmount: string;
   receiveAmount: string;
 }
 
 /** Drive the `#/swap` UI to create a maker order; returns the new on-chain orderId. */
-export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): Promise<string> {
+export async function createSwapOrder(
+  maker: Wallet,
+  opts: CreateOrderOptions,
+  freshDocumentPair?: SwapPair
+): Promise<string> {
   const { page, extensionId } = maker;
   // Capture pre-existing orders so we return the one THIS call creates, even
   // when the same wallet has made earlier orders in a serial spec.
   const before = new Set(await readSwapOrderIds(page));
 
-  await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`);
-  await expect(page.getByTestId('swap-flow')).toBeVisible({ timeout: 30_000 });
+  await openSwapDocument(
+    page,
+    extensionId,
+    'fullpage',
+    freshDocumentPair ? [freshDocumentPair.offer, freshDocumentPair.request] : undefined
+  );
+  const workbench = page.getByTestId('command-shell').getByTestId('command-workbench');
+  await expect(workbench.getByTestId('swap-flow').getByTestId('command-swap-composer')).toBeVisible({ timeout: 30_000 });
+  await expect(workbench.getByTestId('command-footer').getByTestId('swap-review-submit')).toBeVisible();
 
-  await page.getByTestId('send-token-selector').first().click();
+  await workbench.getByTestId('command-swap-composer').getByTestId('send-token-selector').click();
   await page.getByTestId(`swap-token-${opts.offerSymbol}`).click();
-  await page.getByTestId('send-token-selector').nth(1).click();
+  const receive = page.getByTestId('command-swap-receive');
+  await receive.getByRole('button', { name: 'You Receive' }).click();
   await page.getByTestId(`swap-token-${opts.requestSymbol}`).click();
-  const payInput = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
-  const receiveInput = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
-  if (opts.amountAnchor === 'pay') await payInput.fill(opts.payAmount);
-  else await receiveInput.fill(opts.receiveAmount);
+  await expect(receive.getByTestId('send-amount-input')).toHaveCount(0);
+  const payInput = workbench.getByTestId('command-swap-composer').getByTestId('send-amount-input');
+  await payInput.fill(opts.payAmount);
   await expect(payInput).toHaveValue(opts.payAmount);
-  await expect(receiveInput).toHaveValue(opts.receiveAmount);
+  await expect(receive.getByText(opts.receiveAmount, { exact: true })).toHaveCount(1);
 
-  await page.getByTestId('swap-review-submit').click();
-  await page.getByTestId('swap-submit').click();
+  await workbench.getByTestId('command-footer').getByTestId('swap-review-submit').click();
+  await expect(workbench.getByText(`≈ ${opts.receiveAmount} ${opts.requestSymbol}`, { exact: true })).toHaveCount(1);
+  await workbench.getByTestId('command-footer').getByTestId('swap-submit').click();
   await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
 
   let orderId = '';

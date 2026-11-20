@@ -32,14 +32,32 @@ const deposit = (overrides: Record<string, unknown>) =>
 describe('isAgglayerDepositReady', () => {
   it.each([
     { ready_for_claim: true },
-    { ready_to_claim: true },
-    { finalized: true },
-    { finalised: true },
-    { status: 'READY_TO_CLAIM' },
-    { status: 'finalised' }
-  ])('accepts a terminal AggLayer signal: %p', signal => {
+    { ready_for_claim: undefined, ready_to_claim: true },
+    { ready_for_claim: undefined, status: 'READY_TO_CLAIM' },
+    { ready_for_claim: true, ready_to_claim: false },
+    { ready_for_claim: false, ready_to_claim: true },
+    { ready_for_claim: false, status: 'READY_TO_CLAIM' }
+  ])('accepts an explicit destination-ready signal: %p', signal => {
     expect(isAgglayerDepositReady(deposit(signal))).toBe(true);
   });
+
+  it.each([
+    { finalized: true },
+    { finalised: true },
+    { status: 'finalized' },
+    { status: 'finalised' },
+    { ready_for_claim: undefined, finalized: true },
+    { ready_for_claim: undefined, status: 'finalized' }
+  ])('does not promote source finality to destination readiness: %p', signal => {
+    expect(isAgglayerDepositReady(deposit(signal))).toBe(false);
+  });
+
+  it.each(['ready_for_claim', 'ready_to_claim', 'finalized', 'finalised'])(
+    'does not treat a string %s as protocol readiness',
+    field => {
+      expect(isAgglayerDepositReady(deposit({ [field]: 'false' }))).toBe(false);
+    }
+  );
 
   it('keeps a merely indexed deposit pending', () => {
     expect(isAgglayerDepositReady(deposit({ status: 'BRIDGED' }))).toBe(false);
@@ -167,6 +185,17 @@ describe('findAgglayerExitDeposit (#1325)', () => {
   const SIBLING: AgglayerDeposit = { ...LIVE_16, deposit_cnt: 17, tx_hash: `0x${'5'.repeat(64)}` };
 
   beforeEach(() => jest.clearAllMocks());
+
+  it('refuses an exit hash filed against a different destination, including a pinned count', async () => {
+    const wrongRecipient = { ...LIVE_16, dest_addr: `0x${'7'.repeat(40)}` };
+    serve({ pinned: wrongRecipient, page: [wrongRecipient] });
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16)).toBeNull();
+  });
+
+  it('refuses ambiguous copies of the same exit rather than selecting a claimed sibling', async () => {
+    serve({ page: [LIVE_16, { ...LIVE_16, deposit_cnt: 18, amount: '999' }] });
+    await expect(findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16)).rejects.toThrow();
+  });
 
   it('finds live deposit 16, claimed as the indexer serves it, by its exit hash', async () => {
     serve({ page: [SIBLING, LIVE_16] });
