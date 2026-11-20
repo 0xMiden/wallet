@@ -1,4 +1,5 @@
 import React from 'react';
+import { clearInterval, setInterval } from 'timers';
 
 import { act, cleanup, render } from '@testing-library/react';
 import type { DeltaObject, HistoryEntry, HistoryPage, Signer } from '@openzeppelin/guardian-client';
@@ -127,7 +128,10 @@ jest.mock('@openzeppelin/guardian-client', () => ({
 }));
 jest.mock('./miden-client-proxy', () => ({
   midenClientProxy: {
-    getAccount: async () => ({}),
+    getAccount: async () => ({
+      vault: () => ({ fungibleAssets: () => [] }),
+      nonce: () => ({ asInt: () => 0n })
+    }),
     drainPrivateNoteTransport: async () => undefined,
     importRecoveryNoteBytes: async () => ({ imported: 0, failures: 0 }),
     resolveRecoveryScanRange: async () => ({ startBlock: 0, latestBlock: 0 }),
@@ -297,6 +301,31 @@ class SyntheticHistory {
   }
   stamp(event: string) {
     this.events[event] = { fakeMs: Date.now() - this.startFake, wallMs: wallNow() - this.startWall };
+  }
+  reportProgress() {
+    console.info('guardian-history-synthetic-progress', JSON.stringify({
+      fakeMs: Date.now() - this.startFake,
+      wallMs: wallNow() - this.startWall,
+      pages: this.pageCount,
+      requested: this.requested.length,
+      decoded: this.decoded.length,
+      completedNotes: this.completedNotes.length,
+      raw: this.raw,
+      consumers: this.consumers,
+      activeWasm: this.activeWasm,
+      lockHeld: this.hold !== null,
+      due: this.due.size,
+      nextDueMs: this.due.size ? Math.min(...this.due.values()) - Date.now() : null,
+      commits: this.commits,
+      checkpointSnapshots: this.checkpointSnapshots.length,
+      firstPersisted: Boolean(this.events.t_first_persisted_recent_row),
+      firstVisible: Boolean(this.events.t_first_visible_recent_row),
+      allCheckpointsDone: Boolean(this.events.t_all_checkpoints_done),
+      historyRuns: this.historyRuns,
+      directReturns: this.directResults.length,
+      pending: this.pending,
+      cancelling: this.cancelling
+    }));
   }
   observeCheckpoints(value: unknown) {
     if (!value || typeof value !== 'object') return;
@@ -480,25 +509,55 @@ function freshBackend(): Backend {
   };
 }
 
-async function pump(done: () => boolean, limit = 400_000) {
+interface HistoryTestDiagnostics {
+  closed: boolean;
+  intervals: Set<ReturnType<typeof setInterval>>;
+}
+let testDiagnostics: HistoryTestDiagnostics;
+
+async function pump(diagnostics: HistoryTestDiagnostics, done: () => boolean, limit = 400_000) {
   const start = Date.now();
   let idle = 0;
-  while (!done() && Date.now() - start <= limit) {
-    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
-    if (done()) return;
-    const due = Math.min(...mockHarness.due.values());
-    if (Number.isFinite(due)) {
-      idle = 0;
-      await act(async () => { await jest.advanceTimersByTimeAsync(Math.max(0, due - Date.now())); });
-    } else if (++idle > 2_000) {
-      throw new Error(`Synthetic barrier not reached: ${JSON.stringify({
-        events: mockHarness.events,
-        raw: mockHarness.raw,
-        notes: mockHarness.completedNotes.length
-      })}`);
+  let reports = 0;
+  let diagnostic: ReturnType<typeof setInterval> | undefined;
+  if (!diagnostics.closed) {
+    const harness = mockHarness;
+    harness.reportProgress();
+    // Native timers report a stalled pump without advancing its fake clock.
+    const interval = setInterval(() => {
+      if (diagnostics.closed) return;
+      harness.reportProgress();
+      if (++reports === 6) {
+        clearInterval(interval);
+        diagnostics.intervals.delete(interval);
+      }
+    }, 5_000);
+    diagnostic = interval;
+    diagnostics.intervals.add(interval);
+  }
+  try {
+    while (!done() && Date.now() - start <= limit) {
+      await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+      if (done()) return;
+      const due = Math.min(...mockHarness.due.values());
+      if (Number.isFinite(due)) {
+        idle = 0;
+        await act(async () => { await jest.advanceTimersByTimeAsync(Math.max(0, due - Date.now())); });
+      } else if (++idle > 2_000) {
+        throw new Error(`Synthetic barrier not reached: ${JSON.stringify({
+          events: mockHarness.events,
+          raw: mockHarness.raw,
+          notes: mockHarness.completedNotes.length
+        })}`);
+      }
+    }
+    if (!done()) throw new Error('Synthetic fake-clock safety ceiling exceeded');
+  } finally {
+    if (diagnostic) {
+      clearInterval(diagnostic);
+      diagnostics.intervals.delete(diagnostic);
     }
   }
-  if (!done()) throw new Error('Synthetic fake-clock safety ceiling exceeded');
 }
 
 const originalFetch = globalThis.fetch;
@@ -521,9 +580,18 @@ afterAll(() => {
   globalThis.fetch = originalFetch;
   window.matchMedia = originalMatchMedia;
 });
-afterEach(() => { cleanup(); jest.useRealTimers(); });
+beforeEach(() => {
+  testDiagnostics = { closed: false, intervals: new Set() };
+});
+afterEach(() => {
+  testDiagnostics.closed = true;
+  for (const interval of testDiagnostics.intervals) clearInterval(interval);
+  testDiagnostics.intervals.clear();
+  cleanup();
+  jest.useRealTimers();
+});
 
-async function fixture(overlap: boolean) {
+async function fixture(overlap: boolean, diagnostics: HistoryTestDiagnostics) {
   mockStorage.clear();
   await transactions.clear();
   await clearGuardianHistoryCheckpoints();
@@ -572,7 +640,7 @@ async function fixture(overlap: boolean) {
     dispose: async () => {
       mockHarness.cancel();
       try {
-        await pump(() => mockHarness.raw === 0 && mockHarness.consumers === 0 &&
+        await pump(diagnostics, () => mockHarness.raw === 0 && mockHarness.consumers === 0 &&
           mockHarness.directResults.length === mockHarness.historyRuns);
         for (let index = 0; index < 20; index++) {
           await act(async () => { await jest.advanceTimersByTimeAsync(0); });
@@ -590,9 +658,9 @@ async function fixture(overlap: boolean) {
   };
 }
 
-async function finish(backend: Backend) {
-  await pump(() => !mockHarness.pending);
-  await pump(() => mockHarness.directResults.length > 0);
+async function finish(backend: Backend, diagnostics: HistoryTestDiagnostics) {
+  await pump(diagnostics, () => !mockHarness.pending);
+  await pump(diagnostics, () => mockHarness.directResults.length > 0);
   const state = await readGuardianHistoryState();
   expect(Object.values(state.checkpoints)).toHaveLength(mockHarness.operators.length);
   expect(Object.values(state.checkpoints).every(checkpoint => checkpoint.completed && !checkpoint.failure)).toBe(true);
@@ -660,16 +728,17 @@ function measurements(label: string) {
 }
 
 it('benchmarks first visible history and complete recovery for 1214 synthetic records', async () => {
+  const diagnostics = testDiagnostics;
   const samples: ReturnType<typeof measurements>[] = [];
   for (let index = 0; index < 5; index++) {
-    const test = await fixture(false);
+    const test = await fixture(false, diagnostics);
     try {
       expect(await test.backend.recovery.maybeStartGuardianRecovery(account)).toBe(true);
-      await finish(test.backend);
+      await finish(test.backend, diagnostics);
       // The normal SWR poll is allowed to draw the known head, never forced through mutate or a shorter interval.
       if (!mockHarness.events.t_first_visible_recent_row) {
         await act(async () => { await jest.advanceTimersByTimeAsync(10_000); });
-        await pump(() => Boolean(mockHarness.events.t_first_visible_recent_row));
+        await pump(diagnostics, () => Boolean(mockHarness.events.t_first_visible_recent_row));
       }
       expect(mockHarness.pageCount).toBe(25);
       expect(mockHarness.rawEntries).toBe(RECORDS);
@@ -697,10 +766,11 @@ it('benchmarks first visible history and complete recovery for 1214 synthetic re
 }, 180_000);
 
 it('completes overlapping synthetic sources without duplicate receipts', async () => {
-  const test = await fixture(true);
+  const diagnostics = testDiagnostics;
+  const test = await fixture(true, diagnostics);
   try {
     expect(await test.backend.recovery.maybeStartGuardianRecovery(account)).toBe(true);
-    await finish(test.backend);
+    await finish(test.backend, diagnostics);
     expect(mockHarness.rawEntries).toBe(1_236);
     expect(mockHarness.completedNotes).toHaveLength(2_472);
     expect(mockHarness.pageCount).toBe(26);
@@ -713,16 +783,17 @@ it('completes overlapping synthetic sources without duplicate receipts', async (
 }, 90_000);
 
 it('resumes synthetic history without skipping note completion', async () => {
-  const test = await fixture(true);
+  const diagnostics = testDiagnostics;
+  const test = await fixture(true, diagnostics);
   let resumed: Backend | undefined;
   try {
     mockHarness.pauseNote = `synthetic-output-${RECORDS}-0`;
     expect(await test.backend.recovery.maybeStartGuardianRecovery(account)).toBe(true);
-    await pump(() => mockHarness.pauseReached);
+    await pump(diagnostics, () => mockHarness.pauseReached);
     const headRow = await transactions.get(rowId(RECORDS));
     expect(headRow).toBeDefined();
     await act(async () => { await jest.advanceTimersByTimeAsync(10_000); });
-    await pump(() => Boolean(mockHarness.events.t_first_visible_recent_row));
+    await pump(diagnostics, () => Boolean(mockHarness.events.t_first_visible_recent_row));
     expect(document.querySelector(`[data-entry-key="${headKey}"]`)).not.toBeNull();
     const headSnapshot = await readGuardianHistoryState();
     expect(
@@ -731,8 +802,8 @@ it('resumes synthetic history without skipping note completion', async () => {
     expect(mockHarness.pending).toBe(true);
     mockHarness.locked = true;
     mockHarness.pausedImport?.();
-    await pump(() => mockHarness.directResults.length === 1);
-    await pump(() => mockHarness.raw === 0 && mockHarness.consumers === 0);
+    await pump(diagnostics, () => mockHarness.directResults.length === 1);
+    await pump(diagnostics, () => mockHarness.raw === 0 && mockHarness.consumers === 0);
     const firstCompletedNotes = mockHarness.completedNotes.length;
     const progress = await fetchGuardianNoteRecoveryProgress(account.publicKey);
     expect(progress?.historyGeneration).toBe(headSnapshot.generation);
@@ -742,22 +813,22 @@ it('resumes synthetic history without skipping note completion', async () => {
     mockHarness.pauseReached = false;
     resumed = freshBackend();
     expect(await resumed.recovery.maybeStartGuardianRecovery(account)).toBe(true);
-    await pump(() => mockHarness.pauseReached);
+    await pump(diagnostics, () => mockHarness.pauseReached);
     const pageSnapshot = await readGuardianHistoryState();
     const previous = Object.values(pageSnapshot.checkpoints).find(checkpoint => checkpoint.operator === PREVIOUS);
     expect(previous).toMatchObject({ cursor: '50', entryCount: 50, completed: false });
     expect(mockHarness.pending).toBe(true);
     mockHarness.locked = true;
     mockHarness.pausedImport?.();
-    await pump(() => mockHarness.directResults.length === 2);
-    await pump(() => mockHarness.raw === 0 && mockHarness.consumers === 0);
+    await pump(diagnostics, () => mockHarness.directResults.length === 2);
+    await pump(diagnostics, () => mockHarness.raw === 0 && mockHarness.consumers === 0);
     const secondCompletedNotes = mockHarness.completedNotes.length;
     resumed.dispose();
     mockHarness.locked = false;
     mockHarness.pauseNote = undefined;
     resumed = freshBackend();
     expect(await resumed.recovery.maybeStartGuardianRecovery(account)).toBe(true);
-    await finish(resumed);
+    await finish(resumed, diagnostics);
     expect((await readGuardianHistoryState()).generation).toBe(headSnapshot.generation);
     // Each stopped first-output call returns once before the guard notices the lock; both are replayed.
     expect(firstCompletedNotes).toBe(1);
