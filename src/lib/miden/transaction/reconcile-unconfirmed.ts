@@ -144,25 +144,37 @@ const notesOfTransaction = (row: Pick<ITransaction, 'submitEvidence'>, transacti
 };
 
 /**
- * The execute stamp whose private notes a landing proven by a note owes, when no transaction id is bound: the attempts
- * that can have created that note (not proven dead, not retired before its submit, an execute's with its transaction
- * id, naming the note, their window admitting its block) all read the same private notes, the agreement
+ * A Guardian attempt pinned before its offscreen dispatch whose replayed stamp never arrived: it may have submitted,
+ * and it recorded nothing of what, so it can have produced any unbound landing. An id-less stamp the leaf wrote itself
+ * is a hold's that was no longer current, which never submits.
+ */
+const isPinOnly = (entry: ISubmitEvidence): boolean => entry.source === 'pin' && entry.transactionId === undefined;
+
+/**
+ * Can have created `proof.noteId`: not proven dead, not retired before its submit, naming the note with its transaction
+ * id or a pin ({@link isPinOnly}) whose notes no list rules out, its window admitting the note's block.
+ */
+const mayHaveCreatedNote = (entry: ISubmitEvidence, proof: { noteId: string; block: number }): boolean =>
+  isUnresolvedEntry(entry) &&
+  (isPinOnly(entry)
+    ? entry.outputNoteIds?.includes(proof.noteId) !== false
+    : entry.transactionId !== undefined && entry.outputNoteIds?.includes(proof.noteId) === true) &&
+  admitsInclusionAt(entry, proof.block);
+
+/**
+ * The execute stamp whose private notes a landing proven by a note owes, when no transaction id is bound: the execute
+ * attempts that can have created that note ({@link mayHaveCreatedNote}) all read the same private notes, the agreement
  * {@link notesOfTransaction} asks. A script whose notes depend on state can create other notes on a replay, and the
- * note alone cannot say which attempt landed, so with none that can, or two that disagree, nothing is owed and the row
- * keeps the warning that a private note may not have been delivered. An unbound landing of any proof kind selects
- * through {@link unboundLandingStamp}, which keeps this filter for a note.
+ * note alone cannot say which attempt landed, so with none that can, two that disagree, or one that read no list,
+ * nothing is owed and the row keeps the warning that a private note may not have been delivered. An unbound landing of
+ * any proof kind selects through {@link unboundLandingStamp}, which keeps this filter for a note.
  */
 export const landedNoteStamp = (
   row: Pick<ITransaction, 'submitEvidence'>,
   proof: { noteId: string; block: number }
 ): ISubmitEvidence | undefined => {
   const candidates = (row.submitEvidence ?? []).filter(
-    entry =>
-      isUnresolvedEntry(entry) &&
-      entry.fromExecute === true &&
-      entry.transactionId !== undefined &&
-      entry.outputNoteIds?.includes(proof.noteId) === true &&
-      admitsInclusionAt(entry, proof.block)
+    entry => entry.fromExecute === true && mayHaveCreatedNote(entry, proof)
   );
   const owed = candidates.map(entry => privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds));
   const [first] = candidates;
@@ -174,13 +186,14 @@ export const landedNoteStamp = (
 };
 
 /**
- * Attempts that can have produced an unbound landing of `proof`, the execute mark aside. Unresolved is the stored
- * row, the same {@link isUnresolvedEntry} test {@link landedNoteStamp} uses, and not judged never-committed by this
- * pass: the write runs before those verdicts are stored, and an attempt the pass proved dead cannot have produced the
- * landing. A note admits one that names it and whose window admits its block, without that pass's verdict, so the
- * order candidates stay the note filter above. A commitment admits one whose recorded final commitment is absent or
- * the landed attempt's. A nullifier admits one a recorded nullifier list does not omit the proof's nullifier from, and
- * whose recorded final commitment does not differ from the proof's.
+ * Attempts that can have produced an unbound landing of `proof`, the execute mark aside: with a transaction id, or a
+ * pin ({@link isPinOnly}). Unresolved is the stored row, the same {@link isUnresolvedEntry} test
+ * {@link landedNoteStamp} uses, and not judged never-committed by this pass: the write runs before those verdicts are
+ * stored, and an attempt the pass proved dead cannot have produced the landing. A note admits
+ * {@link mayHaveCreatedNote}, without that pass's verdict, so the order candidates stay the note filter above. A
+ * commitment admits one whose recorded final commitment is absent or the landed attempt's. A nullifier admits one a
+ * recorded nullifier list does not omit the proof's nullifier from, and whose recorded final commitment does not differ
+ * from the proof's.
  */
 const unboundLandingAttempts = (
   row: Pick<ITransaction, 'submitEvidence'>,
@@ -189,10 +202,8 @@ const unboundLandingAttempts = (
   deadThisPass: ReadonlySet<string>
 ): ISubmitEvidence[] =>
   (row.submitEvidence ?? []).filter(entry => {
-    if (!isUnresolvedEntry(entry) || entry.transactionId === undefined) return false;
-    if (proof.kind === 'note') {
-      return entry.outputNoteIds?.includes(proof.noteId) === true && admitsInclusionAt(entry, proof.block);
-    }
+    if (proof.kind === 'note') return mayHaveCreatedNote(entry, proof);
+    if (!isUnresolvedEntry(entry) || (entry.transactionId === undefined && !isPinOnly(entry))) return false;
     if (deadThisPass.has(entry.attemptId)) return false;
     if (proof.kind === 'commitment') {
       return entry.finalCommitment === undefined || entry.finalCommitment === landedFinal;
