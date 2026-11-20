@@ -137,11 +137,11 @@ describe('withFreshProof', () => {
     expect(executions).toHaveLength(1 + MAX_PROOF_REEXECUTIONS);
   });
 
-  it('submits as before when the tip read rejects', async () => {
+  it('fails before submit when both bounded tip reads reject', async () => {
     const { pending, executions } = run([STALE], async () => {
       throw new Error('node down');
     });
-    await expect(pending).resolves.toEqual({ expirationBlock: STALE });
+    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
     expect(executions).toEqual([false]);
   });
 
@@ -174,12 +174,12 @@ describe('withFreshProof', () => {
       .mockImplementation(() => new Promise<number>(() => {}));
     const { pending, executions } = run([STALE], readTip);
     await jest.advanceTimersByTimeAsync(1);
-    await expect(pending).resolves.toEqual({ expirationBlock: STALE });
+    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
     expect(readTip).toHaveBeenCalledTimes(2);
     expect(executions).toEqual([false]);
   });
 
-  it('fails open when the app freezes across the read, whose bound a freeze still spends', async () => {
+  it('fails closed when the app freezes across the read, whose bound a freeze still spends', async () => {
     jest.useFakeTimers();
     __resetBackgroundTimeForTest();
     const doc = installHiddenDocument();
@@ -190,7 +190,7 @@ describe('withFreshProof', () => {
       doc.setHidden(true);
       doc.freezeFor(60_000);
       doc.setHidden(false);
-      await expect(pending).resolves.toEqual({ expirationBlock: STALE });
+      await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
       expect(executions).toEqual([false]);
     } finally {
       __resetBackgroundTimeForTest();
@@ -198,19 +198,31 @@ describe('withFreshProof', () => {
     }
   });
 
-  it('submits as before when the tip read throws where it is called', async () => {
+  it('fails before submit when the tip read throws where it is called', async () => {
     const { pending, executions } = run([STALE], () => {
       throw new Error('no endpoint');
     });
-    await expect(pending).resolves.toEqual({ expirationBlock: STALE });
+    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
     expect(executions).toEqual([false]);
   });
 
-  it('submits as before when the tip read outlasts its bound', async () => {
+  it('fails before submit when the tip read outlasts its bound', async () => {
     jest.useFakeTimers();
     const { pending, executions } = run([STALE], () => new Promise<number>(() => {}));
     await jest.advanceTimersByTimeAsync(CHAIN_TIP_READ_TIMEOUT_MS);
-    await expect(pending).resolves.toEqual({ expirationBlock: STALE });
+    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+    expect(executions).toEqual([false]);
+  });
+
+  it('rejects a tip delivered after the deadline before the overdue timer callback runs', async () => {
+    jest.useFakeTimers();
+    let now = performance.now();
+    jest.spyOn(performance, 'now').mockImplementation(() => now);
+    let answer!: (tip: number) => void;
+    const { pending, executions } = run([STALE], () => new Promise<number>(resolve => (answer = resolve)));
+    now += CHAIN_TIP_READ_TIMEOUT_MS;
+    answer(TIP);
+    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
     expect(executions).toEqual([false]);
   });
 
