@@ -292,6 +292,15 @@ describe('ApplyAfterSubmitError', () => {
     }
   });
 
+  it('extractLanded keeps a completed local apply only as true', () => {
+    expect(extractLanded({ landed: { applied: true } })).toEqual({ applied: true });
+    for (const applied of [false, 'true', 1, null, {}]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', applied } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
+  });
+
   it('extractLanded keeps a string final account commitment and drops any other (#1233)', () => {
     expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment: '0xfinal' } })).toEqual({
       transactionId: '0xlanded',

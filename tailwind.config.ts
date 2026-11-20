@@ -194,6 +194,8 @@ export default {
         'rule-strong': 'var(--rule-strong)',
         // Design system, direction B. See skills/miden-wallet-frontend/references/design-system.md.
         page: 'var(--ds-page)',
+        'launcher-fill': 'var(--ds-launcher-fill)',
+        'launcher-ink': 'var(--ds-launcher-ink)',
         /* The dim behind a sheet or an overlay — one value in both themes, no blur. */
         scrim: 'var(--ds-scrim)',
         fill: 'var(--ds-fill)',

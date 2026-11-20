@@ -1,5 +1,6 @@
 import { updateTransactionStatus } from './helper';
 import {
+  readRowWithinTerminalBudget,
   TERMINAL_STATUS_WRITE_ATTEMPTS,
   TERMINAL_STATUS_WRITE_BACKOFF_MS,
   writeCommittedCompleted
@@ -159,5 +160,66 @@ describe('writeCommittedCompleted', () => {
       { displayMessage: 'first read done' },
       { displayMessage: 'second read done' }
     ]);
+  });
+});
+
+describe('readRowWithinTerminalBudget', () => {
+  const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+  const plainWhere = repo.transactions.where.getMockImplementation()!;
+
+  /** A read whose first `failures` calls reject as an IndexedDB abort, recording when each call ran. */
+  const failReads = (failures: number) => {
+    const calls: number[] = [];
+    repo.transactions.where.mockImplementation((query: { id: string }) => ({
+      first: async () => {
+        calls.push(Date.now());
+        if (calls.length <= failures) throw new Error('IndexedDB transaction aborted');
+        return plainWhere(query).first();
+      }
+    }));
+    return calls;
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    rows.length = 0;
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    repo.transactions.where.mockImplementation(plainWhere);
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('retries a read that rejects and returns the row once it reads', async () => {
+    storeRow(ITransactionStatus.GeneratingTransaction);
+    const calls = failReads(1);
+
+    const read = await runToEnd(readRowWithinTerminalBudget('row-1', 'test'));
+
+    expect(read).toMatchObject({ id: 'row-1', status: ITransactionStatus.GeneratingTransaction });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(TERMINAL_STATUS_WRITE_BACKOFF_MS);
+    expect(console.warn).toHaveBeenCalledWith(
+      `Could not read the test row (attempt 1/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
+      expect.objectContaining({ message: 'IndexedDB transaction aborted' })
+    );
+  });
+
+  it('resolves undefined after the whole budget without rejecting', async () => {
+    storeRow(ITransactionStatus.GeneratingTransaction);
+    const calls = failReads(Infinity);
+
+    await expect(runToEnd(readRowWithinTerminalBudget('row-1', 'test'))).resolves.toBeUndefined();
+    expect(calls).toHaveLength(TERMINAL_STATUS_WRITE_ATTEMPTS);
+  });
+
+  it('answers a missing row from one read', async () => {
+    const calls = failReads(0);
+
+    await expect(runToEnd(readRowWithinTerminalBudget('row-1', 'test'))).resolves.toBeUndefined();
+    expect(calls).toHaveLength(1);
+    expect(console.warn).not.toHaveBeenCalled();
   });
 });

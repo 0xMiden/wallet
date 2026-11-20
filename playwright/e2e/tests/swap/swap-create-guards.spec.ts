@@ -4,6 +4,7 @@ import { IS_LOCALNET } from '../../config/environments';
 import { expect, test } from '../../fixtures/two-wallets';
 import { forgetFixtureConfig, setEligibilityFixtureConfig } from '../../helpers/feature-eligibility';
 import { fundSwapPair } from '../../helpers/swap';
+import { openSwapDocument } from '../../helpers/swap-document';
 
 /** Exact receive and create-side guards, without submitting an order. */
 test.describe('swap: create-side guards', () => {
@@ -90,7 +91,7 @@ test.describe('swap: create-side guards', () => {
     await walletB.createNewWallet();
 
     // A funded with 1000 SWPA (fundSwapPair default); registry set. The document and quote answers are the ones above.
-    await fundSwapPair(
+    const pair = await fundSwapPair(
       midenCli,
       walletA,
       walletB,
@@ -98,8 +99,9 @@ test.describe('swap: create-side guards', () => {
       timeline
     );
 
-    await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`);
-    await expect(page.getByTestId('swap-flow')).toBeVisible({ timeout: 30_000 });
+    // Keep the editable exact-receive regression in the real compact layout.
+    await openSwapDocument(page, extensionId, 'sidepanel', [pair.offer, pair.request]);
+    await expect(page.getByTestId('swap-flow').getByTestId('swap-receive-side')).toBeVisible({ timeout: 30_000 });
 
     await page.getByTestId('send-token-selector').first().click();
     await page.getByTestId('swap-token-SWPA').click();
@@ -143,5 +145,35 @@ test.describe('swap: create-side guards', () => {
     // Guard 3: zero requested amount -> disabled again.
     await requestInput.fill('0');
     await expect(review).toBeDisabled();
+
+    // Command has one editable Pay field and a readonly quoted Receive; retain the
+    // same no-price, balance and zero guards without granting a new submit path.
+    await openSwapDocument(page, extensionId, 'fullpage', [pair.offer, pair.request]);
+    const workbench = page.getByTestId('command-shell').getByTestId('command-workbench');
+    const composer = workbench.getByTestId('command-swap-composer');
+    await expect(composer).toBeVisible({ timeout: 30_000 });
+    await composer.getByTestId('send-token-selector').click();
+    await page.getByTestId('swap-token-SWPA').click();
+    const receive = composer.getByTestId('command-swap-receive');
+    await receive.getByRole('button', { name: 'You Receive' }).click();
+    await page.getByTestId('swap-token-SWPB').click();
+    await expect(receive.getByTestId('send-amount-input')).toHaveCount(0);
+    const pay = composer.getByTestId('send-amount-input');
+    const commandReview = workbench.getByTestId('command-footer').getByTestId('swap-review-submit');
+    priceAvailable = false;
+    const commandNoPrice = page.waitForResponse(response => response.url().startsWith(`${etaUrl}/v2/pair-price?`));
+    await pay.fill('5000');
+    expect((await commandNoPrice).status()).toBe(503);
+    await expect(commandReview).toBeDisabled();
+    priceAvailable = true;
+    await pay.fill('4999');
+    await pay.fill('5000');
+    await expect(receive.getByText('4997.5', { exact: true })).toBeVisible();
+    await expect(commandReview).toBeDisabled();
+    await pay.fill('5');
+    await expect(receive.getByText('4.9975', { exact: true })).toBeVisible();
+    await expect(commandReview).toBeEnabled();
+    await pay.fill('0');
+    await expect(commandReview).toBeDisabled();
   });
 });

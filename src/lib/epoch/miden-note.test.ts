@@ -29,8 +29,14 @@ jest.mock('lib/miden/activity', () => ({
   startBackgroundTransactionProcessing: jest.fn(),
   waitForTransactionCompletion: jest.fn(async () => ({ txHash: '0xhash' }))
 }));
+const mockReadTransaction = jest.fn(async () => ({
+  outputNoteIds: ['note-1'],
+  approvedOutputNoteIds: ['note-stamped'],
+  requestBytes: new Uint8Array([1, 2, 3]),
+  extraInputs: { epochCollateralRequestBytes: new Uint8Array([1, 2, 3]) }
+}));
 jest.mock('lib/miden/repo', () => ({
-  transactions: { where: () => ({ first: async () => ({ outputNoteIds: ['note-1'] }) }) }
+  transactions: { where: () => ({ first: mockReadTransaction }) }
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
 jest.mock('lib/miden/types', () => ({ NoteTypeEnum: { Public: 'public', Private: 'private' } }));
@@ -74,6 +80,8 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
   NetworkId: { testnet: () => 'mtst', devnet: () => 'mdev', mainnet: () => 'mm', custom: (p: string) => p },
   AccountInterface: { BasicWallet: 'BasicWallet' }
 }));
+
+import { requestSWTransactionProcessing, waitForTransactionCompletion } from 'lib/miden/activity';
 
 import { createEarnP2IDENote } from './earn-note';
 import { createBridgeP2IDENote, ifHextoBech32 } from './miden-note';
@@ -124,6 +132,28 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       reclaimHeight: 6000,
       reclaimNoteId: 'note-stamped'
     });
+  });
+
+  it('retains the queued collateral id without proceeding when its first audit read fails', async () => {
+    mockReadTransaction.mockRejectedValueOnce(new Error('Collateral audit read interrupted'));
+    const onRowCreated = jest.fn();
+    const result = await createBridgeP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      destinationAddress: '0xevm',
+      destinationNetwork: 8453,
+      deps,
+      onRowCreated
+    });
+    expect(result).toEqual({ success: false, txId: 'tx-bridge' });
+    expect(onRowCreated).not.toHaveBeenCalled();
+    expect(mockInitiateBridgedSendTransaction).toHaveBeenCalledTimes(1);
+    expect(requestSWTransactionProcessing).not.toHaveBeenCalled();
+    expect(waitForTransactionCompletion).not.toHaveBeenCalled();
   });
 
   it('stores the effective-network faucet + allocator ids on the earn-deposit row', async () => {

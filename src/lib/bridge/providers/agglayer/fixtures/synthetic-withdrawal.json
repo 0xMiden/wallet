@@ -1,0 +1,43 @@
+{
+  "description": "Entirely synthetic protocol 0.17 transaction header and indexer records. Both exits have the same recipient and amount; only the current output-note commitment identifies exit 42. No live transaction data is used.",
+  "sourceTxHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+  "account": "mm1aqgzqvzq2ps8qsggpy9qkrqdpcya6dwm",
+  "block": 1000,
+  "detailsCommitment": "0x2222222222222222222222222222222222222222222222222222222222222222",
+  "grpcResponse": "AAAAAaMKCg3tAwAAFegDAAASlAMN6AMAABKMAwokCiIKIBEREREREREREREREREREREREREREREREREREREREREREhgKFgoJCQAODQwLCgkIEgkJQXBgUEAwIBAaIgogVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUiIgogZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYqJAoiCiCIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiDJtCkcIARIYChYKCQkADg0MCwoJCBIJCUFwYFBAMCAQGAIlBwAAADIiCiB3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3dxIiCiAiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIjJtCkcIARIYChYKCQkADg0MCwoJCBIJCUFwYFBAMCAQGAIlBwAAADIiCiB3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3dxIiCiAzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM4AAAAAPZ3JwYy1zdGF0dXM6MA0K",
+  "deposits": [
+    {
+      "leaf_type": 0,
+      "orig_net": 0,
+      "orig_addr": "0x0000000000000000000000000000000000000000",
+      "amount": "1000000000000000000",
+      "dest_net": 0,
+      "dest_addr": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "block_num": "1002",
+      "deposit_cnt": 42,
+      "network_id": 30,
+      "tx_hash": "0x7eb49963fd9a3a7d774af18ecdb4ddd7c66dd83d18bcb3c9e9548195644628ab",
+      "claim_tx_hash": "",
+      "metadata": "0x",
+      "ready_for_claim": false,
+      "global_index": "124554051626"
+    },
+    {
+      "leaf_type": 0,
+      "orig_net": 0,
+      "orig_addr": "0x0000000000000000000000000000000000000000",
+      "amount": "1000000000000000000",
+      "dest_net": 0,
+      "dest_addr": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "block_num": "900",
+      "deposit_cnt": 41,
+      "network_id": 30,
+      "tx_hash": "0x8126ac8b7cc356001dc119e009a1c5644015cc60f9f4a377ee47275adb393c87",
+      "claim_tx_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "metadata": "0x",
+      "ready_for_claim": true,
+      "global_index": "124554051625"
+    }
+  ],
+  "total_cnt": "2"
+}

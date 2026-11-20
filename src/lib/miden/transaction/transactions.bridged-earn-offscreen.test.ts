@@ -28,7 +28,14 @@
  * `ApplyTransactionAfterSubmitFailed` reaches that same type-agnostic classifier.
  */
 
+import { now } from 'lib/bridge/testing/fixtures';
+import { ownedNativeBridgeRow } from 'lib/bridge/testing/operation-fixtures';
+import type { EpochReviewedOutput } from 'lib/epoch/types';
 import { getMessage } from 'lib/i18n/core';
+import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { NoteTypeEnum } from 'lib/miden/types';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import {
@@ -38,7 +45,7 @@ import {
   isUnconfirmedFailure
 } from './index';
 import { bridgeProviderOf, isRequeueableTransaction } from './retry';
-import { ITransaction, ITransactionStatus, type IUsdcxBurn } from '../db/types';
+import { BridgedSendTransaction, ITransaction, ITransactionStatus, type IUsdcxBurn } from '../db/types';
 
 const txStore: Array<Record<string, unknown>> = [];
 
@@ -66,6 +73,16 @@ jest.mock('../front', () => ({
 }));
 
 jest.mock('lib/settings/constants', () => ({}));
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return {
+    ...actual,
+    getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName),
+    getEffectiveRpcUrl: jest.fn(actual.getEffectiveRpcUrl)
+  };
+});
 
 const mockGetVerificationBaseFee = jest.fn(async (): Promise<number | null> => 0);
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -251,6 +268,240 @@ const epochBridge = (id: string) =>
     extraInputs: { provider: 'epoch', recallBlocks: 10, claimStatus: 'not-applicable', epochStatus: 'pending' }
   });
 
+describe('owned native bridge scope on the existing single-key pipeline', () => {
+  const ownedProvider: GuardianAccountProvider = { ...provider, getAccounts: async () => [] };
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(now);
+    jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('fixture-rpc');
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+      'lib/miden-chain/effective-endpoints'
+    );
+    jest.mocked(getEffectiveNetworkName).mockImplementation(actual.getEffectiveNetworkName);
+    jest.mocked(getEffectiveRpcUrl).mockImplementation(actual.getEffectiveRpcUrl);
+  });
+
+  it('runs a valid recorded native source exactly once without adding a second outbound claim', async () => {
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, ownedProvider);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(mockProxyNewTransaction.mock.calls[0]?.slice(0, 3)).toEqual([tx.accountId, tx.requestBytes, false]);
+    expect(tx.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  });
+
+  it('refuses a queued same-network RPC change before recovery authorization or source generation', async () => {
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: true }));
+    await generateTransaction(tx, signCallback, false, { ...ownedProvider, prepareRecoveryTransaction }).catch(
+      () => undefined
+    );
+    expect(prepareRecoveryTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(tx.requestBytes).toEqual(new Uint8Array([81, 82, 83]));
+  });
+
+  it('rechecks scope after asynchronous service selection, before entering the source leaf', async () => {
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    mockIsGuardianAccount.mockImplementationOnce(async () => {
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+      return false;
+    });
+    await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(signCallback).not.toHaveBeenCalled();
+  });
+
+  it('the single-key post-proof gate stamps its original crossing before refusing a changed RPC', async () => {
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    const proved = jest.fn();
+    const sourceSubmit = jest.fn();
+    mockProxyNewTransaction.mockImplementation(async (...args: unknown[]) => {
+      proved();
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('changed-after-single-key-prove');
+      const gate = args[5];
+      if (typeof gate === 'function') {
+        const allowed: unknown = await Reflect.apply(gate, undefined, []);
+        if (allowed !== true) throw new Error('Native source gate refused');
+      } else {
+        const stamp = args[4];
+        if (typeof stamp === 'function') await Reflect.apply(stamp, undefined, ['submitting']);
+      }
+      sourceSubmit();
+      return makeResult();
+    });
+    await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+    expect(proved).toHaveBeenCalledTimes(1);
+    expect(sourceSubmit).not.toHaveBeenCalled();
+    expect(txStore[0]?.mayHaveSubmitted).toBe(true);
+  });
+
+  it.each([null, {}, { version: 2, owner: 'wallet' }])(
+    'tagged malformed metadata is not legacy source permission case %#',
+    async metadata => {
+      const tx = ownedNativeBridgeRow();
+      Reflect.set(tx.extraInputs, 'bridgeOperation', metadata);
+      txStore.push({ ...tx });
+      await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+      expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([undefined, { network: 'testnet', rpcUrl: '' }, { network: 'mainnet', rpcUrl: 'fixture-rpc' }])(
+    'missing or mismatched native admission scope cannot fall through to a new source case %#',
+    async scope => {
+      const tx = ownedNativeBridgeRow();
+      const operation = tx.extraInputs.bridgeOperation;
+      if (!operation) throw new Error('Missing owned native fixture');
+      Reflect.set(operation, 'walletScope', scope);
+      txStore.push({ ...tx });
+      await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+      expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    }
+  );
+
+  it('a stored review cannot authorize another native amount or account', async () => {
+    const tx = ownedNativeBridgeRow();
+    tx.amount += 1n;
+    tx.accountId = 'another-account';
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+  });
+
+  it('same-scope canonical pre-submit-end evidence retains a safe native retry, not another durable claim', async () => {
+    const tx = Object.assign(ownedNativeBridgeRow(), {
+      mayHaveSubmitted: true,
+      attemptId: 'safe-old-attempt',
+      submitEvidence: [
+        { attemptId: 'safe-old-attempt', capturedAt: now / 1000, source: 'stage', preSubmitEnd: true }
+      ] satisfies import('../db/types').ISubmitEvidence[]
+    });
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, ownedProvider);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(tx.extraInputs.bridgeOperation?.sourceAttempt).toBeUndefined();
+  });
+
+  it('a previous uncertain crossing is retained rather than generating a second native source', async () => {
+    const tx = Object.assign(ownedNativeBridgeRow(), {
+      mayHaveSubmitted: true,
+      attemptId: 'original-attempt',
+      submitEvidence: [
+        { attemptId: 'original-attempt', capturedAt: now / 1000, source: 'stage' }
+      ] satisfies import('../db/types').ISubmitEvidence[]
+    });
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, ownedProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(txStore[0]?.submitEvidence).toEqual(tx.submitEvidence);
+    expect(txStore[0]?.attemptId).toBe('original-attempt');
+  });
+});
+
+describe('reviewed compact Epoch source on the existing single-key pipeline', () => {
+  const compactProvider: GuardianAccountProvider = { ...provider, getAccounts: async () => [] };
+  function reviewedEpochRow() {
+    const tx = new BridgedSendTransaction(
+      'acc-1',
+      1000n,
+      '0x1111111111111111111111111111111111111111',
+      11155111,
+      'epoch',
+      'faucet',
+      new Uint8Array([0xb1, 0x1d]),
+      false,
+      { recipientId: 'mtst1qallocator', noteType: NoteTypeEnum.Public, recallBlocks: 10, reclaimNoteId: 'note:epoch' }
+    );
+    tx.approvedOutputNoteIds = ['note:epoch'];
+    const output: EpochReviewedOutput = {
+      minimumOutputBaseUnits: '250',
+      outputTokenAddress: '0x2222222222222222222222222222222222222222',
+      outputTokenDecimals: 6,
+      validity: { kind: 'time', expiresAt: now + 60000 }
+    };
+    tx.extraInputs.epochReviewedOutput = Object.assign(output, {
+      walletScope: { network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
+    });
+    return tx;
+  }
+  beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(now));
+  afterEach(() => jest.restoreAllMocks());
+
+  it('still executes valid compact reviewed collateral through the native leaf', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    await generateTransaction(tx, signCallback, false, compactProvider);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a queued Compact Epoch source after a same-network RPC change before recovery authorization', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    jest.mocked(getEffectiveRpcUrl).mockReturnValue('different-rpc');
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: true }));
+    await generateTransaction(tx, signCallback, false, { ...compactProvider, prepareRecoveryTransaction }).catch(
+      () => undefined
+    );
+    expect(prepareRecoveryTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a changed Compact Epoch RPC at the awaited native submit gate after proof', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    const sourceSubmit = jest.fn();
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      jest.mocked(getEffectiveRpcUrl).mockReturnValue('changed-after-proof');
+      const gate = args[5];
+      if (typeof gate === 'function') {
+        const allowed: unknown = await Reflect.apply(gate, undefined, []);
+        if (allowed !== true) throw new Error('Native source gate refused');
+      }
+      sourceSubmit();
+      return makeResult();
+    });
+    await generateTransaction(tx, signCallback, false, compactProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(sourceSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not start expired compact collateral', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    jest.spyOn(Date, 'now').mockReturnValue(now + 60000);
+    await generateTransaction(tx, signCallback, false, compactProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses expired compact collateral after proof at the actual awaited submit gate', async () => {
+    const tx = reviewedEpochRow();
+    txStore.push({ ...tx });
+    const sourceSubmit = jest.fn();
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      jest.spyOn(Date, 'now').mockReturnValue(now + 60000);
+      const gate = args[5];
+      if (typeof gate === 'function') {
+        const allowed: unknown = await Reflect.apply(gate, undefined, []);
+        if (allowed !== true) throw new Error('Native source gate refused');
+      }
+      sourceSubmit();
+      return makeResult();
+    });
+    await generateTransaction(tx, signCallback, false, compactProvider).catch(() => undefined);
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(sourceSubmit).not.toHaveBeenCalled();
+    expect(txStore[0]?.mayHaveSubmitted).toBe(true);
+  });
+});
+
 // markBridgedSendFailed's write, landing after the loop picked the row up and before its leaf runs.
 const abandonAfterPickup = (id: string) =>
   mockIsGuardianAccount.mockImplementationOnce(async () => {
@@ -327,7 +578,15 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     });
 
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, expect.any(Function), undefined);
+    // Unstamped, so neither a stage callback nor a submit gate.
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith(
+      'acc-1',
+      requestBytes,
+      false,
+      expect.any(Function),
+      undefined,
+      undefined
+    );
     expect(mockProxyNewTransaction.mock.calls[0]?.[3]).not.toBe(signCallback);
     expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockGetMidenClient).not.toHaveBeenCalled();
@@ -516,7 +775,15 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, expect.any(Function), undefined);
+    // Unstamped, so neither a stage callback nor a submit gate.
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith(
+      'acc-1',
+      requestBytes,
+      false,
+      expect.any(Function),
+      undefined,
+      undefined
+    );
     expect(mockProxyNewTransaction.mock.calls[0]?.[3]).not.toBe(signCallback);
     // The proxy is the ONLY leaf - the switch never forks on the flag itself.
     expect(mockGetMidenClient).not.toHaveBeenCalled();

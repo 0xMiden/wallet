@@ -7,7 +7,6 @@ import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { UsdAmount } from 'components/ui/TokenAmount';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
@@ -23,6 +22,7 @@ import {
 import { formatApy, placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnLoading } from './EarnLoading';
+import { EarnPageLayout } from './EarnPageLayout';
 import { ChartDotProps, EarnPosition } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -40,7 +40,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   return (
     // The shared pushed-page frame, so this page's header, section rhythm and pinned actions are
     // the vault page's.
-    <SubPageLayout
+    <EarnPageLayout
       data-testid="earn-position-detail-page"
       // Until the position is found the header names the route, never a placeholder position.
       title={found ? earnSubjectTitle(found) : t('earnPositionsTitle')}
@@ -102,7 +102,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
           <PositionDetails position={position} />
         </>
       )}
-    </SubPageLayout>
+    </EarnPageLayout>
   );
 };
 

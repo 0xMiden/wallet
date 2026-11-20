@@ -175,7 +175,7 @@ export interface AgglayerChainConfig extends RouteSwitches {
 
 export type UsdcxDepositConfig =
   | { route: 'xreserve'; xReserve: EvmAddress }
-  | { route: 'executor'; executorChain: string; tokenMessengerWithFees: EvmAddress };
+  | { route: 'executor'; executorChain: string; tokenMessengerWithFees: EvmAddress; tokenMessenger?: EvmAddress };
 
 export interface UsdcxChainConfig extends RouteSwitches {
   domain: number;
@@ -224,6 +224,7 @@ export interface BridgeConfig {
     bridgeOut?: boolean;
     /** Buying Game Coins in Arcade; only there when the document sets it, and `arcade` exists exactly when true. */
     arcadeGcPurchase?: boolean;
+    openFullscreen?: boolean;
   };
   /**
    * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
@@ -530,7 +531,8 @@ function usdcxDeposit(value: ConfigValue): UsdcxDepositConfig | undefined {
       return {
         route: 'executor',
         executorChain: deposit.executorChain,
-        tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees)
+        tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees),
+        ...(deposit.tokenMessenger === undefined ? {} : { tokenMessenger: evmAddress(deposit.tokenMessenger) })
       };
     default:
       return typeof deposit.route === 'string' ? undefined : invalid();
@@ -793,7 +795,7 @@ function readConfig(
       earn: earnEnabled,
       nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
-        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase']
+        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase', 'openFullscreen']
           .filter(name => features[name] !== undefined)
           .map(name => [name, featureSwitch(features, name)])
       )

@@ -120,13 +120,13 @@ describe('useTransactionRow', () => {
     expect(result.current).toEqual({ row: undefined, loaded: true });
   });
 
-  it('keeps loading when the first subscription read errors', () => {
+  it('exposes a first read error without marking an unknown row as loaded', () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { result } = renderHook(() => useTransactionRow('tx-1'));
 
     act(() => lastObserver().error(new Error('dexie boom')));
 
-    expect(result.current).toEqual({ row: undefined, loaded: false });
+    expect(result.current).toEqual({ row: undefined, loaded: false, readFailed: true });
   });
 
   it('unsubscribes on unmount', () => {

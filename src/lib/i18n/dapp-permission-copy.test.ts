@@ -6,8 +6,8 @@ import path from 'path';
  * Connect-approval sheet's private-data risk copy must describe the grant the wallet
  * actually issues.
  *
- * `ConfirmPage` renders `confirmPrivateDataPermissionDescription` above a mandatory
- * "I understand the risk" checkbox whenever a dApp asks for Automatic private-data
+ * The connect window (`confirm/ConnectRequest`) shows `confirmPrivateDataPermissionDescription` under the
+ * "I understand the risk" title of its mandatory consent box whenever a dApp asks for Automatic private-data
  * access on a private account, and it was the ONLY security explanation of that
  * grant. It claimed the access "cannot be revoked" — which is false: Settings →
  * Authorized DApps lists the session and `removeDAppSession(origin)` →
@@ -211,5 +211,100 @@ describe('dApp login signature note', () => {
     const notes = shippedNotes('en_GB');
     expect(notes.length).toBeGreaterThan(0);
     for (const shipped of notes) expect(shipped).not.toBe(RETIRED_LOGIN_NOTE);
+  });
+});
+
+/**
+ * The connect window lists what a standing private-data grant lets the site do. Its title is a capability, never an
+ * instruction: the Korean bundle once read "허락 없이 개인 데이터를 읽지 마십시오" (do not read private data
+ * without permission), which says the opposite of the grant the user is about to give.
+ */
+describe('dApp connect fact: standing private-data access', () => {
+  const FACT_KEY = 'connectFactReadPrivateTitle';
+  const readJson = (file: string): Record<string, unknown> =>
+    JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, file), 'utf8'));
+  const koTitles = (): string[] => {
+    const entry = readJson('ko/messages.json')[FACT_KEY];
+    const flat = readJson('ko/ko.json')[FACT_KEY];
+    return [
+      typeof entry === 'object' && entry !== null && 'message' in entry ? String(entry.message) : '',
+      typeof flat === 'string' ? flat : ''
+    ];
+  };
+
+  it('states the Korean capability in both shipped bundles, without the prohibitive ending', () => {
+    for (const title of koTitles()) {
+      expect(title).toMatch(/개인 데이터/);
+      expect(title).toMatch(/읽기$/);
+      expect(title).not.toMatch(/마십시오|마세요|않습니다/);
+    }
+  });
+});
+
+/**
+ * Labels the extension's approval and connect windows added in the redesign, as each locale ships them. Machine
+ * translation took the short English labels out of context: "You get" over an incoming amount came back as "you
+ * understand", "Note from faucet" repeated its protected term, and "Send you transaction requests" came back as the
+ * user's own requests. Each locale's text is read from both bundles, the flat one the app loads and messages.json.
+ */
+describe('dApp approval labels keep their meaning', () => {
+  const shipped = (locale: string, key: string): string[] => {
+    const read = (file: string): Record<string, unknown> =>
+      JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, locale, file), 'utf8'));
+    const entry = read('messages.json')[key];
+    const flat = read(`${locale}.json`)[key];
+    return [
+      typeof entry === 'object' && entry !== null && 'message' in entry ? String(entry.message) : '',
+      typeof flat === 'string' ? flat : ''
+    ];
+  };
+
+  // "You get": the incoming row's title names receiving, never understanding.
+  const RECEIVES: Record<string, RegExp> = {
+    es: /recib/i,
+    pt: /receb/i,
+    ja: /受け取/,
+    ko: /받/,
+    zh_CN: /收到/,
+    zh_TW: /收到/,
+    tr: /al[ıi]rs[ıi]n[ıi]z/i
+  };
+  const UNDERSTANDS = /entiend|entende|つまり|이해|明白|會$|anlad/i;
+
+  it.each(Object.keys(RECEIVES))('names receiving in %s confirmTxYouGet', locale => {
+    for (const label of shipped(locale, 'confirmTxYouGet')) {
+      expect(label).toMatch(RECEIVES[locale]!);
+      expect(label).not.toMatch(UNDERSTANDS);
+    }
+  });
+
+  const NOTE_FROM_FAUCET: Record<string, RegExp> = {
+    ja: /faucet.*Note/,
+    ko: /faucet.*Note/,
+    zh_CN: /faucet.*Note/,
+    tr: /faucet'ten Note/,
+    zh_TW: /來自 faucet 的 Note/
+  };
+  const DUPLICATE_NOTE_TERM = /notu|註解|注記/i;
+
+  it.each(Object.keys(NOTE_FROM_FAUCET))('names one Note from a faucet in %s confirmTxNoteFromFaucet', locale => {
+    for (const label of shipped(locale, 'confirmTxNoteFromFaucet')) {
+      expect(label).toMatch(NOTE_FROM_FAUCET[locale]!);
+      expect(label.match(/Note/g)).toHaveLength(1);
+      // The Note comes from the faucet: in each of these word orders the faucet is named first.
+      expect(label.indexOf('faucet')).toBeGreaterThanOrEqual(0);
+      expect(label.indexOf('faucet')).toBeLessThan(label.indexOf('Note'));
+      expect(label).not.toMatch(DUPLICATE_NOTE_TERM);
+    }
+  });
+
+  // "Send you transaction requests": the site asks the user, it does not send the user's own requests.
+  const YOUR_REQUESTS: Record<string, RegExp> = { fr: /vos demandes/i, pt: /suas solicita/i, tr: /taleplerinizi/i };
+  const REQUESTS_TO_USER: Record<string, RegExp> = { fr: /vous envoyer/i, pt: /para você/i, tr: /^size /i };
+  it.each(Object.keys(YOUR_REQUESTS))('says the site sends requests to the user in %s', locale => {
+    for (const label of shipped(locale, 'connectFactTxRequestsTitle')) {
+      expect(label).toMatch(REQUESTS_TO_USER[locale]!);
+      expect(label).not.toMatch(YOUR_REQUESTS[locale]!);
+    }
   });
 });

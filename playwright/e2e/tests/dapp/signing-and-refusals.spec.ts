@@ -64,9 +64,9 @@ import type { ConnectedView, RawArg, VerifyInput } from '../../test-dapp/protoco
 const WORD = `0xffffffffffffff00${'11'.repeat(24)}`;
 const OTHER_KEY = `0x${'22'.repeat(32)}`;
 const SUMMARY_AMOUNT = tst(0.5);
-// en.json's `opaqueSignatureTitle`, rendered by OpaqueSignatureWarning in ConfirmPage.tsx for Arbitrary and Blind
+// en.json's `opaqueSignatureTitle`, rendered by OpaqueSignature in confirm/SignatureRequest.tsx for Arbitrary and Blind
 // inputs.
-const OPAQUE_WARNING = 'Opaque signature request';
+const OPAQUE_WARNING = "Bread can't preview this";
 // en.json's `opaqueSignatureNotATransaction`, shown beside it.
 const OPAQUE_NOT_A_TRANSACTION = 'This signature cannot authorize a transaction from your account.';
 // en.json's `confirmLoginSignature` up to the domain it names: the `loginSign` title in ConfirmPage.tsx, which has no

@@ -400,7 +400,7 @@ describe('bridgeOutUsdcx', () => {
 describe('expectArcPreselected', () => {
   const SHEET_ROWS = '[role="dialog"][data-state="open"] [data-testid^="send-network-"]';
   // NetworkField: the four destinations are rows of a sheet the summary row opens, and exist only while it is open.
-  const pageWithSheet = (pressed: string) => {
+  const pageWithSheet = (pressed: string, extraRow?: string) => {
     const actions: string[] = [];
     let open = false;
     const page = {
@@ -414,15 +414,27 @@ describe('expectArcPreselected', () => {
         }
       }),
       locator: (selector: string) => ({
-        evaluateAll: async () =>
-          open && selector === SHEET_ROWS
-            ? [
-                'send-network-arc-testnet',
-                'send-network-sepolia',
-                'send-network-base-sepolia',
-                'send-network-arbitrum-sepolia'
-              ].map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }))
-            : [],
+        evaluateAll: async (read: (elements: Array<Pick<Element, 'getAttribute'>>) => unknown) =>
+          read(
+            open && selector === SHEET_ROWS
+              ? [
+                  'send-network-picker',
+                  'send-network-options',
+                  'send-network-arc-testnet',
+                  'send-network-sepolia',
+                  'send-network-base-sepolia',
+                  'send-network-arbitrum-sepolia',
+                  ...(extraRow ? [extraRow] : [])
+                ].map(testId => ({
+                  getAttribute: name =>
+                    name === 'data-testid'
+                      ? testId
+                      : ['send-network-picker', 'send-network-options', extraRow].includes(testId)
+                        ? null
+                        : String(testId === pressed)
+                }))
+              : []
+          ),
         getByRole: (role: string, { name }: { name: string }) => ({
           click: async () => {
             actions.push(`click ${role} ${name} in ${selector}`);
@@ -444,6 +456,12 @@ describe('expectArcPreselected', () => {
       `click button ${enText('close')} in [role="dialog"][data-state="open"]`,
       'hidden send-network-arc-testnet'
     ]);
+  });
+
+  it('rejects an unexpected destination even if it has no pressed state', async () => {
+    await expect(
+      expectArcPreselected(pageWithSheet('send-network-arc-testnet', 'send-network-miden').page, 300)
+    ).rejects.toThrow('send-network-miden');
   });
 
   it('says it checks the destination set and the default, not USDCx mode', async () => {

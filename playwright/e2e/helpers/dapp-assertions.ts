@@ -630,7 +630,7 @@ export async function expectVerifiedPreview(
       { previewSimulationFailed }
     );
   }
-  // The heading renders with the view, before any row's token metadata resolves, so its absence is not a race.
+  // The heading appears once a row's token metadata resolves (or the view names a fee); the count retries until then.
   const moves = expected.amount === null ? 0 : 1;
   await expect(verified.getByText('Asset changes', { exact: true })).toHaveCount(moves);
   const rows = verified.locator('[data-verified="true"]');

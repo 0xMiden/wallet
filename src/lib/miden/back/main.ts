@@ -410,7 +410,7 @@ function registerOffscreenSignHandler(): void {
       });
       return false;
     }
-    // The Guardian leaf's submit gate (#1644): answered only once the crossing is recorded, and refused on any fault, so
+    // An offscreen leaf's submit gate (#1644): answered only once the crossing is recorded, and refused on any fault, so
     // the leaf never submits on an answer that did not come from the handler.
     if (m.type === OFFSCREEN_SUBMIT_GATE) {
       if (typeof m.op_id !== 'string') return false;

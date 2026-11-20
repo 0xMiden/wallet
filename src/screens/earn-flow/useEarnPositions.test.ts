@@ -38,7 +38,9 @@ const mockEarnDepositRows: Array<{
   };
 }> = [];
 
+const mockClearPortfolioObservations = jest.fn(async () => {});
 jest.mock('lib/miden/repo', () => ({
+  portfolioObservations: { clear: () => mockClearPortfolioObservations() },
   transactions: {
     where: jest.fn((_index: string) => ({
       anyOf: (...types: string[]) => ({
@@ -1627,6 +1629,7 @@ describe('useEarnPositions', () => {
 
       await clearStorage(false);
 
+      expect(mockClearPortfolioObservations).toHaveBeenCalledTimes(1);
       expect(await readStored()).toBeNull();
       jest.mocked(fetchEarnPositions).mockReturnValueOnce(new Promise(() => undefined));
       const { result } = renderCold();

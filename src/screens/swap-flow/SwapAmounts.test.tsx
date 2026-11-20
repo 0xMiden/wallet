@@ -4,6 +4,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 import fs from 'fs';
 import path from 'path';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -182,6 +183,29 @@ const renderComponent = (props: Partial<SwapAmountsProps> = {}) => {
 const parseToken = (el: HTMLElement) => JSON.parse(el.getAttribute('data-token') as string);
 
 describe('SwapAmounts', () => {
+  it('offers only the source as an amount field in Command and shows the receive quote as output', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <SwapAmounts
+          offerToken={offerToken}
+          offerBalance={100}
+          offerAmount="1.12345678"
+          onOfferAmountChange={jest.fn()}
+          onSelectOfferToken={jest.fn()}
+          requestToken={requestToken}
+          requestAmount="2.5"
+          onRequestAmountChange={jest.fn()}
+          onSelectRequestToken={jest.fn()}
+          onSwapDirection={jest.fn()}
+          onConfirm={jest.fn()}
+          canProceed
+        />
+      </FlowPresentationProvider>
+    );
+    expect(screen.getByTestId('select-amount-youPay')).toHaveAttribute('data-amount', '1.12345678');
+    expect(screen.queryByTestId('select-amount-youReceive')).not.toBeInTheDocument();
+    expect(screen.getByTestId('command-swap-receive')).toHaveTextContent('2.5');
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });

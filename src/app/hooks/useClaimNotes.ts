@@ -10,7 +10,12 @@ import {
 } from 'lib/miden/activity';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
-import { ClaimableNoteWithMetadata, useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import {
+  ClaimableNoteWithMetadata,
+  isCurrentClaimableNotesRead,
+  useClaimableNotes,
+  type ScopedClaimableNotesRead
+} from 'lib/miden/front/claimable-notes';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { isExtension } from 'lib/platform';
@@ -74,11 +79,13 @@ export function __resetClaimChecksForTest(): void {
  * per-asset group claim — belonged to the retired "Pending notes" pages; the one bulk action left
  * is the Pending list's Accept All, which goes through `useActivityClaims.acceptMany`.
  */
-export function useClaimNotes(): ClaimNotesState {
+export function useClaimNotes(sharedRead?: ScopedClaimableNotesRead): ClaimNotesState {
   const account = useAccount();
   const address = account.publicKey;
 
-  const { data: claimableNotes, mutate: mutateClaimableNotes, isLoading } = useClaimableNotes(address);
+  const currentRead = sharedRead && isCurrentClaimableNotesRead(sharedRead, address) ? sharedRead : undefined;
+  const ownRead = useClaimableNotes(address, currentRead === undefined);
+  const { data: claimableNotes, mutate: mutateClaimableNotes, isLoading } = currentRead?.result ?? ownRead;
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
 
   const safeClaimableNotes = useMemo(

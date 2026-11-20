@@ -455,6 +455,115 @@ describe('send (site 5)', () => {
 });
 
 describe('newTransaction (site 6)', () => {
+  it.each(['worker', 'inline', 'offscreen-prover'])(
+    'an asynchronous submit gate cannot resume an evicted %s leaf',
+    async mode => {
+      const harness = buildHarness();
+      harness.inRealm.onLocalProve = () => undefined;
+      let openGate: () => void = () => undefined;
+      const gate = new Promise<void>(resolve => {
+        openGate = resolve;
+      });
+      let entered: () => void = () => undefined;
+      const reachedGate = new Promise<void>(resolve => {
+        entered = resolve;
+      });
+      try {
+        const runtime =
+          mode === 'offscreen-prover' ? await loadOffscreenProved(harness) : await load(harness, mode === 'worker');
+        let inner: Promise<unknown> | undefined;
+        const running = runtime
+          .withWasmClientLock(async () => {
+            inner = runtime.client
+              .newTransaction('acct', new Uint8Array([4]), false, async stage => {
+                if (stage === 'submitting') {
+                  entered();
+                  await gate;
+                }
+              })
+              .catch((error: unknown) => error);
+            return inner;
+          })
+          .catch((error: unknown) => error);
+        await reachedGate;
+        window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+        const error = await running;
+        openGate();
+        await inner;
+        expect(error).toBeInstanceOf(runtime.WasmClientPoisonedError);
+        expect(harness.submitProven).not.toHaveBeenCalled();
+        expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+        expect(harness.order.some(step => step.endsWith(' submit'))).toBe(false);
+      } finally {
+        openGate();
+        delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+      }
+    }
+  );
+
+  it('an offscreen-proved leaf cannot submit after retirement while the SDK inner lock is acquired', async () => {
+    const harness = buildHarness();
+    const runtime = await loadOffscreenProved(harness);
+    let resume: () => void = () => undefined;
+    const pending = new Promise<void>(resolve => {
+      resume = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const acquiring = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    let visits = 0;
+    harness.fakeClient._withInnerWebClient.mockImplementation(async callback => {
+      visits += 1;
+      if (visits === 2) {
+        entered();
+        await pending;
+      }
+      return callback(harness.inner);
+    });
+    let inner: Promise<unknown> | undefined;
+    const stages: string[] = [];
+    try {
+      const running = runtime
+        .withWasmClientLock(async () => {
+          inner = runtime.client
+            .newTransaction('acct', new Uint8Array([4]), false, async stage => {
+              stages.push(stage);
+            })
+            .catch((error: unknown) => error);
+          return inner;
+        })
+        .catch((error: unknown) => error);
+      await acquiring;
+      expect(harness.inner.executeTransaction).toHaveBeenCalledTimes(1);
+      expect(stages).toContain('submitting');
+      window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+      expect(await running).toBeInstanceOf(runtime.WasmClientPoisonedError);
+      resume();
+      await inner;
+      expect(harness.inner.submitProvenTransaction).not.toHaveBeenCalled();
+      expect(harness.inner.applyTransaction).not.toHaveBeenCalled();
+    } finally {
+      resume();
+      delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+    }
+  });
+
+  it('an awaited successful submit gate retains exactly one source submission', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await load(harness);
+    const stages: string[] = [];
+    await withWasmClientLock(async () =>
+      client.newTransaction('acct', new Uint8Array([4]), false, async stage => {
+        await Promise.resolve();
+        stages.push(stage);
+      })
+    );
+    expect(stages).toContain('submitting');
+    expect(harness.submitProven).toHaveBeenCalledTimes(1);
+    expect(harness.order.filter(step => step === 'submitProven')).toHaveLength(1);
+  });
+
   it.each(['absent', 'missing_preimage', 'read_failed'])(
     'observes %s on the actual request and preserves the rejected object, bytes and execute count',
     async shape => {
@@ -983,6 +1092,67 @@ describe('the node has the write once submitProven resolves', () => {
     expect(error).toHaveProperty('cause', storeQuota);
   });
 
+  const BUILT_ORDER_NOTE = `0x${'ab'.repeat(32)}`;
+  /** A client whose swap build names one public PSWAP order, 42, on the worker leg. */
+  const loadWithBuiltOrder = async (harness: Harness) => {
+    // This file's static import of the apply helper would otherwise keep its SDK, which names another PSWAP root.
+    jest.resetModules();
+    installMocks(harness);
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      ...sdkLazyMock(harness),
+      NoteScript: { pswap: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }) }
+    }));
+    const orderNote = {
+      id: () => ({ toString: () => BUILT_ORDER_NOTE }),
+      metadata: () => ({ noteType: () => 'Public' }),
+      recipient: () => ({
+        script: () => ({ root: () => ({ toHex: () => 'pswap-root' }) }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { installLocalProveTransport } = await import('./local-prove-transport');
+    const { withWasmClientLock } = await import('./miden-client');
+    const { extractLanded } = await import('./sdk-error-code');
+    jest.requireMock('./helpers').buildPswapCreateRequest.mockReturnValue({
+      pswapRequest: true,
+      expectedOutputOwnNotes: () => [orderNote]
+    });
+    installLocalProveTransport(harness.transport);
+    return { client: await MidenClientInterface.create(), withWasmClientLock, extractLanded };
+  };
+
+  // The worker leg carries the order its own build drew, read off the request before the execute.
+  it('a swap whose apply fails after a worker prove carries the order its built request names', async () => {
+    const harness = buildHarness();
+    harness.applyFailure.error = new Error('store quota');
+    const { client, withWasmClientLock, extractLanded } = await loadWithBuiltOrder(harness);
+    jest.useFakeTimers();
+
+    const error = await afterApplyRetryWaits(
+      withWasmClientLock(async () => client.swapTransaction(swapTx(false))).catch((caught: unknown) => caught)
+    );
+
+    expect(harness.transport.prove).toHaveBeenCalledTimes(1);
+    expect(harness.submitProven).toHaveBeenCalledTimes(1);
+    expect(extractLanded(error)).toEqual({ orderId: '42', orderNoteId: BUILT_ORDER_NOTE });
+  });
+
+  it('a swap`s worker leg stamps submitting with the order its built request names', async () => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock } = await loadWithBuiltOrder(harness);
+    const onStage = jest.fn(async (stage: string) => {
+      harness.order.push(`stamp:${stage}`);
+    });
+
+    await withWasmClientLock(async () => client.swapTransaction(swapTx(false), onStage));
+
+    expect(onStage).toHaveBeenCalledWith('submitting', {
+      evidence: expect.objectContaining({ orderId: '42', orderNoteId: BUILT_ORDER_NOTE })
+    });
+    expect(harness.order.indexOf('stamp:submitting')).toBeLessThan(harness.order.indexOf('submitProven'));
+  });
+
   it.each(legs)('a %s whose submitProven rejects reaches the caller unwrapped', async (_leg, write) => {
     const harness = buildHarness();
     const refused = new Error('node refused the transaction');
@@ -1207,6 +1377,39 @@ describe('an eviction during the in-realm leg (#1233)', () => {
   });
 });
 
+// Offscreen a gated write's 'submitting' stamp waits for the service worker's answer, so an eviction can land while it
+// is parked, and the worker leg asks again before its submit whether or not the write has a check of its own (#1081).
+describe('an eviction while the worker leg waits on its submitting stamp', () => {
+  const evict = () =>
+    window.dispatchEvent(new ErrorEvent('error', { error: new WebAssembly.RuntimeError('unreachable') }));
+  type Client = Awaited<ReturnType<typeof load>>['client'];
+  type ParkingStamp = (stage: string) => Promise<void>;
+  it.each<[string, (client: Client, onStage: ParkingStamp) => Promise<unknown>]>([
+    ['send', (client, onStage) => client.sendTransaction(sendTx(false), onStage)],
+    ['swap', (client, onStage) => client.swapTransaction(swapTx(false), onStage)],
+    ['newTransaction', (client, onStage) => client.newTransaction('acct', new Uint8Array([4]), false, onStage)]
+  ])('a %s stops before its submit', async (_name, write) => {
+    const harness = buildHarness();
+    const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
+    const parkingStamp: ParkingStamp = async stage => {
+      if (stage !== 'submitting') return;
+      evict();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    };
+    let abandoned: Promise<unknown> = Promise.resolve();
+    const lockError = await withWasmClientLock(async () => {
+      const writing = write(client, parkingStamp);
+      abandoned = writing.catch((caught: unknown) => caught);
+      return writing;
+    }).catch((caught: unknown) => caught);
+    const outcome = await abandoned;
+
+    expect(harness.submitProven).not.toHaveBeenCalled();
+    expect(outcome).toBeInstanceOf(WasmClientPoisonedError);
+    expect(lockError).toBeInstanceOf(WasmClientPoisonedError);
+  });
+});
+
 describe('ProveAttempt worker members', () => {
   it('refuses a worker prove for a disposed client, without calling the transport', async () => {
     const harness = buildHarness();
@@ -1317,6 +1520,37 @@ describe('ProveAttempt worker members', () => {
     expect(holder.isDisposed).toBe(false);
     expect(await getMidenClient()).toBe(holder);
     unsubscribe();
+  });
+
+  it('a live write retires a caught trap onto its own client', async () => {
+    const harness = buildHarness();
+    const { proveWithFallback, withWasmClientLock } = await load(harness);
+    const { getMidenClient, onWasmClientPoisoned } = await import('./miden-client');
+    const holder = await getMidenClient();
+    const listener = jest.fn();
+    const unsubscribe = onWasmClientPoisoned(listener);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await withWasmClientLock(async () => {
+        await proveWithFallback(
+          async (_prover, attempt) => {
+            attempt.retireCaughtTrap(trap);
+            return null;
+          },
+          false,
+          { disposed: false }
+        );
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(holder.isDisposed).toBe(true);
+      expect(await getMidenClient()).not.toBe(holder);
+    } finally {
+      errSpy.mockRestore();
+      unsubscribe();
+    }
   });
 });
 

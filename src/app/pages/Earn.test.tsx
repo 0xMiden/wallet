@@ -2,10 +2,12 @@ import React from 'react';
 
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 import { EARN_DATA } from 'screens/earn-flow/data';
 import { buildEarnSummary } from 'screens/earn-flow/earn-mapping';
 import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
@@ -99,6 +101,40 @@ const positionsSection = () => screen.getByRole('region', { name: 'earnCurrentPo
 const vaultsSection = () => screen.getByRole('region', { name: 'earnVaultsTitle' });
 
 describe('Earn page', () => {
+  it('keeps owned withdrawals selectable when new Command deposits are unavailable', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'off', detail: 'disabled' };
+    render(
+      <CommandDraftProvider scope={{ accountId: 'account', network: 'testnet', rpcUrl: 'https://rpc.example' }}>
+        <FlowPresentationProvider value="command">
+          <Earn />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    expect(screen.getByTestId(`command-earn-deposit-${vaults[0]!.id}`)).toBeDisabled();
+    expect(screen.getByTestId(`command-earn-withdraw-${positions[0]!.id}`)).toBeEnabled();
+  });
+
+  it('selects a second live vault and position in Command without presenting the compact carousel', () => {
+    const secondVault = { ...vaults[0], id: 'other-vault', name: 'Other market' };
+    const secondPosition = { ...positions[0], id: 'other-position', name: 'Other position' };
+    mockUseEarnPositions.mockReturnValue({
+      ...EARN_DATA,
+      vaults: [vaults[0], secondVault],
+      positions: [positions[0], secondPosition]
+    });
+    render(
+      <CommandDraftProvider scope={{ accountId: 'account', network: 'testnet', rpcUrl: 'https://rpc.example' }}>
+        <FlowPresentationProvider value="command">
+          <Earn />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    expect(screen.getByTestId('command-earn')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('command-earn-deposit-other-vault'));
+    expect(mockNavigate).toHaveBeenCalledWith('/earn/vaults/other-vault');
+    fireEvent.click(screen.getByTestId('command-earn-withdraw-other-position'));
+    expect(mockNavigate).toHaveBeenCalledWith('/earn/positions/other-position');
+  });
   // Sanity guard: the "renders one card per item" checks below rely on the
   // fixture actually having data to map over, otherwise they pass vacuously.
   it('has fixture positions and vaults to exercise', () => {

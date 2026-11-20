@@ -935,8 +935,9 @@ export const finalizeDirectGuardianSwitch = async (
    * anyway, which a 0.18 Guardian accepts and whose 0.19 refusal leaves `registerFailed` for the self-heal.
    * `'require'`, the cadence self-heal's: one read, and a refusal as preflight unless it shows the state, so the
    * attempt is refunded and a later lap asks again.
+   * 'require-landed', for cold-auth recovery: require that same proof even for a local nonce-zero state.
    */
-  stateOnChain: 'await' | 'require' = 'await'
+  stateOnChain: 'await' | 'require' | 'require-landed' = 'await'
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
@@ -1048,15 +1049,14 @@ export const finalizeDirectGuardianSwitch = async (
         'nothing to check the operator against'
     );
   }
-  // Past the hold, so no WASM lock is held while the node is read. A nonce-0 first state vouches for itself, and a
-  // never-used account is not on chain at all.
-  if (!firstState && stateOnChain === 'require') {
+  // Read the node outside the WASM hold. Ordinary registration accepts a first state for an unused account.
+  if (stateOnChain === 'require-landed' || (!firstState && stateOnChain === 'require')) {
     const onChain = await readChainAccountCommitment(accountIdHex, LANDED_COMMITMENT_READ_TIMEOUT_MS);
     if (onChain === undefined || !sameCommitment(onChain, stateCommitment)) {
       throw new GuardianStateOffChainRefusal(
         `Not registering on ${newGuardianEndpoint} yet: the node ` +
-          `${onChain === undefined ? 'could not be read' : 'does not hold this state'}, and a Guardian stores a ` +
-          'state past nonce 0 only once the chain does'
+          `${onChain === undefined ? 'could not be read' : 'does not hold this state'}, and automatic recovery ` +
+          'requires the node to confirm the state'
       );
     }
   } else if (!firstState && !(await waitForStateOnChain(accountIdHex, stateCommitment))) {
@@ -1141,7 +1141,7 @@ export const finalizeDirectGuardianSwitch = async (
       lastError = error;
       console.warn(`Direct guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
       // The Guardian stored nothing, and the self-heal's next lap asks again.
-      if (stateOnChain === 'require' && isGuardianStateNotOnChain(error)) break;
+      if (stateOnChain !== 'await' && isGuardianStateNotOnChain(error)) break;
       if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
         await delay(guardianRegisterBackoffMs(error, attempt));
       }
