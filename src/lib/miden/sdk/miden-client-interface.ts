@@ -74,7 +74,7 @@ import {
 import { wasmStartupEvidence } from 'lib/telemetry/wasm-startup';
 import { WalletType } from 'screens/onboarding/types';
 
-import { applyAfterSubmit } from './apply-after-submit';
+import { applyAfterSubmit, requestOrderOf, type RequestOrder } from './apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, isStandardPayment, reduceConsumableNoteRecords } from './consumable-notes';
 import { DELEGATED_PROVE_TIMEOUT_MS } from './delegated-prove-timeout';
@@ -388,6 +388,17 @@ const noAssertLive: AssertLive = () => {};
 
 /** A leaf's stage stamp; the 'submitting' call carries the evidence read just before the submit (#1081). */
 type LeafStage = (stage: ITransactionStage, detail?: StageDetail) => Promise<void> | void;
+
+/** What a staged submit carries besides its execution. */
+interface StagedSubmit {
+  /** Runs just before the submit; a throw stops the write before it. */
+  beforeSubmit?: () => void;
+  /**
+   * A swap's order, read off its request before the execute, for the 'submitting' stamp's evidence and the landed facts
+   * (`applyAfterSubmit`).
+   */
+  requestOrder?: RequestOrder;
+}
 
 /** The SDK's `_withInnerWebClient` escape hatch, which its types do not declare. */
 interface InnerClientAccess {
@@ -1995,8 +2006,10 @@ export class MidenClientInterface {
         );
         await onStage?.('proving');
         if (attempt.provesInWorker())
-          return await this.submitWorkerProof(executed, attempt, onStage, assertQuotedDeadline);
-        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'send', onStage, assertQuotedDeadline);
+          return await this.submitWorkerProof(executed, attempt, onStage, { beforeSubmit: assertQuotedDeadline });
+        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'send', onStage, {
+          beforeSubmit: assertQuotedDeadline
+        });
       },
       dbTransaction.delegateTransaction,
       this.liveness
@@ -2146,6 +2159,9 @@ export class MidenClientInterface {
           BigInt(amount),
           EXPIRATION_DELTA_BLOCKS
         );
+        // This attempt's order, fixed by the serial its build drew, read before the execute so a landed failure that
+        // reads nothing off the result still carries it. A trap leaves as itself, for the lock to retire.
+        const requestOrder = requestOrderOf(() => request.expectedOutputOwnNotes());
         // Staged for every attempt (#1233): a worker leg proves in the prove worker (#945), every
         // other leg proves here, and both submit and apply themselves, so the apply after the submit
         // is reachable and a failure there classifies as landed. The prove is pre-submit, so a
@@ -2153,8 +2169,8 @@ export class MidenClientInterface {
         await onStage?.('executing');
         await awaitTestSendAuthorization(canonicalId, request, 'swap');
         const executed = await this.client.transactions.executeRequest(canonicalId, request);
-        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
-        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage);
+        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage, { requestOrder });
+        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap', onStage, { requestOrder });
       },
       transaction.delegateTransaction,
       this.liveness
@@ -2239,15 +2255,17 @@ export class MidenClientInterface {
     executed: TransactionExecution,
     attempt: ProveAttempt,
     onStage?: LeafStage,
-    beforeSubmit?: () => void
+    { beforeSubmit, requestOrder }: StagedSubmit = {}
   ): Promise<TransactionResult> {
     const proof = await attempt.proveInWorker(executed.result);
     // Read under the hold that executed and proved it, before the stamp, so the evidence rides the stamp (#1081).
     if (onStage) {
       await onStage('submitting', {
-        evidence: readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent())
+        evidence: { ...readSubmitEvidence(executed.result, proof, () => attempt.holdIsCurrent()), ...requestOrder }
       });
     }
+    // A gated write's stamp waits for the service worker to record the crossing, a real parking point, so ownership is
+    // asked again whether or not the write has a check of its own before its submit (#1081).
     if (attempt.evicted()) {
       throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove or submit gate'));
     }
@@ -2261,7 +2279,8 @@ export class MidenClientInterface {
       result: executed.result,
       readLocalAccount: accountId => this.client.accounts.get(accountId),
       holdIsCurrent: () => attempt.holdIsCurrent(),
-      retireTrap: cause => attempt.retireCaughtTrap(cause)
+      retireTrap: cause => attempt.retireCaughtTrap(cause),
+      requestOrder
     });
     return executed.result;
   }
@@ -2278,7 +2297,7 @@ export class MidenClientInterface {
     attempt: ProveAttempt,
     write: 'send' | 'newTransaction' | 'consume' | 'swap',
     onStage?: LeafStage,
-    beforeSubmit?: () => void
+    { beforeSubmit, requestOrder }: StagedSubmit = {}
   ): Promise<TransactionResult> {
     // An explicit prover on the delegated path, see `remoteProver`: `prove({})` selects the SDK's
     // default-prover fallback, which needs an initialized client and so never dispatched in the
@@ -2306,9 +2325,14 @@ export class MidenClientInterface {
         : executed.prove({ prover })
     );
     recordProveTiming(`${write} staged: prove returned; submitting`);
+    // A swap's order rides the stamp too, a plain value read before the execute: the only record of it a landing that
+    // cannot read the result has, since a single-key swap saves no request.
     if (onStage) {
       await onStage('submitting', {
-        evidence: readSubmitEvidence(executed.result, proven.proof, () => attempt.holdIsCurrent())
+        evidence: {
+          ...readSubmitEvidence(executed.result, proven.proof, () => attempt.holdIsCurrent()),
+          ...requestOrder
+        }
       });
     }
     // The prove and the stage stamp both park, and an eviction during either hands the client to a
@@ -2329,7 +2353,8 @@ export class MidenClientInterface {
       result: executed.result,
       readLocalAccount: accountId => this.client.accounts.get(accountId),
       holdIsCurrent: () => attempt.holdIsCurrent(),
-      retireTrap: cause => attempt.retireCaughtTrap(cause)
+      retireTrap: cause => attempt.retireCaughtTrap(cause),
+      requestOrder
     });
     return executed.result;
   }
