@@ -2800,20 +2800,20 @@
   resolved "https://registry.yarnpkg.com/@nolyfill/is-core-module/-/is-core-module-1.0.39.tgz#3dc35ba0f1e66b403c00b39344f870298ebb1c8e"
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
-"@openzeppelin/guardian-client@0.19.0", "@openzeppelin/guardian-client@^0.19.0":
-  version "0.19.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.19.0.tgz#f6ab3ec9e316cc4d480df03f39e086041ef4f739"
-  integrity sha512-IAP/wTzsyIhdcQjUkxs0NGpnYvGbZWaYUP2vmXqeCxo8tYBXsfLWeZ6RRUTrioiHnfRB90XOtdgRpdxujVzo/Q==
+"@openzeppelin/guardian-client@0.19.1", "@openzeppelin/guardian-client@^0.19.1":
+  version "0.19.1"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.19.1.tgz#0f3b60be92309c4080309a23942923c860a8f62f"
+  integrity sha512-iTkJYwwbF9RXvkML+i88lBAHQFvj+b7MJIh5n26S6oLz/x/EDCExirwUXf6YeZpTdO9kLdGLTsU11Bh1ZzLmuw==
 
-"@openzeppelin/miden-multisig-client@0.19.0":
-  version "0.19.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.19.0.tgz#72d12e4dda67217c3bea78f220388658e3f471f9"
-  integrity sha512-caN0JEDQnAvpKxuvP/BvcBlYtiQ28Dq2UEwjiEOjzKqQ+K09elP7b7iBF2iKDIfiOVqbx11GCoWIqiInCBJQVQ==
+"@openzeppelin/miden-multisig-client@0.19.1":
+  version "0.19.1"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.19.1.tgz#c1aa7e65872c4d64889b6bafdf59833cf87dfd5c"
+  integrity sha512-oYuKbUiJKsf7cHjc5leCi12tHjWxEneyDTB+dvEAC/pJx+HPRb7FfIAuLy4/v+Fo4VZuateL3wDuGzUQZDkaCQ==
   dependencies:
     "@miden-sdk/miden-sdk" "0.17.8"
     "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/guardian-client" "^0.19.0"
+    "@openzeppelin/guardian-client" "^0.19.1"
 
 "@oxc-project/types@=0.139.0":
   version "0.139.0"
