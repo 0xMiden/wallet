@@ -44,7 +44,9 @@ import {
   readLiveSwapLeg,
   swapDisplayAmount,
   runPreparedSwap,
-  cachedSolverRegistry
+  cachedSolverRegistry,
+  commonSwapQuoteRefusal,
+  swapQuoteRefusal
 } from '../../helpers/mainnet-swap-ui';
 import { exportPublicInputNote } from '../../helpers/swap';
 import { getEnvironmentConfig } from '../../config/environments';
@@ -215,12 +217,16 @@ async function prepare(
 ): Promise<MainnetSwapCheckpoint> {
   const allowance = remainingMainnetLoopBudget(runId, 'swap', []);
   const candidates: Array<{ plan: SwapLoopPlan; offer: SavedSwapHolding; request: SavedSwapHolding }> = [];
+  const reportQuotes = Boolean(process.env.E2E_WALLET_REPORT_INVOCATION);
+  const refusals: NonNullable<ReturnType<typeof swapQuoteRefusal>>[] = [];
+  let attempts = 0;
   for (const pair of live.pairs) {
     for (const direction of [pair.faucetIds, [...pair.faucetIds].reverse()]) {
       const offer = live.tokens.find(token => token.hex === direction[0]);
       const request = live.tokens.find(token => token.hex === direction[1]);
       if (!offer || !request || BigInt(offer.balance) === 0n) continue;
       for (const amount of swapSearchAmounts(holding(offer))) {
+        attempts++;
         try {
           const forward = await readLiveSwapLeg(live.service, offer, request, amount);
           const intermediateFees =
@@ -249,6 +255,8 @@ async function prepare(
           candidates.push({ plan, offer, request });
           break;
         } catch (error) {
+          const refusal = reportQuotes ? swapQuoteRefusal(error) : undefined;
+          if (refusal) refusals.push(refusal);
           console.log(
             `Swap candidate ${offer.symbol}/${request.symbol} ${amount} refused: ${error instanceof Error ? error.message : String(error)}`
           );
@@ -258,8 +266,19 @@ async function prepare(
   }
   const chosen = chooseMainnetSwapLoop(candidates.map(candidate => candidate.plan));
   const candidate = candidates.find(entry => entry.plan === chosen);
-  if (!chosen || !candidate)
+  if (!chosen || !candidate) {
+    // A speculative route refusal is diagnostic only when it explains every evaluated candidate.
+    const refusal = commonSwapQuoteRefusal(attempts, refusals);
+    if (refusal) {
+      observeSwap('forward')(undefined, {
+        key: 'quote_availability',
+        origin: 'wallet_assertion',
+        status: 'failed',
+        ...refusal
+      });
+    }
     throw new Error('No funded two-way mainnet swap fits both $1 minima, reserves and the $2 safety cap');
+  }
   if (Date.now() - Date.parse(live.prices.pricesUpdatedAt) > 5 * 60_000)
     throw new Error('USD valuations expired during route selection');
   const oldRows = await readTransactionRows(wallet.page);

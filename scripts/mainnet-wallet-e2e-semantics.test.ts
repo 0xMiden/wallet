@@ -7,7 +7,12 @@ import { join } from 'node:path';
 import type { TestInfo } from '@playwright/test';
 import type { FullConfig, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 
-import { readLiveSwapLeg } from '../playwright/e2e/helpers/mainnet-swap-ui';
+import {
+  commonSwapQuoteRefusal,
+  readLiveSwapLeg,
+  swapQuoteRefusal,
+  validateSwapEta
+} from '../playwright/e2e/helpers/mainnet-swap-ui';
 import { observeNightly } from '../playwright/e2e/reporting/nightly-observation';
 import WalletE2eReporter from '../playwright/e2e/reporting/wallet-e2e-reporter';
 import { INVOCATIONS, TITLES } from './wallet-e2e/invocations.cjs';
@@ -225,6 +230,67 @@ it.each(quoteRefusals)('emits $code only from bound solver quote evidence', asyn
   expect(quote.stages.some(value => value.key === 'execution')).toBe(false);
   expect(report.coverage.freshSwapsStarted.value).toBeNull();
   expect(JSON.stringify(report)).not.toContain(offered.balance);
+});
+
+it('reports a consistent terminal route-search refusal before starting fresh swap execution', async () => {
+  const price = {
+    offeredFaucet: offered.hex,
+    requestedFaucet: requested.hex,
+    offeredDecimals: 6,
+    requestedDecimals: 6,
+    fillPrice: '0.99995',
+    asOf: Math.floor(Date.now() / 1000) - 61
+  };
+  const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json(price));
+  const refusals = [];
+  for (const amount of [1_010_000n, 1_020_000n]) {
+    try {
+      await readLiveSwapLeg('https://solver.example', offered, requested, amount);
+    } catch (error) {
+      const refusal = swapQuoteRefusal(error);
+      if (refusal) refusals.push(refusal);
+    }
+  }
+  expect(fetch).toHaveBeenCalledTimes(2);
+  const agreed = commonSwapQuoteRefusal(2, refusals);
+  expect(agreed).toEqual({ errorCode: 'quote_price_stale', endpoint: 'inicio_pair_price' });
+  expect(commonSwapQuoteRefusal(3, refusals)).toBeUndefined();
+  expect(commonSwapQuoteRefusal(0, [])).toBeUndefined();
+
+  env.E2E_WALLET_REPORT_INVOCATION = 'swap-prepare';
+  const annotations: TestInfo['annotations'] = [];
+  observeNightly({ annotations, timeout: 30_000 } as TestInfo, {
+    key: 'swap-forward',
+    kind: 'setup',
+    provider: 'solver'
+  })(undefined, { key: 'quote_availability', origin: 'wallet_assertion', status: 'failed', ...agreed });
+  await replayAnnotations('swap-prepare', 'failed', annotations);
+  const report = await assembled({ REPORT_INVOCATION_SWAP_FORWARD: 'skipped' }, 'quote-route-selection-stale');
+  expect(evidence(report.invocations[0]!)).toMatchObject({
+    kind: 'setup',
+    provider: 'solver',
+    outcome: 'unknown',
+    stages: [{ key: 'quote_availability', status: 'failed', error: { code: 'quote_price_stale' } }]
+  });
+  expect(report.coverage.freshSwapsStarted.value).toBe(0);
+});
+
+it('keeps contradictory and mixed quote declines from explaining route selection', () => {
+  const refusalFor = (result: object) => {
+    try {
+      validateSwapEta(result, offered.hex, requested.hex, 1_010_000n, 1_009_444n);
+    } catch (error) {
+      return swapQuoteRefusal(error);
+    }
+    throw new Error('Expected quote rejection');
+  };
+  const noFill = { ...eta, fillStatus: 'none', reason: 'liquidity' };
+  expect(refusalFor(noFill)).toBeUndefined();
+  const insufficient = refusalFor({ ...noFill, fillableOfferedAmount: '0', fillableRequestedAmount: '0' });
+  const paused = refusalFor({ ...eta, settlementsRunning: false });
+  expect(insufficient?.errorCode).toBe('quote_liquidity_insufficient');
+  expect(paused?.errorCode).toBe('quote_settlement_paused');
+  expect(commonSwapQuoteRefusal(2, [insufficient!, paused!])).toBeUndefined();
 });
 
 it.each([

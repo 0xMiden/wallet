@@ -32,6 +32,26 @@ class QuoteRefusal extends Error {
   }
 }
 
+export function swapQuoteRefusal(error: unknown) {
+  if (!(error instanceof QuoteRefusal)) return undefined;
+  const endpoint: QuoteEndpoint =
+    error.code === 'quote_price_stale' || error.code === 'quote_price_clock_skew'
+      ? 'inicio_pair_price'
+      : 'inicio_swap_eta';
+  return { errorCode: error.code, endpoint };
+}
+
+export function commonSwapQuoteRefusal(
+  attempted: number,
+  refusals: readonly NonNullable<ReturnType<typeof swapQuoteRefusal>>[]
+) {
+  const [first] = refusals;
+  if (first && refusals.length === attempted && refusals.every(refusal => refusal.errorCode === first.errorCode)) {
+    return first;
+  }
+  return undefined;
+}
+
 export function quotedSwapMinimum(
   body: unknown,
   offer: string,
@@ -91,20 +111,21 @@ export function validateSwapEta(body: unknown, offer: string, request: string, a
   ) {
     throw new Error(message);
   }
+  const fillableOffer = BigInt(body.fillableOfferedAmount);
+  const fillableRequest = BigInt(body.fillableRequestedAmount);
+  const noFill = body.fillStatus === 'none' && fillableOffer === 0n && fillableRequest === 0n;
+  const canFill = fillableOffer >= amount && fillableRequest >= minimum;
   if (body.settlementsRunning === false) throw new QuoteRefusal(message, 'quote_settlement_paused');
   if (body.settlementsRunning === true) {
-    if (
-      body.fillStatus === 'none' &&
-      body.reason === 'liquidity' &&
-      (body.priceBand === 'at_market' || body.priceBand === 'tolerated')
-    ) {
+    if (noFill && body.reason === 'liquidity' && (body.priceBand === 'at_market' || body.priceBand === 'tolerated')) {
       throw new QuoteRefusal(message, 'quote_liquidity_insufficient');
     }
     if (
-      (body.priceBand === 'off_market' && body.fillStatus === 'none' && body.reason === 'price') ||
+      (body.priceBand === 'off_market' && noFill && body.reason === 'price') ||
       (body.priceBand === 'tolerated' &&
-        (body.fillStatus === 'full' || body.fillStatus === 'partial') &&
-        body.reason === null)
+        body.reason === null &&
+        ((body.fillStatus === 'full' && canFill) ||
+          (body.fillStatus === 'partial' && !canFill && fillableOffer > 0n && fillableRequest > 0n)))
     ) {
       throw new QuoteRefusal(message, 'quote_price_out_of_band');
     }
@@ -114,8 +135,7 @@ export function validateSwapEta(body: unknown, offer: string, request: string, a
     body.fillStatus !== 'full' ||
     body.priceBand !== 'at_market' ||
     body.reason !== null ||
-    BigInt(body.fillableOfferedAmount) < amount ||
-    BigInt(body.fillableRequestedAmount) < minimum
+    !canFill
   ) {
     throw new Error(message);
   }
