@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 
+import { earnWithdrawalRetryKind } from '../../src/lib/epoch/earn-withdraw-policy';
 import {
   preparedAllocation,
   PREPARED_FAUCET,
@@ -8,12 +9,14 @@ import {
   PREPARED_TOKEN
 } from '../../src/lib/epoch/testing/earn-prepared';
 import { EarnWithdrawTransaction } from '../../src/lib/miden/db/types';
+import { TEST_TOKEN_IMIDEN } from '../../src/lib/miden/swap/testing/registry';
 import { loadMidenSdk } from '../e2e/helpers/dapp-confirm';
 import { importWallet } from '../e2e/helpers/import-wallet';
 import { expect, test } from '../fixtures/extension';
 
 async function seedPreparedFailure(page: Page, id: string, accountId: string) {
-  const { Address } = await loadMidenSdk();
+  const { AccountId, Address } = await loadMidenSdk();
+  const faucet = AccountId.fromBech32(TEST_TOKEN_IMIDEN.faucetId).toString();
   let recipient: string;
   try {
     recipient = Address.fromBech32(accountId.split('_')[0]!).accountId().toString();
@@ -23,7 +26,7 @@ async function seedPreparedFailure(page: Page, id: string, accountId: string) {
   const preparedDelivery = preparedAllocation('22', true);
   const delivery = {
     ...preparedDelivery,
-    requestJson: preparedDelivery.requestJson.replace(PREPARED_RECIPIENT, recipient)
+    requestJson: preparedDelivery.requestJson.replace(PREPARED_RECIPIENT, recipient).replace(PREPARED_FAUCET, faucet)
   };
   const attemptId = 'mock-original-attempt';
   const row = new EarnWithdrawTransaction(
@@ -31,7 +34,7 @@ async function seedPreparedFailure(page: Page, id: string, accountId: string) {
     10n ** 19n,
     PREPARED_OWNER,
     `DUMMY_LENDING:11155111:${PREPARED_TOKEN}`,
-    PREPARED_FAUCET,
+    faucet,
     '10',
     'USDC',
     attemptId,
@@ -58,10 +61,12 @@ async function seedPreparedFailure(page: Page, id: string, accountId: string) {
         nonce: delivery.nonce,
         destinationChainId: 999999999,
         recipientAccountId: recipient,
-        destinationFaucetId: PREPARED_FAUCET
+        destinationFaucetId: faucet
       }
     }
   };
+
+  expect(earnWithdrawalRetryKind(row), 'the synthetic row must qualify under the real Retry policy').toBe('allocation');
 
   // Commit before the second document boots; the receipt must use its own real Dexie subscription.
   await page.evaluate(
