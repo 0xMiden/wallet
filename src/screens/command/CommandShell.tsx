@@ -145,7 +145,14 @@ export function CommandShell({
                     route={route}
                     container={portalHost}
                   >
-                    {route.kind === 'operation' ? <CommandOperation>{children}</CommandOperation> : children}
+                    {/* Keep a cold privacy read from suspending the shell and cycling its portal host ref. */}
+                    {route.kind === 'operation' ? (
+                      <Suspense fallback={null}>
+                        <CommandOperation>{children}</CommandOperation>
+                      </Suspense>
+                    ) : (
+                      children
+                    )}
                   </CommandWorkbench>
                 )}
               </main>
