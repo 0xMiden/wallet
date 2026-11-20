@@ -57,6 +57,7 @@
 - [FIX][all] Switch the Guardian directly on chain when the outgoing Guardian refuses the switch proposal or a co-signature with any HTTP 4xx (a 401 included), so a Guardian that rejects this device cannot block the switch.
 
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
+- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
 
 - [CHANGE][all] Polish onboarding's Guardian steps and wallet-ready screen: new intro illustration on a stage, filled card icons, a Learn more pill, a provider sheet with outlined cards, the fastest operator first under a Fastest pill, and a new wallet-ready illustration with a larger headline.
 - [CHANGE][extension] Redesign the dApp connect window: the site and connecting account up top, what the site can and cannot do as a fact list, matching warning and error notices, Connect held until the private-data consent is ticked, and the app's page header on every confirm window.
