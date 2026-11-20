@@ -508,10 +508,7 @@ async function settle(
     { outcome: 'fully_filled' },
     { key: 'order', origin: 'sdk_read', status: 'passed', endpoint: 'miden_mainnet_rpc' }
   );
-  observe({
-    outcome: payback.claimedAtBlock === undefined ? 'payment_unclaimed' : 'claimed',
-    received: nightlyAmount(receivedAsset, payback.amount)
-  });
+  observe({ outcome: payback.claimedAtBlock === undefined ? 'payment_unclaimed' : 'claimed' });
   claimStage = 'portfolio-reserve';
   const before = await balances(wallet, state);
   const creationDebits = prepareMainnetSwapClaimRecovery(state, payback, before, leg);

@@ -450,6 +450,24 @@ it('keeps canonical original inclusion when the wait for exact payback expires',
   expect(report.coverage.swap.status).toBe('failed');
 });
 
+it('keeps an unclaimed payment separate from funds verified in the wallet', async () => {
+  await observe('swap-forward', 'failed', [
+    authorizationReleased(),
+    operation('swap-forward', 'swap', 'included', [originalIncluded()]),
+    operation('swap-forward', 'swap', 'fully_filled', [
+      stage('payback', 'passed', 'sdk_read'),
+      stage('order', 'passed', 'sdk_read')
+    ]),
+    operation('swap-forward', 'swap', 'payment_unclaimed', [])
+  ]);
+  const report = await assembled({}, 'payment-unclaimed');
+  expect(evidence(report.invocations[0]!)).toMatchObject({
+    outcome: 'payment_unclaimed',
+    received: { value: null, reason: 'not_observed' },
+    fee: { value: null, reason: 'not_observed' }
+  });
+});
+
 it('reports usable received funds after inclusion, full-fill proof and native claim', async () => {
   const received = { asset: 'USDC', baseUnits: '1200000', decimals: 6 };
   await observe('swap-forward', 'passed', [
