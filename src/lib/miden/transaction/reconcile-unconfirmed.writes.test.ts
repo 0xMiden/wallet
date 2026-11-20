@@ -604,6 +604,20 @@ describe('the landed write (#1081)', () => {
       expect(row?.outputNoteIds).toBeUndefined();
     });
 
+    it('a single-key swap landed by an unbound commitment proof opens no order when one attempt stamped none', async () => {
+      // The silent attempt is the one the judge takes as the landing, so only the other attempt names an order.
+      const row = swapRow({ orderId: '42', orderNoteId: NOTE }, true);
+      const [landing, other] = row.submitEvidence ?? [];
+      const { orderId: _orderId, orderNoteId: _orderNoteId, ...silent } = landing!;
+      await Repo.transactions.put({ ...row, submitEvidence: [silent, other!] });
+
+      expect((await judgeAndWrite('tx-1', atFinal())).kind).toBe('landed');
+
+      const stored = await read();
+      expect(stored?.extraInputs).toEqual({ requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 });
+      expect(stored?.outputNoteIds).toBeUndefined();
+    });
+
     it('a single-key swap landed by an unbound commitment proof opens the order its attempts stamped', async () => {
       await Repo.transactions.put(swapRow({ orderId: '42', orderNoteId: NOTE }, true));
 

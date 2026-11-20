@@ -444,7 +444,11 @@ async function writeLanding(
         : landedAttempt;
     const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
     // A single-key swap saves no request. A landing that binds an attempt opens that attempt's order; one that binds
-    // none opens an order only when every attempt the proof admits, and that names an order, names the same one.
+    // none opens an order only when every attempt the proof admits names the same one, since a silent one may be the
+    // attempt that landed.
+    const silentCandidate = unboundAttempts?.some(
+      entry => entry.orderId === undefined && entry.orderNoteId === undefined
+    );
     applyVerifiedLanding(
       fresh,
       {
@@ -454,9 +458,11 @@ async function writeLanding(
         completedAt: fresh.completedAt
       },
       (sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined) ??
-        submittedSwapOrder(fresh.submitEvidence, entry =>
-          unboundAttempts !== undefined ? unboundAttempts.includes(entry) : entry.attemptId === landing.attemptId
-        )
+        (silentCandidate === true
+          ? undefined
+          : submittedSwapOrder(fresh.submitEvidence, entry =>
+              unboundAttempts !== undefined ? unboundAttempts.includes(entry) : entry.attemptId === landing.attemptId
+            ))
     );
     const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);
