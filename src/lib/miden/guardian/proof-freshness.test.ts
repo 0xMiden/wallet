@@ -11,6 +11,8 @@ import {
   markFailedReexecution,
   MAX_PROOF_REEXECUTIONS,
   OFFSCREEN_PROOF_BUDGET_MS,
+  ProofFreshnessUnknownError,
+  isProofFreshnessUnknownError,
   StaleProofError,
   SUBMIT_EXPIRY_MARGIN_BLOCKS,
   withFreshProof
@@ -141,7 +143,10 @@ describe('withFreshProof', () => {
     const { pending, executions } = run([STALE], async () => {
       throw new Error('node down');
     });
-    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+    const error = await pending.catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+    expect(isProofFreshnessUnknownError(new Error('wrapped', { cause: error }))).toBe(true);
     expect(executions).toEqual([false]);
   });
 

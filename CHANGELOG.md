@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][all] Stop Guardian submission when proof freshness cannot be established before the chain-tip deadline.
+
 - [FIX][all] Match the bundled testnet Explore catalog to the published catalog.
 
 - [FIX][ci] Exercise the fullscreen Command launcher and wallet actions in existing browser/localnet jobs, and refuse a missing requested E2E Send token instead of selecting another asset.
