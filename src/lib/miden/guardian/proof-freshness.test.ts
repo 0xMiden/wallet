@@ -158,9 +158,10 @@ describe('withFreshProof', () => {
 
   it('reads the tip at most twice for one proof', async () => {
     const readTip = jest.fn<Promise<number>, []>().mockRejectedValue(new Error('node down'));
-    const { pending } = run([STALE], readTip);
-    await expect(pending).resolves.toEqual({ expirationBlock: STALE });
+    const { pending, executions } = run([STALE], readTip);
+    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
     expect(readTip).toHaveBeenCalledTimes(2);
+    expect(executions).toEqual([false]);
   });
 
   it('gives the second read what is left of the one bound', async () => {
