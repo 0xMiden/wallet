@@ -782,6 +782,8 @@
   "commandHistoryRange": "Zeitraum der Historie",
   "commandHistoryInsufficient": "Noch nicht genügend Beobachtungen",
   "commandHistoryGaps": "Einige Intervalle oder Bewertungsbereiche fehlen",
+  "commandHistoryObservationsOnly": "Ausschließlich protokollierte Beobachtungen",
+  "commandEarnDepositsPaused": "Neue „Earn“-Einzahlungen sind vorübergehend ausgesetzt. Sie können bestehende Positionen weiterhin einsehen und abheben.",
   "commandInspectHistory": "Beobachtete Historie prüfen",
   "commandObservedOnDevice": "Anmerkungen beziehen sich ausschließlich auf dieses Gerät. Lücken werden nicht ausgefüllt.",
   "getStarted": "Los geht’s",

@@ -783,6 +783,8 @@
   "commandHistoryRange": "History range",
   "commandHistoryInsufficient": "Not enough observations yet",
   "commandHistoryGaps": "Some intervals or valuation coverage are missing",
+  "commandHistoryObservationsOnly": "Recorded observations only",
+  "commandEarnDepositsPaused": "New Earn deposits are paused. You can still view and withdraw existing positions.",
   "commandInspectHistory": "Inspect observed history",
   "commandObservedOnDevice": "Observations on this device only. Gaps are not filled.",
   "getStarted": "Get started",

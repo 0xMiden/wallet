@@ -35,10 +35,12 @@ export interface SwapAmountsProps {
   offerAmount: string;
   onOfferAmountChange: (amount: string) => void;
   onSelectOfferToken: () => void;
+  offerTokenAnchorRef?: React.Ref<HTMLButtonElement>;
   requestToken: SwapToken;
   requestAmount: string;
   onRequestAmountChange: (amount: string) => void;
   onSelectRequestToken: () => void;
+  requestTokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Show a skeleton on the receive field while its quote is being computed. */
   requestLoading?: boolean;
   offerLoading?: boolean;

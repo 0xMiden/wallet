@@ -4498,6 +4498,118 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
   });
 });
 
+// The single-key send, swap and custom writes take the same gate (#1081): the call names it, so the offscreen leaf asks
+// it for its 'submitting' stamp and submits only once the crossing is recorded.
+describe('MidenClientProxy - the single-key writes submit gate (#1081)', () => {
+  const gateReq = (op_id: string, evidence?: unknown) =>
+    ({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id, evidence }) as never;
+  // Called by name, since the gate is the argument after the stage callback this suite is about.
+  const callWrite = (proxy: object, method: string, args: unknown[]): Promise<unknown> => {
+    const write: unknown = Reflect.get(proxy, method);
+    if (typeof write !== 'function') throw new Error(`midenClientProxy.${method} is missing`);
+    return Promise.resolve(Reflect.apply(write, proxy, args));
+  };
+  const signer = () => jest.fn(async () => new Uint8Array());
+  const writes: Array<[string, (onStage: unknown, gate?: unknown) => unknown[]]> = [
+    ['sendTransaction', (onStage, gate) => [sendTx(), signer(), onStage, gate]],
+    ['swapTransaction', (onStage, gate) => [swapTx(), signer(), onStage, gate]],
+    ['newTransaction', (onStage, gate) => ['mtst1qacc', new Uint8Array([1]), false, signer(), onStage, gate]]
+  ];
+
+  it.each(writes)('flag ON → %s opens its gate for its op, named on the call', async (method, argsOf) => {
+    const { midenClientProxy, handleOffscreenSubmitGate } = await loadProxy(true);
+    const submitGate = jest.fn(async () => true);
+    let answer: unknown;
+    let envelope: any;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      envelope = env;
+      answer = await handleOffscreenSubmitGate(gateReq(env.op_id, { refBlock: 4 }));
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = callWrite(
+      midenClientProxy,
+      method,
+      argsOf(
+        jest.fn(async () => {}),
+        submitGate
+      )
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(answer).toEqual({ ok: true });
+    expect(submitGate).toHaveBeenCalledWith({ refBlock: 4 });
+    expect(envelope).toMatchObject({ method, submitGated: true });
+  });
+
+  it.each(writes)('flag ON → %s called without a gate names none, and its op refuses one', async (method, argsOf) => {
+    const { midenClientProxy, handleOffscreenSubmitGate } = await loadProxy(true);
+    let answer: unknown;
+    let envelope: any;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      envelope = env;
+      answer = await handleOffscreenSubmitGate(gateReq(env.op_id));
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = callWrite(midenClientProxy, method, argsOf(jest.fn(async () => {})));
+    await flush();
+    fireReady();
+    await p;
+    expect(answer).toEqual(expect.objectContaining({ ok: false }));
+    expect(envelope.method).toBe(method);
+    expect(envelope).not.toHaveProperty('submitGated');
+  });
+
+  // Inline, a send or swap leaf awaits the stamp itself before its submit, so the gate has nothing to add. An inline
+  // newTransaction asks its gate in place of the 'submitting' stamp instead, since a reviewed bridge source's caller
+  // reads whether the gate opened (see 'the inline newTransaction waits for the same gate').
+  it('flag OFF → an inline send or swap gets its stage callback as before and the gate is never asked', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const onStage = jest.fn(async () => {});
+    const submitGate = jest.fn(async () => true);
+    const send = sendTx();
+    const swap = swapTx();
+
+    await callWrite(midenClientProxy, 'sendTransaction', [send, signer(), onStage, submitGate]);
+    await callWrite(midenClientProxy, 'swapTransaction', [swap, signer(), onStage, submitGate]);
+
+    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(send, onStage);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage, expect.objectContaining({ baseFee: 7n }));
+    expect(submitGate).not.toHaveBeenCalled();
+  });
+
+  it('flag OFF → an inline newTransaction stamps its other stages and asks the gate for its submit', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const onStage = jest.fn(async () => {});
+    const submitGate = jest.fn(async () => true);
+    G.__px.inlineNewTransaction.mockImplementation(
+      async (
+        _account: string,
+        _bytes: Uint8Array,
+        _delegated: boolean,
+        stage?: (s: 'proving' | 'submitting', detail?: { evidence: { refBlock: number } }) => void | Promise<void>
+      ) => {
+        await stage?.('proving');
+        await stage?.('submitting', { evidence: { refBlock: 4 } });
+        return { __inlineNewResult: true };
+      }
+    );
+
+    await callWrite(midenClientProxy, 'newTransaction', [
+      'mtst1qacc',
+      new Uint8Array([1]),
+      true,
+      signer(),
+      onStage,
+      submitGate
+    ]);
+
+    expect(onStage).toHaveBeenCalledWith('proving', undefined);
+    expect(onStage).not.toHaveBeenCalledWith('submitting', expect.anything());
+    expect(submitGate).toHaveBeenCalledWith({ refBlock: 4 });
+  });
+});
+
 describe('MidenClientProxy - the endpoint state on every offscreen message (#1482)', () => {
   const customOverride = async () => {
     const { buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');

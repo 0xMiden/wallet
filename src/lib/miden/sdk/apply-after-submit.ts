@@ -11,8 +11,15 @@
 
 import { NoteScript, type Note, type OutputNote } from '@miden-sdk/miden-sdk/lazy';
 
-import { ApplyAfterSubmitError, causeChain, type LandedTransaction } from './sdk-error-code';
+import {
+  ApplyAfterSubmitError,
+  causeChain,
+  landedOrderFacts,
+  type LandedTransaction,
+  rethrowTrapOrKill
+} from './sdk-error-code';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
+import type { ISubmitEvidence } from '../db/types';
 import { toNoteTypeString } from '../helpers';
 import { NoteTypeEnum } from '../types';
 
@@ -42,10 +49,18 @@ export interface ApplyAfterSubmitRetry<Id> {
   readLocalAccount: (accountId: Id) => Promise<{ to_commitment(): { toHex(): string } } | null | undefined>;
   /** False once the hold that submitted no longer owns the WASM mutex. */
   holdIsCurrent: () => boolean;
-  /** Retire the submitting hold's client for a trap. The landed verdict stays `ApplyAfterSubmitError`. */
+  /**
+   * Retire the submitting hold's client for a trap. The landed verdict stays `ApplyAfterSubmitError`. A throw here is
+   * logged and costs only the retire.
+   */
   retireTrap: (cause: WebAssembly.RuntimeError) => void;
   /** Hears each failed attempt. A throw here is ignored. */
   onApplyFailed?: (error: unknown) => void;
+  /**
+   * The order a swap's request names, read before its submit (`requestOrderOf`). The landed facts carry it, as a pair,
+   * whenever they name no order of their own, a trap or an eviction included: it is a plain value, not a read.
+   */
+  requestOrder?: RequestOrder;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -55,18 +70,22 @@ const defaultSleep = (ms: number) => new Promise<void>(resolve => setTimeout(res
  * Apply a transaction the node already accepted, retrying a failed apply while that is safe. A
  * failure that outlasts the retries rejects as `ApplyAfterSubmitError`, so the row takes its type's
  * landed verdict and is never requeued into a second submit. A trap in the apply or in the initial
- * account read retires the submitting hold and carries no facts; a trap in a landed-fact reader
- * retires it and keeps the facts already read.
+ * account read retires the submitting hold and reads no facts; a trap in a landed-fact reader
+ * retires it and keeps the facts already read. A swap's request order stands in for an order the
+ * facts do not name.
  */
 export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): Promise<void> {
   const sleep = options.sleep ?? defaultSleep;
   let lastError: unknown;
+  const { requestOrder } = options;
+  const withRequestOrder = (landed: LandedTransaction): LandedTransaction =>
+    landed.orderId !== undefined || requestOrder === undefined ? landed : { ...landed, ...requestOrder };
   // The rejection itself, not a wrapped cause: a trap on this client is not retried and is not read.
   const noteApplyFailure = (error: unknown): void => {
     report(options, error);
     if (error instanceof WebAssembly.RuntimeError) {
-      options.retireTrap(error);
-      throw new ApplyAfterSubmitError(error, {});
+      retire(options, error);
+      throw new ApplyAfterSubmitError(error, withRequestOrder({}));
     }
     lastError = error;
   };
@@ -83,7 +102,7 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
     try {
       if (!(await storeHoldsInitialAccount(options))) break;
     } catch (error) {
-      if (error instanceof WebAssembly.RuntimeError) throw new ApplyAfterSubmitError(error, {});
+      if (error instanceof WebAssembly.RuntimeError) throw new ApplyAfterSubmitError(error, withRequestOrder({}));
       throw error;
     }
     try {
@@ -93,7 +112,7 @@ export async function applyAfterSubmit<Id>(options: ApplyAfterSubmitRetry<Id>): 
       noteApplyFailure(error);
     }
   }
-  throw new ApplyAfterSubmitError(lastError, readLanded(options));
+  throw new ApplyAfterSubmitError(lastError, withRequestOrder(readLanded(options)));
 }
 
 /**
@@ -128,7 +147,7 @@ function readLanded<Id>(options: ApplyAfterSubmitRetry<Id>): LandedTransaction {
       read();
     } catch (error) {
       if (!(error instanceof WebAssembly.RuntimeError)) throw error;
-      options.retireTrap(error);
+      retire(options, error);
       return landed;
     }
   }
@@ -140,6 +159,19 @@ function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
     options.onApplyFailed?.(error);
   } catch {
     // A breadcrumb must never cost the landed verdict.
+  }
+}
+
+// Guarded as `report` is, since every call sits on the landed verdict's path: a retire that threw would replace
+// `ApplyAfterSubmitError` and the row would be offered a Retry that submits it again.
+function retire<Id>(options: ApplyAfterSubmitRetry<Id>, trap: WebAssembly.RuntimeError): void {
+  try {
+    options.retireTrap(trap);
+  } catch (retireError) {
+    console.error('[apply-after-submit] retiring a caught trap failed; the landed verdict stands', {
+      trap,
+      retireError
+    });
   }
 }
 
@@ -218,6 +250,71 @@ function orderRecipient(note: OutputNote | Note) {
   return 'intoFull' in note ? note.intoFull()?.recipient() : note.recipient();
 }
 
+/** A swap order fixed when its request was built, in the landed facts' shape. */
+export interface RequestOrder {
+  orderId: string;
+  orderNoteId: string;
+}
+
+/** Both facts, or none: an order and a note read from different sources must never open as one. */
+function wholeOrder(facts: Pick<LandedTransaction, 'orderId' | 'orderNoteId'>): RequestOrder | undefined {
+  return facts.orderId !== undefined && facts.orderNoteId !== undefined
+    ? { orderId: facts.orderId, orderNoteId: facts.orderNoteId }
+    : undefined;
+}
+
+/**
+ * The order a swap request names, read off the request before its submit, so a landed write that cannot read the
+ * result still has it. It is the reader a later decode of the saved bytes uses (`swapOrderOf`, fee not set aside), and
+ * only a well-formed pair is kept. `readNotes` runs inside the catch: a trap or a kill leaves as itself, for the hold's
+ * lock to retire, and any other failure records no order, so the landed writers decode or go without as before.
+ */
+export function requestOrderOf(readNotes: () => readonly Note[]): RequestOrder | undefined {
+  try {
+    const order = swapOrderOf({ feeNote: undefined, userNotes: readNotes() });
+    return order && wholeOrder(landedOrderFacts(order.orderId, order.orderNoteId));
+  } catch (error) {
+    rethrowTrapOrKill(error);
+    console.warn('[swap] could not read the order the request names', error);
+    return undefined;
+  }
+}
+
+/**
+ * The order a swap row's saved request recorded (`requestOrder`), or undefined unless both of its fields are well
+ * formed: the store can hold anything (`importDb`).
+ */
+export function recordedSwapOrder(extraInputs: unknown): RequestOrder | undefined {
+  if (extraInputs === null || typeof extraInputs !== 'object' || !('requestOrder' in extraInputs)) return undefined;
+  const record: unknown = extraInputs.requestOrder;
+  if (record === null || typeof record !== 'object') return undefined;
+  return wholeOrder(
+    landedOrderFacts('orderId' in record ? record.orderId : undefined, 'noteId' in record ? record.noteId : undefined)
+  );
+}
+
+/**
+ * The order the submit evidence of the `matches` attempts recorded (`orderId`, `orderNoteId`), which a single-key
+ * swap's leaf read off its request before the submit. Undefined unless one well-formed pair is named and every matching
+ * entry that names an order names that one.
+ */
+export function submittedSwapOrder(
+  entries: readonly ISubmitEvidence[] | undefined,
+  matches: (entry: ISubmitEvidence) => boolean
+): RequestOrder | undefined {
+  let named: RequestOrder | undefined;
+  for (const entry of entries ?? []) {
+    if (!matches(entry) || (entry.orderId === undefined && entry.orderNoteId === undefined)) continue;
+    const order = wholeOrder(landedOrderFacts(entry.orderId, entry.orderNoteId));
+    if (order === undefined) return undefined;
+    if (named !== undefined && (named.orderId !== order.orderId || named.orderNoteId !== order.orderNoteId)) {
+      return undefined;
+    }
+    named = order;
+  }
+  return named;
+}
+
 /** Fails closed: an evicted hold, a missing or unreadable account, or any other commitment refuses. */
 async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>): Promise<boolean> {
   // The wait parked, and an eviction during it hands the client to a successor.
@@ -233,7 +330,7 @@ async function storeHoldsInitialAccount<Id>(options: ApplyAfterSubmitRetry<Id>):
     // A trap retires this hold and leaves, so the caller records no facts. Any other failure
     // refuses the retry, and the landed read still runs.
     if (error instanceof WebAssembly.RuntimeError) {
-      options.retireTrap(error);
+      retire(options, error);
       throw error;
     }
     return false;
