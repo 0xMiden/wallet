@@ -217,13 +217,17 @@ describe('withFreshProof', () => {
   it('rejects a tip delivered after the deadline before the overdue timer callback runs', async () => {
     jest.useFakeTimers();
     let now = performance.now();
-    jest.spyOn(performance, 'now').mockImplementation(() => now);
-    let answer!: (tip: number) => void;
-    const { pending, executions } = run([STALE], () => new Promise<number>(resolve => (answer = resolve)));
-    now += CHAIN_TIP_READ_TIMEOUT_MS;
-    answer(TIP);
-    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
-    expect(executions).toEqual([false]);
+    const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      let answer!: (tip: number) => void;
+      const { pending, executions } = run([STALE], () => new Promise<number>(resolve => (answer = resolve)));
+      now += CHAIN_TIP_READ_TIMEOUT_MS;
+      answer(TIP);
+      await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+      expect(executions).toEqual([false]);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('judges a tip that answers inside the bound', async () => {
