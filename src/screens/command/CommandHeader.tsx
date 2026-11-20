@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { IconName } from 'app/icons/v2';
 import { NetworkChip } from 'components/NetworkChip';
-import { Button, ButtonVariant } from 'components/ui/Button';
 import { IconButton } from 'components/ui/IconButton';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -46,9 +45,6 @@ export function CommandHeader({ scope }: { scope: AccountScope }): React.ReactEl
         <Dialog.Trigger asChild>
           <IconButton icon={IconName.Search} label={t('commandSearch')} />
         </Dialog.Trigger>
-        <Button size="sm" variant={ButtonVariant.Secondary} iconLeft={IconName.User} onClick={() => navigate('/me')}>
-          {t('profile')}
-        </Button>
       </div>
     </header>
   );

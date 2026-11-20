@@ -783,6 +783,8 @@
   "commandHistoryRange": "Zakres historii",
   "commandHistoryInsufficient": "Zbyt mało obserwacji",
   "commandHistoryGaps": "Brakuje niektórych przedziałów czasowych lub zakresu wyceny",
+  "commandHistoryObservationsOnly": "Wyłącznie odnotowane obserwacje",
+  "commandEarnDepositsPaused": "Nowe wpłaty w ramach programu Earn zostały wstrzymane. Nadal można przeglądać i wypłacać istniejące pozycje.",
   "commandInspectHistory": "Sprawdź historię obserwacji",
   "commandObservedOnDevice": "Uwagi dotyczą wyłącznie tego urządzenia. Luki nie są wypełniane.",
   "getStarted": "Zacznij",

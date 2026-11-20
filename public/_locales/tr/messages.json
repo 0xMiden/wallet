@@ -3614,6 +3614,14 @@
     "message": "Bazı aralıklar veya değerleme kapsamı eksik",
     "englishSource": "Some intervals or valuation coverage are missing"
   },
+  "commandHistoryObservationsOnly": {
+    "message": "Yalnızca kaydedilmiş gözlemler",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "Yeni Earn mevduatları askıya alınmıştır. Mevcut pozisyonlarınızı görüntüleyebilir ve çekebilirsiniz.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
   "commandInspectHistory": {
     "message": "Gözlemlenen geçmişi inceleyin",
     "englishSource": "Inspect observed history"

@@ -6,7 +6,8 @@ import { hasLeftQueue, ITransaction, ITransactionStatus } from '../db/types';
 /**
  * How many times to try writing the terminal status of a rotation that has
  * ALREADY committed on chain, and how long to space the attempts. A landed row's
- * Completed write takes the same budget (PR #2183). A module of its own, so a
+ * Completed write takes the same budget (PR #2183), as does the row read that
+ * picks a landed row's verdict. A module of its own, so a
  * suite that mocks the completions still hands the landed write its budget.
  *
  * Only reached when the first write already failed, so the cost is paid only on a
@@ -20,6 +21,9 @@ import { hasLeftQueue, ITransaction, ITransactionStatus } from '../db/types';
  */
 export const TERMINAL_STATUS_WRITE_ATTEMPTS = 4;
 export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
+
+const backOffAfter = (failedAttempt: number): Promise<void> =>
+  new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * failedAttempt));
 
 /**
  * Write the Completed status of a row whose write is already on chain, under the budget above. Each attempt reads the
@@ -48,9 +52,24 @@ export const writeCommittedCompleted = async <K extends keyof ITransaction>(
         `Could not record the completed status for the ${what} row (attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
         writeError
       );
-      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
-        await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
-      }
+      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) await backOffAfter(attempt);
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Read a row whose write is already on chain, under the budget above, for a caller that picks its terminal write from
+ * it. Never rejects: a row missing or unread past the budget is undefined, so the caller writes nothing and a row still
+ * in progress goes to the reaper, as `writeCommittedCompleted` leaves one. `what` names the row in the log.
+ */
+export const readRowWithinTerminalBudget = async (txId: string, what: string): Promise<ITransaction | undefined> => {
+  for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
+    try {
+      return await Repo.transactions.where({ id: txId }).first();
+    } catch (readError) {
+      console.warn(`Could not read the ${what} row (attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`, readError);
+      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) await backOffAfter(attempt);
     }
   }
   return undefined;

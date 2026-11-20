@@ -49,6 +49,7 @@ export interface SendAmountProps {
   network?: SendNetworkId;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
+  tokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Opens Receive, offered when the account has no MIDEN for the fee. */
   onReceive: () => void;
   onBack: () => void;
@@ -75,6 +76,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   network,
   onAmountChange,
   onSelectToken,
+  tokenAnchorRef,
   onReceive,
   onBack,
   onConfirm
@@ -161,7 +163,9 @@ export const SendAmount: React.FC<SendAmountProps> = ({
       <Card surface="outline" padding="none" className="mt-8">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
+            ref={tokenAnchorRef}
             type="button"
+            aria-haspopup={tokenAnchorRef ? 'dialog' : undefined}
             data-testid="send-token-selector"
             onClick={() => {
               hapticLight();

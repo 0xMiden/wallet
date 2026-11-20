@@ -150,7 +150,7 @@ describe('MidenClientInterface', () => {
   }
 
   /** The SDK and id helpers a staged consume or swap reaches, stubbed for a test account id (#1233). */
-  function mockStagedSdk(sdk: Record<string, unknown> = {}) {
+  function mockStagedSdk(sdk: Record<string, unknown> = {}, helpers: Record<string, unknown> = {}) {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
@@ -164,7 +164,8 @@ describe('MidenClientInterface', () => {
       canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
       buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) })),
-      buildConsumeTransactionRequest: jest.fn(() => ({ kind: 'consume', serialize: () => new Uint8Array([7]) }))
+      buildConsumeTransactionRequest: jest.fn(() => ({ kind: 'consume', serialize: () => new Uint8Array([7]) })),
+      ...helpers
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -3737,6 +3738,104 @@ describe('MidenClientInterface', () => {
         expect(staged.executeRequest).toHaveBeenCalledTimes(1);
       }
     );
+
+    // The order is fixed when the request is built, so it is read then, before the execute, and a landed failure that
+    // reads nothing off the result still carries it.
+    const PSWAP_ROOT = 'pswap-root';
+    const BUILT_ORDER_NOTE = `0x${'AB'.repeat(32)}`;
+    const builtOrderNote = () => ({
+      id: () => ({ toString: () => BUILT_ORDER_NOTE }),
+      metadata: () => ({ noteType: () => 1 }),
+      recipient: () => ({
+        script: () => ({ root: () => ({ toHex: () => PSWAP_ROOT }) }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    });
+    const swapClientWithBuiltRequest = async (executeRequest: jest.Mock, expectedOutputOwnNotes: jest.Mock) => {
+      const built = { kind: 'pswap', serialize: () => new Uint8Array([4]), expectedOutputOwnNotes };
+      mockStagedSdk(
+        { NoteScript: { pswap: () => ({ root: () => ({ toHex: () => PSWAP_ROOT }) }) } },
+        { buildPswapCreateRequest: jest.fn(() => built) }
+      );
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      return MidenClientInterface.fromClient(
+        buildFakeMidenClient({
+          transactions: { executeRequest },
+          __inner: { newPswapCreateTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([3]) })) }
+        }) as any,
+        'testnet'
+      );
+    };
+
+    it('a swap whose apply traps after its submit rejects with the order its built request names', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const calls: string[] = [];
+      const staged = stagedExecuteRequest();
+      staged.apply.mockRejectedValue(trap);
+      const execute = staged.executeRequest.getMockImplementation()!;
+      staged.executeRequest.mockImplementation(async (account: unknown, request: unknown) => {
+        calls.push('execute');
+        return execute(account, request);
+      });
+      const expectedOutputOwnNotes = jest.fn(() => {
+        calls.push('order');
+        return [builtOrderNote()];
+      });
+      const client = await swapClientWithBuiltRequest(staged.executeRequest, expectedOutputOwnNotes);
+      const { extractLanded, isApplyAfterSubmitError } = await import('./sdk-error-code');
+
+      const error = await client.swapTransaction(swapTx as any).catch((caught: unknown) => caught);
+
+      expect(isApplyAfterSubmitError(error)).toBe(true);
+      expect(extractLanded(error)).toEqual({ orderId: '42', orderNoteId: BUILT_ORDER_NOTE.toLowerCase() });
+      expect(calls).toEqual(['order', 'execute']);
+      expect(staged.submit).toHaveBeenCalledTimes(1);
+    });
+
+    it('a trap reading the built swap request`s order leaves as itself before the execute', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const staged = stagedExecuteRequest();
+      const expectedOutputOwnNotes = jest.fn(() => {
+        throw trap;
+      });
+      const client = await swapClientWithBuiltRequest(staged.executeRequest, expectedOutputOwnNotes);
+
+      await expect(client.swapTransaction(swapTx as any)).rejects.toBe(trap);
+
+      expect(expectedOutputOwnNotes).toHaveBeenCalledTimes(1);
+      expect(staged.executeRequest).not.toHaveBeenCalled();
+      expect(staged.submit).not.toHaveBeenCalled();
+    });
+
+    // A single-key swap saves no request, so the attempt's stamp is where a landing without the result finds its order.
+    it('a swap stamps submitting with the order its built request names, before it submits', async () => {
+      const staged = stagedExecuteRequest();
+      const calls: string[] = [];
+      staged.submit.mockImplementation(async () => {
+        calls.push('submit');
+        return { apply: staged.apply };
+      });
+      const onStage = jest.fn(async (stage: string) => {
+        calls.push(`stamp:${stage}`);
+      });
+      jest.dontMock('./miden-client');
+      const client = await swapClientWithBuiltRequest(
+        staged.executeRequest,
+        jest.fn(() => [builtOrderNote()])
+      );
+      const { withWasmClientLock } = await import('./miden-client');
+
+      await withWasmClientLock(async () => client.swapTransaction(swapTx as any, onStage));
+
+      expect(onStage).toHaveBeenCalledWith('submitting', {
+        evidence: expect.objectContaining({
+          transactionId: 'tx-hex',
+          orderId: '42',
+          orderNoteId: BUILT_ORDER_NOTE.toLowerCase()
+        })
+      });
+      expect(calls.indexOf('stamp:submitting')).toBeLessThan(calls.indexOf('submit'));
+    });
 
     it.each<'consume' | 'swap' | 'newTransaction'>(['consume', 'swap', 'newTransaction'])(
       'the staged %s stamps submitting with the evidence, before it submits (#1081)',

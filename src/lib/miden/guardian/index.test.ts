@@ -11,7 +11,7 @@
  * All external collaborators are stubbed to keep tests hermetic.
  */
 
-import { Account } from '@miden-sdk/miden-sdk/lazy';
+import { Account, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 import { GuardianHttpClient, type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
@@ -1226,6 +1226,43 @@ describe('MultisigService', () => {
         expect(result.requestBytes).toBe(rebasedBytes);
         // The id check derives the commitment from the rebuilt bytes, not from the bytes passed in.
         expect(mockTransactionRequestDeserialize).toHaveBeenLastCalledWith(rebasedBytes);
+      });
+
+      // The rebuild carries the notes over, and the order is read off the request whose bytes it returns, so the
+      // caller records it in the same write as those bytes.
+      it('a swap rebuild returns the order its rebuilt request names, beside the bytes', async () => {
+        const { service, builder } = arrange();
+        const orderNoteId = `0x${'AB'.repeat(32)}`;
+        const rebuiltOrderNote = {
+          id: () => ({ toString: () => orderNoteId }),
+          metadata: () => ({ noteType: () => NoteType.Public }),
+          recipient: () => ({
+            script: () => ({ root: () => NoteScript.pswap().root() }),
+            serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+          })
+        };
+        const rebuilt = { serialize: () => rebasedBytes, expectedOutputOwnNotes: jest.fn(() => [rebuiltOrderNote]) };
+        builder.build.mockReturnValue(rebuilt);
+
+        const result = await service.createRebasedCustomProposal(originalBytes, 'swap');
+
+        expect(result).toEqual({
+          proposal: { kind: 'custom', id: SUMMARY_COMMITMENT },
+          requestBytes: rebasedBytes,
+          order: { orderId: '42', orderNoteId: orderNoteId.toLowerCase() }
+        });
+        expect(rebuilt.expectedOutputOwnNotes).toHaveBeenCalledTimes(1);
+      });
+
+      it('a rebuild of another type reads no order', async () => {
+        const { service, builder } = arrange();
+        const rebuilt = { serialize: () => rebasedBytes, expectedOutputOwnNotes: jest.fn(() => []) };
+        builder.build.mockReturnValue(rebuilt);
+
+        const result = await service.createRebasedCustomProposal(originalBytes, 'earn_deposit');
+
+        expect(result).not.toHaveProperty('order');
+        expect(rebuilt.expectedOutputOwnNotes).not.toHaveBeenCalled();
       });
 
       it('fails with ProposalIdMismatchError when the id is not the commitment of the rebuilt bytes', async () => {

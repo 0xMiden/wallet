@@ -18,6 +18,8 @@ import { bumpWasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
 import { captureCrash } from 'lib/telemetry/crash';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
+import { cancelStuckTransactions, MAX_WAIT_BEFORE_CANCEL } from './cancel';
+import { noteDeliveryWriteCount } from './helper';
 import {
   completeCustomTransaction,
   generateTransaction,
@@ -28,10 +30,12 @@ import {
   requeueFailedTransaction,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
+  TERMINAL_STATUS_WRITE_ATTEMPTS,
   verifyStuckTransactionsFromNode,
   waitForConsumeTx,
   waitForTransactionCompletion
 } from './index';
+import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-delivery-sweep';
 import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
@@ -609,7 +613,13 @@ describe('apply-after-submit on an execute', () => {
       delivery: 'undelivered',
       message: 'Executed - the private note could not be delivered'
     },
-    { privateOutputNotes: undefined, recipient: undefined, delivery: undefined, message: 'Executed' }
+    // A dApp can create a private note without naming its recipient, so an unknown count is owed either way.
+    {
+      privateOutputNotes: undefined,
+      recipient: undefined,
+      delivery: 'undelivered',
+      message: 'Executed - the private note could not be delivered'
+    }
   ])(
     'a landed execute with $privateOutputNotes private output notes and recipient $recipient reads $message (#1233)',
     async ({ privateOutputNotes, recipient, delivery, message }) => {
@@ -885,6 +895,68 @@ describe('a throw after the leaf resolved', () => {
       amount: BigInt(5),
       extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: BigInt(9), expirySeconds: 100 }
     });
+
+  // The tail reads the result at its start, so the id and the order a failed Completed write leaves for the landed
+  // write are the ones read then, not reads of a result whose client the failure replaced.
+  it('a loop swap whose Completed write fails and replaces the client names the id and order its tail read at its start', async () => {
+    const id = 'tx-swap-completed-write-replaced';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+    const lateReads: string[] = [];
+    let replaced = false;
+    const answer =
+      <T>(name: string, read: () => T) =>
+      () => {
+        if (replaced) {
+          lateReads.push(name);
+          throw new Error('null pointer passed to rust');
+        }
+        return read();
+      };
+    const note = landedSwapOutput(undefined, ORDER_NOTE_ID);
+    const result = {
+      executedTransaction: answer('executedTransaction', () => ({
+        id: answer('id', () => ({ toHex: answer('toHex', () => 'landed-id') })),
+        outputNotes: answer('outputNotes', () => ({ notes: () => [note] }))
+      })),
+      serialize: answer('serialize', () => new Uint8Array([3]))
+    };
+    const where = require('lib/miden/repo').transactions.where as jest.Mock;
+    const storeWhere = where.getMockImplementation()!;
+    let failed = false;
+    where.mockImplementation((arg: unknown) => {
+      const query = storeWhere(arg);
+      if (typeof arg === 'string') return query;
+      return {
+        ...query,
+        modify: async (fn: (tx: any) => unknown) => {
+          const row = txStore.find(stored => stored.id === id);
+          if (!failed && row && row.status !== ITransactionStatus.Completed) {
+            const probe = { ...row, extraInputs: { ...row.extraInputs } };
+            fn(probe);
+            if (probe.status === ITransactionStatus.Completed) {
+              failed = true;
+              replaced = true;
+              throw new Error('IndexedDB transaction aborted');
+            }
+          }
+          return query.modify(fn);
+        }
+      };
+    });
+    try {
+      await runLoopWithWrite(jest.fn(async () => result));
+    } finally {
+      where.mockImplementation(storeWhere);
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(failed).toBe(true);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.transactionId).toBe('landed-id');
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(lateReads).toEqual([]);
+  });
   const setStatus = (id: string, status: ITransactionStatus, extraInputs?: Record<string, unknown>) => {
     const row = txStore.find(stored => stored.id === id);
     if (!row) return;
@@ -962,16 +1034,14 @@ describe('a throw after the leaf resolved', () => {
     const id = 'tx-tail-swap-no-id';
     _gh.__noteTypeForTest = 'public';
     queuedSwap(id);
-    let idReads = 0;
 
     await runLoopWithWrite(
       jest.fn(async () =>
         swapResultWithId(
           () => {
-            idReads++;
-            if (idReads > 1) throw new Error('id read');
+            // A Cancel lands as the tail reads the id, which never reads: the tail's own read and the late one both fail.
             setStatus(id, ITransactionStatus.Failed);
-            return 'landed-id';
+            throw new Error('id read');
           },
           () => new Uint8Array([])
         )
@@ -1031,6 +1101,197 @@ describe('a throw after the leaf resolved', () => {
       expiresAt: landedAt + 100,
       noteId: ORDER_NOTE_ID.toLowerCase()
     });
+  });
+
+  // A trap in the apply reads nothing off the result, so the landing holds the order the row's saved request recorded,
+  // anchored at the landing, for a row a Cancel finalized before its Completed write.
+  const RECORDED_ORDER = { orderId: '42', noteId: ORDER_NOTE_ID.toLowerCase() };
+  const recordedSwap = (id: string, extraInputs: Record<string, unknown> = {}) =>
+    queuedRow(id, {
+      type: 'swap',
+      faucetId: 'faucet-offer',
+      amount: BigInt(5),
+      extraInputs: {
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: BigInt(9),
+        expirySeconds: 100,
+        requestOrder: RECORDED_ORDER,
+        ...extraInputs
+      }
+    });
+  const finalizedThenLanded = (id: string, landed: Record<string, unknown>) =>
+    jest.fn(async () => {
+      setStatus(id, ITransactionStatus.Failed);
+      throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), landed);
+    });
+
+  it('a swap finalized mid-leaf whose landed failure named no order holds the order its saved request recorded', async () => {
+    const id = 'tx-landed-swap-recorded-order';
+    recordedSwap(id);
+
+    const landedAt = await runLoopAtFixedTime(finalizedThenLanded(id, {}));
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toEqual({
+      orderId: '42',
+      expiresAt: landedAt + 100,
+      noteId: RECORDED_ORDER.noteId
+    });
+    expect(row.extraInputs.requestOrder).toEqual(RECORDED_ORDER);
+  });
+
+  it('the order a landed failure read outranks the recorded one, and a held one stays', async () => {
+    const readId = 'tx-landed-swap-read-order';
+    const otherNote = `0x${'cd'.repeat(32)}`;
+    recordedSwap(readId);
+    await runLoopWithWrite(finalizedThenLanded(readId, { orderId: '7', orderNoteId: otherNote }));
+    expect(txStore.find(stored => stored.id === readId)!.extraInputs.landedOrder).toMatchObject({
+      orderId: '7',
+      noteId: otherNote
+    });
+
+    const heldId = 'tx-landed-swap-held-order';
+    const held = { orderId: '8', expiresAt: 99, noteId: otherNote };
+    recordedSwap(heldId, { landedOrder: held });
+    await runLoopWithWrite(finalizedThenLanded(heldId, {}));
+    expect(txStore.find(stored => stored.id === heldId)!.extraInputs.landedOrder).toEqual(held);
+  });
+
+  // A single-key swap saves no request: its leaf named the order on the attempt's submit stamp, so a landing that reads
+  // nothing off the result still opens it. The second shape is the offscreen reply for a result whose serialize trapped.
+  type StageStamp = (
+    stage: string,
+    detail?: { reliable?: boolean; evidence?: Record<string, unknown> }
+  ) => Promise<void>;
+  const STAMPED_ORDER = { orderId: '42', orderNoteId: ORDER_NOTE_ID.toLowerCase() };
+  const trappingOrderRead = (): bigint => {
+    throw new WebAssembly.RuntimeError('order id read');
+  };
+  it.each<[string, (onStage: StageStamp) => Promise<unknown>]>([
+    [
+      'a tail whose order read traps',
+      async onStage => {
+        await onStage('submitting', { evidence: STAMPED_ORDER });
+        const note = landedSwapOutput(trappingOrderRead, ORDER_NOTE_ID);
+        return landedResult({ outputNotes: () => ({ notes: () => [note] }) });
+      }
+    ],
+    [
+      'a landed failure that names no facts',
+      async onStage => {
+        await onStage('submitting', { reliable: false, evidence: STAMPED_ORDER });
+        throw Object.assign(new Error("Offscreen call 'swapTransaction' failed: unreachable"), {
+          errorCode: 'ApplyTransactionAfterSubmitFailed'
+        });
+      }
+    ]
+  ])('a loop swap after %s completes with the order its submit stamp recorded', async (_name, write) => {
+    const id = 'tx-landed-swap-stamped-order';
+    _gh.__noteTypeForTest = 'public';
+    queuedSwap(id);
+    const restore = installLandedTrapRetirement(jest.fn());
+    try {
+      await runLoopWithWrite(jest.fn(async (_tx: unknown, _signer: unknown, onStage: StageStamp) => write(onStage)));
+    } finally {
+      restore();
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE_ID.toLowerCase()]);
+  });
+
+  it('a loop swap opens no order an earlier attempt`s stamp recorded', async () => {
+    const id = 'tx-landed-swap-earlier-stamp';
+    queuedSwap(id);
+    txStore.find(stored => stored.id === id)!.submitEvidence = [
+      { attemptId: 'earlier', capturedAt: 1, source: 'stage', ...STAMPED_ORDER }
+    ];
+
+    await runLoopWithWrite(
+      jest.fn(async () => {
+        throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {});
+      })
+    );
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+  });
+
+  it('the order a landed failure read outranks the one its submit stamp recorded', async () => {
+    const id = 'tx-landed-swap-read-over-stamp';
+    const otherNote = `0x${'cd'.repeat(32)}`;
+    queuedSwap(id);
+
+    await runLoopWithWrite(
+      jest.fn(async (_tx: unknown, _signer: unknown, onStage: StageStamp) => {
+        await onStage('submitting', { evidence: STAMPED_ORDER });
+        throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {
+          orderId: '7',
+          orderNoteId: otherNote
+        });
+      })
+    );
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(7n);
+    expect(row.outputNoteIds).toEqual([otherNote]);
+  });
+
+  // The record write can fail like the apply did; the Completed write still opens the order the stamp recorded.
+  it('a loop swap whose landed record write fails is Completed with the order its submit stamp recorded', async () => {
+    const id = 'tx-landed-swap-stamp-record-failed';
+    queuedSwap(id);
+    const where = require('lib/miden/repo').transactions.where as jest.Mock;
+    const storeWhere = where.getMockImplementation()!;
+    // Armed once the apply failed: the write that would hold the landed order aborts.
+    let armed = false;
+    where.mockImplementation((arg: unknown) => {
+      const query = storeWhere(arg);
+      if (typeof arg === 'string') return query;
+      return {
+        ...query,
+        modify: async (fn: (tx: any) => unknown) => {
+          const row = txStore.find(stored => stored.id === id);
+          if (armed && row && row.extraInputs.landedOrder === undefined) {
+            const probe = { ...row, extraInputs: { ...row.extraInputs } };
+            fn(probe);
+            if (probe.extraInputs.landedOrder !== undefined) {
+              armed = false;
+              throw new Error('IndexedDB transaction aborted');
+            }
+          }
+          return query.modify(fn);
+        }
+      };
+    });
+    let landedAt: number;
+    try {
+      landedAt = await runLoopAtFixedTime(
+        jest.fn(async (_tx: unknown, _signer: unknown, onStage: StageStamp) => {
+          await onStage('submitting', { evidence: STAMPED_ORDER });
+          armed = true;
+          throw new ApplyAfterSubmitError(new Error('IndexedDB transaction aborted'), {});
+        })
+      );
+    } finally {
+      where.mockImplementation(storeWhere);
+    }
+
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(armed).toBe(false);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(landedAt + 100);
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE_ID.toLowerCase()]);
   });
 
   it.each([
@@ -1140,10 +1401,10 @@ describe('a throw after the leaf resolved', () => {
     const nativeAsset = require('lib/miden-chain/native-asset');
     const origNativeAssetId = nativeAsset.getNativeAssetIdSync;
     nativeAsset.getNativeAssetIdSync = () => 'native-faucet';
+    // Interpreted before the commit wait and, once that read has trapped, again at the terminal write.
     const helpers = require('../activity/helpers');
-    helpers.interpretTransactionResult.mockImplementationOnce(
-      jest.requireActual('../activity/helpers').interpretTransactionResult
-    );
+    const interpret = jest.requireActual('../activity/helpers').interpretTransactionResult;
+    helpers.interpretTransactionResult.mockImplementationOnce(interpret).mockImplementationOnce(interpret);
     const feeTagged = {
       id: () => ({ toString: () => 'fee-tagged-note' }),
       metadata: () => ({ noteType: () => 'public', tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
@@ -1179,9 +1440,13 @@ describe('a throw after the leaf resolved', () => {
   it("an execute's private notes left unrelayed by a tail throw are labelled undelivered", async () => {
     queuedExecute('tx-tail-unrelayed', { secondaryAccountId: 'recipient' });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down'));
-    require('../activity/helpers').interpretTransactionResult.mockImplementationOnce(() => {
+    // A read that fails before the relays fails again where the terminal write interprets the result.
+    const failedRead = () => {
       throw new Error('input notes read');
-    });
+    };
+    require('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce(failedRead)
+      .mockImplementationOnce(failedRead);
     const note = {
       id: () => ({ toString: () => 'private-note' }),
       metadata: () => ({ noteType: () => 'private' }),
@@ -1202,9 +1467,13 @@ describe('a throw after the leaf resolved', () => {
   // The completion relayed the note and recorded it before a later read threw: the landed label must not undo that.
   it('an execute whose tail relays its note and then throws keeps the note relayed', async () => {
     queuedExecute('tx-tail-relayed', { secondaryAccountId: 'recipient' });
-    require('../activity/helpers').interpretTransactionResult.mockImplementationOnce(() => {
+    // Failing before the relays and again at the terminal write, so the completion throws after it relayed the note.
+    const failedRead = () => {
       throw new Error('input notes read');
-    });
+    };
+    require('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce(failedRead)
+      .mockImplementationOnce(failedRead);
     const note = {
       id: () => ({ toString: () => 'relayed-note' }),
       metadata: () => ({ noteType: () => 'private' }),
@@ -1217,9 +1486,16 @@ describe('a throw after the leaf resolved', () => {
     expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
     expect(row).toMatchObject({
       status: ITransactionStatus.Completed,
+      transactionId: 'landed-id',
       noteDelivery: 'relayed',
       displayMessage: 'Executed'
     });
+    // Only the landed arm reports, so the row above is its write, not the completion's own.
+    const reports = jest
+      .mocked(captureCrash)
+      .mock.calls.filter(([report]) => report instanceof Error && report.name === 'WalletTransactionFailure');
+    expect(reports).toHaveLength(1);
+    expect((reports[0]![0] as Error).message).toMatch(/^Transaction landed: tx_dapp;/);
   });
 
   it('an execute whose tail throws before any delivery is recorded still reads undelivered', async () => {
@@ -1382,6 +1658,335 @@ describe('a throw after the leaf resolved', () => {
     expect(row.transactionId).toBe('landed-id');
   });
 
+  // The leaf resolves only after its apply, so the store holds the notes its 'submitting' stamp named even when the
+  // result's first read traps, and the landed write records them for the sweep.
+  it('a loop private send whose result traps at its first read owes the note its submitting stamp named', async () => {
+    const id = 'tx-tail-send-first-read-trap';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const result = {
+      executedTransaction: () => {
+        throw trap;
+      },
+      serialize: () => new Uint8Array([])
+    };
+    const sendTransaction = jest.fn(
+      async (_tx: unknown, onStage?: (stage: string, detail?: { evidence?: unknown }) => Promise<void>) => {
+        await onStage?.('submitting', { evidence: { transactionId: `0x${'cd'.repeat(32)}`, outputNoteIds: [owed] } });
+        return result;
+      }
+    );
+    try {
+      await runLoopAgainst({ sendTransaction });
+    } finally {
+      restore();
+    }
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(retire.mock.calls).toEqual([[trap, id]]);
+    expect(txStore.find(stored => stored.id === id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [owed],
+      noteDelivery: 'undelivered'
+    });
+  });
+
+  // The same holds for an execute, whose stamp also names which of its notes are private: those are what its row's
+  // recipient is owed, and the sweep re-pushes them by id.
+  it("a loop execute whose result traps at its first read owes the private notes its submitting stamp named to its row's recipient", async () => {
+    const id = 'tx-tail-execute-first-read-trap';
+    queuedExecute(id, { secondaryAccountId: 'recipient' });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const publicNote = `0x${'7a'.repeat(32)}`;
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const result = {
+      executedTransaction: () => {
+        throw trap;
+      },
+      serialize: () => new Uint8Array([])
+    };
+    const newTransaction = jest.fn(
+      async (
+        _accountId: unknown,
+        _requestBytes: unknown,
+        _delegate: unknown,
+        onStage?: (stage: string, detail?: { evidence?: unknown }) => Promise<void>
+      ) => {
+        await onStage?.('submitting', {
+          evidence: {
+            transactionId: `0x${'cd'.repeat(32)}`,
+            outputNoteIds: [publicNote, owed],
+            privateOutputNoteIds: [owed]
+          }
+        });
+        return result;
+      }
+    );
+    try {
+      await runLoopAgainst({ newTransaction });
+    } finally {
+      restore();
+    }
+
+    expect(newTransaction).toHaveBeenCalledTimes(1);
+    expect(retire.mock.calls).toEqual([[trap, id]]);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [owed],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(row.outputNoteIds).toBeUndefined();
+  });
+
+  // One delivery sweep pass at `atSeconds` over the stored rows, handed out as copies as Dexie does, so it reads nothing
+  // the pipeline kept in memory, as after a restart.
+  const sweepStoredRowsAt = async (atSeconds: number, client: Record<string, unknown>) => {
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    where.mockImplementation((query: string | { id: string }) =>
+      typeof query === 'string'
+        ? {
+            anyOf: (states: unknown[]) => ({
+              toArray: async () =>
+                txStore.filter(stored => states.includes(stored[query])).map(stored => ({ ...stored }))
+            })
+          }
+        : realWhere(query)
+    );
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => client;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(atSeconds * 1000);
+    const quiet = (['warn', 'info'] as const).map(level => jest.spyOn(console, level).mockImplementation(() => {}));
+    try {
+      __resetNoteDeliverySweepForTests();
+      await sweepNoteDeliveries();
+    } finally {
+      quiet.forEach(spy => spy.mockRestore());
+      clock.mockRestore();
+      sdk.getMidenClient = origGetClient;
+      where.mockImplementation(realWhere);
+    }
+  };
+
+  // The reaper fails a row past its wait and walks away while its pipeline runs on (#1081), so the leaf still stamps its
+  // crossing, submits and applies, and the landed write leaves the reaped row as it is. The private notes its stamp
+  // proved are still owed, recorded beside what the reaper wrote, which stays as it is.
+  it("a loop execute the reaper failed mid-write whose result traps at its first read stays Failed and owes its stamp's private notes, which the sweep pushes", async () => {
+    const id = 'tx-tail-execute-reaped-first-read-trap';
+    queuedExecute(id, { secondaryAccountId: 'recipient' });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const publicNote = `0x${'7a'.repeat(32)}`;
+    const restore = installLandedTrapRetirement(jest.fn());
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let reaped: Record<string, unknown> | undefined;
+    const newTransaction = jest.fn(
+      async (
+        _accountId: unknown,
+        _requestBytes: unknown,
+        _delegate: unknown,
+        onStage?: (stage: string, detail?: { evidence?: unknown }) => Promise<void>
+      ) => {
+        // The write has run past the reaper's wait by the time it reaches its submit.
+        const late = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + (MAX_WAIT_BEFORE_CANCEL + 1) * 1000);
+        try {
+          await cancelStuckTransactions();
+        } finally {
+          late.mockRestore();
+        }
+        reaped = { ...txStore.find(stored => stored.id === id) };
+        await onStage?.('submitting', {
+          evidence: {
+            transactionId: `0x${'cd'.repeat(32)}`,
+            outputNoteIds: [publicNote, owed],
+            privateOutputNoteIds: [owed]
+          }
+        });
+        return {
+          executedTransaction: () => {
+            throw trap;
+          },
+          serialize: () => new Uint8Array([])
+        };
+      }
+    );
+    const writes = noteDeliveryWriteCount();
+    try {
+      await runLoopAgainst({ newTransaction });
+    } finally {
+      restore();
+    }
+    const reapedFields = (stored: Record<string, unknown> | undefined) => ({
+      status: stored?.status,
+      transactionId: stored?.transactionId,
+      error: stored?.error,
+      displayMessage: stored?.displayMessage,
+      displayIcon: stored?.displayIcon,
+      completedAt: stored?.completedAt,
+      outputNoteIds: stored?.outputNoteIds
+    });
+
+    expect(newTransaction).toHaveBeenCalledTimes(1);
+    expect(reaped?.status).toBe(ITransactionStatus.Failed);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({ relayNoteIds: [owed], relayRecipientId: 'recipient', noteDelivery: 'undelivered' });
+    expect(reapedFields(row)).toEqual(reapedFields(reaped));
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+
+    const client = {
+      relayPrivateNoteById: jest
+        .fn(async (_noteId: string, _recipient: string) => {})
+        .mockRejectedValueOnce(new Error('output note has no inclusion proof')),
+      isOutputNoteConsumed: jest.fn(async (_noteId: string) => false)
+    };
+    const reapedAt = Number(row.completedAt);
+    await sweepStoredRowsAt(reapedAt, client);
+    expect(client.relayPrivateNoteById).not.toHaveBeenCalled();
+    await sweepStoredRowsAt(reapedAt + 10 * 60, client);
+    expect(row.noteDelivery).toBe('undelivered');
+    expect(row.relayAckedNoteIds ?? []).toEqual([]);
+    await sweepStoredRowsAt(reapedAt + 30 * 60, client);
+    expect(client.relayPrivateNoteById.mock.calls).toEqual([
+      [owed, 'recipient'],
+      [owed, 'recipient']
+    ]);
+    expect(row).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [owed] });
+    expect(reapedFields(row)).toEqual(reapedFields(reaped));
+  });
+
+  // Offscreen, the stamp that names those notes crossed fire-and-forget, so an IndexedDB abort on its one write left a
+  // landed attempt with no record of them. The leaf now submits only once its call's gate recorded them (#1081).
+  const runLoopAgainstOffscreen = async (writes: Record<string, jest.Mock>) => {
+    const proxy = require('../back/miden-client-proxy').midenClientProxy;
+    const originals = Object.fromEntries(Object.keys(writes).map(name => [name, proxy[name]]));
+    Object.assign(proxy, writes);
+    try {
+      await runLoopAgainst({});
+    } finally {
+      Object.assign(proxy, originals);
+    }
+  };
+  // The offscreen leaf asks the gate its call carries; a call with none had its stamp dropped on the bus.
+  const askGate = async (gate: unknown, evidence: Record<string, unknown>) => {
+    if (typeof gate === 'function')
+      expect(await (gate as (evidence: unknown) => Promise<boolean>)(evidence)).toBe(true);
+  };
+
+  it('an offscreen private send whose result traps at its first read owes the note its submit gate recorded', async () => {
+    const id = 'tx-offscreen-send-first-read-trap';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const restore = installLandedTrapRetirement(jest.fn());
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const sendTransaction = jest.fn(async (_tx: unknown, _signer: unknown, _onStage: unknown, gate?: unknown) => {
+      await askGate(gate, { transactionId: `0x${'cd'.repeat(32)}`, outputNoteIds: [owed] });
+      return {
+        executedTransaction: () => {
+          throw trap;
+        },
+        serialize: () => new Uint8Array([])
+      };
+    });
+    try {
+      await runLoopAgainstOffscreen({ sendTransaction });
+    } finally {
+      restore();
+    }
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(txStore.find(stored => stored.id === id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [owed],
+      noteDelivery: 'undelivered',
+      secondaryAccountId: 'recipient'
+    });
+  });
+
+  it('an offscreen private send whose applied result trapped serializing is Completed and owes the note its submit gate recorded', async () => {
+    const id = 'tx-offscreen-send-serialize-trap';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const sendTransaction = jest.fn(async (_tx: unknown, _signer: unknown, _onStage: unknown, gate?: unknown) => {
+      await askGate(gate, { transactionId: `0x${'cd'.repeat(32)}`, outputNoteIds: [owed] });
+      // As the proxy rebuilds the offscreen reply for a trap serializing a result its leaf applied.
+      throw Object.assign(new Error("Offscreen call 'sendTransaction' failed: unreachable"), {
+        errorCode: 'ApplyTransactionAfterSubmitFailed',
+        landed: { applied: true }
+      });
+    });
+
+    await runLoopAgainstOffscreen({ sendTransaction });
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [owed],
+      noteDelivery: 'undelivered',
+      secondaryAccountId: 'recipient'
+    });
+    expect(isRequeueableTransaction(row)).toBe(false);
+  });
+
+  it("an offscreen execute whose applied result trapped serializing owes the private notes its submit gate recorded to its row's recipient", async () => {
+    const id = 'tx-offscreen-execute-serialize-trap';
+    queuedExecute(id, { secondaryAccountId: 'recipient' });
+    const owed = `0x${'5e'.repeat(32)}`;
+    const publicNote = `0x${'7a'.repeat(32)}`;
+    const newTransaction = jest.fn(async (...a: unknown[]) => {
+      await askGate(a[5], {
+        transactionId: `0x${'cd'.repeat(32)}`,
+        outputNoteIds: [publicNote, owed],
+        privateOutputNoteIds: [owed]
+      });
+      // As the proxy rebuilds the offscreen reply for a trap serializing a result its leaf applied.
+      throw Object.assign(new Error("Offscreen call 'newTransaction' failed: unreachable"), {
+        errorCode: 'ApplyTransactionAfterSubmitFailed',
+        landed: { applied: true }
+      });
+    });
+
+    await runLoopAgainstOffscreen({ newTransaction });
+
+    expect(newTransaction).toHaveBeenCalledTimes(1);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [owed],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(row.outputNoteIds).toBeUndefined();
+  });
+
   it('a loop epoch bridged-send that is already Failed still records the landed id', async () => {
     const id = 'tx-tail-epoch-already-failed';
     queuedRow(id, {
@@ -1403,6 +2008,214 @@ describe('a throw after the leaf resolved', () => {
 
     const row = txStore.find(stored => stored.id === id)!;
     expect(row.transactionId).toBe('landed-id');
+  });
+
+  // The lap itself, not the safe wrapper, which answers a rejected lap as a failed one too.
+  const runLapAgainst = async (client: Record<string, unknown>) => {
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(),
+      waitForTransactionCommit: mockWaitForCommit,
+      sendPrivateNote: mockSendPrivateNote,
+      ...client
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      const outcome = await generateTransactionsLoop(jest.fn(), false, {} as any).catch((rejected: unknown) => ({
+        rejected
+      }));
+      return { outcome, warnings: warnSpy.mock.calls.map(call => call[0]) };
+    } finally {
+      sdk.getMidenClient = origGetClient;
+      warnSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  };
+
+  // One IndexedDB abort under contention, on the first store access of `id` that `rejects` picks once armed. The tail's
+  // throw arms it, so everything the leaf wrote before is untouched.
+  const abortOnceAfterArm = (
+    id: string,
+    rejects: (access: 'first' | 'modify', fn?: (row: any) => unknown) => boolean
+  ) => {
+    const where: jest.Mock = require('lib/miden/repo').transactions.where;
+    const plain = where.getMockImplementation()!;
+    const state = { armed: false, aborted: 0 };
+    const abort = () => {
+      state.armed = false;
+      state.aborted += 1;
+      throw new Error('IndexedDB transaction aborted');
+    };
+    where.mockImplementation((arg: any) => {
+      const query = plain(arg);
+      if (typeof arg === 'string' || arg.id !== id) return query;
+      return {
+        ...query,
+        first: async () => {
+          if (state.armed && rejects('first')) abort();
+          return query.first();
+        },
+        modify: async (fn: (row: any) => unknown) => {
+          if (state.armed && rejects('modify', fn)) abort();
+          return query.modify(fn);
+        }
+      };
+    });
+    return { state, arm: () => (state.armed = true), restore: () => where.mockImplementation(plain) };
+  };
+
+  it('completes a landed row whose settle read rejects once', async () => {
+    const id = 'tx-tail-settle-read-abort';
+    _gh.__noteTypeForTest = 'public';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      displayIcon: 'SEND'
+    });
+    // The landed record writes through `modify`, so the settle's own read is the first `first()` after the throw.
+    const store = abortOnceAfterArm(id, access => access === 'first');
+    let lap: Awaited<ReturnType<typeof runLapAgainst>>;
+    try {
+      lap = await runLapAgainst({
+        sendTransaction: jest.fn(async () =>
+          landedResult({ outputNotes: () => ({ notes: () => [] }) }, () => {
+            store.arm();
+            throw new Error('result serialize');
+          })
+        )
+      });
+    } finally {
+      store.restore();
+    }
+
+    expect(lap.outcome).toBe(false);
+    expect(store.state.aborted).toBe(1);
+    expect(lap.warnings).toContain(`Could not read the landed row (attempt 1/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`);
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Sent',
+      transactionId: 'landed-id'
+    });
+    expect(isRequeueableTransaction(row)).toBe(false);
+  });
+
+  // The commit wait can replace the client, so the tail's catch names the id the completion read before it.
+  it('a landed send whose tail fails after its commit wait names the id its completion read before that wait', async () => {
+    const id = 'tx-tail-send-kept-id';
+    _gh.__noteTypeForTest = 'private';
+    queuedRow(id, {
+      type: 'send',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SEND'
+    });
+    const lateReads: string[] = [];
+    let replaced = false;
+    const answer =
+      <T>(name: string, read: () => T) =>
+      () => {
+        if (replaced) {
+          lateReads.push(name);
+          throw new Error('null pointer passed to rust');
+        }
+        return read();
+      };
+    const fullNote = { id: () => ({ toString: () => 'note-sent' }), metadata: () => ({ noteType: () => 'private' }) };
+    const result = {
+      executedTransaction: answer('executedTransaction', () => ({
+        id: answer('id', () => ({ toHex: answer('toHex', () => 'landed-id') })),
+        outputNotes: answer('outputNotes', () => ({
+          notes: () => [{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => fullNote }]
+        })),
+        inputNotes: answer('inputNotes', () => ({ notes: () => [] }))
+      })),
+      serialize: answer('serialize', () => new Uint8Array([1]))
+    };
+    // The pending record aborts, so no write before the tail's failure names the id; re-armed by the commit wait, the
+    // Completed write then aborts too, and the tail fails after the wait.
+    const store = abortOnceAfterArm(id, (access, fn) => {
+      if (access !== 'modify' || fn === undefined) return false;
+      const row = txStore.find(stored => stored.id === id)!;
+      const probe = { ...row, extraInputs: { ...row.extraInputs } };
+      try {
+        fn(probe);
+      } catch {
+        return false;
+      }
+      return probe.noteDelivery === 'pending' || probe.status === ITransactionStatus.Completed;
+    });
+    store.arm();
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      replaced = true;
+      store.arm();
+    });
+    try {
+      await runLapAgainst({ sendTransaction: jest.fn(async () => result) });
+    } finally {
+      store.restore();
+    }
+
+    expect(store.state.aborted).toBe(2);
+    expect(mockSendPrivateNote).toHaveBeenCalledWith(fullNote, 'recipient');
+    expect(txStore.find(stored => stored.id === id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      transactionId: 'landed-id'
+    });
+    expect(lateReads).toEqual([]);
+  });
+
+  it('fails a landed Epoch bridged-send whose landed note record rejects once, so its awaiting caller stops', async () => {
+    const id = 'tx-tail-bridge-note-abort';
+    queuedRow(id, {
+      type: 'bridged-send',
+      requestBytes: new Uint8Array([9]),
+      approvedOutputNoteIds: ['note:recorded'],
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      }
+    });
+    // Only the note record sets the row's output notes; each write is tried on a copy first to find it.
+    const store = abortOnceAfterArm(id, (access, fn) => {
+      if (access !== 'modify' || fn === undefined) return false;
+      const row = txStore.find(stored => stored.id === id)!;
+      const probe = { ...row, extraInputs: { ...row.extraInputs } };
+      fn(probe);
+      return probe.outputNoteIds !== undefined && row.outputNoteIds === undefined;
+    });
+    let lap: Awaited<ReturnType<typeof runLapAgainst>>;
+    try {
+      lap = await runLapAgainst({
+        newTransaction: jest.fn(async () =>
+          landedResult({ outputNotes: () => ({ notes: () => [] }) }, () => {
+            store.arm();
+            throw new Error('result serialize');
+          })
+        )
+      });
+    } finally {
+      store.restore();
+    }
+
+    expect(lap.outcome).toBe(false);
+    expect(store.state.aborted).toBe(1);
+    expect(lap.warnings).toContain('Could not record the landed bridge note');
+    const row = txStore.find(stored => stored.id === id)!;
+    expect(row).toMatchObject({ status: ITransactionStatus.Failed, transactionId: 'landed-id' });
+    await expect(requeueFailedTransaction(row.id)).rejects.toThrow('is not retryable');
   });
 });
 
@@ -1567,8 +2380,8 @@ describe('completeCustomTransaction private-note delivery', () => {
     }
   });
 
-  // A result nobody recorded reads as current, so without the tail's record the fee read's trap retires the client the
-  // commit wait's replacement built.
+  // A result nobody recorded reads as current, so without the tail's record the trap the terminal write's second
+  // interpretation reads retires the client the commit wait's replacement built.
   it('a completion whose client was replaced during its relay wait retires nothing for a later trap in the same result', async () => {
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
@@ -1578,13 +2391,22 @@ describe('completeCustomTransaction private-note delivery', () => {
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'relay-wait-hash' }),
         outputNotes: () => ({ notes: () => [privateNote('relay-wait-note')] }),
-        blockHeader: () => {
+        blockHeader: () => ({ verificationBaseFee: () => 0 }),
+        inputNotes: () => {
           if (armed) throw trap;
-          return { verificationBaseFee: () => 0 };
+          return { notes: () => [] };
         }
       }),
       serialize: () => new Uint8Array([])
     };
+    // Every other read comes before the commit wait. The first interpretation fails there, so the terminal write
+    // interprets again after the wait, and that read meets the trap.
+    const interpret = jest.requireMock('../activity/helpers').interpretTransactionResult as jest.Mock;
+    interpret
+      .mockImplementationOnce(() => {
+        throw new Error('interpretation failed');
+      })
+      .mockImplementationOnce((_tx: unknown, landed: typeof result) => landed.executedTransaction().inputNotes());
     txStore.push({
       id: 'tx-relay-wait-trap',
       type: 'execute',
@@ -1609,10 +2431,14 @@ describe('completeCustomTransaction private-note delivery', () => {
     });
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
     try {
-      await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
+      // The tail leaves as the landed error, with the trap the second interpretation read as its cause.
+      await expect(generateTransaction(txStore[0] as any, jest.fn(), false, {} as any)).rejects.toMatchObject({
+        name: 'LandedTailError',
+        cause: trap
+      });
       expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
       expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(interpret).toHaveBeenCalledTimes(2);
       expect(retire).not.toHaveBeenCalled();
     } finally {
       sdk.getMidenClient = origGetClient;
@@ -2892,6 +3718,8 @@ describe('generateTransaction execute + consume default switch arms', () => {
   });
 
   // Wrapping only the completion dispatch would record the result after the sync replaced the client, and retire it.
+  // A result that names no input notes refuses before its id read, so the landed catch's id read after the sync is the
+  // one read that meets the trap.
   it("a Guardian row's tail starts before its post-completion sync, so a client replaced there is not retired for a later trap", async () => {
     const retire = jest.fn();
     const restore = installLandedTrapRetirement(retire);
@@ -2902,10 +3730,10 @@ describe('generateTransaction execute + consume default switch arms', () => {
       const { row, fakeMultisigService } = await runGuardianConsume(
         'guardian-consume-sync-trap',
         {
-          outputNotes: () => ({ notes: () => [] }),
-          blockHeader: () => {
+          inputNotes: () => ({ notes: () => [] }),
+          id: () => {
             if (armed) throw trap;
-            return { verificationBaseFee: () => 0 };
+            return { toHex: () => 'guardian-consume-hash' };
           }
         },
         async () => {

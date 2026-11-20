@@ -9,6 +9,21 @@ import { CommandDock } from './CommandDock';
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
+test('moves a single decorative selection pill without replacing dock buttons', () => {
+  const { rerender } = render(<CommandDock activeAction="receive" />);
+  const receive = screen.getByRole('button', { name: 'receive' });
+  const send = screen.getByRole('button', { name: 'send' });
+  expect(within(receive).getByTestId('command-dock-highlight')).toHaveAttribute('aria-hidden', 'true');
+  rerender(<CommandDock activeAction="send" />);
+  expect(screen.getByRole('button', { name: 'send' })).toBe(send);
+  expect(screen.getAllByTestId('command-dock-highlight')).toHaveLength(1);
+  expect(within(send).getByTestId('command-dock-highlight')).toBeInTheDocument();
+  expect(send).toHaveAttribute('aria-current', 'page');
+  expect(receive).not.toHaveAttribute('aria-current');
+  rerender(<CommandDock />);
+  expect(screen.queryByTestId('command-dock-highlight')).not.toBeInTheDocument();
+});
+
 test('the five Command shortcuts show decorative icons and retain their original routes', () => {
   render(<CommandDock />);
   const dock = within(screen.getByRole('navigation', { name: 'commandActions' }));

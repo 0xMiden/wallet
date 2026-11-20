@@ -3614,6 +3614,14 @@
     "message": "일부 간격이나 평가 범위가 누락되어 있습니다.",
     "englishSource": "Some intervals or valuation coverage are missing"
   },
+  "commandHistoryObservationsOnly": {
+    "message": "기록된 관찰 사항만",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "새로운 'Earn' 예치 기능이 일시 중단되었습니다. 기존 포지션은 여전히 조회 및 인출이 가능합니다.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
   "commandInspectHistory": {
     "message": "관찰된 내역 확인",
     "englishSource": "Inspect observed history"

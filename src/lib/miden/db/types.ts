@@ -89,10 +89,18 @@ export interface ISubmitEvidence {
   finalCommitment?: string;
   initialNonce?: string; // decimal
   outputNoteIds?: string[]; // user output notes; [] when known empty
+  // The private ones among `outputNoteIds`, read with them off the same notes; [] when known none. An applied execute's
+  // landing that kept no read of its result owes these to the row's recipient.
+  privateOutputNoteIds?: string[];
   nullifiers?: string[]; // [] when known empty
   refBlock?: number;
   refBlockCommitment?: string; // the network identity
   expirationBlock?: number;
+  // A swap attempt's order as its leaf read it off the request before the execute: felt 1 of the PSWAP serial as
+  // decimal text, and the order note's id in lower case. Both or neither. A single-key swap saves no request, so this
+  // is the only record of its order a landed writer can open without the result.
+  orderId?: string;
+  orderNoteId?: string;
   guardianProposalNonce?: number;
   candidateKept?: true; // the guardian still holds this attempt's candidate
   initialSeenAtBlock?: number;
@@ -108,7 +116,10 @@ export interface ISubmitEvidence {
   fromExecute?: true; // the row was an execute when this entry was made
 }
 
-/** What a leaf reads off the executed and proven transaction just before it submits (#1081). */
+/**
+ * What a leaf reads off the executed and proven transaction just before it submits (#1081), and a swap's order, which
+ * its leaf read off the request before the execute.
+ */
 export type SubmitEvidenceFields = Pick<
   ISubmitEvidence,
   | 'transactionId'
@@ -116,10 +127,13 @@ export type SubmitEvidenceFields = Pick<
   | 'finalCommitment'
   | 'initialNonce'
   | 'outputNoteIds'
+  | 'privateOutputNoteIds'
   | 'nullifiers'
   | 'refBlock'
   | 'refBlockCommitment'
   | 'expirationBlock'
+  | 'orderId'
+  | 'orderNoteId'
 >;
 
 /**
@@ -1685,6 +1699,21 @@ export interface ISwapExtraInputs {
    * attempts proven dead drops it.
    */
   landedOrder?: ISwapLandedOrder;
+  /**
+   * The order this row's saved request names, read off the request whose bytes are stored beside it and written in
+   * the same write as `requestBytes` (a Guardian swap's build and each rebuild), so it describes those bytes; a write
+   * that stores bytes it read no order for removes it. Only a writer completing a landed swap reads it, as the order a
+   * landing could not read (`completedSwapFields`), so a row carrying it opens no order. A Retry keeps it, since a
+   * replay resends the same bytes. Absent on single-key rows, which save no request, and on older rows.
+   */
+  requestOrder?: ISwapRequestOrder;
+}
+
+export interface ISwapRequestOrder {
+  /** The PSWAP lineage id, felt 1 of the order note's serial, as decimal text. */
+  orderId: string;
+  /** The order note's id, in lower case. */
+  noteId: string;
 }
 
 export interface ISwapLandedOrder {

@@ -3614,6 +3614,14 @@
     "message": "Faltan algunos intervalos o la cobertura de valoración",
     "englishSource": "Some intervals or valuation coverage are missing"
   },
+  "commandHistoryObservationsOnly": {
+    "message": "Solo observaciones registradas",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "Se han suspendido los nuevos depósitos en «Earn». Aún puedes consultar y retirar las posiciones existentes.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
   "commandInspectHistory": {
     "message": "Revisar el historial observado",
     "englishSource": "Inspect observed history"

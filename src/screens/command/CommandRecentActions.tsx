@@ -111,7 +111,12 @@ function RecentActionsList({
             <div className="flex flex-col gap-3">
               {recent.map(action =>
                 'entry' in action ? (
-                  <HistoryItem key={action.key} entry={action.entry} />
+                  <HistoryItem
+                    key={action.key}
+                    entry={action.entry}
+                    lastEntry
+                    className="overflow-hidden rounded-xl border border-hairline bg-fill/40 [&_a>div]:px-3"
+                  />
                 ) : (
                   <div key={`note-${action.key}`} data-pending-note-id={action.key}>
                     {renderPendingItem(action.item)}

@@ -3614,6 +3614,14 @@
     "message": "部分區間或估值範圍有所遺漏",
     "englishSource": "Some intervals or valuation coverage are missing"
   },
+  "commandHistoryObservationsOnly": {
+    "message": "僅限記錄觀察結果",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "「Earn」的新存款功能已暫停。您仍可查看並提取現有持倉。",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
   "commandInspectHistory": {
     "message": "檢視已觀察到的歷史紀錄",
     "englishSource": "Inspect observed history"

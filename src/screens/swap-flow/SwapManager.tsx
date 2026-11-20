@@ -152,6 +152,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({
   const [autoConsume, setAutoConsume] = useState(savedSwap?.autoAccept ?? true);
   const [selectingSide, setSelectingSide] = useState<SwapSide>('offer');
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+  const offerTokenAnchorRef = useRef<HTMLButtonElement>(null);
+  const requestTokenAnchorRef = useRef<HTMLButtonElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
@@ -982,10 +984,12 @@ const SwapManager: React.FC<SwapManagerProps> = ({
               offerAmount={offerAmount}
               onOfferAmountChange={onOfferAmountChange}
               onSelectOfferToken={onSelectOfferToken}
+              offerTokenAnchorRef={command ? offerTokenAnchorRef : undefined}
               requestToken={requestToken}
               requestAmount={requestAmount}
               onRequestAmountChange={onRequestAmountChange}
               onSelectRequestToken={onSelectRequestToken}
+              requestTokenAnchorRef={command ? requestTokenAnchorRef : undefined}
               requestLoading={requestCalculating}
               offerLoading={offerCalculating}
               quoteLoading={swapQuote.loading || requestCalculating || offerCalculating}
@@ -1097,6 +1101,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({
       <SelectSwapTokenDrawer
         open={showTokenDrawer}
         onOpenChange={setShowTokenDrawer}
+        anchorRef={command ? (selectingSide === 'offer' ? offerTokenAnchorRef : requestTokenAnchorRef) : undefined}
         currentFaucetId={selectingSide === 'offer' ? offerToken.faucetId : requestToken.faucetId}
         partnersOf={selectingSide === 'offer' ? undefined : offerToken.faucetId}
         onSelect={onTokenSelected}
