@@ -1030,21 +1030,11 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
     }
   } else if (isPrivateSend && (!note || !noteId)) {
-    // No output note id to re-push by, so the delivery sweep leaves this row inert.
+    // The full note is what the relay sends. A Failed write here would finish the tail, so the landed arm would never
+    // queue the note the submit stamp recorded. Throw and write nothing: that catch settles the row as applied and
+    // records the stamp. A trap `extractFullNote` already turned into this missing note stays that result.
     console.error('Missing full note for private send', { txId: tx.id });
-    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-      displayMessage: 'Send failed: note unavailable',
-      displayIcon: 'FAILED',
-      transactionId: landedId(),
-      outputNoteIds,
-      // Failed, but the transaction LANDED - the id above is the proof - so a
-      // private note exists on chain that was never relayed. Recorded because
-      // "failed" and "undelivered" are different claims and only the second one
-      // tells a later reader that value is sitting somewhere unreachable.
-      noteDelivery: 'undelivered',
-      completedAt: Math.floor(Date.now() / 1000) // seconds
-    });
-    return;
+    throw new Error('Missing full note for private send');
   }
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {

@@ -47,6 +47,7 @@
 - [FIX][chrome] A send or a claim from a single-key account that went through is recorded as completed instead of failed when the extension cannot read its result back, so Retry cannot send it a second time, and a private note the send created is still retried for delivery.
 - [FIX][all] A dApp transaction that went through and created a private note without naming its recipient now says the note could not be delivered when the wallet cannot read the transaction's result back, as it does when it can, instead of showing a plain success.
 - [FIX][all] When the network shows that one of several attempts of a dApp transaction or a single-key swap went through but not which one, the wallet no longer shows a plain success from an attempt that created no private note, and no longer opens a swap order the attempt that went through may not have placed; a dApp transaction then keeps saying a private note could not be delivered.
+- [FIX][all] A private send that went through is recorded as sent, with its note still retried for delivery, when the wallet cannot read the note back afterwards, instead of being marked failed with the note left undelivered.
 
 ## 1.18.0 (2026-11-17)
 

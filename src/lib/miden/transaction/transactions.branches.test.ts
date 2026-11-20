@@ -387,7 +387,7 @@ describe('completeSendTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('marks failed when extractFullNote returns undefined for private note', async () => {
+  it('rejects when extractFullNote returns undefined for a private note and writes no Failed row', async () => {
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     // Need to make the helpers mock return 'private' for this test
@@ -395,9 +395,11 @@ describe('completeSendTransaction', () => {
     const orig = helpers.toNoteTypeString;
     helpers.toNoteTypeString = () => 'private';
     try {
-      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.displayMessage).toContain('unavailable');
+      await expect(completeSendTransaction(tx, makeResult({ hasOutputNote: false }))).rejects.toThrow(
+        'Missing full note for private send'
+      );
+      expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(txStore[0]!.displayMessage).not.toBe('Send failed: note unavailable');
     } finally {
       helpers.toNoteTypeString = orig;
     }
@@ -660,20 +662,20 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('records undelivered when the full note is unavailable for a landed private send', async () => {
-    // Failed, but the transaction LANDED — so a private note exists on chain that
-    // was never relayed. "Failed" and "undelivered" are different claims and only
-    // the second says value is sitting somewhere unreachable.
+  it('rejects when the full note is unavailable for a private send and writes no Failed row', async () => {
+    // The landed arm records the stamp. This direct call throws and writes nothing, so the row stays
+    // unfailed and never shows "Send failed: note unavailable".
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
     const orig = helpers.toNoteTypeString;
     helpers.toNoteTypeString = () => 'private';
     try {
-      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.noteDelivery).toBe('undelivered');
-      expect(txStore[0]!.transactionId).toBeTruthy();
+      await expect(completeSendTransaction(tx, makeResult({ hasOutputNote: false }))).rejects.toThrow(
+        'Missing full note for private send'
+      );
+      expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(txStore[0]!.displayMessage).not.toBe('Send failed: note unavailable');
     } finally {
       helpers.toNoteTypeString = orig;
     }

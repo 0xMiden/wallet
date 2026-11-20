@@ -15319,6 +15319,64 @@ describe('generateTransaction - Guardian routing', () => {
     expect(multisigService.abandonCandidate).not.toHaveBeenCalled();
   });
 
+  it('a private send whose note cannot be read is Completed with the note its submit stamp recorded', async () => {
+    const txId = 'send-private-note-unread';
+    const stampedNoteId = `0x${'cd'.repeat(32)}`;
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-private-unread' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    // Apply succeeds. The output note has no full body, so `extractFullNote` returns undefined, and the
+    // submitting stamp still names that note.
+    const unreadNote = {
+      id: () => ({ toString: () => stampedNoteId }),
+      metadata: () => ({ noteType: () => NoteType.Private }),
+      intoFull: () => undefined
+    };
+    const result = {
+      ...makeResult(),
+      executedTransaction: () => ({
+        ...makeResult().executedTransaction(),
+        outputNotes: () => ({ notes: () => [unreadNote] }),
+        userOutputNotes: () => [unreadNote]
+      })
+    };
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result as never)
+    });
+    const queued = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      noteType: 'private'
+    };
+    txStore.push({ ...queued, status: ITransactionStatus.Queued });
+
+    await generateTransaction(
+      { ...queued, delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.outputNoteIds).toEqual([stampedNoteId]);
+    expect(row.noteDelivery).toBe('undelivered');
+    expect(row.displayMessage).toBe('Sent - the private note could not be delivered');
+  });
+
   // #1233: only `completeCustomTransaction` relays an execute's private notes, and a landed execute
   // never ran it. The executed transaction says how many it produced; unreadable, the recipient the
   // request named says whether any were owed.
