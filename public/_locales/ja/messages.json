@@ -4961,26 +4961,13 @@
     "message": "概要全文をダウンロード（バイト）",
     "englishSource": "Download full summary (bytes)"
   },
-  "signMessageTitle": {
-    "message": "メッセージ署名リクエスト",
-    "englishSource": "Message signature request"
+  "signArbitraryPayload": {
+    "message": "「任意のペイロード」に署名しますか？",
+    "englishSource": "Sign the Arbitrary payload?"
   },
-  "signMessageWarning": {
-    "message": "このサイトは、$count$個のフィールド要素からなるメッセージへの署名を求めました。ウォレットでは、そのメッセージの意味を表示することはできません。このサイトを完全に信頼している場合にのみ、続行してください。",
-    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "signRequestRefusedTitle": {
-    "message": "署名リクエストが拒否されました",
-    "englishSource": "Signature request refused"
-  },
-  "signRequestRefused": {
-    "message": "このウォレットは、その原像（プリイメージ）を持つ任意の署名入力に対してのみ署名を行います。このリクエストに対しては署名を行いません。",
-    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
+  "signBlindCommitment": {
+    "message": "「ブラインド・コミットメント」に署名しますか？",
+    "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
     "message": "ウェブサイトに接続する",
@@ -6739,6 +6726,23 @@
   "rawValue": {
     "message": "生データ",
     "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Breadではこれをプレビューできません",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "この署名では、お客様の口座からの取引を承認することはできません。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
+  "opaqueSignatureWarning": {
+    "message": "$domain$から、生の値への署名を求められました。Breadでは承認内容が確認できないため、このサイトを完全に信頼している場合のみ、操作を続けてください。",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

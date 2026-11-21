@@ -4967,26 +4967,13 @@
     "message": "Descargar resumen completo (bytes)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signMessageTitle": {
-    "message": "Solicitud de firma de mensaje",
-    "englishSource": "Message signature request"
+  "signArbitraryPayload": {
+    "message": "¿Firmar la carga útil arbitraria?",
+    "englishSource": "Sign the Arbitrary payload?"
   },
-  "signMessageWarning": {
-    "message": "Este sitio web te ha pedido que firmes un mensaje con $count$ elementos de campo. La cartera no puede mostrar qué significa el mensaje. Continúa solo si confías plenamente en este sitio web.",
-    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "signRequestRefusedTitle": {
-    "message": "Solicitud de firma rechazada",
-    "englishSource": "Signature request refused"
-  },
-  "signRequestRefused": {
-    "message": "Esta cartera solo firma entradas de firma arbitrarias que contienen su preimagen. No firma esta solicitud.",
-    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
+  "signBlindCommitment": {
+    "message": "¿Firmar el compromiso ciego?",
+    "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
     "message": "Conectar a la página web",
@@ -6745,6 +6732,23 @@
   "rawValue": {
     "message": "Valor sin procesar",
     "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Bread no puede previsualizar esto",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Esta firma no puede autorizar una transacción desde tu cuenta.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
+  "opaqueSignatureWarning": {
+    "message": "$domain$ te ha pedido que firmes un valor sin procesar. Bread no puede mostrar lo que autoriza, así que solo continúa si confías plenamente en este sitio.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Nota",

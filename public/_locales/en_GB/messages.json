@@ -4961,26 +4961,13 @@
     "message": "Download full summary (bytes)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signMessageTitle": {
-    "message": "Message signature request",
-    "englishSource": "Message signature request"
+  "signArbitraryPayload": {
+    "message": "Sign the Arbitrary payload?",
+    "englishSource": "Sign the Arbitrary payload?"
   },
-  "signMessageWarning": {
-    "message": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "signRequestRefusedTitle": {
-    "message": "Signature request refused",
-    "englishSource": "Signature request refused"
-  },
-  "signRequestRefused": {
-    "message": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request.",
-    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
+  "signBlindCommitment": {
+    "message": "Sign the Blind commitment?",
+    "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
     "message": "Connect to website",
@@ -6739,6 +6726,23 @@
   "rawValue": {
     "message": "Raw value",
     "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Bread can't preview this",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "This signature cannot authorize a transaction from your account.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
+  "opaqueSignatureWarning": {
+    "message": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

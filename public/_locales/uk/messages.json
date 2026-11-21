@@ -4963,26 +4963,13 @@
     "message": "Завантажити повний виклад (байт)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signMessageTitle": {
-    "message": "Запит на підпис повідомлення",
-    "englishSource": "Message signature request"
+  "signArbitraryPayload": {
+    "message": "Підписати довільний корисний вантаж?",
+    "englishSource": "Sign the Arbitrary payload?"
   },
-  "signMessageWarning": {
-    "message": "Цей сайт попросив вас підписати повідомлення, що містить $count$ елементів поля. Гаманець не може показати, що означає це повідомлення. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
-    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "signRequestRefusedTitle": {
-    "message": "Запит на підпис відхилено",
-    "englishSource": "Signature request refused"
-  },
-  "signRequestRefused": {
-    "message": "Цей гаманець підписує лише довільні вхідні дані для підписання, які містять їхні первісні зображення. Він не підписує цей запит.",
-    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
+  "signBlindCommitment": {
+    "message": "Підписати зобов’язання «Blind»?",
+    "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
     "message": "Перейти на веб-сайт",
@@ -6741,6 +6728,23 @@
   "rawValue": {
     "message": "Необроблене значення",
     "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Bread не може переглянути це",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Цей підпис не може авторизувати транзакцію з вашого рахунку.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
+  "opaqueSignatureWarning": {
+    "message": "$domain$ попросив вас підписати необроблене значення. Bread не може показати, що саме авторизується, тому продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

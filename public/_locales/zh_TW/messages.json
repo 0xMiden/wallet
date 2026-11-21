@@ -4961,26 +4961,13 @@
     "message": "下載完整摘要（位元組）",
     "englishSource": "Download full summary (bytes)"
   },
-  "signMessageTitle": {
-    "message": "訊息簽名請求",
-    "englishSource": "Message signature request"
+  "signArbitraryPayload": {
+    "message": "簽署任意的載荷嗎？",
+    "englishSource": "Sign the Arbitrary payload?"
   },
-  "signMessageWarning": {
-    "message": "本網站要求您簽署一則包含 $count$ 個欄位元素的訊息。錢包無法顯示該訊息的具體內容。請僅在您完全信任本網站的情況下繼續操作。",
-    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "signRequestRefusedTitle": {
-    "message": "簽名請求遭拒",
-    "englishSource": "Signature request refused"
-  },
-  "signRequestRefused": {
-    "message": "此錢包僅對攜帶其原像的任意簽名輸入進行簽名。它不會對此請求進行簽名。",
-    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
+  "signBlindCommitment": {
+    "message": "簽署《盲人承諾書》嗎？",
+    "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
     "message": "連至網站",
@@ -6739,6 +6726,23 @@
   "rawValue": {
     "message": "原始值",
     "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Bread 無法預覽此內容",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "此簽名無法授權從您的帳戶進行交易。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
+  "opaqueSignatureWarning": {
+    "message": "$domain$ 要求您簽署原始值。Bread 無法顯示其授權內容，因此請僅在您完全信任此網站的情況下繼續操作。",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

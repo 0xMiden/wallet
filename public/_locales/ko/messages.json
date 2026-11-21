@@ -4961,26 +4961,13 @@
     "message": "전체 요약 다운로드 (바이트)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signMessageTitle": {
-    "message": "메시지 서명 요청",
-    "englishSource": "Message signature request"
+  "signArbitraryPayload": {
+    "message": "임의의 페이로드에 서명할까요?",
+    "englishSource": "Sign the Arbitrary payload?"
   },
-  "signMessageWarning": {
-    "message": "이 사이트는 $count$개의 필드 요소로 구성된 메시지에 서명하도록 요청했습니다. 지갑에서는 이 메시지의 의미를 확인할 수 없습니다. 이 사이트를 전적으로 신뢰하는 경우에만 계속 진행하십시오.",
-    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "signRequestRefusedTitle": {
-    "message": "서명 요청 거부됨",
-    "englishSource": "Signature request refused"
-  },
-  "signRequestRefused": {
-    "message": "이 지갑은 프리이미지를 포함하는 임의의 서명 입력에 대해서만 서명합니다. 이 요청에는 서명하지 않습니다.",
-    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
+  "signBlindCommitment": {
+    "message": "‘블라인드’ 서약에 서명하시겠습니까?",
+    "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
     "message": "웹사이트에 접속하기",
@@ -6739,6 +6726,23 @@
   "rawValue": {
     "message": "원값",
     "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Bread에서는 이 내용을 미리 볼 수 없습니다.",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "이 서명만으로는 귀하의 계좌에서 거래를 승인할 수 없습니다.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
+  "opaqueSignatureWarning": {
+    "message": "$domain$에서 원시 값에 서명하도록 요청했습니다. Bread는 승인 내용을 표시할 수 없으므로, 이 사이트를 전적으로 신뢰하는 경우에만 진행하십시오.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

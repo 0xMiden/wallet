@@ -4965,26 +4965,13 @@
     "message": "Скачать полное резюме (байт)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signMessageTitle": {
-    "message": "Запрос на подпись сообщения",
-    "englishSource": "Message signature request"
+  "signArbitraryPayload": {
+    "message": "Подписать произвольный полезный груз?",
+    "englishSource": "Sign the Arbitrary payload?"
   },
-  "signMessageWarning": {
-    "message": "Этот сайт попросил вас подписать сообщение, состоящее из $count$ элементов поля. Кошелек не может показать, что означает это сообщение. Продолжайте только в том случае, если вы полностью доверяете этому сайту.",
-    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "signRequestRefusedTitle": {
-    "message": "Запрос на подпись отклонен",
-    "englishSource": "Signature request refused"
-  },
-  "signRequestRefused": {
-    "message": "Этот кошелек подписывает только произвольные входные данные для подписи, которые содержат свои преображения. Он не подписывает данный запрос.",
-    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
+  "signBlindCommitment": {
+    "message": "Подписать обязательство «Blind»?",
+    "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
     "message": "Перейти на сайт",
@@ -6743,6 +6730,23 @@
   "rawValue": {
     "message": "Исходное значение",
     "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Bread не может отобразить предварительный просмотр этого",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Эта подпись не может авторизовать транзакцию с вашего счёта.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
+  "opaqueSignatureWarning": {
+    "message": "$domain$ попросил вас подписать исходное значение. Bread не может показать, что именно авторизуется, поэтому продолжайте только в том случае, если вы полностью доверяете этому сайту.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",

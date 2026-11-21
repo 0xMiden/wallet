@@ -4970,26 +4970,13 @@
     "message": "Vollständige Zusammenfassung herunterladen (Bytes)",
     "englishSource": "Download full summary (bytes)"
   },
-  "signMessageTitle": {
-    "message": "Anfrage zur Signatur einer Nachricht",
-    "englishSource": "Message signature request"
+  "signArbitraryPayload": {
+    "message": "Die beliebige Nutzlast signieren?",
+    "englishSource": "Sign the Arbitrary payload?"
   },
-  "signMessageWarning": {
-    "message": "Diese Website hat Sie aufgefordert, eine Nachricht mit $count$ Feldelementen zu unterschreiben. Die Wallet kann nicht anzeigen, was die Nachricht bedeutet. Fahren Sie nur fort, wenn Sie dieser Website voll und ganz vertrauen.",
-    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
-    "placeholders": {
-      "count": {
-        "content": "$1"
-      }
-    }
-  },
-  "signRequestRefusedTitle": {
-    "message": "Signaturanfrage abgelehnt",
-    "englishSource": "Signature request refused"
-  },
-  "signRequestRefused": {
-    "message": "Diese Wallet signiert nur beliebige Signatur-Inputs, die ihr Präbild enthalten. Diese Anfrage wird nicht signiert.",
-    "englishSource": "This wallet signs only arbitrary signing inputs that carry their preimage. It does not sign this request."
+  "signBlindCommitment": {
+    "message": "Die „Blind“-Verpflichtungserklärung unterzeichnen?",
+    "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
     "message": "Mit der Website verbinden",
@@ -6748,6 +6735,23 @@
   "rawValue": {
     "message": "Rohwert",
     "englishSource": "Raw value"
+  },
+  "opaqueSignatureTitle": {
+    "message": "Bread kann dies nicht in der Vorschau anzeigen",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Diese Signatur kann keine Transaktion von Ihrem Konto autorisieren.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
+  },
+  "opaqueSignatureWarning": {
+    "message": "$domain$ hat Sie gebeten, einen Rohwert zu signieren. Bread kann nicht anzeigen, was damit autorisiert wird; fahren Sie daher nur fort, wenn Sie dieser Website voll und ganz vertrauen.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",
