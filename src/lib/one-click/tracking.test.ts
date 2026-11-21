@@ -4,6 +4,7 @@ import { ITransactionStatus, type IOneClickTrackingData, type ITransaction } fro
 
 import { OneClickHttpError, resolveOneClickDestinationReceipts } from './client';
 import {
+  NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS,
   NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR,
   NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS,
   NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS,
@@ -368,6 +369,51 @@ describe('1Click durable tracking', () => {
     expect(row.extraInputs.oneClick.phase).toBe('delivered');
     expect(row.extraInputs.phase).toBe('received');
     expect(activityBridgeStatus(row.extraInputs.phase)).toBe('confirmed');
+  });
+
+  it('closes an inbound success older than the arrival window as delivered when no note matches', async () => {
+    const row = inboundRow('stale-success-row', { phase: 'known-deposit-tx', providerSubmitted: true });
+    storedRows.push(row);
+    fetchStatus.mockResolvedValue({
+      status: 'SUCCESS',
+      updatedAt: new Date(Date.now() - NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS - 60_000).toISOString(),
+      swapDetails: { amountOut: '2000000000000000000', destinationChainTxHashes: [] }
+    });
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('delivered');
+    expect(row.extraInputs.phase).toBe('received');
+    expect(resolveOneClickDestinationReceipts).not.toHaveBeenCalled();
+  });
+
+  it('delivers a young inbound success with no note ids when a completed consume matches the amount', async () => {
+    const row = inboundRow('amount-match-row', { phase: 'known-deposit-tx', providerSubmitted: true });
+    storedRows.push(row);
+    const amount = 2000000000000000000n;
+    fetchStatus.mockResolvedValue({
+      status: 'SUCCESS',
+      updatedAt: new Date().toISOString(),
+      swapDetails: { amountOut: amount.toString(), destinationChainTxHashes: [] }
+    });
+
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick.phase).toBe('arriving');
+
+    storedRows.push({
+      id: 'amount-consume',
+      type: 'consume',
+      accountId: 'miden-account-id',
+      status: ITransactionStatus.Completed,
+      initiatedAt: row.initiatedAt,
+      displayIcon: 'RECEIVE',
+      consumedNotes: [{ id: '0xunlinked', senderAddress: 'sender', faucetId: 'miden-faucet', amount }]
+    });
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('delivered');
+    expect(row.extraInputs.phase).toBe('received');
+    expect(resolveOneClickDestinationReceipts).not.toHaveBeenCalled();
   });
 
   it.each(['refunded', 'expired'] as const)('maps an explicit %s phase to a terminal Activity state', async phase => {
