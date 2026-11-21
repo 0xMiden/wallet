@@ -7,10 +7,14 @@ import {
 import type { Locator, Page, Request, Response } from '@playwright/test';
 import type { GuardianAwareWalletPage } from '../playwright/e2e/fixtures/two-wallets';
 
+let mockQuoteOrder: (step: string) => void = () => {};
+
 jest.mock('@playwright/test', () => ({
   expect: () => ({
     toBeVisible: jest.fn().mockResolvedValue(undefined),
-    toBeEnabled: jest.fn().mockResolvedValue(undefined)
+    toBeEnabled: jest.fn(async () => {
+      mockQuoteOrder('enabled');
+    })
   })
 }));
 
@@ -81,8 +85,14 @@ const expected = {
 function quoteWallet(response: Promise<Response>) {
   const wallet = jest.createMockFromModule<GuardianAwareWalletPage>('@playwright/test');
   const actions: string[] = [];
+  mockQuoteOrder = step => {
+    actions.push(step);
+  };
   const page = jest.createMockFromModule<Page>('@playwright/test');
-  page.waitForResponse = jest.fn(() => response);
+  page.waitForResponse = jest.fn(() => {
+    actions.push('listener');
+    return response;
+  });
   page.getByTestId = id => {
     const control = jest.createMockFromModule<Locator>('@playwright/test');
     control.fill = jest.fn().mockResolvedValue(undefined);
@@ -127,7 +137,7 @@ describe('wet quote capture', () => {
     void captureMainnetNearIntentsQuote(wallet, route, expected, true);
     await new Promise(resolve => setImmediate(resolve));
     expect(page.waitForResponse).toHaveBeenCalledTimes(1);
-    expect(actions).toEqual(['near-intents-get-deposit-address']);
+    expect(actions).toEqual(['listener', 'enabled', 'near-intents-get-deposit-address']);
   });
 
   it('accepts only the exact wet request', async () => {
