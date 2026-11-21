@@ -4969,6 +4969,19 @@
     "message": "「ブラインド・コミットメント」に署名しますか？",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "メッセージ署名リクエスト",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "このサイトは、$count$個のフィールド要素からなるメッセージへの署名を求めました。ウォレットでは、そのメッセージの意味を表示することはできません。このサイトを完全に信頼している場合にのみ、続行してください。",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "ウェブサイトに接続する",
     "englishSource": "Connect to website"
