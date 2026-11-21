@@ -47,6 +47,18 @@ export function hasNoNearReturnProviderActivity(status) {
     ) && details.refundReason === undefined;
 }
 
+export function assertNearReturnCustody(expected, deadline, custody) {
+  const expiry = Date.parse(deadline);
+  if (!Number.isFinite(expiry) || typeof custody.finalizedTimestamp !== 'bigint' ||
+      custody.finalizedTimestamp * 1_000n <= BigInt(expiry) ||
+      !Number.isSafeInteger(expected.nonce) || expected.nonce < 0 ||
+      typeof expected.native !== 'bigint' || expected.native < 0n ||
+      typeof expected.token !== 'bigint' || expected.token <= 0n ||
+      ![custody.latest, custody.pending, custody.finalized].every(view =>
+        view?.nonce === expected.nonce && view.native === expected.native && view.token === expected.token
+      )) throw new Error('NEAR return custody differs from the original post-expiry baseline');
+}
+
 export function matchesNearRetentionSteps(jobs) {
   if (!Array.isArray(jobs?.jobs)) return false;
   const roundTrips = jobs.jobs.filter(job => job?.name === 'Chrome mainnet round trip');
