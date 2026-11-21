@@ -736,8 +736,6 @@ export async function claimMainnetNearNote(
     throw new Error('Native NEAR note has no original bounded return or refund authority');
   nearProofStage('claim-indexer');
   const creator = await readMainnetMidenOutputCandidates(providerHash, state.accountHex, fetch, kind === 'return');
-  nearProofStage('queue-blocker');
-  const blocker = await plantQueueBlocker(wallet.page);
   nearProofStage('wallet-sync');
   await wallet.triggerSync(true);
   await wallet.navigateTo('/history?filter=pending&view=list');
@@ -788,6 +786,8 @@ export async function claimMainnetNearNote(
   const before = await vaultBalanceByFaucetId(wallet.page, state.native.faucetId);
   if (before !== BigInt(state.native.balance) - BigInt(state.principal) - BigInt(state.paidMidenFees))
     throw new Error('Native NEAR pre-claim portfolio differs from original actual receipts');
+  nearProofStage('queue-blocker');
+  const blocker = await plantQueueBlocker(wallet.page);
   nearProofStage('pre-claim-boundary');
   stopAtPreClaimBoundary();
   state.returnProviderTxId = providerHash;

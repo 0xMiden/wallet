@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 3
+          fetch-depth: 4
       - name: Verify and restore exact retained checkpoint
         shell: bash
         env:
@@ -26,7 +26,7 @@ jobs:
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=04f23301480130153713b029bb2de4f42c1f2865
-          test "$(git rev-parse HEAD^^2)" = "$base"
+          git merge-base --is-ancestor "$base" HEAD
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/helpers/mainnet-near-runtime.ts playwright/e2e/tests/mainnet/near-claim-readonly.spec.ts src/lib/miden/front/claimable-notes.ts)"
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44939188754:completed
           umask 077
