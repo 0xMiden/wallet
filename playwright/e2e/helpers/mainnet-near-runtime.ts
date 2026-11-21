@@ -726,7 +726,7 @@ export async function claimMainnetNearNote(
         : undefined;
   if (!minimum || BigInt(minimum) <= 0n || (kind === 'refund' && (state.forwardReceived || state.transactions?.length)))
     throw new Error('Native NEAR note has no original bounded return or refund authority');
-  const creator = await readMainnetMidenOutputCandidates(providerHash, state.accountHex);
+  const creator = await readMainnetMidenOutputCandidates(providerHash, state.accountHex, fetch, kind === 'return');
   const blocker = await plantQueueBlocker(wallet.page);
   await wallet.triggerSync(true);
   await wallet.navigateTo('/history?filter=pending&view=list');
