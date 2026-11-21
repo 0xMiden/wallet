@@ -821,6 +821,8 @@ export async function runMainnetNearReverse(
   const stopped = new AbortController();
   const activeSignal = AbortSignal.any([signal, stopped.signal]);
   let sender: ReturnType<typeof createMainnetOneClickEvmSender> | undefined;
+  let returnStage = 'review';
+  let senderRejected = false;
   const counterparty = new WcCounterparty({
     privateKey: key,
     rpcUrl: mainnetRpc(state.evm.chainId),
@@ -831,8 +833,10 @@ export async function runMainnetNearReverse(
       if (sessionSignal.aborted) stopped.abort();
       try {
         if (!sender) throw new Error('Missing original reverse quote');
+        returnStage = 'sender-entered';
         return await sender.send(transaction, activeSignal);
       } catch {
+        senderRejected = true;
         throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry');
       }
     }
@@ -969,7 +973,9 @@ export async function runMainnetNearReverse(
         }
       })
     });
+    returnStage = 'sender-bind';
     sender.bind(request, quote);
+    returnStage = 'review-confirm';
     await confirmMainnetOneClickReview(wallet.page);
     await expect(wallet.page.getByTestId('one-click-deposit-instructions')).toContainText(
       'This route is saved in Activity',
@@ -1005,6 +1011,15 @@ export async function runMainnetNearReverse(
     if (hashes?.length !== 1 || !hash || !isHash(hash))
       throw new Error('Missing unique actual native NEAR return transaction');
     await claimMainnetNearNote(wallet, state, hash, 'return', gatePath, activeSignal);
+  } catch (error) {
+    try {
+      writeFileSync('test-results/mainnet-near-return-failure.json', JSON.stringify({ returnStage, senderRejected }), {
+        mode: 0o600
+      });
+    } catch {
+      // Diagnostic output must not replace the original failure.
+    }
+    throw error;
   } finally {
     stopped.abort();
     await counterparty.stop();
