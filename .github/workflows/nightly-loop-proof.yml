@@ -1,4 +1,4 @@
-name: NEAR settlement cost audit (read only)
+name: Mainnet startup and custody check (read only)
 on:
   push:
     branches: [wiktor/near-claim-cost-audit]
@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 2
+          fetch-depth: 3
       - name: Verify exact settlement archive
         shell: bash
         env:
@@ -26,11 +26,12 @@ jobs:
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=3a79727161582011788376c18c227012c91ca718
-          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git rev-parse HEAD^^)" = "$base"
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44949987022:completed
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-claim-cost-audit.spec.ts)"
           umask 077
-          gh api repos/0xMiden/wallet/actions/artifacts/14723644243/zip > "$RUNNER_TEMP/near.zip"
-          printf '%s  %s\n' bc127b1fb1b07b994b87fcfa67e6865ff23081d64eaaf81b6a30f81f8fed590d "$RUNNER_TEMP/near.zip" | sha256sum --check --status
+          gh api repos/0xMiden/wallet/actions/artifacts/14725142496/zip > "$RUNNER_TEMP/near.zip"
+          printf '%s  %s\n' bc9afce2fa42fdbcecd6741ab95aeb3ee68a6008040ca869dcb8b05a2d8dfa91 "$RUNNER_TEMP/near.zip" | sha256sum --check --status
           test "$(unzip -Z1 "$RUNNER_TEMP/near.zip")" = roundtrip.json
           mkdir -p test-results/near-claim-audit
           unzip -p "$RUNNER_TEMP/near.zip" roundtrip.json > test-results/near-claim-audit/roundtrip.json
@@ -43,6 +44,17 @@ jobs:
       - uses: ./.github/actions/apt-drop-unused-repos
       - run: npx playwright install --with-deps chromium
       - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start owned provider loop config
+        shell: bash
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Owned provider overlay did not become ready.' >&2; exit 1
       - run: yarn test:e2e:blockchain:build
         env:
           WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
