@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Discover and verify the nightly NEAR claim note before pausing the transaction queue for authorization.
+
 - [FIX][ci] Recognize the exact provider-reported Miden note on NEAR nightly returns without changing refund verification.
 
 - [FIX][ci] Allow one manual recovery of the held nightly NEAR proceeds after verifying the expired return was never submitted. Preserve the retired authorization and prevent fresh funding in that run.
