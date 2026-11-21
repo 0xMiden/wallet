@@ -96,6 +96,7 @@ const RefusedSignature: FC<{ origin: string }> = ({ origin }) => {
         variant="fact"
         tone="negative"
         role="alert"
+        errorId="failedToParseSigningPayload"
         title={t('signRequestRefusedTitle')}
         icon={<Icon name={IconName.FactCross} size="xs" fill="currentColor" />}
         data-testid="confirm-sign-refused"

@@ -23,10 +23,9 @@
  * from the same decoders instead.
  */
 
+import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 import fs from 'fs';
 import path from 'path';
-
-import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
 import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
