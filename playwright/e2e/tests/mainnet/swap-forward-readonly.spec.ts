@@ -15,7 +15,8 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
   let quoteSucceeded: boolean | null = null;
   let custodyMatches = false;
   let failure: string | undefined;
-  const emit = (passed: boolean) => writeFileSync('test-results/swap-readonly-result.json', JSON.stringify({ stage, passed, custodyMatches, quoteSucceeded, failure }), { mode: 0o600 });
+  let surface: object | undefined;
+  const emit = (passed: boolean) => writeFileSync('test-results/swap-readonly-result.json', JSON.stringify({ stage, passed, custodyMatches, quoteSucceeded, failure, surface }), { mode: 0o600 });
   try {
     await restoreMainnetLoopGuardian(walletB, process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
     assert.equal(await walletB.getAccountAddress(), s.account);
@@ -56,6 +57,16 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
       ['navigation', 'page.goto:']
     ] as const;
     failure = targets.find(([, match]) => message.includes(match))?.[0] ?? 'other';
+    surface = await walletB.page.evaluate(() => {
+      const reason = document.querySelector('[data-testid="swap-unavailable-notice"]')?.getAttribute('data-reason');
+      return {
+        reason: ['restricted', 'not-configured', 'service-down', 'unknown-region', 'eligibility-pending'].includes(reason ?? '') ? reason : reason ? 'other' : null,
+        flow: !!document.querySelector('[data-testid="swap-flow"]'),
+        pay: !!document.querySelector('[data-testid="swap-pay-side"]'),
+        receive: !!document.querySelector('[data-testid="swap-receive-side"]'),
+        selectorCount: Math.min(4, document.querySelectorAll('[data-testid="send-token-selector"]').length)
+      };
+    }).catch(() => undefined);
     emit(false);
     throw new Error(`Read-only Swap observation stopped at ${stage}`);
   }
