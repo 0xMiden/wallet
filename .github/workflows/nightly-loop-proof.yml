@@ -1,4 +1,4 @@
-name: Mainnet startup and custody check (read only)
+name: Mainnet Swap forward review (read only)
 on:
   push:
     branches: [wiktor/near-claim-cost-audit]
@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 3
+          fetch-depth: 4
       - name: Verify exact settlement archive
         shell: bash
         env:
@@ -26,16 +26,16 @@ jobs:
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=3a79727161582011788376c18c227012c91ca718
-          test "$(git rev-parse HEAD^^)" = "$base"
-          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44949987022:completed
-          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-claim-cost-audit.spec.ts)"
+          test "$(git rev-parse HEAD^^^)" = "$base"
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44952299224:completed
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-claim-cost-audit.spec.ts playwright/e2e/tests/mainnet/swap-forward-readonly.spec.ts)"
           umask 077
-          gh api repos/0xMiden/wallet/actions/artifacts/14725142496/zip > "$RUNNER_TEMP/near.zip"
-          printf '%s  %s\n' bc9afce2fa42fdbcecd6741ab95aeb3ee68a6008040ca869dcb8b05a2d8dfa91 "$RUNNER_TEMP/near.zip" | sha256sum --check --status
-          test "$(unzip -Z1 "$RUNNER_TEMP/near.zip")" = roundtrip.json
-          mkdir -p test-results/near-claim-audit
-          unzip -p "$RUNNER_TEMP/near.zip" roundtrip.json > test-results/near-claim-audit/roundtrip.json
-          printf '%s  %s\n' 04f00d3039ccf5e6be9326946684e49f4c4211827cb1f048dd48d3f05889c20d test-results/near-claim-audit/roundtrip.json | sha256sum --check --status
+          gh api repos/0xMiden/wallet/actions/artifacts/14725973510/zip > "$RUNNER_TEMP/swap.zip"
+          printf '%s  %s\n' c0c68499a220be015ea900edeea6cbc7f894befc838b74d08f43d6ccb7d52eff "$RUNNER_TEMP/swap.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$RUNNER_TEMP/swap.zip")" = roundtrip.json
+          mkdir -p test-results/swap-readonly
+          unzip -p "$RUNNER_TEMP/swap.zip" roundtrip.json > test-results/swap-readonly/roundtrip.json
+          printf '%s  %s\n' 051f5f4e8da6732fb92c886b06c3a8eea845acf86e7424b205889b096f6df9ee test-results/swap-readonly/roundtrip.json | sha256sum --check --status
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
@@ -58,15 +58,15 @@ jobs:
       - run: yarn test:e2e:blockchain:build
         env:
           WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
-      - name: Audit canonical fees and restored custody without spending
+      - name: Observe Swap review without arming or submitting
         shell: bash
         env:
           E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
         run: |
           umask 077
           rc=0
-          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-audit-private" xvfb-run -a yarn playwright test near-claim-cost-audit.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-audit-private.log" 2>&1 || rc=$?
-          if test -f test-results/near-claim-audit-result.json; then
-            jq -c '{stage,failed,custodyVerified,forwardFee,claimFee}' test-results/near-claim-audit-result.json
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-audit-private" xvfb-run -a yarn playwright test swap-forward-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/swap-audit-private.log" 2>&1 || rc=$?
+          if test -f test-results/swap-readonly-result.json; then
+            jq -c '{stage,passed,custodyMatches,quoteSucceeded}' test-results/swap-readonly-result.json
           fi
           exit "$rc"
