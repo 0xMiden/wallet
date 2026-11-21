@@ -16,8 +16,8 @@ import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import PQueue from 'p-queue';
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
-import * as noteQuarantine from 'lib/miden/note-quarantine';
 import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
+import * as noteQuarantine from 'lib/miden/note-quarantine';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
