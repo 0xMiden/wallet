@@ -3,13 +3,18 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  assertMainnetNearNoLegacyFees,
   parseMainnetNearCheckpoint,
   loadMainnetNearCheckpoint,
   saveMainnetNearCheckpoint,
   type MainnetNearCheckpoint
 } from '../playwright/e2e/helpers/mainnet-near-checkpoint';
 
-import { nativeNearFixture as fixture, nativeNearQuote as quote } from './helpers/mainnet-near-fixture';
+import {
+  nativeNearFixture as fixture,
+  nativeNearNoFeeFixture,
+  nativeNearQuote as quote
+} from './helpers/mainnet-near-fixture';
 
 const hash = `0x${'a'.repeat(64)}`;
 function complete(): MainnetNearCheckpoint {
@@ -211,6 +216,21 @@ const invalid: [string, (state: MainnetNearCheckpoint) => void][] = [
     }
   ]
 ];
+it('parses both a legacy partner-policy checkpoint and a new checkpoint with no fee fields', () => {
+  expect(parseMainnetNearCheckpoint(fixture()).feePolicy).toMatchObject({ kind: 'partner' });
+  const fresh = parseMainnetNearCheckpoint(nativeNearNoFeeFixture());
+  expect(fresh.appFees).toEqual([]);
+  expect(fresh.feePolicy).toBeUndefined();
+});
+it('refuses a fresh-quote leg on a legacy fee checkpoint and allows one with no fee fields', () => {
+  expect(() => assertMainnetNearNoLegacyFees(parseMainnetNearCheckpoint(fixture()), 'legacy fees')).toThrow(
+    'legacy fees'
+  );
+  const feeOnly = nativeNearNoFeeFixture();
+  feeOnly.appFees = [{ recipient: 'fee.near', fee: 10 }];
+  expect(() => assertMainnetNearNoLegacyFees(feeOnly, 'legacy fees')).toThrow('legacy fees');
+  expect(() => assertMainnetNearNoLegacyFees(parseMainnetNearCheckpoint(nativeNearNoFeeFixture()), 'x')).not.toThrow();
+});
 it.each(invalid)('refuses %s instead of creating spending authority', (_name, change) => {
   const state = fixture();
   change(state);

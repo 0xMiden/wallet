@@ -16,7 +16,6 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 
-import { OneClickNetworkPicker } from './OneClickPickers';
 import type { SwapAmountsProps } from './SwapAmounts';
 
 export function CommandSwap({
@@ -39,12 +38,7 @@ export function CommandSwap({
   statusMessage,
   statusIsError,
   statusErrorId,
-  feeAssetMissing,
-  oneClickNetworks,
-  offerNetwork,
-  requestNetwork,
-  onOfferNetworkChange,
-  onRequestNetworkChange
+  feeAssetMissing
 }: SwapAmountsProps): React.ReactElement {
   const { t } = useTranslation();
   const formId = useId();
@@ -86,14 +80,6 @@ export function CommandSwap({
           if (canProceed) onConfirm();
         }}
       >
-        {oneClickNetworks && offerNetwork && onOfferNetworkChange && (
-          <OneClickNetworkPicker
-            side="pay"
-            network={offerNetwork}
-            networks={oneClickNetworks}
-            onSelect={onOfferNetworkChange}
-          />
-        )}
         <SelectAmount
           embedded
           showAmountShortcuts
@@ -141,14 +127,6 @@ export function CommandSwap({
         data-testid="command-swap-receive"
         className="flex min-w-0 flex-col gap-3 rounded-2xl border border-accent-tint-ink/25 bg-accent-tint p-4 sm:p-5"
       >
-        {oneClickNetworks && requestNetwork && onRequestNetworkChange && (
-          <OneClickNetworkPicker
-            side="receive"
-            network={requestNetwork}
-            networks={oneClickNetworks}
-            onSelect={onRequestNetworkChange}
-          />
-        )}
         <DetailCard surface="fill">
           <DetailRow label={t('youReceive')} stacked>
             {requestLoading ? (

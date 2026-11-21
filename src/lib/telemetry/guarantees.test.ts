@@ -545,6 +545,7 @@ describe('no App Tracking Transparency, and no advertising identifier', () => {
     // MetaMask" can be hidden when MetaMask is absent; nothing may report them,
     // and nothing may grow them into a survey of what else is on the device.
     const deepLinkTargets = [
+      'app.phantom',
       'cbwallet',
       'com.ledger.live',
       'com.okinc.okex.gp',
@@ -558,6 +559,7 @@ describe('no App Tracking Transparency, and no advertising identifier', () => {
       'metamask',
       'okx',
       'org.toshi',
+      'phantom',
       'rainbow',
       'safe',
       'trust',

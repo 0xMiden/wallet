@@ -1,19 +1,21 @@
-import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
-
 import { HistoryEntryType } from 'app/templates/history/IHistoryEntry';
 import { bridgeStatusOf } from 'app/templates/history/transactionUtils';
-import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
-import { resolveOneClickDestinationReceipts } from 'lib/one-click/client';
+import { ITransactionStatus, type IOneClickTrackingData, type ITransaction } from 'lib/miden/db/types';
 
+import { OneClickHttpError, resolveOneClickDestinationReceipts } from './client';
 import {
+  NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS,
+  NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR,
+  NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS,
+  NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS,
   initiateOneClickMidenDeposit,
-  persistOneClickTrackingRow,
+  isNearIntentsDepositExpired,
+  persistNearIntentsDeposit,
   phaseForProviderStatus,
   reconcileOneClickSwaps,
   updateOneClickTrackingPhase
 } from './tracking';
-import { OneClickAsset, OneClickConfig, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
+import { NearIntentsConfig, OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
 const addTransaction = jest.fn();
 const initiateSend = jest.fn();
@@ -41,7 +43,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: { getConsumableNotes: jest.fn() } }));
 jest.mock('lib/one-click/client', () => ({
-  ONE_CLICK_EVM_CHAIN_IDS: { eth: 1 },
+  OneClickHttpError:
+    jest.requireActual<typeof import('lib/one-click/client')>('lib/one-click/client').OneClickHttpError,
   assertOneClickQuoteBinding: jest.fn(),
   fetchOneClickStatus: (...args: unknown[]) => fetchStatus(...args),
   resolveOneClickDestinationReceipts: jest.fn(),
@@ -51,9 +54,17 @@ jest.mock('lib/miden/activity', () => ({ initiateSendTransaction: (...args: unkn
 
 const originAsset: OneClickAsset = { assetId: 'miden-asset', blockchain: 'miden', symbol: 'MID', decimals: 6 };
 const destinationAsset: OneClickAsset = { assetId: 'eth-asset', blockchain: 'eth', symbol: 'ETH', decimals: 18 };
-const config: OneClickConfig = {
+const config: NearIntentsConfig = {
   serviceUrl: 'https://1click.test/api',
-  midenAssets: [{ assetId: originAsset.assetId, faucetId: 'miden-faucet', decimals: 6 }]
+  chains: [
+    {
+      id: 'eth',
+      name: 'Ethereum',
+      addressKind: 'evm',
+      tokens: [{ symbol: 'ETH', assetId: destinationAsset.assetId, decimals: 18, miden: ['mid'] }]
+    }
+  ],
+  midenAssets: [{ id: 'mid', assetId: originAsset.assetId, faucetId: 'miden-faucet', decimals: 6 }]
 };
 const requestDeadline = new Date(Date.now() + 60 * 60_000).toISOString();
 const quoteDeadline = new Date(Date.now() + 30 * 60_000).toISOString();
@@ -146,6 +157,44 @@ const activityBridgeStatus = (phase: string | undefined) => {
   });
 };
 
+function inboundTracking(overrides: Partial<IOneClickTrackingData> = {}): IOneClickTrackingData {
+  return {
+    direction: 'evm-to-miden',
+    request: inboundInput.request,
+    quote: inboundInput.quote,
+    config,
+    network: 'mainnet',
+    accountId: 'miden-account-id',
+    accountAddress: 'miden-account',
+    originAsset: destinationAsset,
+    destinationAsset: originAsset,
+    faucetId: 'miden-faucet',
+    amount: inboundInput.request.amount,
+    phase: 'depositing',
+    depositAddress: 'miden-deposit-address',
+    ...overrides
+  };
+}
+
+function inboundRow(id: string, overrides: Partial<IOneClickTrackingData> = {}) {
+  return {
+    id,
+    type: 'bridged-receive',
+    accountId: 'miden-account-id',
+    initiatedAt: Date.now(),
+    status: ITransactionStatus.Completed,
+    extraInputs: { phase: 'submitting', oneClick: inboundTracking(overrides) }
+  };
+}
+
+const pastGrace = () => new Date(Date.now() - NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS - 60_000).toISOString();
+const withinGrace = () => new Date(Date.now() - NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS + 60_000).toISOString();
+// A deadline more than one day and the grace in the past: the point where a missing record expires a row.
+const pastUnknownDay = () =>
+  new Date(
+    Date.now() - NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS - NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS - 60_000
+  ).toISOString();
+
 beforeEach(() => {
   jest.clearAllMocks();
   storedRows.length = 0;
@@ -157,7 +206,7 @@ beforeEach(() => {
 
 describe('1Click durable tracking', () => {
   it('persists the signed inbound quote and account route before returning a row id', async () => {
-    const rowId = await persistOneClickTrackingRow(inboundInput);
+    const rowId = await persistNearIntentsDeposit(inboundInput);
 
     expect(addTransaction).toHaveBeenCalledTimes(1);
     const [row] = addTransaction.mock.calls[0];
@@ -166,7 +215,7 @@ describe('1Click durable tracking', () => {
       type: 'bridged-receive',
       accountId: 'miden-account-id',
       status: ITransactionStatus.Completed,
-      displayMessage: 'Swapping through 1Click',
+      displayMessage: 'Receiving through NEAR Intents',
       extraInputs: {
         provider: 'near-intents',
         phase: 'submitting',
@@ -184,11 +233,18 @@ describe('1Click durable tracking', () => {
     });
   });
 
-  it('persists EVM submission state on inbound rows', async () => {
-    await persistOneClickTrackingRow(inboundInput);
+  it('writes no EVM submission state or origin hash on a deposit row', async () => {
+    await persistNearIntentsDeposit(inboundInput);
 
     const [row] = addTransaction.mock.calls[0];
-    expect(row.extraInputs.oneClick).toMatchObject({ evmSubmission: 'not-started' });
+    expect(row.extraInputs.oneClick).not.toHaveProperty('evmSubmission');
+    expect(row.extraInputs.oneClick).not.toHaveProperty('originTransactionHash');
+    expect(row.extraInputs).not.toHaveProperty('evmTxHash');
+  });
+
+  it('refuses a deposit row whose origin is on Miden', async () => {
+    await expect(persistNearIntentsDeposit(input)).rejects.toThrow('from another chain into Miden');
+    expect(addTransaction).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -206,7 +262,7 @@ describe('1Click durable tracking', () => {
         quote: { ...inboundInput.quote.quote, deadline: providerExpiry }
       };
 
-      await persistOneClickTrackingRow({ ...inboundInput, request: signedRequest, quote: signedQuote });
+      await persistNearIntentsDeposit({ ...inboundInput, request: signedRequest, quote: signedQuote });
 
       const [row] = addTransaction.mock.calls[0];
       expect(row.extraInputs?.oneClick).toMatchObject({
@@ -225,88 +281,42 @@ describe('1Click durable tracking', () => {
   );
 
   it('refuses to persist a quote whose Miden destination is another account', async () => {
-    await expect(persistOneClickTrackingRow({ ...inboundInput, accountAddress: 'different-account' })).rejects.toThrow(
+    await expect(persistNearIntentsDeposit({ ...inboundInput, accountAddress: 'different-account' })).rejects.toThrow(
       'not bound to the selected Miden account'
     );
     expect(addTransaction).not.toHaveBeenCalled();
   });
 
-  it('skips pre-request failed rows and polls attempted rows after restart', async () => {
-    const makeReceive = (id: string, phase: string, evmSubmission?: string) => ({
-      id,
-      type: 'bridged-receive',
-      accountId: 'miden-account-id',
-      initiatedAt: Date.now(),
-      status: ITransactionStatus.Completed,
-      extraInputs: {
-        phase,
-        oneClick: {
-          direction: 'evm-to-miden',
-          request: inboundInput.request,
-          quote: inboundInput.quote,
-          config,
-          network: 'mainnet',
-          accountId: 'miden-account-id',
-          accountAddress: 'miden-account',
-          originAsset: destinationAsset,
-          destinationAsset: originAsset,
-          faucetId: 'miden-faucet',
-          amount: inboundInput.request.amount,
-          phase,
-          depositAddress: 'miden-deposit-address',
-          ...(evmSubmission ? { evmSubmission } : {})
-        }
-      }
-    });
-    storedRows.push(makeReceive('failed-row', 'failed'), makeReceive('attempted-row', 'pending-deposit', 'attempted'));
+  it('skips terminal rows and polls open deposit rows by deposit address without a deposit submission', async () => {
+    storedRows.push(
+      inboundRow('failed-row', { phase: 'failed' }),
+      inboundRow('expired-row', { phase: 'expired' }),
+      inboundRow('open-row', { phase: 'pending-deposit' })
+    );
 
     await reconcileOneClickSwaps();
 
     expect(fetchStatus).toHaveBeenCalledTimes(1);
     expect(fetchStatus).toHaveBeenCalledWith(config, 'miden-deposit-address', undefined, inboundInput.quote);
+    expect(submitDeposit).not.toHaveBeenCalled();
   });
 
   it('terminalizes refunded inbound rows in Activity and stops polling', async () => {
     const originTransactionHash = `0x${'a'.repeat(64)}`;
-    const inboundRow = {
-      id: 'refunded-inbound-row',
-      type: 'bridged-receive',
-      accountId: 'miden-account-id',
-      initiatedAt: Date.now(),
-      status: ITransactionStatus.Completed,
-      extraInputs: {
-        phase: 'delivering',
-        evmTxHash: originTransactionHash,
-        oneClick: {
-          direction: 'evm-to-miden',
-          request: inboundInput.request,
-          quote: inboundInput.quote,
-          config,
-          network: 'mainnet',
-          accountId: 'miden-account-id',
-          accountAddress: 'miden-account',
-          originAsset: destinationAsset,
-          destinationAsset: originAsset,
-          faucetId: 'miden-faucet',
-          amount: inboundInput.request.amount,
-          phase: 'known-deposit-tx',
-          depositAddress: 'miden-deposit-address',
-          originTransactionHash,
-          evmSubmission: 'known',
-          providerSubmitted: true
-        }
-      }
-    };
-    storedRows.push(inboundRow);
+    const row = inboundRow('refunded-inbound-row', {
+      phase: 'known-deposit-tx',
+      originTransactionHash,
+      providerSubmitted: true
+    });
+    storedRows.push(row);
     fetchStatus.mockResolvedValue({ status: 'REFUNDED', swapDetails: { refundReason: 'Refunded by provider' } });
 
     await reconcileOneClickSwaps();
 
-    expect(inboundRow.extraInputs.oneClick.phase).toBe('refunded');
-    expect(inboundRow.extraInputs.phase).toBe('failed');
-    expect(activityBridgeStatus(inboundRow.extraInputs.phase)).toBe('failed');
-    expect(inboundRow.extraInputs.evmTxHash).toBe(originTransactionHash);
-    expect(inboundRow.extraInputs.oneClick).toMatchObject({ evmSubmission: 'known', originTransactionHash });
+    expect(row.extraInputs.oneClick.phase).toBe('refunded');
+    expect(row.extraInputs.phase).toBe('failed');
+    expect(activityBridgeStatus(row.extraInputs.phase)).toBe('failed');
+    expect(row.extraInputs.oneClick).toMatchObject({ originTransactionHash });
 
     await reconcileOneClickSwaps();
 
@@ -315,35 +325,21 @@ describe('1Click durable tracking', () => {
   });
 
   it('keeps an inbound provider success arriving until the linked note is locally consumed', async () => {
-    addTransaction.mockImplementation(async (row: ITransaction) => {
-      storedRows.push(row);
-      return row.id;
-    });
-    const rowId = await persistOneClickTrackingRow(inboundInput);
-    const row = storedRows.find(candidate => candidate.id === rowId);
+    const row = inboundRow('arriving-inbound-row', { phase: 'known-deposit-tx', providerSubmitted: true });
+    storedRows.push(row);
     const noteId = '0xABC123';
     const amount = 2000000000000000000n;
     fetchStatus.mockResolvedValue({
       status: 'SUCCESS',
+      updatedAt: new Date().toISOString(),
       swapDetails: { amountOut: amount.toString(), destinationChainTxHashes: [{ hash: '0xreceipt' }] }
     });
     jest
       .mocked(resolveOneClickDestinationReceipts)
       .mockResolvedValue([{ transactionHash: '0xreceipt', noteIds: [noteId] }]);
-    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([
-      {
-        noteId,
-        nullifier: 'nullifier',
-        noteType: undefined,
-        senderAccountId: 'sender',
-        state: InputNoteState.Committed,
-        assets: [{ faucetId: 'miden-faucet', amount: amount.toString() }],
-        swapAttachment: null
-      }
-    ]);
 
     await reconcileOneClickSwaps();
-    expect(row.extraInputs.oneClick).toMatchObject({ phase: 'arriving', destinationNoteIds: [noteId] });
+    expect(row.extraInputs.oneClick).toMatchObject({ phase: 'arriving' });
     expect(row.extraInputs.phase).toBe('delivering');
     expect(activityBridgeStatus(row.extraInputs.phase)).toBe('pending');
 
@@ -364,14 +360,6 @@ describe('1Click durable tracking', () => {
     await reconcileOneClickSwaps();
     expect(row.extraInputs.oneClick.phase).toBe('arriving');
 
-    storedRows.push({
-      ...consume(ITransactionStatus.Completed),
-      id: 'unrelated-consume',
-      consumedNotes: [{ id: 'other-note', senderAddress: 'sender', faucetId: 'miden-faucet', amount }]
-    });
-    await reconcileOneClickSwaps();
-    expect(row.extraInputs.oneClick.phase).toBe('arriving');
-
     storedRows.push({ ...consume(ITransactionStatus.Completed), id: 'restored-consume', restoredFromBackup: true });
     await reconcileOneClickSwaps();
     expect(row.extraInputs.oneClick.phase).toBe('arriving');
@@ -381,54 +369,62 @@ describe('1Click durable tracking', () => {
     expect(row.extraInputs.oneClick.phase).toBe('delivered');
     expect(row.extraInputs.phase).toBe('received');
     expect(activityBridgeStatus(row.extraInputs.phase)).toBe('confirmed');
-    await reconcileOneClickSwaps();
-    expect(fetchStatus).toHaveBeenCalledTimes(6);
-    expect(submitDeposit).not.toHaveBeenCalled();
-    expect(storedRows.filter(candidate => candidate.type === 'bridged-receive')).toHaveLength(1);
   });
 
-  it('maps explicit refunded phases to a terminal Activity state', async () => {
-    const originTransactionHash = `0x${'b'.repeat(64)}`;
-    const inboundRow = {
-      id: 'explicit-refunded-inbound-row',
-      type: 'bridged-receive',
-      accountId: 'miden-account-id',
-      initiatedAt: Date.now(),
-      status: ITransactionStatus.Completed,
-      extraInputs: {
-        phase: 'delivering',
-        evmTxHash: originTransactionHash,
-        oneClick: {
-          direction: 'evm-to-miden',
-          request: inboundInput.request,
-          quote: inboundInput.quote,
-          config,
-          network: 'mainnet',
-          accountId: 'miden-account-id',
-          accountAddress: 'miden-account',
-          originAsset: destinationAsset,
-          destinationAsset: originAsset,
-          faucetId: 'miden-faucet',
-          amount: inboundInput.request.amount,
-          phase: 'known-deposit-tx',
-          depositAddress: 'miden-deposit-address',
-          originTransactionHash,
-          evmSubmission: 'known',
-          providerSubmitted: true
-        }
-      }
-    };
-    storedRows.push(inboundRow);
-
-    await updateOneClickTrackingPhase(inboundRow.id, 'refunded');
-
-    expect(inboundRow.extraInputs.oneClick).toMatchObject({
-      phase: 'refunded',
-      evmSubmission: 'known',
-      originTransactionHash
+  it('closes an inbound success older than the arrival window as delivered when no note matches', async () => {
+    const row = inboundRow('stale-success-row', { phase: 'known-deposit-tx', providerSubmitted: true });
+    storedRows.push(row);
+    fetchStatus.mockResolvedValue({
+      status: 'SUCCESS',
+      updatedAt: new Date(Date.now() - NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS - 60_000).toISOString(),
+      swapDetails: { amountOut: '2000000000000000000', destinationChainTxHashes: [] }
     });
-    expect(inboundRow.extraInputs.phase).toBe('failed');
-    expect(activityBridgeStatus(inboundRow.extraInputs.phase)).toBe('failed');
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('delivered');
+    expect(row.extraInputs.phase).toBe('received');
+    expect(resolveOneClickDestinationReceipts).not.toHaveBeenCalled();
+  });
+
+  it('delivers a young inbound success with no note ids when a completed consume matches the amount', async () => {
+    const row = inboundRow('amount-match-row', { phase: 'known-deposit-tx', providerSubmitted: true });
+    storedRows.push(row);
+    const amount = 2000000000000000000n;
+    fetchStatus.mockResolvedValue({
+      status: 'SUCCESS',
+      updatedAt: new Date().toISOString(),
+      swapDetails: { amountOut: amount.toString(), destinationChainTxHashes: [] }
+    });
+
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick.phase).toBe('arriving');
+
+    storedRows.push({
+      id: 'amount-consume',
+      type: 'consume',
+      accountId: 'miden-account-id',
+      status: ITransactionStatus.Completed,
+      initiatedAt: row.initiatedAt,
+      displayIcon: 'RECEIVE',
+      consumedNotes: [{ id: '0xunlinked', senderAddress: 'sender', faucetId: 'miden-faucet', amount }]
+    });
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('delivered');
+    expect(row.extraInputs.phase).toBe('received');
+    expect(resolveOneClickDestinationReceipts).not.toHaveBeenCalled();
+  });
+
+  it.each(['refunded', 'expired'] as const)('maps an explicit %s phase to a terminal Activity state', async phase => {
+    const row = inboundRow(`explicit-${phase}-row`, { phase: 'pending-deposit' });
+    storedRows.push(row);
+
+    await updateOneClickTrackingPhase(row.id, phase);
+
+    expect(row.extraInputs.oneClick.phase).toBe(phase);
+    expect(row.extraInputs.phase).toBe('failed');
+    expect(activityBridgeStatus(row.extraInputs.phase)).toBe('failed');
   });
 
   it('stops polling an outbound swap after the provider reports success', async () => {
@@ -591,5 +587,117 @@ describe('1Click durable tracking', () => {
     ['FAILED', 'failed']
   ] as const)('surfaces %s as its own tracking phase', (status, phase) => {
     expect(phaseForProviderStatus(status)).toBe(phase);
+  });
+});
+
+describe('NEAR Intents deposit expiry', () => {
+  it('expires a deposit that 1Click still waits for after the funding deadline and the grace time', async () => {
+    const row = inboundRow('unpaid-row', { phase: 'pending-deposit', fundingDeadline: pastGrace() });
+    storedRows.push(row);
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick).toMatchObject({
+      phase: 'expired',
+      providerStatus: 'PENDING_DEPOSIT',
+      error: NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR
+    });
+    expect(row.extraInputs.phase).toBe('failed');
+    expect(activityBridgeStatus(row.extraInputs.phase)).toBe('failed');
+
+    await reconcileOneClickSwaps();
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a pending deposit open inside the grace time', async () => {
+    const row = inboundRow('grace-row', { phase: 'pending-deposit', fundingDeadline: withinGrace() });
+    storedRows.push(row);
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('pending-deposit');
+    expect(row.extraInputs.phase).toBe('delivering');
+  });
+
+  it('reads the funding deadline from the signed quote when the row stored none', async () => {
+    const expired = pastGrace();
+    const tracking = inboundTracking({
+      request: { ...inboundInput.request, deadline: expired },
+      quote: { ...inboundInput.quote, quote: { ...inboundInput.quote.quote, deadline: expired } }
+    });
+
+    expect(isNearIntentsDepositExpired(tracking)).toBe(true);
+    expect(isNearIntentsDepositExpired(tracking, Date.parse(expired))).toBe(false);
+  });
+
+  it.each(['KNOWN_DEPOSIT_TX', 'PROCESSING', 'INCOMPLETE_DEPOSIT'] as const)(
+    'never expires a deposit that 1Click reports as %s',
+    async status => {
+      const row = inboundRow(`seen-${status}`, { phase: 'pending-deposit', fundingDeadline: pastGrace() });
+      storedRows.push(row);
+      fetchStatus.mockResolvedValue({ status, swapDetails: {} });
+
+      await reconcileOneClickSwaps();
+
+      expect(row.extraInputs.oneClick.phase).toBe(phaseForProviderStatus(status));
+      expect(row.extraInputs.phase).toBe('delivering');
+    }
+  );
+
+  it('expires an unpaid deposit one day after its deadline when 1Click has no record of its address', async () => {
+    const row = inboundRow('unknown-row', { fundingDeadline: pastUnknownDay() });
+    storedRows.push(row);
+    fetchStatus.mockRejectedValue(new OneClickHttpError(404));
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick).toMatchObject({ phase: 'expired', error: NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR });
+    expect(row.extraInputs.phase).toBe('failed');
+  });
+
+  it('keeps the row open in the first day of a missing record', async () => {
+    const row = inboundRow('unknown-recent-row', { fundingDeadline: pastGrace() });
+    storedRows.push(row);
+    fetchStatus.mockRejectedValue(new OneClickHttpError(404));
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('depositing');
+  });
+
+  it('keeps the row open when the status read fails for another reason', async () => {
+    const row = inboundRow('offline-row', { fundingDeadline: pastGrace() });
+    storedRows.push(row);
+    fetchStatus.mockRejectedValue(new Error('network down'));
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('depositing');
+    expect(row.extraInputs.phase).toBe('submitting');
+  });
+
+  it('does not expire on a missing record after 1Click saw the deposit', async () => {
+    const row = inboundRow('seen-row', {
+      phase: 'processing',
+      providerStatus: 'PROCESSING',
+      fundingDeadline: pastUnknownDay()
+    });
+    storedRows.push(row);
+    fetchStatus.mockRejectedValue(new OneClickHttpError(404));
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('processing');
+  });
+
+  it('never expires an outbound Miden send or a row with a known origin transaction', () => {
+    const deadline = pastGrace();
+    expect(isNearIntentsDepositExpired(inboundTracking({ direction: 'miden-to-evm', fundingDeadline: deadline }))).toBe(
+      false
+    );
+    expect(
+      isNearIntentsDepositExpired(inboundTracking({ originTransactionHash: '0xhash', fundingDeadline: deadline }))
+    ).toBe(false);
+    expect(isNearIntentsDepositExpired(inboundTracking({ fundingDeadline: deadline }))).toBe(true);
   });
 });

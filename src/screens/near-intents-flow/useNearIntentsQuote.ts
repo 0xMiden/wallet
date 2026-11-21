@@ -1,26 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { assertOneClickDeadline, assertOneClickFundingDeadline } from 'lib/one-click/deadline';
-import { OneClickQuoteResponse, OneClickQuoteRequest } from 'lib/one-click/types';
+import type { OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 
-export type OneClickQuoteQuery = (request: OneClickQuoteRequest) => Promise<OneClickQuoteResponse>;
+export type NearIntentsQuoteQuery = (request: OneClickQuoteRequest) => Promise<OneClickQuoteResponse>;
 
-interface QuoteState {
+export interface NearIntentsQuotePreview {
   quote?: OneClickQuoteResponse;
   loading: boolean;
   error?: Error;
 }
 
-export type OneClickQuotePreview = QuoteState;
+/** The wait after the last change to the request before the hook asks for a quote. */
+export const PREVIEW_DEBOUNCE_MS = 350;
+/** The interval at which the hook asks again for the same request, while it is active. */
+export const PREVIEW_REFRESH_MS = 30_000;
 
-const PREVIEW_DEBOUNCE_MS = 350;
-
-export function useOneClickQuote(
+/**
+ * A dry 1Click quote for the current request. The hook waits `PREVIEW_DEBOUNCE_MS` after a change,
+ * then asks again every `PREVIEW_REFRESH_MS`. It ignores an answer for a request that is not the
+ * current one. A new request clears the previous quote; a refresh of the same request keeps it.
+ */
+export function useNearIntentsQuote(
   request: OneClickQuoteRequest | undefined,
-  query: OneClickQuoteQuery,
+  query: NearIntentsQuoteQuery,
   active = true
-): OneClickQuotePreview {
-  const [state, setState] = useState<QuoteState>({ loading: false });
+): NearIntentsQuotePreview {
+  const [state, setState] = useState<NearIntentsQuotePreview>({ loading: false });
   const requestKey = request === undefined ? '' : JSON.stringify(request);
   const sequence = useRef(0);
   const currentKey = useRef(requestKey);
@@ -63,7 +69,7 @@ export function useOneClickQuote(
     let interval: number | undefined;
     const timer = window.setTimeout(() => {
       refresh();
-      interval = window.setInterval(refresh, 30_000);
+      interval = window.setInterval(refresh, PREVIEW_REFRESH_MS);
     }, PREVIEW_DEBOUNCE_MS);
 
     return () => {
@@ -77,7 +83,8 @@ export function useOneClickQuote(
   return state;
 }
 
-export function oneClickQuoteExpired(quote: OneClickQuoteResponse, now = Date.now()): boolean {
+/** True when the deadline of the quote has passed, so the quote cannot be used. */
+export function nearIntentsQuoteExpired(quote: OneClickQuoteResponse, now = Date.now()): boolean {
   try {
     if (quote.quoteRequest.dry) {
       assertOneClickDeadline(quote.quoteRequest.deadline, now);
