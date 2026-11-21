@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import i18n from 'i18next';
@@ -12,8 +13,11 @@ import { BrowserScreen } from 'app/pages/Browser/BrowserScreen';
 import { DappActive } from 'app/pages/Browser/DappActive';
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
-import { WalletStatus } from 'lib/shared/types';
+import { setupNotificationTapListener } from 'lib/mobile/native-notifications';
+import { WalletStatus, type WalletAccount } from 'lib/shared/types';
 import { DialogsProvider, dispatchAlertClose, dispatchConfirmClose, useConfirm } from 'lib/ui/dialog';
+import { navigate } from 'lib/woozie';
+import { WalletType } from 'screens/onboarding/types';
 
 import { DappBrowserProvider, useDappBrowser, useHideForegroundDappWhileOpen } from './DappBrowserProvider';
 import en from '../../../public/_locales/en/en.json';
@@ -31,6 +35,10 @@ const mockRemoveSession = jest.fn(async () => {});
 const mockRemoveSnapshot = jest.fn(async () => {});
 const mockResetViewport = jest.fn(async () => {});
 const mockClose = jest.fn(async (_id: string) => {});
+const mockCloseAll = jest.fn(async () => {});
+jest.mock('@capacitor/local-notifications', () => ({
+  LocalNotifications: { addListener: jest.fn(async () => ({ remove: jest.fn() })) }
+}));
 const mockMorph = jest.fn(async (_id: string, _request: unknown) => ({ accepted: false }));
 const mockExecuteScript = jest.fn(async (_id: string, _code: string) => {});
 const mockSetMorphTarget = jest.fn(async (_card: unknown) => {});
@@ -63,6 +71,7 @@ jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
     completeManagedClose: (options: unknown) => mockCompleteClose(options),
     close: async () => {},
+    closeAll: () => mockCloseAll(),
     addListener: async (
       event: string,
       listener: (event: { id: string; display?: 'fullscreen' | 'browser'; detail?: unknown }) => void
@@ -119,17 +128,21 @@ let mockStatus = WalletStatus.Ready;
 let mockHydrated = true;
 let mockPath = '/browser';
 const mockSetActiveSession = jest.fn();
-jest.mock('lib/store', () => ({
-  useWalletStore: <T,>(selector: (state: unknown) => T) =>
-    selector({
-      status: mockStatus,
-      isInitialized: mockHydrated,
-      setActiveDappSession: mockSetActiveSession,
-      accounts: [],
-      currentAccount: null
-    }),
-  selectIsReady: (state: { status: number }) => state.status === WalletStatus.Ready
-}));
+let mockCurrentAccount: WalletAccount | null = null;
+jest.mock('lib/store', () => {
+  const getState = () => ({
+    status: mockStatus,
+    isInitialized: mockHydrated,
+    setActiveDappSession: mockSetActiveSession,
+    isDappBrowserOpen: mockSetActiveSession.mock.lastCall?.[0] != null,
+    accounts: mockCurrentAccount ? [mockCurrentAccount] : [],
+    currentAccount: mockCurrentAccount
+  });
+  return {
+    useWalletStore: Object.assign(<T,>(selector: (state: unknown) => T) => selector(getState()), { getState }),
+    selectIsReady: (state: { status: number }) => state.status === WalletStatus.Ready
+  };
+});
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: mockPath }) }));
 jest.mock('lib/mobile/viewport-reset', () => ({ resetViewportAfterWebview: () => mockResetViewport() }));
 jest.mock('lib/mobile/webview-state', () => ({ markReturningFromWebview: () => {} }));
@@ -396,6 +409,9 @@ beforeEach(async () => {
   mockOpen.mockClear();
   mockCaptureSnapshot.mockReset().mockResolvedValue(null);
   mockClose.mockClear();
+  mockCloseAll.mockClear();
+  mockSetActiveSession.mockClear();
+  mockCurrentAccount = null;
   mockMorph.mockReset().mockResolvedValue({ accepted: false });
   mockSetMorphTarget.mockClear();
   mockUpsertSession.mockClear();
@@ -434,6 +450,53 @@ afterEach(async () => {
   browser = undefined;
   confirm = undefined;
   jest.restoreAllMocks();
+});
+
+it('opens incoming-transfer claims on a received-note notification tap without closing or leaving the foreground dApp', async () => {
+  mockCurrentAccount = { publicKey: 'pk', name: 'Acc', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+  await openForeground();
+  const original = control().sessionStates[0]!;
+  expect(control().session?.id).toBe('origin');
+  expect(original.instance).not.toBeNull();
+  expect(mockSetActiveSession).toHaveBeenLastCalledWith('origin');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  jest.mocked(LocalNotifications.addListener).mockClear();
+  await setupNotificationTapListener();
+  const registration = jest.mocked(LocalNotifications.addListener).mock.calls[0];
+  expect(registration?.[0]).toBe('localNotificationActionPerformed');
+  const tap = registration?.[1];
+  if (!tap) throw new Error('Notification tap listener was not registered');
+  jest.mocked(navigate).mockClear();
+
+  jest.useFakeTimers();
+  try {
+    await act(async () => {
+      await tap({
+        actionId: 'tap',
+        notification: {
+          id: 1001,
+          title: en.noteReceivedTitle,
+          body: en.noteReceivedTapToClaim,
+          extra: { type: 'note_received', navigateTo: '/history?filter=pending&view=list' }
+        }
+      });
+      jest.advanceTimersByTime(200);
+    });
+
+    expect(mockCloseAll).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: /transfer|claim/i })).toBeVisible();
+    expect(mockPath).toBe('/browser');
+    expect(control().session?.id).toBe(original.session.id);
+    expect(control().session?.url).toBe(original.session.url);
+    expect(control().sessionStates[0]?.instance).toBe(original.instance);
+    expect(control().parkedSessions).toHaveLength(0);
+    expect(mockOpen).toHaveBeenCalledTimes(1);
+    expect(mockClose).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('minimizes the native Bread capsule through the standard parked session and reselects retained fullscreen', async () => {
