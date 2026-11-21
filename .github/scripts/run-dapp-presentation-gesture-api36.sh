@@ -45,15 +45,29 @@ try {
       !sameCapture(fs.lstatSync(path, {bigint: true}))) process.exit(0);
 
   const tag = 'DAPP_SWIPE_MILESTONE';
+  const callTag = 'DAPP_SWIPE_CALL';
   const steps = ['enter', 'swipe-succeeded', 'reply-built', 'write-returned'];
   const labels = ['native-enter-only', 'native-swipe-succeeded', 'native-reply-built', 'native-write-returned'];
+  const calls = ['returned-true', 'returned-false', 'call-threw', 'uia-acquisition', 'input-api-on-stack', 'swipe-on-stack', 'other-or-unavailable'];
   let count = 0;
+  let observation;
   for (const line of bytes.toString('latin1').split('\n')) {
-    if (!line || (!line.includes(tag) && !tag.startsWith(line))) continue;
-    if (count === steps.length || line !== `${tag}_V1 ${steps[count]}`) process.exit(0);
+    if (!line || (!line.includes(tag) && !tag.startsWith(line) && !line.includes(callTag) && !callTag.startsWith(line))) continue;
+    if (line.includes(callTag) || callTag.startsWith(line)) {
+      const prefix = `${callTag}_V1 `;
+      if (!count || observation || !line.startsWith(prefix) || !calls.includes(line.slice(prefix.length))) process.exit(0);
+      observation = line.slice(prefix.length);
+      continue;
+    }
+    if (observation || count === steps.length || line !== `${tag}_V1 ${steps[count]}`) process.exit(0);
     count++;
   }
-  if (count) process.stdout.write(labels[count - 1]);
+  if (observation) {
+    if (count > 1 && observation !== 'returned-true') process.exit(0);
+    process.stdout.write(`native-call-${observation}`);
+  } else if (count) {
+    process.stdout.write(labels[count - 1]);
+  }
 } catch {
   // An unavailable capture cannot refine the host verdict.
 }

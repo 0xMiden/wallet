@@ -683,6 +683,10 @@ jobs:
             "swipe-reply-started-no-injected: framing-protocol" "swipe-reply-started-no-injected: socket-error-or-close" "swipe-reply-started-no-injected: socket-inactivity"
             "swipe-reply-started-no-injected: socket-inactivity: native-enter-only" "swipe-reply-started-no-injected: socket-inactivity: native-swipe-succeeded"
             "swipe-reply-started-no-injected: socket-inactivity: native-reply-built" "swipe-reply-started-no-injected: socket-inactivity: native-write-returned"
+            "swipe-reply-started-no-injected: socket-inactivity: native-call-returned-true" "swipe-reply-started-no-injected: socket-inactivity: native-call-returned-false"
+            "swipe-reply-started-no-injected: socket-inactivity: native-call-call-threw" "swipe-reply-started-no-injected: socket-inactivity: native-call-uia-acquisition"
+            "swipe-reply-started-no-injected: socket-inactivity: native-call-input-api-on-stack" "swipe-reply-started-no-injected: socket-inactivity: native-call-swipe-on-stack"
+            "swipe-reply-started-no-injected: socket-inactivity: native-call-other-or-unavailable"
             capsule-cancel capsule-commit predictive-cancel predictive-commit fixture-cleanup result-checks; do
             if cmp -s -- "$PRESENTATION_GESTURE_STAGE_FILE" <(printf "%s\n" "$label") 2>/dev/null; then phase=$label; break; fi;
             done;

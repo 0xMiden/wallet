@@ -25,6 +25,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;
@@ -95,11 +96,21 @@ public class DappPresentationGestureInputTest {
                     }
                     boolean observeFirstSwipe = executed == 0 && Boolean.TRUE.equals(command.opt("observeFirstSwipe"));
                     AtomicInteger swipeCheckpoint = new AtomicInteger();
-                    if (observeFirstSwipe) observeSwipeMilestones(swipeCheckpoint);
+                    AtomicInteger swipeOutcome = new AtomicInteger();
+                    if (observeFirstSwipe) observeSwipeMilestones(swipeCheckpoint, swipeOutcome,
+                        new AtomicReference<>(Thread.currentThread()));
                     long inputStarted = SystemClock.elapsedRealtime();
                     output.println(reply(id, "started", executed, device).put("inputStartedMs", inputStarted));
                     if (observeFirstSwipe) swipeCheckpoint.set(1);
-                    assertTrue("one continuous UiDevice swipe must inject successfully", device.swipe(path, steps));
+                    boolean swipeSucceeded;
+                    try {
+                        swipeSucceeded = device.swipe(path, steps);
+                    } catch (RuntimeException | Error failure) {
+                        if (observeFirstSwipe) swipeOutcome.set(3);
+                        throw failure;
+                    }
+                    if (observeFirstSwipe) swipeOutcome.set(swipeSucceeded ? 1 : 2);
+                    assertTrue("one continuous UiDevice swipe must inject successfully", swipeSucceeded);
                     executed++;
                     long inputEnded = SystemClock.elapsedRealtime();
                     if (observeFirstSwipe) swipeCheckpoint.set(2);
@@ -116,28 +127,41 @@ public class DappPresentationGestureInputTest {
         }
     }
 
-    private static void observeSwipeMilestones(AtomicInteger checkpoint) {
+    private static void observeSwipeMilestones(AtomicInteger checkpoint, AtomicInteger outcome,
+        AtomicReference<Thread> caller) {
         try {
             Thread observer = new Thread(() -> {
                 try {
-                    Thread.sleep(10_000);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                int stage = checkpoint.get();
-                if (stage == 0) return;
-                String[] milestones = {"enter", "swipe-succeeded", "reply-built", "write-returned"};
-                StringBuilder prefix = new StringBuilder();
-                for (int index = 0; index < stage; index++) {
-                    prefix.append("\nDAPP_SWIPE_MILESTONE_V1 ").append(milestones[index]).append("\n");
-                }
-                Bundle status = new Bundle();
-                status.putString("stream", prefix.toString());
-                try {
-                    InstrumentationRegistry.getInstrumentation().sendStatus(0, status);
-                } catch (RuntimeException ignored) {
-                    // Unavailable instrumentation status must not replace a gesture result.
+                    try {
+                        Thread.sleep(10_000);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    int stage = checkpoint.get();
+                    if (stage == 0) return;
+                    int before = outcome.get();
+                    String location = before == 0 ? swipeLocation(caller.get()) : "other-or-unavailable";
+                    int after = outcome.get();
+                    caller.set(null);
+                    int terminal = after != 0 ? after : before;
+                    String[] outcomes = {"other-or-unavailable", "returned-true", "returned-false", "call-threw"};
+                    String observation = terminal == 0 ? location : outcomes[terminal];
+                    String[] milestones = {"enter", "swipe-succeeded", "reply-built", "write-returned"};
+                    StringBuilder prefix = new StringBuilder();
+                    for (int index = 0; index < stage; index++) {
+                        prefix.append("\nDAPP_SWIPE_MILESTONE_V1 ").append(milestones[index]).append("\n");
+                    }
+                    prefix.append("\nDAPP_SWIPE_CALL_V1 ").append(observation).append("\n");
+                    Bundle status = new Bundle();
+                    status.putString("stream", prefix.toString());
+                    try {
+                        InstrumentationRegistry.getInstrumentation().sendStatus(0, status);
+                    } catch (RuntimeException ignored) {
+                        // Unavailable instrumentation status must not replace a gesture result.
+                    }
+                } finally {
+                    caller.set(null);
                 }
             });
             observer.setDaemon(true);
@@ -145,6 +169,55 @@ public class DappPresentationGestureInputTest {
         } catch (RuntimeException ignored) {
             // Unavailable observation must not replace a gesture result.
         }
+    }
+
+    private static String swipeLocation(Thread caller) {
+        if (caller == null) return "other-or-unavailable";
+        try {
+            StackTraceElement[] stack = caller.getStackTrace();
+            if (stack.length == 0 || stack.length > 256) return "other-or-unavailable";
+            boolean anchored = false;
+            boolean deviceSwipe = false;
+            boolean controllerSwipe = false;
+            boolean injectEvent = false;
+            boolean uiaAcquisition = false;
+            boolean inputApi = false;
+            for (int index = stack.length - 1; index >= 0; index--) {
+                StackTraceElement frame = stack[index];
+                String owner = frame.getClassName();
+                String method = frame.getMethodName();
+                if (!anchored) {
+                    anchored = "com.miden.wallet.DappPresentationGestureInputTest".equals(owner) &&
+                        "continuousGesturesOnTheExistingManagedPresentation".equals(method);
+                    continue;
+                }
+                if (anchored && "androidx.test.uiautomator.UiDevice".equals(owner) && "swipe".equals(method)) {
+                    deviceSwipe = true;
+                    continue;
+                }
+                if (deviceSwipe && "androidx.test.uiautomator.InteractionController".equals(owner) && "swipe".equals(method)) {
+                    controllerSwipe = true;
+                    continue;
+                }
+                if (controllerSwipe && "androidx.test.uiautomator.InteractionController".equals(owner) && "injectEventSync".equals(method)) {
+                    injectEvent = true;
+                    continue;
+                }
+                if (controllerSwipe && "androidx.test.uiautomator.UiDevice".equals(owner) && "getUiAutomation".equals(method)) {
+                    uiaAcquisition = true;
+                    continue;
+                }
+                if (injectEvent && "android.app.UiAutomation".equals(owner) && "injectInputEvent".equals(method)) {
+                    inputApi = true;
+                }
+            }
+            if (inputApi) return "input-api-on-stack";
+            if (uiaAcquisition) return "uia-acquisition";
+            if (deviceSwipe || controllerSwipe) return "swipe-on-stack";
+        } catch (RuntimeException ignored) {
+            return "other-or-unavailable";
+        }
+        return "other-or-unavailable";
     }
 
     private static int integer(JSONObject object, String key, int minimum, int maximum) throws Exception {

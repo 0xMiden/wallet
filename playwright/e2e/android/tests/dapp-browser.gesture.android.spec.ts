@@ -22,6 +22,14 @@ const stagePath =
 let commandId = 0;
 
 type GestureCaseStage = `${'capsule' | 'predictive'}-${'cancel' | 'commit'}`;
+type NativeSwipeCallKind =
+  | 'returned-true'
+  | 'returned-false'
+  | 'call-threw'
+  | 'uia-acquisition'
+  | 'input-api-on-stack'
+  | 'swipe-on-stack'
+  | 'other-or-unavailable';
 type GestureStage =
   | GestureCaseStage
   | 'emulator-checks'
@@ -32,6 +40,7 @@ type GestureStage =
   | 'swipe-reply-no-started'
   | 'swipe-reply-started-no-injected'
   | `swipe-reply-started-no-injected: ${HostRejectionKind}`
+  | `swipe-reply-started-no-injected: socket-inactivity: native-call-${NativeSwipeCallKind}`
   | 'swipe-reply-started-no-injected: socket-inactivity: first-swipe-eligible'
   | 'fixture-cleanup';
 
