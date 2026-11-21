@@ -36,7 +36,7 @@ function bech32Polymod(values: number[]): number {
   for (const value of values) {
     const top = checksum >>> 25;
     checksum = ((checksum & 0x1ffffff) << 5) ^ value;
-    for (let bit = 0; bit < 5; bit++) if ((top >>> bit) & 1) checksum ^= BECH32_GENERATOR[bit];
+    for (let bit = 0; bit < 5; bit++) if ((top >>> bit) & 1) checksum ^= BECH32_GENERATOR[bit] ?? 0;
   }
   return checksum >>> 0;
 }
@@ -66,7 +66,7 @@ function isBitcoinSegwitAddress(value: string): boolean {
     .split('')
     .map(char => BECH32_CHARSET.indexOf(char));
   const version = data[0];
-  if (version > 16) return false;
+  if (version === undefined || version > 16) return false;
   const expected = version === 0 ? BECH32_CONST : BECH32M_CONST;
   const hrp = [0x62, 0x63];
   const polymodInput = [...hrp.map(code => code >> 5), 0, ...hrp.map(code => code & 31), ...data];
