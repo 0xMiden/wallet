@@ -19,6 +19,12 @@ const candidate = {
 };
 const check = provenance.matchesExpiredNearReturnProvenance;
 
+test('checks historical bytes rather than trusting reported checkpoint digests', () => {
+  const verify = provenance.verifyNearReturnCheckpointBytes ?? (() => false);
+  assert.throws(() => verify(Buffer.from('{}'), Buffer.from('{}')), /checkpoint bytes/);
+  assert.throws(() => verify(undefined, undefined), /checkpoint bytes/);
+});
+
 test('scheduled retention must have failed closed without reaching signing or fresh preparation', () => {
   const matches = provenance.matchesNearRetentionSteps ?? (() => false);
   const steps = [
