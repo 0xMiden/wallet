@@ -8,6 +8,19 @@ export function hasUnchangedNearReturnAuthority(original, retained) {
   return isDeepStrictEqual(before, after);
 }
 
+export function isDistinctNearReplacementQuote(retired, candidate) {
+  const address = /^0x[0-9a-f]{40}$/i;
+  return Boolean(
+    typeof retired?.quoteHash === 'string' && retired.quoteHash &&
+    typeof candidate?.quoteHash === 'string' && candidate.quoteHash &&
+    typeof retired.depositAddress === 'string' && address.test(retired.depositAddress) &&
+    typeof candidate.depositAddress === 'string' && address.test(candidate.depositAddress) &&
+    candidate.quoteHash !== retired.quoteHash &&
+    candidate.depositAddress.toLowerCase() !== retired.depositAddress.toLowerCase() &&
+    Date.parse(candidate.deadline) > Date.parse(retired.deadline)
+  );
+}
+
 export function matchesNearRetentionSteps(jobs) {
   if (!Array.isArray(jobs?.jobs)) return false;
   const roundTrips = jobs.jobs.filter(job => job?.name === 'Chrome mainnet round trip');
