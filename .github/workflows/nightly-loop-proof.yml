@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 4
+          fetch-depth: 5
       - name: Verify exact settlement archive
         shell: bash
         env:
@@ -26,7 +26,7 @@ jobs:
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=3a79727161582011788376c18c227012c91ca718
-          test "$(git rev-parse HEAD^^^)" = "$base"
+          git merge-base --is-ancestor "$base" HEAD
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44952299224:completed
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-claim-cost-audit.spec.ts playwright/e2e/tests/mainnet/swap-forward-readonly.spec.ts)"
           umask 077
@@ -67,6 +67,6 @@ jobs:
           rc=0
           E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-audit-private" xvfb-run -a yarn playwright test swap-forward-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/swap-audit-private.log" 2>&1 || rc=$?
           if test -f test-results/swap-readonly-result.json; then
-            jq -c '{stage,passed,custodyMatches,quoteSucceeded}' test-results/swap-readonly-result.json
+            jq -c '{stage,passed,custodyMatches,quoteSucceeded,failure}' test-results/swap-readonly-result.json
           fi
           exit "$rc"

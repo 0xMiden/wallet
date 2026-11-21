@@ -14,7 +14,8 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
   let stage = 'restore';
   let quoteSucceeded: boolean | null = null;
   let custodyMatches = false;
-  const emit = (passed: boolean) => writeFileSync('test-results/swap-readonly-result.json', JSON.stringify({ stage, passed, custodyMatches, quoteSucceeded }), { mode: 0o600 });
+  let failure: string | undefined;
+  const emit = (passed: boolean) => writeFileSync('test-results/swap-readonly-result.json', JSON.stringify({ stage, passed, custodyMatches, quoteSucceeded, failure }), { mode: 0o600 });
   try {
     await restoreMainnetLoopGuardian(walletB, process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
     assert.equal(await walletB.getAccountAddress(), s.account);
@@ -43,7 +44,18 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
     assert.ok(BigInt(review.minimumReceive) >= BigInt(s.forwardMinimum));
     stage = 'pre-authorization';
     emit(true);
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    const targets = [
+      ['flow-root', "getByTestId('swap-flow')"],
+      ['offered-token', `getByTestId('swap-token-${s.offer.symbol}')`],
+      ['requested-token', `getByTestId('swap-token-${s.request.symbol}')`],
+      ['token-selector', "getByTestId('send-token-selector')"],
+      ['amount-input', "getByTestId('send-amount-input')"],
+      ['quote-response', 'page.waitForResponse:'],
+      ['navigation', 'page.goto:']
+    ] as const;
+    failure = targets.find(([, match]) => message.includes(match))?.[0] ?? 'other';
     emit(false);
     throw new Error(`Read-only Swap observation stopped at ${stage}`);
   }
