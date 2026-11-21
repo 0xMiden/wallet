@@ -18,6 +18,19 @@ const candidate = {
     name: `mainnet-1click-${stage}-44844609625`, digest, expired: false })) }
 };
 const check = provenance.matchesExpiredNearReturnProvenance;
+
+test('binds the scheduled retention to the exact current and original checkpoint bytes', () => {
+  const match = provenance.matchesRetainedNearReturn ?? (() => false);
+  const evidence = {
+    runId: 44871541172,
+    artifactId: 14694460888,
+    archiveDigest: 'sha256:55e22c8a7fb31e77b345848714fdd7264a8bc2d68f4a863ed73884846f18f738',
+    checkpointDigest: 'd3f5e34cfe19c980f173972e8e28763e4a59bd6040cfee84df5acf307f615fda',
+    originalDigest: 'fe8dcc6aaae3df3c6c5a9d8a32b465a3d200ca981510eef346ebff237b685d28'
+  };
+  assert.equal(match(evidence), true);
+  for (const key of Object.keys(evidence)) assert.equal(match({ ...evidence, [key]: null }), false);
+});
 test('binds the failed unsigned return, without granting replacement authority', () => {
   assert.equal(check(candidate), true);
 });
