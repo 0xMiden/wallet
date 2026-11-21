@@ -344,13 +344,19 @@ export async function prepareMainnetSwapReview(
 ): Promise<{ minimumReceive: string; submit: () => Promise<void> }> {
   const page = wallet.page;
   await page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/swap`);
-  await page.getByTestId('swap-flow').waitFor({ state: 'visible', timeout: 60_000 });
-  await page.getByTestId('send-token-selector').first().click();
+  const command = page.getByTestId('command-swap-composer');
+  const compactPay = page.getByTestId('swap-pay-side');
+  const compactReceive = page.getByTestId('swap-receive-side');
+  await command.or(compactPay).first().waitFor({ state: 'visible', timeout: 60_000 });
+  const isCommand = await command.isVisible();
+  const paySide = isCommand ? command : compactPay;
+  const receiveSide = isCommand ? command.getByTestId('command-swap-receive') : compactReceive;
+  await paySide.getByTestId('send-token-selector').click();
   await page.getByTestId(`swap-token-${offered.symbol}`).click();
-  await page.getByTestId('send-token-selector').nth(1).click();
+  await receiveSide.getByTestId(isCommand ? 'command-swap-receive-token' : 'send-token-selector').click();
   await page.getByTestId(`swap-token-${requested.symbol}`).click();
-  const pay = page.getByTestId('swap-pay-side').getByTestId('send-amount-input');
-  const receive = page.getByTestId('swap-receive-side').getByTestId('send-amount-input');
+  const pay = paySide.getByTestId('send-amount-input');
+  const receive = receiveSide.getByTestId(isCommand ? 'command-swap-receive-amount' : 'send-amount-input');
   const quoteTiming = nightlyDuration();
   const eta = page.waitForResponse(
     response => {
@@ -400,17 +406,22 @@ export async function prepareMainnetSwapReview(
   await receive.waitFor({ state: 'visible' });
   // The response event can precede React's committed quote projection.
   await page.waitForFunction(
-    ({ value }) => {
+    ({ value, isCommand }) => {
+      if (isCommand)
+        return document.querySelector('[data-testid="command-swap-receive-amount"]')?.textContent === value;
       const input = document.querySelector<HTMLInputElement>(
         '[data-testid="swap-receive-side"] [data-testid="send-amount-input"]'
       );
       return input?.value === value;
     },
-    { value: swapDisplayAmount(BigInt(quoted), requested.decimals) },
+    { value: swapDisplayAmount(BigInt(quoted), requested.decimals), isCommand },
     { timeout: 30_000 }
   );
   const actualOffer = units(await pay.inputValue(), offered.decimals);
-  const actualMinimum = units(await receive.inputValue(), requested.decimals);
+  const actualMinimum = units(
+    isCommand ? ((await receive.textContent()) ?? '') : await receive.inputValue(),
+    requested.decimals
+  );
   validateSwapReview(actualOffer, actualMinimum, amount, minimum);
   await checkLiveSwapEta(service, offered, requested, actualOffer, actualMinimum, observe);
   await page.getByTestId('swap-review-submit').click();

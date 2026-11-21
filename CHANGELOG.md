@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Drive the fullscreen Command Swap composer in the nightly without skipping the rendered quote and amount checks.
+
 - [FIX][ci] Discover and verify the nightly NEAR claim note before pausing the transaction queue for authorization.
 
 - [FIX][ci] Recognize the exact provider-reported Miden note on NEAR nightly returns without changing refund verification.

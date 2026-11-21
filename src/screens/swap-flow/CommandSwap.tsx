@@ -132,7 +132,12 @@ export function CommandSwap({
             {requestLoading ? (
               <WaveDots label={t('calculatingQuote')} />
             ) : requestAmount ? (
-              <span className="break-all text-title-tab tabular-nums text-ink">{requestAmount}</span>
+              <span
+                data-testid="command-swap-receive-amount"
+                className="break-all text-title-tab tabular-nums text-ink"
+              >
+                {requestAmount}
+              </span>
             ) : (
               t('calculatingQuote')
             )}
@@ -140,6 +145,7 @@ export function CommandSwap({
           <button
             ref={requestTokenAnchorRef}
             type="button"
+            data-testid="command-swap-receive-token"
             aria-haspopup={requestTokenAnchorRef ? 'dialog' : undefined}
             className="flex w-full items-center gap-2 px-4 py-3 text-action text-accent-swap-ink hover:bg-fill-pressed focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-swap-ink"
             onClick={() => {
