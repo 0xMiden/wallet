@@ -91,6 +91,29 @@ describe('getNearIntentsConfig', () => {
     });
   });
 
+  it('hides the section while the swap geo decision is pending, failed, or restricted', () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'false';
+    process.env.MIDEN_NETWORK = 'mainnet';
+    const open = snapshot('mainnet', false, true);
+    const section = getNearIntentsConfig(open);
+    expect(section).not.toBeNull();
+    expect(getNearIntentsConfig({ ...open, geo: { state: 'loading' } })).toBeNull();
+    expect(getNearIntentsConfig({ ...open, geo: { state: 'failed' } })).toBeNull();
+    expect(
+      getNearIntentsConfig({
+        ...open,
+        geo: { state: 'ready', network: 'mainnet', version: 1, allowed: { wallet: true, earn: true, swap: false } }
+      })
+    ).toBeNull();
+    expect(
+      getNearIntentsConfig({
+        ...open,
+        geo: { state: 'ready', network: 'mainnet', version: 1, allowed: { wallet: true, earn: true, swap: true } }
+      })
+    ).toStrictEqual(section);
+  });
+
   it('returns null while the snapshot is not ready', () => {
     process.env.MIDEN_E2E_TEST = 'false';
     process.env.MIDEN_E2E_ONE_CLICK_TESTNET = 'false';

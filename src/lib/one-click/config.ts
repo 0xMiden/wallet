@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
+import { geoFeatureGate } from 'lib/remote-config/availability';
 import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -8,14 +9,16 @@ import type { NearIntentsConfig } from './types';
 
 /**
  * The `nearIntents` section of the accepted document, or null when the wallet must not offer NEAR Intents: the
- * snapshot is not ready, `features.nearIntents` is not exactly true, or the network is not mainnet (localnet only
- * under the hermetic E2E gate).
+ * snapshot is not ready, `features.nearIntents` is not exactly true, the swap geo decision is pending, failed, or
+ * restricted, or the network is not mainnet (localnet only under the hermetic E2E gate). A snapshot with no geo
+ * field stays open.
  */
 export function getNearIntentsConfig(
   snapshot: BridgeConfigSnapshot = getBridgeConfigSnapshot()
 ): NearIntentsConfig | null {
   if (snapshot.status !== 'ready' || snapshot.config?.network !== snapshot.network) return null;
   if (snapshot.config.features.nearIntents !== true) return null;
+  if (geoFeatureGate('swap', snapshot.geo) !== null) return null;
   if (isOneClickLocalE2EEnabled()) {
     return snapshot.network === 'localnet' ? (snapshot.config.nearIntents ?? null) : null;
   }
