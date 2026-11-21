@@ -52,6 +52,15 @@ export function commonSwapQuoteRefusal(
   return undefined;
 }
 
+export function recordTerminalRouteRefusal(
+  observe: ObserveNightly,
+  attempted: number,
+  refusals: readonly NonNullable<ReturnType<typeof swapQuoteRefusal>>[]
+) {
+  const refusal = commonSwapQuoteRefusal(attempted, refusals);
+  if (refusal) observe(undefined, { key: 'quote_availability', origin: 'wallet_assertion', status: 'failed', ...refusal });
+}
+
 export function quotedSwapMinimum(
   body: unknown,
   offer: string,

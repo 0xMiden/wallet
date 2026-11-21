@@ -32,7 +32,12 @@ import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from '../../hel
 import { loadMainnetSwapCheckpoint } from '../../helpers/mainnet-swap-checkpoint';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { getEnvironmentConfig } from '../../config/environments';
-import { nightlyDuration, observeNightly, observedStage } from '../../reporting/nightly-observation';
+import {
+  nightlyDuration,
+  observeNightly,
+  observedStage,
+  recoveredBridgeOutcome
+} from '../../reporting/nightly-observation';
 
 const STATE_PATH = 'test-results/mainnet-epoch-state/roundtrip.json';
 test.use({ injectFeeFaucet: false });
@@ -63,6 +68,7 @@ test('mainnet Epoch staged round trip', async ({ walletB }, info) => {
     destinationNetwork: mode === 'forward' ? chain : mode === 'reverse' ? 'Miden' : undefined
   });
   if (mode === 'recover') {
+    let readOnlyRecorded = false;
     if (
       previous?.phase === 'forward-authorized' &&
       !previous.forwardAuthority &&
@@ -87,13 +93,18 @@ test('mainnet Epoch staged round trip', async ({ walletB }, info) => {
         await verifyUnstartedEpochForward(walletB, previous);
       }
       previous.phase = 'unspent';
+      readOnlyRecorded = true;
       observe({ recoveryEffect: 'read_only' }, { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
       previous.updatedAt = new Date().toISOString();
       saveMainnetEpochCheckpoint(STATE_PATH, previous);
     }
     if (!previous || ['complete', 'unspent', 'cancelled'].includes(previous.phase)) {
       writeFileSync('test-results/mainnet-epoch-recovery.json', `${JSON.stringify({ recoveryOnly: false })}\n`);
-      observe(undefined, { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
+      observe(readOnlyRecorded ? undefined : { recoveryEffect: 'no_work' }, {
+        key: 'cleanup',
+        status: 'passed',
+        origin: 'wallet_assertion'
+      });
       return;
     }
     if (previous.consumeAuthority && !previous.returnMidenTxId)
@@ -153,6 +164,7 @@ test('mainnet Epoch staged round trip', async ({ walletB }, info) => {
         await runEpochRefund(walletB, previous, STATE_PATH, `${STATE_PATH}.refund`, signal);
       }
     }
+    observe(recoveredBridgeOutcome(previous.phase), { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
     writeFileSync(
       'test-results/mainnet-epoch-recovery.json',
       `${JSON.stringify({ recoveryOnly: true, sourceRunId: previous.sourceRunId })}\n`

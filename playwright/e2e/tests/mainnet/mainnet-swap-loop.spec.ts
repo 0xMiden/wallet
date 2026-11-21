@@ -45,7 +45,7 @@ import {
   swapDisplayAmount,
   runPreparedSwap,
   cachedSolverRegistry,
-  commonSwapQuoteRefusal,
+  recordTerminalRouteRefusal,
   swapQuoteRefusal
 } from '../../helpers/mainnet-swap-ui';
 import { exportPublicInputNote } from '../../helpers/swap';
@@ -268,15 +268,7 @@ async function prepare(
   const candidate = candidates.find(entry => entry.plan === chosen);
   if (!chosen || !candidate) {
     // A speculative route refusal is diagnostic only when it explains every evaluated candidate.
-    const refusal = commonSwapQuoteRefusal(attempts, refusals);
-    if (refusal) {
-      observeSwap('forward')(undefined, {
-        key: 'quote_availability',
-        origin: 'wallet_assertion',
-        status: 'failed',
-        ...refusal
-      });
-    }
+    recordTerminalRouteRefusal(observeSwap('forward'), attempts, refusals);
     throw new Error('No funded two-way mainnet swap fits both $1 minima, reserves and the $2 safety cap');
   }
   if (Date.now() - Date.parse(live.prices.pricesUpdatedAt) > 5 * 60_000)

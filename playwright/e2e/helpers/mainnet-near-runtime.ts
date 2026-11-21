@@ -77,14 +77,20 @@ import { exportPublicInputNote } from './swap';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
 import { WcCounterparty } from '../ios/helpers/wc-counterparty';
-import { nightlyDuration, observeNightly, observedStage } from '../reporting/nightly-observation';
+import {
+  nightlyDuration,
+  observeNightly,
+  observedStage,
+  recoveredBridgeOutcome
+} from '../reporting/nightly-observation';
 
 export const MAINNET_NEAR_STATE_PATH = 'test-results/mainnet-1click-state/roundtrip.json';
 
 export async function runMainnetNearStage(
   wallet: GuardianAwareWalletPage,
   mode: string,
-  info?: TestInfo
+  info?: TestInfo,
+  recoverNear: typeof recoverMainnetNear = recoverMainnetNear
 ): Promise<void> {
   const runId = process.env.GITHUB_RUN_ID;
   if (
@@ -108,6 +114,7 @@ export async function runMainnetNearStage(
     destinationNetwork: mode === 'forward' ? chain : mode === 'reverse' ? 'Miden' : undefined
   });
   if (mode === 'recover') {
+    let readOnlyRecorded = false;
     if (
       process.env.MAINNET_NEAR_PREAUTH_UNSPENT === 'true' &&
       previous &&
@@ -143,6 +150,7 @@ export async function runMainnetNearStage(
       process.env.MAINNET_NEAR_FORWARD_ATTEMPTED === 'false'
     ) {
       observe({ recoveryEffect: 'read_only' }, { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
+      readOnlyRecorded = true;
       previous.phase = 'unspent';
       previous.updatedAt = new Date().toISOString();
       saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, previous);
@@ -167,7 +175,7 @@ export async function runMainnetNearStage(
         throw new Error('Original native NEAR recovery Guardian changed');
       }
       try {
-        await recoverMainnetNear(
+        await recoverNear(
           wallet,
           previous,
           `${MAINNET_NEAR_STATE_PATH}.recover`,
@@ -179,6 +187,11 @@ export async function runMainnetNearStage(
           'Original native NEAR recovery blocked; retain its original public checkpoint, never renew uncertain authority'
         );
       }
+      observe(recoveredBridgeOutcome(previous.phase), {
+        key: 'cleanup',
+        status: 'passed',
+        origin: 'wallet_assertion'
+      });
       mkdirSync('test-results', { recursive: true });
       writeFileSync(
         'test-results/mainnet-near-recovery.json',
@@ -186,6 +199,8 @@ export async function runMainnetNearStage(
       );
       return;
     }
+    if (!readOnlyRecorded)
+      observe({ recoveryEffect: 'no_work' }, { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' });
     mkdirSync('test-results', { recursive: true });
     writeFileSync('test-results/mainnet-near-recovery.json', `${JSON.stringify({ recoveryOnly: false })}\n`);
     return;

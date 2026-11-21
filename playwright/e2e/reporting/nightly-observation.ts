@@ -33,7 +33,7 @@ export type OperationContext = {
   destinationNetwork?: OperationContext['sourceNetwork'];
 };
 
-type OperationOutcome = {
+export type OperationOutcome = {
   outcome?:
     | 'prepared'
     | 'executed'
@@ -53,6 +53,12 @@ type OperationOutcome = {
   received?: TokenAmount;
   fee?: TokenAmount;
 };
+
+/** A finished bridge recovery reports the outcome its settled checkpoint phase proves. */
+export function recoveredBridgeOutcome(phase: string): OperationOutcome {
+  const outcome = phase === 'cancelled' ? 'refunded' : phase === 'complete' ? 'bridge_completion_asserted' : undefined;
+  return { recoveryEffect: 'prior_authorized_return', ...(outcome ? { outcome } : {}) };
+}
 
 type Stage = {
   key:
