@@ -1,3 +1,13 @@
+import { isDeepStrictEqual } from 'node:util';
+
+export function hasUnchangedNearReturnAuthority(original, retained) {
+  if (original?.phase !== 'reverse-authorized' || retained?.phase !== 'recovery-required' ||
+      !(Date.parse(retained.updatedAt) > Date.parse(original.updatedAt))) return false;
+  const { phase: _originalPhase, updatedAt: _originalTime, ...before } = original;
+  const { phase: _retainedPhase, updatedAt: _retainedTime, ...after } = retained;
+  return isDeepStrictEqual(before, after);
+}
+
 // This scheduled run retained the original grant, changing only phase and updatedAt.
 export function matchesRetainedNearReturn(evidence) {
   return evidence?.runId === 44871541172 &&
