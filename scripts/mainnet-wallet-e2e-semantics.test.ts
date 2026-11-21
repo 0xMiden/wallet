@@ -79,8 +79,9 @@ function observe(invocationId: string, status: 'passed' | 'failed', operations: 
 
 async function replayAnnotations(
   invocationId: string,
-  status: 'passed' | 'failed',
-  annotations: TestResult['annotations']
+  status: 'passed' | 'failed' | 'timedOut',
+  annotations: TestResult['annotations'],
+  runStatus: string = status
 ) {
   const invocation = INVOCATIONS.get(invocationId);
   if (!invocation) throw new Error('Unknown fixture invocation');
@@ -107,7 +108,7 @@ async function replayAnnotations(
   reporter.onBegin({} as FullConfig, { allTests: () => [test] } as Suite);
   reporter.onTestBegin(test, result);
   reporter.onTestEnd(test, result);
-  reporter.onEnd({ status } as Parameters<WalletE2eReporter['onEnd']>[0]);
+  reporter.onEnd({ status: runStatus } as Parameters<WalletE2eReporter['onEnd']>[0]);
   await main(env, ['invocation-end', invocationId, status === 'passed' ? '0' : '1']);
 }
 
@@ -385,6 +386,19 @@ it('preserves partial claim and refunded input on final failure despite a comple
   expect(evidence(reverse!).outcome).toBe('partially_filled_and_refunded');
   expect(evidence(reverse!).stages.map(value => [value.key, value.status])).toContainEqual(['claim', 'passed']);
   expect(JSON.stringify(report)).not.toContain('private_checkpoint_sentinel');
+});
+
+it('records a whole-run Playwright timeout as timed_out and keeps the report available', async () => {
+  await replayAnnotations('swap-forward', 'timedOut', [], 'timedout');
+  await main(env, ['assemble']);
+  const report = JSON.parse(readFileSync(join(directory, REPORT_FILENAME), 'utf8')) as {
+    availability: string;
+    invocations: { id: string; status: string; playwrightOutcome: { value: string | null } }[];
+  };
+  const row = report.invocations.find(value => value.id === 'swap-forward');
+  expect(row!.playwrightOutcome.value).toBe('timed_out');
+  expect(row!.status).toBe('timed_out');
+  expect(report.availability).toBe('available');
 });
 
 it.each([
