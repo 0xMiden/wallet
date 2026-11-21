@@ -1,9 +1,10 @@
 name: NEAR provenance unit proof
 on:
   push:
-    branches: [wiktor/near-replacement-integrated-proof]
+    branches: [wiktor/near-replacement-no-sign-proof]
 permissions:
   contents: read
+  actions: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,3 +19,25 @@ jobs:
       - run: yarn esbuild scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
       - run: yarn tsc --noEmit -p tsconfig.json
       - run: yarn jest --maxWorkers=2 --runTestsByPath scripts/mainnet-near-checkpoint.test.ts scripts/mainnet-near-unspent.test.ts scripts/mainnet-swap-workflow.test.ts
+      - name: Verify exact retired NEAR custody without signing or broadcasting
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          yarn esbuild playwright/e2e/helpers/mainnet-near-return-absence.ts --bundle --platform=node --format=cjs --outfile="$work/absence.cjs"
+          gh api repos/0xMiden/wallet/actions/artifacts/14694460888/zip > "$work/final.zip"
+          printf '%s  %s\n' 55e22c8a7fb31e77b345848714fdd7264a8bc2d68f4a863ed73884846f18f738 "$work/final.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$work/final.zip")" = roundtrip.json
+          unzip -p "$work/final.zip" roundtrip.json > "$work/roundtrip.json"
+          WORK="$work" MAINNET_NEAR_REPLACEMENT_PROVENANCE=true node <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const { verifyRetiredNearReturnAbsence } = require(`${process.env.WORK}/absence.cjs`);
+          const state = JSON.parse(readFileSync(`${process.env.WORK}/roundtrip.json`));
+          verifyRetiredNearReturnAbsence(state, 'dfkbipcpggpmndndboecmjgjdgcncbhl', AbortSignal.timeout(120_000)).then(
+            () => console.log('Verified signed provider binding and unchanged custody; no authority or signature created'),
+            () => { console.error('Read-only retired NEAR verification failed'); process.exitCode = 1; }
+          );
+          NODE
