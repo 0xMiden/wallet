@@ -215,7 +215,8 @@ jest.mock('lib/platform', () => ({
 // This registry has only the native ETH faucet. The SDK mock returns each ID unchanged.
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => ({}),
-  initBridgeConfig: async () => ({})
+  initBridgeConfig: async () => ({}),
+  subscribeBridgeConfig: () => () => undefined
 }));
 jest.mock('lib/remote-config/values', () => ({
   selectAgglayerDeliveryFaucets: () => [
