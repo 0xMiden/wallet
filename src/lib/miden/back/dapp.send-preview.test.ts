@@ -5,7 +5,7 @@
  *
  * WHY HERE AND NOT IN THE E2E SPEC. `playwright/tests/dapp-provider.spec.ts`
  * drives the real journey but runs chainless, where every faucet resolves to
- * `DEFAULT_TOKEN_METADATA` — 6 decimals, the same number the removed hardcoded
+ * `DEFAULT_TOKEN_METADATA` - 6 decimals, the same number the removed hardcoded
  * `10 ** 6` used. So the E2E amount assertion cannot fail on the decimals logic;
  * it only proves the preview string reaches the screen intact. And the spec is
  * Chromium/MV3-only, so it never touches the mobile/desktop confirmation-store
@@ -19,7 +19,7 @@
  *    through `Number()` so amounts above 2^53 lost precision.
  *
  * 2. REQUESTING ORIGIN. The mobile/desktop confirmation-store call sites passed
- *    `origin: dApp.appMeta.name` — a display name the PAGE supplies (it is set
+ *    `origin: dApp.appMeta.name` - a display name the PAGE supplies (it is set
  *    from `window.location.hostname` in `midenWindowObject.ts` /
  *    `injection-script.ts`), never the origin the wallet itself verified. The
  *    approval sheet renders that field as "who is asking", so a phishing page
@@ -162,9 +162,42 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
  * The custom path now dry-runs the request before raising the sheet, to state
  * its effects there (see `dapp.custom-consent.test.ts`). Stubbed so this file's
  * assertions do not depend on a real client, and cannot wait on its timeout.
+ * The approval needs a dry run that succeeds, so the stub gives one, and the
+ * decode of its bytes gives a view that moves nothing.
  */
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: jest.fn(async () => ({ error: 'no client in this suite' }))
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return { simulateCustomTransaction: jest.fn(async () => measureApprovalDryRun({ summaryBytes: 'sumB64' })) };
+});
+
+// A custom summary's approval reads the chain fee before it decodes and refuses when that read is unknown.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: async () => 2,
+  getVerificationBaseFeeSync: () => 2,
+  isVerificationBaseFeeKnownAbsent: () => false
+}));
+
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: () => ({
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: []
+  }),
+  simulatedOutputRecipients: () => []
+}));
+
+jest.mock('app/confirm/note-flow', () => ({
+  noteFlowFromSimulatedBytes: () => ({ inputCount: 0, inputs: [], outputs: [] })
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
@@ -176,8 +209,8 @@ jest.mock('lib/miden/back/vault', () => ({
 /**
  * `__mocks__/lib/i18n/numbers.ts` is applied automatically to every
  * non-relative `lib/i18n/numbers` import, and it does not export
- * `formatBigInt`. The REAL one is the subject of half this file — asserting
- * against a hand-written mirror of it would test the mirror, not the wallet —
+ * `formatBigInt`. The REAL one is the subject of half this file - asserting
+ * against a hand-written mirror of it would test the mirror, not the wallet -
  * so it is unmocked here.
  */
 jest.unmock('lib/i18n/numbers');
@@ -189,7 +222,7 @@ jest.unmock('lib/i18n/numbers');
  * cases are wrong: a miscased `'Private'` would compare equal to the enum and be
  * accepted, and the numeric `0` a page can actually send would not be
  * recognized at all. Override with the real values so the boundary is tested
- * against what production sees — the same thing `lib/miden/helpers.test.ts`
+ * against what production sees - the same thing `lib/miden/helpers.test.ts`
  * does, and for the same reason.
  */
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -204,7 +237,7 @@ import { requestSendTransaction, requestConsumeTransaction, requestTransaction }
  * What every call below must reject with once the user declines. `NOT_GRANTED`
  * is also what a request that never reached the sheet rejects with (no stored
  * session, for one), so this assertion alone does not prove the sheet was
- * built — {@link capturedConfirmation} is what does that.
+ * built - {@link capturedConfirmation} is what does that.
  */
 const DECLINED = MidenDAppErrorType.NotGranted;
 
@@ -237,7 +270,7 @@ const sendRequest = (faucetId: string, amount: string, noteType: unknown = OMITT
     type: MidenDAppMessageType.SendTransactionRequest,
     sourcePublicKey: 'miden-account-1',
     transaction: {
-      // Must be the connected account — the wallet now rejects a send that names
+      // Must be the connected account - the wallet now rejects a send that names
       // any other account as the payer (`executingAccountError`).
       senderAddress: 'miden-account-1',
       recipientAddress: 'mtst1recipient',
@@ -425,7 +458,7 @@ describe('dApp send approval: the amount is scaled by the faucet decimals', () =
     mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
 
     // 9007199254740993 is 2^53 + 1. The old ConfirmPage path computed
-    // `Number('9007199254740993') / 10 ** 6` and produced …740992 — the last
+    // `Number('9007199254740993') / 10 ** 6` and produced …740992 - the last
     // digit of the user's balance, silently wrong on the approval screen.
     await expect(
       requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '9007199254740993'), 'session-1')
@@ -595,7 +628,7 @@ describe('dApp approval sheets name the verified origin, not the dApp-supplied n
  * `noteType` is required by the SendTransaction contract, but it crosses
  * postMessage from an untrusted page, so the type is a claim rather than a
  * guarantee. The wallet now builds the note itself, and its resolver treats a
- * missing type as PUBLIC — so an omitted one would have rendered "Note Type,
+ * missing type as PUBLIC - so an omitted one would have rendered "Note Type,
  * undefined" on the sheet and then gone out as a public note. Reject before the
  * sheet is ever raised.
  */
@@ -694,7 +727,7 @@ describe('dApp send approval: the note type must resolve before the user is aske
     expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
   });
 
-  // An unrecognized value must not quietly become public either — that is the
+  // An unrecognized value must not quietly become public either - that is the
   // silent privacy downgrade `isPrivateNoteType` exists to stop. 'Private' is
   // included because a miscased string is the likeliest real mistake, and it is
   // only distinguishable from the enum once `NoteType` carries its real numeric
@@ -712,7 +745,7 @@ describe('dApp send approval: the note type must resolve before the user is aske
 
 // `recallBlocks` becomes `syncHeight + recallBlocks` and is handed to the SDK as
 // a u32 block height. wasm-bindgen truncates at that boundary instead of
-// throwing, so an out-of-range offset does not fail — it silently becomes a
+// throwing, so an out-of-range offset does not fail - it silently becomes a
 // DIFFERENT recall window than the one rendered on the sheet the user approved.
 describe('dApp send approval: the recall window must be representable', () => {
   const requestWithRecall = (recallBlocks: unknown) =>
@@ -764,7 +797,7 @@ describe('dApp send approval: the recall window must be representable', () => {
 
 // A session authorizes exactly one account. `senderAddress` rides in the request
 // body, and the approval sheet renders amount, recipient, faucet and note type
-// but NOT the sender — so a page connected to account A naming account B as the
+// but NOT the sender - so a page connected to account A naming account B as the
 // sender would debit B with nothing on screen to give it away.
 describe('dApp send approval: the sender is bound to the connected account', () => {
   const requestFrom = (senderAddress: string) =>

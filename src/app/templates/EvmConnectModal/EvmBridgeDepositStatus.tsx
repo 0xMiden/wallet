@@ -3,9 +3,11 @@ import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { IconName } from 'app/icons/v2';
 import { creditedAmount, formatMoneyAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { EmptyState } from 'components/ui/EmptyState';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransaction } from 'lib/miden/db/types';
@@ -133,7 +135,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   awaitingNextConfirmation = false
 }) => {
   const { t } = useTranslation();
-  const { row, loaded } = useTransactionRow(txId);
+  const { row, loaded, readFailed } = useTransactionRow(txId);
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
@@ -151,7 +153,12 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
     : isUserErrorId(inputs.errorId)
       ? inputs.errorId
       : 'raw_bridge_deposit_failed';
-  useUserVisibleError(matchingRow && inputs.phase === 'failed' && failureIsFresh ? failureId : null, 'status_screen');
+  useUserVisibleError(
+    matchingRow && !readFailed && inputs.phase === 'failed' && failureIsFresh ? failureId : null,
+    'status_screen'
+  );
+
+  if (readFailed) return <EmptyState icon={IconName.Warning} title={t('historyDetailsLoadError')} role="status" />;
 
   if (!loaded || !row || row.id !== txId || inputs === undefined)
     return (

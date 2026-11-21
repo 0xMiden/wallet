@@ -1,12 +1,12 @@
 import { expect, test } from '../../fixtures/two-wallets';
 import {
   allowAgglayerFaucetForE2E,
-  backToAmountStep,
-  confirmAmountStep,
+  minimizeCommandBridge,
+  reopenCommandBridge,
   expectRegistryApproves,
   expectSlowRouteUnsupported,
   fundBridgeToken,
-  openRouteStep,
+  openCommandBridgeRoute,
   readBridgedSendRows,
   selectSlowAndSubmit
 } from '../../helpers/bridge';
@@ -75,15 +75,15 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
 
     const destination = newEvmDestination();
 
-    await openRouteStep(walletA, {
+    await openCommandBridgeRoute(walletA, {
       destAddress: destination,
       tokenSymbol: TOKEN_SYMBOL,
       amount: BRIDGE_AMOUNT
     });
     await expectSlowRouteUnsupported(walletA);
-    await backToAmountStep(walletA);
+    await minimizeCommandBridge(walletA);
     await allowAgglayerFaucetForE2E(walletA.page, faucetHex);
-    await confirmAmountStep(walletA);
+    await reopenCommandBridge(walletA, destination, BRIDGE_AMOUNT);
     await selectSlowAndSubmit(walletA);
 
     // The Miden-side bridge-send is the wallet's real work: create + prove +

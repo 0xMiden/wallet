@@ -24,6 +24,8 @@ import {
   selectEarnVault,
   selectEarnVaultCatalog,
   selectEarnVaultLogoUrl,
+  selectEpochAllocator,
+  selectEpochAllocatorAccount,
   selectEpochDepositTokens,
   selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
@@ -42,6 +44,8 @@ import {
 } from './values';
 
 jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
+
+const ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
 
 const CONFIG: BridgeConfig = {
   network: 'testnet',
@@ -132,6 +136,7 @@ const DERIVED: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
+    allocatorAccount: { state: 'ok', value: { accountId: ALLOCATOR_ACCOUNT } },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] }
   }
@@ -181,6 +186,41 @@ beforeEach(() => {
 });
 afterAll(() => {
   process.env.MIDEN_E2E_TEST = savedE2e;
+});
+
+describe('selectEpochAllocatorAccount', () => {
+  it('gives the account that the derivation read from that allocator', () => {
+    expect(selectEpochAllocatorAccount(snapshot())).toBe(ALLOCATOR_ACCOUNT);
+  });
+
+  it('gives no account while the read failed or no derivation is there', () => {
+    expect(selectEpochAllocatorAccount(withDerived({ epoch: { allocatorAccount: ERROR } }))).toBeNull();
+    expect(selectEpochAllocatorAccount(EMPTY)).toBeNull();
+  });
+});
+
+describe('selectEpochAllocator', () => {
+  const ALLOCATOR_URL = 'https://testnet-dev.epochprotocol.xyz';
+
+  it('pairs the document allocator URL with the account the derivation read', () => {
+    expect(selectEpochAllocator(snapshot())).toEqual({ allocatorUrl: ALLOCATOR_URL, accountId: ALLOCATOR_ACCOUNT });
+  });
+
+  it('pairs that URL with no account while the account read failed', () => {
+    expect(selectEpochAllocator(withDerived({ epoch: { allocatorAccount: ERROR } }))).toEqual({
+      allocatorUrl: ALLOCATOR_URL,
+      accountId: null
+    });
+  });
+
+  it('gives no pair while the snapshot names no allocator URL', () => {
+    expect(selectEpochAllocator(EMPTY)).toBeNull();
+  });
+
+  it('reads the snapshot it is given when the realm snapshot is a different one', () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(selectEpochAllocator(snapshot())).toEqual({ allocatorUrl: ALLOCATOR_URL, accountId: ALLOCATOR_ACCOUNT });
+  });
 });
 
 describe('selectors', () => {

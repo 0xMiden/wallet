@@ -35,7 +35,6 @@ test.describe('swap: cancel + reclaim', () => {
     const orderId = await createSwapOrder(walletA, {
       offerSymbol: 'SWPA',
       requestSymbol: 'SWPB',
-      amountAnchor: 'pay',
       payAmount: '10',
       receiveAmount: '9.995'
     });

@@ -26,6 +26,33 @@ export const SUBMISSION_FEEDBACK_BRANCHES = [
   'grpc_unknown',
   'no_answer'
 ] as const;
+export const SUBMIT_ENDPOINTS = [
+  'submit_proven_transaction',
+  'submit_proven_batch',
+  'get_transaction_encryption_key',
+  'other'
+] as const;
+export const SUBMIT_GRPC_STATUSES = [
+  'unavailable',
+  'internal',
+  'cancelled',
+  'aborted',
+  'data_loss',
+  'deadline_exceeded',
+  'unknown',
+  'not_found',
+  'invalid_argument',
+  'permission_denied',
+  'already_exists',
+  'resource_exhausted',
+  'failed_precondition',
+  'out_of_range',
+  'unimplemented',
+  'unauthenticated',
+  'other'
+] as const;
+export type SubmissionRejectedEndpoint = (typeof SUBMIT_ENDPOINTS)[number];
+export type SubmissionRejectedStatus = (typeof SUBMIT_GRPC_STATUSES)[number];
 export const PENDING_RETRY_REASONS = [
   'row_missing',
   'not_retryable',
@@ -33,6 +60,8 @@ export const PENDING_RETRY_REASONS = [
   'landing_pending',
   'verdict_busy',
   'unsafe_retry',
+  'replay_check_failed',
+  'replay_request_unreadable',
   'unexpected'
 ] as const;
 export const EARN_POSITIONS_LOAD_STAGES = [
@@ -152,6 +181,11 @@ export type UiEvidenceInput =
       featureUnavailableReason: FeatureUnavailableReason;
     }
   | { kind: 'submission_feedback'; submissionFeedbackBranch: SubmissionFeedbackBranch }
+  | {
+      kind: 'submission_rejected';
+      submissionRejectedEndpoint: SubmissionRejectedEndpoint;
+      submissionRejectedStatus: SubmissionRejectedStatus;
+    }
   | { kind: 'pending_retry'; pendingRetryReason: PendingRetryReason }
   | {
       kind: 'history_retry';
@@ -182,6 +216,8 @@ export type UiProducerDiagnostics = {
   featureUnavailableFeature?: FeatureUnavailableFeature;
   featureUnavailableReason?: FeatureUnavailableReason;
   submissionFeedbackBranch?: SubmissionFeedbackBranch;
+  submissionRejectedEndpoint?: SubmissionRejectedEndpoint;
+  submissionRejectedStatus?: SubmissionRejectedStatus;
   pendingRetryReason?: PendingRetryReason;
   retryNoticeOrigin?: RetryNoticeOrigin;
   recipientValidationStage?: RecipientValidationStage;
@@ -200,6 +236,8 @@ export const UI_PRODUCER_KEYS = [
   'featureUnavailableFeature',
   'featureUnavailableReason',
   'submissionFeedbackBranch',
+  'submissionRejectedEndpoint',
+  'submissionRejectedStatus',
   'pendingRetryReason',
   'retryNoticeOrigin',
   'recipientValidationStage',
@@ -236,6 +274,11 @@ const groups = {
     id: 'submissionUnanswered',
     surface: 'status_screen',
     fields: { submissionFeedbackBranch: SUBMISSION_FEEDBACK_BRANCHES }
+  },
+  submission_rejected: {
+    id: 'submissionRejectedByNetwork',
+    surface: 'notice',
+    fields: { submissionRejectedEndpoint: SUBMIT_ENDPOINTS, submissionRejectedStatus: SUBMIT_GRPC_STATUSES }
   },
   pending_retry: {
     id: 'raw_pending_activity_retry_failed',

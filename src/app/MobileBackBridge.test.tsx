@@ -97,15 +97,22 @@ describe('MobileBackBridge', () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  it('on a cold-opened settings subpage: replaces to /settings and consumes the event', () => {
+  it('on a cold-opened settings subpage: replaces to /me and consumes the event', () => {
     const { handler } = renderAt('/settings/security', 0);
 
     const result = handler();
 
     expect(result).toBe(true);
     expect(navigateMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith('/settings', HistoryAction.Replace);
+    expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
     expect(goBackMock).not.toHaveBeenCalled();
+  });
+
+  it('on a cold-opened lock of the recovery page: replaces to the recovery page, like the header chevron', () => {
+    const { handler } = renderAt('/settings/recover-funds/11155111/42', 0);
+
+    expect(handler()).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/settings/recover-funds', HistoryAction.Replace);
   });
 
   it('on a tab page matched exactly (/history): replaces to home and consumes', () => {

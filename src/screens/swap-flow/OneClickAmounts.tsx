@@ -1,22 +1,26 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
 import { TextField } from 'components/ui/TextField';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { TokenAmount } from 'components/ui/TokenAmount';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { OneClickEvmBalanceSnapshot } from 'lib/one-click/evm-balance';
 import { OneClickAsset } from 'lib/one-click/types';
 import { WalletContact } from 'lib/shared/types';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 
 import { OneClickAssetPicker, OneClickNetworkOption, OneClickNetworkPicker } from './OneClickPickers';
 import type { OneClickFlowErrorKey } from './OneClickReview';
@@ -96,6 +100,8 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
+  const formId = useId();
   useUserVisibleError(evmBalance?.status === 'error' ? 'oneClickBalanceUnavailable' : null, 'notice');
   const payPicker = (
     <div className="flex flex-wrap items-center gap-2">
@@ -129,50 +135,86 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
   const contactNetwork = externalAddressNetwork?.logoNetwork ?? externalAddressNetwork?.id;
   const matchedContacts = contacts.filter(contact => contact.network === contactNetwork);
   const linkedRefund = externalAddressLabel === 'refund' && !externalAddressEditable;
+  const receivePreview = previewAmount
+    ? formatAmountDisplay(previewAmount, { symbol: requestAsset?.symbol, rounding: 'down' })
+    : '';
+  const review = (
+    <Button
+      type={command ? 'submit' : 'button'}
+      form={command ? formId : undefined}
+      title={quoteLoading ? t('calculatingQuote') : t('reviewSwap')}
+      variant={ButtonVariant.Primary}
+      accent="swap"
+      onClick={command ? undefined : onContinue}
+      disabled={!canContinue || quoteLoading}
+      data-testid="one-click-review-submit"
+      className="w-full max-w-none"
+    />
+  );
+  const outlets = useCommandWorkbenchSlots(command ? review : null);
+  const Body = command ? 'form' : 'div';
 
   return (
-    <HomeGroupPaneBody
-      footer={
-        <Button
-          title={quoteLoading ? t('calculatingQuote') : t('reviewSwap')}
-          variant={ButtonVariant.Primary}
-          accent="swap"
-          onClick={onContinue}
-          disabled={!canContinue || quoteLoading}
-          data-testid="one-click-review-submit"
-          className="w-full max-w-none"
-        />
-      }
-    >
-      <div className="flex flex-col gap-5">
+    <HomeGroupPaneBody footer={command ? undefined : review} top={command ? 'header' : 'root'}>
+      <Body
+        id={command ? formId : undefined}
+        className="flex flex-col gap-5"
+        onSubmit={event => {
+          event.preventDefault();
+          if (canContinue && !quoteLoading) onContinue();
+        }}
+        onKeyDown={event => {
+          if (command && event.key === 'Enter' && event.target instanceof HTMLInputElement) {
+            event.preventDefault();
+            if (canContinue && !quoteLoading) onContinue();
+          }
+        }}
+      >
         <AmountInput
           label={t('youPay')}
           value={offerAmount}
+          preservePrecision={command}
+          decimalsLimit={command ? (offerAsset?.decimals ?? 0) : undefined}
+          maxLength={command ? 80 : undefined}
           onValueChange={value => onOfferAmountChange(value ?? '')}
           tokenSelector={payPicker}
           accent="swap"
           helper={
             offerBalance === undefined ? undefined : (
               <span className="font-heading text-base font-bold text-text-muted">
-                {t('availableAmount', { amount: offerBalance, symbol: offerAsset?.symbol })}
+                {t('availableAmount', {
+                  amount: formatAmountDisplay(offerBalance, { symbol: offerAsset?.symbol, rounding: 'down' }),
+                  symbol: offerAsset?.symbol
+                })}
               </span>
             )
           }
           aria-label={t('youPay')}
           data-testid="one-click-pay-amount"
         />
-        <AmountInput
-          label={t('youReceive')}
-          value={previewAmount}
-          onValueChange={() => undefined}
-          tokenSelector={receivePicker}
-          accent="swap"
-          loading={quoteLoading}
-          disabled
-          showDivider={false}
-          aria-label={t('youReceive')}
-          data-testid="one-click-receive-amount"
-        />
+        {command ? (
+          <div data-testid="one-click-receive-output">
+            <DetailCard surface="fill">
+              <DetailRow label={t('youReceive')} stacked>
+                {quoteLoading ? t('calculatingQuote') : receivePreview || t('calculatingQuote')}
+              </DetailRow>
+              {receivePicker}
+            </DetailCard>
+          </div>
+        ) : (
+          <AmountInput
+            label={t('youReceive')}
+            value={receivePreview}
+            onValueChange={() => undefined}
+            tokenSelector={receivePicker}
+            accent="swap"
+            loading={quoteLoading}
+            disabled
+            showDivider={false}
+            aria-label={t('youReceive')}
+            data-testid="one-click-receive-amount"
+          />
+        )}
         {evmBalance && externalAddressLabel === 'refund' && offerAsset && (
           <Notice
             errorId={evmBalance.status === 'error' ? 'oneClickBalanceUnavailable' : null}
@@ -193,12 +235,21 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
             {evmBalance.status === 'ready' && evmBalance.snapshot ? (
               <div className="flex flex-col gap-1">
                 <span>
-                  {formatBigInt(evmBalance.snapshot.spendableTokenBalance, offerAsset.decimals)} {offerAsset.symbol}
+                  <TokenAmount
+                    amount={evmBalance.snapshot.spendableTokenBalance}
+                    decimals={offerAsset.decimals}
+                    symbol={offerAsset.symbol}
+                    rounding="down"
+                  />
                 </span>
                 {evmBalance.snapshot.gasReserve > 0n && (
                   <span>
                     {t('oneClickGasReserve', {
-                      amount: formatBigInt(evmBalance.snapshot.gasReserve, 18),
+                      amount: formatAmountDisplay(evmBalance.snapshot.gasReserve, {
+                        decimals: 18,
+                        symbol: evmBalance.gasSymbol,
+                        rounding: 'up'
+                      }),
                       symbol: evmBalance.gasSymbol
                     })}
                   </span>
@@ -270,7 +321,8 @@ export const OneClickAmounts: React.FC<OneClickAmountsProps> = ({
             {t(routeError)}
           </ErrorLine>
         )}
-      </div>
+      </Body>
+      {outlets}
     </HomeGroupPaneBody>
   );
 };

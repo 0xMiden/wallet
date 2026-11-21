@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { WaveDots } from 'components/ui';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
@@ -19,6 +20,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { swapPayEstimate } from './amount-display';
+import { CommandSwap } from './CommandSwap';
 import { OneClickNetworkOption, OneClickNetworkPicker } from './OneClickPickers';
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
@@ -33,10 +35,12 @@ export interface SwapAmountsProps {
   offerAmount: string;
   onOfferAmountChange: (amount: string) => void;
   onSelectOfferToken: () => void;
+  offerTokenAnchorRef?: React.Ref<HTMLButtonElement>;
   requestToken: SwapToken;
   requestAmount: string;
   onRequestAmountChange: (amount: string) => void;
   onSelectRequestToken: () => void;
+  requestTokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Show a skeleton on the receive field while its quote is being computed. */
   requestLoading?: boolean;
   offerLoading?: boolean;
@@ -73,7 +77,11 @@ const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
  * First swap screen: two stacked SelectAmount fields (You Pay / You Receive)
  * with a swap-direction toggle between them and a single shared Confirm CTA.
  */
-export const SwapAmounts: React.FC<SwapAmountsProps> = ({
+export const SwapAmounts: React.FC<SwapAmountsProps> = props => {
+  return useFlowPresentation() === 'command' ? <CommandSwap {...props} /> : <CompactSwapAmounts {...props} />;
+};
+
+const CompactSwapAmounts: React.FC<SwapAmountsProps> = ({
   offerToken,
   offerBalance,
   offerExceedsBalance,
@@ -184,7 +192,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
               fiatPrice: tokenQuote(prices, offerToken.faucetId, offerToken.symbol)?.price ?? 0
             }}
             tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
-            logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
             amountDisplayValue={
               requestEdited && offerAmount
@@ -261,7 +268,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
               fiatPrice: tokenQuote(prices, requestToken.faucetId, requestToken.symbol)?.price ?? 0
             }}
             tokenLabel={midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol)}
-            logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}
             isValidAmount={Number(requestAmount) > 0 && !requestExceedsPrecision}
             error={requestExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined}

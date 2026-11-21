@@ -3,6 +3,7 @@ import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/
 import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
 import { canonicalGuardianEndpoint, isValidGuardianUrl, sameGuardianEndpoint } from 'lib/settings/helpers';
 
+import { GuardianHistoryDataError } from './history-errors';
 import type { IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
@@ -17,9 +18,8 @@ import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-histo
 import { isRecoveredSwapOrder } from '../swap/recovered-order';
 import type { ConsumableNote, NoteType } from '../types';
 import { NoteTypeEnum } from '../types';
-import { GuardianHistoryDataError } from './history-errors';
 
-export const GUARDIAN_HISTORY_VERSION = 5;
+export const GUARDIAN_HISTORY_VERSION = 6;
 export { GuardianHistoryDataError };
 
 export interface GuardianHistoryRecovery {

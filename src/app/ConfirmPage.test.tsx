@@ -13,7 +13,8 @@ import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import * as userVisibleErrors from 'lib/telemetry/user-visible-error';
 import { useLocation } from 'lib/woozie';
 
-import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
+import { simulatedBytesToView, type TxAssetView } from './confirm/decode';
+import { noteFlowFromSimulatedBytes, type NoteFlow } from './confirm/note-flow';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 
@@ -31,7 +32,8 @@ jest.mock('lib/telemetry/user-visible-error', () => ({
 
 // ESM wallet-adapter package: only the `PrivateDataPermission` enum is read.
 jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
-  PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' }
+  PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
+  AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
 
 // The `/lazy` SDK subpath is mapped to wasmMock, which lacks the members this
@@ -44,10 +46,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
     ConsumedExternal: 'ConsumedExternal'
   },
-  NoteType: { Private: 0, Public: 1 },
-  SigningInputs: { deserialize: jest.fn() },
-  SigningInputsType: { TransactionSummary: 'TransactionSummary', Arbitrary: 'Arbitrary', Blind: 'Blind' },
-  Word: { deserialize: jest.fn() }
+  NoteType: { Private: 0, Public: 1 }
 }));
 
 // The sign rule has its own tests (`lib/miden/dapp-sign-inputs*.test.ts`); here each test sets its verdict.
@@ -151,17 +150,29 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
+  Button: ({
+    children,
+    title,
+    onClick,
+    isLoading,
+    variant,
+    className,
+    type,
+    size,
+    disabled,
+    'data-testid': dataTestId
+  }: any) => (
     <button
       type={type ?? 'button'}
       onClick={onClick}
+      disabled={disabled}
       data-loading={String(!!isLoading)}
       data-variant={variant}
       data-size={size}
       className={className}
       data-testid={dataTestId}
     >
-      {children}
+      {children ?? title}
     </button>
   )
 }));
@@ -180,68 +191,24 @@ jest.mock('lib/telemetry', () => {
   };
 });
 
-// `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
-// counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
-// Here we only need to assert ConfirmPage routes the sign->TransactionSummary
-// branch through it with the right mode/view/onDownload wiring.
-jest.mock('./confirm/TransactionAssetView', () => ({
-  TransactionAssetView: jest.fn(({ mode, view, onDownload }: any) => (
-    <div data-testid="asset-view" data-mode={mode} data-account={view.account ?? ''}>
-      {onDownload && (
-        <button type="button" onClick={onDownload}>
-          downloadFullSummary
-        </button>
-      )}
-    </div>
-  ))
-}));
-
 jest.mock('./confirm/note-flow', () => ({
   ...jest.requireActual('./confirm/note-flow'),
-  noteFlowFromSimulatedBytes: jest.fn(() => ({ inputCount: 0, inputs: [], outputs: [] }))
+  noteFlowFromSimulatedBytes: jest.fn()
 }));
 
-// Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
-// below assert on its actual mapping); only the custom-tx decode entry points
-// are stubbed so these UI tests don't touch the WASM SDK.
-jest.mock('./confirm/decode', () => {
-  const view = (account: string, incoming: { faucetId: string; amount: bigint }[] = []) => ({
-    account,
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming,
-    outgoingNfts: [],
-    incomingNfts: [],
-    unlistedAssets: 0,
-    inputNotesConsumed: incoming.length,
-    outputNotesCreated: 1,
-    storageChanged: false
-  });
-  const summaryBytesToView = jest.fn(() => view('mtst1acct', [{ faucetId: 'fB', amount: 3n }]));
-  const executedBytesToView = jest.fn(() => view('mtst1executed'));
-  return {
-    ...jest.requireActual('./confirm/decode'),
-    declaredRequestToView: jest.fn(() => ({
-      outgoing: [{ faucetId: 'fA', amount: 10n }],
-      incoming: [],
-      outgoingNfts: [],
-      incomingNfts: [],
-      unlistedAssets: 0,
-      inputNotesConsumed: 0,
-      outputNotesCreated: 1,
-      storageChanged: false
-    })),
-    summaryBytesToView,
-    executedBytesToView,
-    // Dispatches to the two stubs above. The real selector calls its builders module-internally,
-    // where a jest.mock override cannot reach them, so without this the page would decode these
-    // fixture strings for real.
-    simulatedBytesToView: jest.fn((result: { summaryBytes?: string; executedBytes?: string }) => {
-      if (result.summaryBytes) return summaryBytesToView();
-      if (result.executedBytes) return executedBytesToView();
-      return undefined;
-    })
-  };
-});
+// The real metadata read by default; a case that pins a rendered amount resolves its faucets to a known scale.
+const mockFetchTokenMetadata = jest.fn();
+jest.mock('lib/miden/metadata/fetch', () => ({
+  ...jest.requireActual('lib/miden/metadata/fetch'),
+  fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args)
+}));
+
+// Partial mock: `simulatedBytesToView` is stubbed so these UI tests don't touch the WASM SDK, and to prove
+// the window never calls it.
+jest.mock('./confirm/decode', () => ({
+  ...jest.requireActual('./confirm/decode'),
+  simulatedBytesToView: jest.fn()
+}));
 
 jest.mock('./atoms/Alert', () => {
   const actual = jest.requireActual<typeof import('./atoms/Alert')>('./atoms/Alert');
@@ -252,27 +219,14 @@ jest.mock('./atoms/Alert', () => {
 });
 jest.mock('./icons/v2', () => ({
   Icon: ({ name }: any) => <span data-testid="icon" data-name={name} />,
-  IconName: { Globe: 'Globe', WarningFill: 'WarningFill', Download: 'Download' }
-}));
-jest.mock('./templates/AccountBanner', () => ({
-  __esModule: true,
-  default: ({ networkRpc }: any) => <div data-testid="account-banner" data-rpc={networkRpc} />
-}));
-jest.mock('./templates/ConnectBanner', () => ({
-  __esModule: true,
-  default: ({ origin }: any) => <div data-testid="connect-banner" data-origin={origin} />
-}));
-jest.mock('./templates/PrivateDataPermissionBanner', () => ({
-  __esModule: true,
-  default: ({ isPublicAccount }: any) => <div data-testid="pdp-banner" data-public={String(isPublicAccount)} />
-}));
-jest.mock('./templates/PrivateDataPermissionCheckbox', () => ({
-  __esModule: true,
-  default: ({ setChecked }: any) => (
-    <button type="button" data-testid="pdp-checkbox" onClick={() => setChecked(true)}>
-      check
-    </button>
-  )
+  IconName: {
+    Globe: 'Globe',
+    WarningFill: 'WarningFill',
+    Download: 'Download',
+    FactCheck: 'FactCheck',
+    FactAlert: 'FactAlert',
+    FactCross: 'FactCross'
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -285,8 +239,6 @@ const mockUseRetryableSWR = useRetryableSWR as jest.Mock;
 const mockUseLocation = useLocation as jest.Mock;
 const mockIsDelegateProofEnabled = isDelegateProofEnabled as jest.Mock;
 const mockGetNetworkId = getNetworkId as jest.Mock;
-const mockDeclaredRequestToView = declaredRequestToView as unknown as jest.Mock;
-const mockSummaryBytesToView = summaryBytesToView as unknown as jest.Mock;
 
 const UPON_REQUEST = 'UPON_REQUEST';
 const AUTO = 'AUTO';
@@ -342,6 +294,9 @@ afterAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFetchTokenMetadata.mockImplementation(
+    jest.requireActual('lib/miden/metadata/fetch').fetchTokenMetadata as (...args: unknown[]) => unknown
+  );
   t.mockImplementation((key: string) => key);
   ctx.ready = true;
   mockUseMidenContext.mockReturnValue(ctx);
@@ -448,16 +403,20 @@ describe('connect payload', () => {
     ...overrides
   });
 
-  it('renders the connect banner, permission banner and account banner (UponRequest)', () => {
+  it('renders the site, the connecting account and what the site will be able to do (UponRequest)', () => {
     setPayload(connectPayload());
     render(<ConfirmPage />);
 
-    expect(screen.getByTestId('connect-banner')).toHaveAttribute('data-origin', 'https://dapp.example.com');
-    expect(screen.getByTestId('pdp-banner')).toBeInTheDocument();
-    expect(screen.getByTestId('account-banner')).toHaveAttribute('data-rpc', 'https://rpc.testnet.miden.io');
+    expect(screen.getByTestId('connect-origin')).toHaveAttribute('title', 'https://dapp.example.com');
+    expect(screen.getByTestId('connect-account')).toHaveTextContent(ACCOUNT.name);
+    expect(screen.getByText('connectFactsTitle')).toBeInTheDocument();
+    // A public account: what it can see, what it asks for, what it can never do.
+    expect(screen.getByTestId('connect-fact-balance')).toBeInTheDocument();
+    expect(screen.getByTestId('connect-fact-transactions')).toBeInTheDocument();
+    expect(screen.getByTestId('connect-fact-funds')).toBeInTheDocument();
     expect(screen.getByText('connectToWebsite')).toBeInTheDocument();
     // UponRequest + public account => no private-data checkbox.
-    expect(screen.queryByTestId('pdp-checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('connect-private-data-consent')).not.toBeInTheDocument();
     // Confirm/decline labels.
     expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton)).toHaveTextContent('connect');
     const declineButton = screen.getByText('deny').closest('button')!;
@@ -493,7 +452,7 @@ describe('connect payload', () => {
       setPayload(connectPayload({ network }));
       render(<ConfirmPage />);
 
-      expect(screen.getByTestId('account-banner')).toBeInTheDocument();
+      expect(screen.getByTestId('connect-account')).toBeInTheDocument();
       expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
     });
   });
@@ -514,7 +473,7 @@ describe('connect payload', () => {
       setPayload(connectPayload({ existingPermission: true }));
       render(<ConfirmPage />);
 
-      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(/^Account not found\./)).toBeInTheDocument());
       const retry = screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton);
       expect(retry).toHaveTextContent('retry');
       expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
@@ -541,7 +500,7 @@ describe('connect payload', () => {
       setPayload(connectPayload({ existingPermission: true, privateDataPermission: AUTO }));
       render(<ConfirmPage />);
 
-      await waitFor(() => expect(screen.getByText('Account not found')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(/^Account not found\./)).toBeInTheDocument());
       expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
 
       ctx.confirmDAppPermission.mockResolvedValue(undefined);
@@ -551,36 +510,32 @@ describe('connect payload', () => {
 
       await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(2));
       expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
-      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument();
     } finally {
       ctx.confirmDAppPermission.mockReset();
     }
   });
 
-  it('asks a new permission with Auto private data on a private account for the consent box, on Connect and on Retry', async () => {
+  it('holds Connect for a new permission with Auto private data on a private account until the consent box is ticked', async () => {
     // A forced connect, or one under another app name, reaches the page as a new permission (#1471).
     mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
     ctx.confirmDAppPermission.mockResolvedValue(undefined);
     try {
       setPayload(connectPayload({ existingPermission: false, privateDataPermission: AUTO }));
       render(<ConfirmPage />);
-      expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
 
+      const connect = screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton);
+      expect(connect).toBeDisabled();
       await act(async () => {
-        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+        fireEvent.click(connect);
       });
-      await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
-
-      await act(async () => {
-        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
-      });
-      expect(screen.queryByText('confirmError')).not.toBeInTheDocument();
-      await waitFor(() => expect(screen.getByText('confirmError')).toBeInTheDocument());
       expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByTestId('pdp-checkbox'));
+      fireEvent.click(screen.getByTestId('connect-private-data-consent'));
+      expect(connect).toBeEnabled();
       await act(async () => {
-        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+        fireEvent.click(connect);
       });
       await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1));
       expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', true, ACCOUNT.publicKey, AUTO, ['balance']);
@@ -594,7 +549,32 @@ describe('connect payload', () => {
     setPayload(connectPayload({ privateDataPermission: AUTO }));
     render(<ConfirmPage />);
 
-    expect(screen.getByTestId('pdp-checkbox')).toBeInTheDocument();
+    expect(screen.getByTestId('connect-private-data-consent')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('says a private account will be asked before each private-data read under Upon Request', () => {
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    setPayload(connectPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('connect-fact-private-ask')).toHaveTextContent('confirmationRequired');
+    expect(screen.queryByTestId('connect-fact-balance')).not.toBeInTheDocument();
+  });
+
+  it('shows the standing private-data scopes for Auto and asks when Auto allows no private data', () => {
+    mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
+    setPayload(connectPayload({ privateDataPermission: AUTO, allowedPrivateData: 1 | 2 | 4 }));
+    const { unmount } = render(<ConfirmPage />);
+
+    expect(screen.getByTestId('connect-fact-private-auto')).toBeInTheDocument();
+    expect(t).toHaveBeenCalledWith('connectFactReadPrivateDescription', { scopes: 'Assets, Notes, Storage' });
+    unmount();
+
+    setPayload(connectPayload({ privateDataPermission: AUTO, allowedPrivateData: 0 }));
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('connect-fact-private-ask')).toBeInTheDocument();
+    expect(screen.queryByTestId('connect-fact-private-auto')).not.toBeInTheDocument();
   });
 
   it('confirms the connection via onConfirm when the confirm button is clicked', async () => {
@@ -613,19 +593,18 @@ describe('connect payload', () => {
     );
   });
 
-  it('blocks confirmation and surfaces an error when the private-data checkbox is unchecked', async () => {
+  it('keeps Connect disabled, with no error, while the private-data checkbox is unchecked', async () => {
     mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
     setPayload(connectPayload({ privateDataPermission: AUTO }));
     render(<ConfirmPage />);
 
+    expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton)).toBeDisabled();
     await act(async () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
 
-    // Error alert appears and the confirm button flips to the retry variant.
-    await waitFor(() => expect(screen.getByTestId('alert')).toBeInTheDocument());
-    expect(screen.getByText('confirmError')).toBeInTheDocument();
-    expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton)).toHaveTextContent('retry');
+    expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('connect-facts')).toBeInTheDocument();
     // The permission was never actually confirmed.
     expect(ctx.confirmDAppPermission).not.toHaveBeenCalled();
   });
@@ -636,7 +615,7 @@ describe('connect payload', () => {
     setPayload(connectPayload({ privateDataPermission: AUTO }));
     render(<ConfirmPage />);
 
-    fireEvent.click(screen.getByTestId('pdp-checkbox'));
+    fireEvent.click(screen.getByTestId('connect-private-data-consent'));
     await act(async () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
@@ -644,18 +623,27 @@ describe('connect payload', () => {
     await waitFor(() => expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1));
   });
 
-  it('closes the error alert when its close button is clicked', async () => {
+  it('clears the connect error once Retry succeeds after a failed connect', async () => {
     mockUseAccount.mockReturnValue({ ...ACCOUNT, isPublic: false });
-    setPayload(connectPayload({ privateDataPermission: AUTO }));
-    render(<ConfirmPage />);
+    ctx.confirmDAppPermission.mockRejectedValueOnce(new Error('network boom')).mockResolvedValue(undefined);
+    try {
+      setPayload(connectPayload({ privateDataPermission: AUTO }));
+      render(<ConfirmPage />);
 
-    await act(async () => {
-      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
-    });
-    await waitFor(() => expect(screen.getByTestId('alert')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('connect-private-data-consent'));
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+      });
+      await waitFor(() => expect(screen.getByTestId('connect-error')).toHaveTextContent('connectFailedTitle'));
+      expect(screen.getByTestId('connect-error')).toHaveTextContent('connectRetryHint');
 
-    fireEvent.click(within(screen.getByTestId('alert')).getByRole('button'));
-    await waitFor(() => expect(screen.queryByTestId('alert')).not.toBeInTheDocument());
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_RetryButton));
+      });
+      await waitFor(() => expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument());
+    } finally {
+      ctx.confirmDAppPermission.mockReset();
+    }
   });
 
   it('declines the connection and ignores concurrent clicks while a confirm is pending', async () => {
@@ -702,7 +690,7 @@ describe('connect payload', () => {
     );
   });
 
-  it('surfaces an error thrown by onConfirm through the error alert', async () => {
+  it('surfaces an error thrown by onConfirm through the error notice', async () => {
     ctx.confirmDAppPermission.mockRejectedValue(new Error('network boom'));
     setPayload(connectPayload());
     render(<ConfirmPage />);
@@ -711,14 +699,14 @@ describe('connect payload', () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
 
-    await waitFor(() => expect(screen.getByText('network boom')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^network boom\./)).toBeInTheDocument());
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 1050));
     });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_approval_failed', 'inline');
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_approval_failed', 'notice');
   });
 
-  it('keeps one inline report for the real approval error Alert across parent rerenders', async () => {
+  it('keeps one report for the real approval error notice across parent rerenders', async () => {
     jest.useFakeTimers();
     ctx.confirmDAppPermission.mockRejectedValueOnce(new Error('private approval detail'));
     setPayload(connectPayload());
@@ -731,19 +719,19 @@ describe('connect payload', () => {
       await act(async () => {
         jest.advanceTimersByTime(300);
       });
-      expect(within(screen.getByTestId('alert')).getByText('private approval detail')).toBeInTheDocument();
-      expect(screen.getByTestId('alert')).toHaveAttribute('role', 'alert');
+      expect(within(screen.getByTestId('connect-error')).getByText(/^private approval detail\./)).toBeInTheDocument();
+      expect(screen.getByTestId('connect-error')).toHaveAttribute('role', 'alert');
       act(() => jest.advanceTimersByTime(999));
       expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
       act(() => jest.advanceTimersByTime(1));
       expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
-        ['raw_confirm_approval_failed', 'inline']
+        ['raw_confirm_approval_failed', 'notice']
       ]);
 
       rerender(<ConfirmPage />);
       act(() => jest.advanceTimersByTime(5000));
       expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
-        ['raw_confirm_approval_failed', 'inline']
+        ['raw_confirm_approval_failed', 'notice']
       ]);
     } finally {
       jest.useRealTimers();
@@ -759,7 +747,7 @@ describe('connect payload', () => {
       fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
     });
 
-    await waitFor(() => expect(screen.getByText('smthWentWrong')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/^smthWentWrong\./)).toBeInTheDocument());
   });
 });
 
@@ -774,12 +762,15 @@ describe('transaction payload', () => {
     sourcePublicKey: 'src_key',
     preview: {},
     transactionMessages: [
-      'Sending funds',
-      'to a recipient',
+      'Transfer note from faucet:',
+      'mtst1faucetfaucetfaucet',
       // The backend (`formatSendTransactionPreview` / `formatConsumeTransactionPreview`)
       // already applies the faucet's real decimals, so the amount arrives display-ready.
+      'From, mtst1senderaddress',
       'Amount, -1.5',
       'Recipient, mtst1abcdef_ghij',
+      'Note Type, Private',
+      // Lines the view does not lay out itself are still listed, as written.
       'Fee, 5',
       'NoComma'
     ]
@@ -789,19 +780,20 @@ describe('transaction payload', () => {
     setPayload(txPayload());
     render(<ConfirmPage />);
 
-    expect(screen.getByText('requestsATransaction')).toBeInTheDocument();
-    // account block
+    // The requesting site, by origin, in the request card.
+    expect(screen.getByTestId('confirm-request-origin')).toHaveAttribute('title', 'https://dapp.example.com');
+    // The sending account is the movement card's first party.
     expect(screen.getByText(ACCOUNT.name)).toBeInTheDocument();
     // Regression guard: ConfirmPage must NOT re-scale the amount. It used to divide
     // by a hardcoded 10 ** 6 (MIDEN's decimals), which mis-rendered every faucet with
     // different decimals and lost precision above 2^53 by routing through Number().
-    expect(screen.getAllByText('-1.5').length).toBeGreaterThan(0);
-    // Plain label passes value through untouched.
+    expect(screen.getByTestId('confirm-tx-value-amount')).toHaveTextContent(/^-1\.5$/);
+    expect(screen.getByTestId('confirm-tx-value-recipient')).toHaveTextContent('mtst1a');
+    expect(screen.getByTestId('confirm-tx-value-note-type')).toHaveTextContent('Private');
+    expect(screen.getByTestId('confirm-tx-faucet')).toHaveTextContent('mtst1faucetfaucetfaucet');
+    // Unrecognised lines pass through untouched.
     expect(screen.getByText('Fee')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
-    // The 'Recipient' label row exists (value is truncated).
-    expect(screen.getByText('Recipient')).toBeInTheDocument();
-    // 'NoComma' message => label with empty value.
     expect(screen.getByText('NoComma')).toBeInTheDocument();
   });
 
@@ -895,7 +887,7 @@ describe('consume payload', () => {
     setPayload(consumePayload());
     render(<ConfirmPage />);
 
-    expect(screen.getByText('requestsToConsumeNote')).toBeInTheDocument();
+    expect(screen.getByText('confirmTxNoteFromFaucet')).toBeInTheDocument();
     expect(screen.getByText('noteId')).toBeInTheDocument();
     expect(screen.getByText('Recipient')).toBeInTheDocument();
     expect(screen.getByText('Extra')).toBeInTheDocument();
@@ -964,10 +956,25 @@ describe('privateNotes payload', () => {
 
     await waitFor(() => expect(ctx.confirmDAppPrivateNotes).toHaveBeenCalledWith('req-1', true));
   });
+
+  // The notice says the request is still there and the action reads Try again, so the request stays in view.
+  it('keeps the request and its download action in view above a failed Confirm', async () => {
+    ctx.confirmDAppPrivateNotes.mockRejectedValue(new Error('share failed'));
+    setPayload(pnPayload());
+    render(<ConfirmPage />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.RequestPrivateNotes_AcceptButton));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('confirm-tx-error')).toBeInTheDocument());
+    expect(screen.getByText('sharePrivateNoteDataForAccount', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText('downloadPrivateNoteData').closest('button')).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
-// sign payload (SignMessageContent): the verdict comes from signableArbitraryElements
+// sign payload (SignatureRequest): the verdict comes from signableArbitraryElements
 // ---------------------------------------------------------------------------
 
 describe('sign payload', () => {
@@ -986,18 +993,17 @@ describe('sign payload', () => {
     );
   });
 
-  it('shows an accepted request as a message with its element count and its elements under advanced details', () => {
+  it('shows an accepted request as a message with its element count and its elements open', () => {
     mockSignableArbitraryElements.mockReturnValue([4n, 5n, 6n]);
     setPayload(signPayload());
     render(<ConfirmPage />);
 
     expect(mockSignableArbitraryElements).toHaveBeenCalledWith('signingInputs', b64('signing-bytes'));
+    expect(screen.getByTestId('confirm-sign-message')).toHaveTextContent('signMessageTitle');
     expect(screen.getByText('signMessageWarning:3')).toBeInTheDocument();
-    expect(screen.getByText('requestsYourSignature')).toBeInTheDocument();
-    expect(screen.queryByText('signRequestRefused')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'rawValue' }));
-    expect(screen.getByText('4, 5, 6')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('4, 5, 6');
+    expect(screen.getByTestId('confirm-request-origin')).toBeInTheDocument();
+    expect(screen.queryByTestId('confirm-sign-refused')).not.toBeInTheDocument();
   });
 
   it.each(['word', 'signingInputs'])('shows the sign rule for a %s request the wallet refuses', kind => {
@@ -1006,9 +1012,9 @@ describe('sign payload', () => {
     render(<ConfirmPage />);
 
     expect(mockSignableArbitraryElements).toHaveBeenCalledWith(kind, b64('signing-bytes'));
-    expect(screen.getByText('signRequestRefused')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-refused')).toHaveTextContent('signRequestRefused');
     expect(screen.queryByText(/^signMessageWarning/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'rawValue' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('confirm-sign-raw-value')).not.toBeInTheDocument();
   });
 
   it('confirms the signature via confirmDAppSign', async () => {
@@ -1055,7 +1061,8 @@ describe('loginSign payload', () => {
     expect(screen.getByText(LOGIN_ACCOUNT_ID)).toBeInTheDocument();
     expect(screen.queryByText(ACCOUNT.publicKey)).not.toBeInTheDocument();
     expect(screen.queryByText('payload')).not.toBeInTheDocument();
-    expect(screen.queryByText(/^signMessageWarning/)).not.toBeInTheDocument();
+    expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
+    expect(screen.queryByText('opaqueSignatureNotATransaction')).not.toBeInTheDocument();
     expect(screen.queryByTestId('alert')).not.toBeInTheDocument();
   });
 
@@ -1119,13 +1126,11 @@ describe('assets payload', () => {
     await waitFor(() => expect(ctx.confirmDAppAssets).toHaveBeenCalledWith('req-1', true));
   });
 
-  it('hides the Payload header when the header label is empty', () => {
-    // Drive the falsy side of the `t('Payload') && <h2>` branch.
-    t.mockImplementation((key: string) => (key === 'Payload' ? '' : key));
+  it('heads the request card with the payload title', () => {
     setPayload(assetsPayload());
     render(<ConfirmPage />);
 
-    expect(screen.queryByText('Payload')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'payload' })).toBeInTheDocument();
   });
 });
 
@@ -1232,8 +1237,8 @@ describe('request origin banner', () => {
 });
 
 // ---------------------------------------------------------------------------
-// transaction payload — custom-tx state machine (declared -> verifying ->
-// verified | undecodable), driven by simulateCustomTransaction(id)
+// transaction payload — custom-tx state machine (verifying -> verified | not
+// simulated), driven by simulateCustomTransaction(id)
 // ---------------------------------------------------------------------------
 
 describe('ConfirmPage custom transaction', () => {
@@ -1248,92 +1253,167 @@ describe('ConfirmPage custom transaction', () => {
     ...over
   });
 
-  it('swaps the declared view for the verified view after simulation', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
+  const verifiedView = (account: string): TxAssetView => ({
+    account,
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [{ faucetId: 'fB', amount: 3n }],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 1,
+    outputNotesCreated: 1,
+    storageChanged: false
+  });
+
+  it('shows the verified view after simulation', async () => {
+    const noteFlow: NoteFlow = { inputCount: 0, inputs: [], outputs: [] };
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1acct'), noteFlow });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1acct');
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-account', 'mtst1acct');
     expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
+    expect(screen.queryByTestId('tx-note-flow-unavailable')).not.toBeInTheDocument();
   });
 
-  // Regression: on web-sdk 0.16 an ordinary single-sig account produces NO
-  // TransactionSummary (executeForSummary rejects TRANSACTION_ALREADY_AUTHORIZED),
-  // so the dry run returns the executed transaction instead. Ignoring it left the
-  // verified asset view unreachable for every such account, with the loss shown as
-  // a transient "could not verify by simulation".
-  it('shows the verified view from the executed transaction when no summary is produced', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ executedBytes: 'execB64' });
-    setPayload(customPayload());
-    render(<ConfirmPage />);
-
-    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1executed');
-    expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
-  });
-
-  it('keeps the declared view with a caveat when simulation errors', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
-    setPayload(customPayload());
-    render(<ConfirmPage />);
-
-    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 1050));
+  // expectVerifiedPreview (playwright/e2e/helpers/dapp-assertions.ts) filters the marked rows by /^1 TST$/: the
+  // sign stays on screen but outside the marked element, as the view before the redesign kept it.
+  it('marks each simulated row on its unsigned amount, the shape the E2E preview reads', async () => {
+    mockFetchTokenMetadata.mockResolvedValue({ symbol: 'TST', name: 'Test', decimals: 0 });
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({
+      view: {
+        ...verifiedView('mtst1acct'),
+        outgoing: [{ faucetId: 'marker-out', amount: 10n }],
+        incoming: [{ faucetId: 'marker-in', amount: 3n }]
+      }
     });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotVerifyBySimulation', 'inline');
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
-  });
-
-  it('shows could-not-decode when requestBytes is absent', async () => {
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
-    setPayload(customPayload({ requestBytes: undefined }));
-    render(<ConfirmPage />);
-
-    expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument();
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 1050));
-    });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('couldNotDecodeTransaction', 'inline');
-  });
-
-  it('logs and falls back to could-not-decode when declaredRequestToView throws and simulation also fails', async () => {
-    mockDeclaredRequestToView.mockImplementationOnce(() => {
-      throw new Error('bad declared bytes');
-    });
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
-    setPayload(customPayload());
-    render(<ConfirmPage />);
-
-    await waitFor(() => expect(screen.getByText('couldNotDecodeTransaction')).toBeInTheDocument());
-    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to decode declared custom transaction:', expect.any(Error));
-  });
-
-  it('logs and shows the caveat when summaryBytesToView throws for the simulated summary', async () => {
-    mockSummaryBytesToView.mockImplementationOnce(() => {
-      throw new Error('bad summary bytes');
-    });
-    (ctx as any).simulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sumB64' });
     setPayload(customPayload());
     render(<ConfirmPage />);
 
     await waitFor(() =>
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Custom transaction simulation failed:', expect.any(Error))
+      expect(Array.from(document.querySelectorAll('[data-verified="true"]'), el => el.textContent)).toEqual([
+        '10 TST',
+        '3 TST'
+      ])
     );
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
-    // A decode failure on an otherwise-successful simulation now surfaces the
-    // same "could not verify" caveat as any other simulation failure mode.
-    expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument();
+    expect(document.querySelector('[data-verified="true"]')?.parentElement).toHaveTextContent(/^-10 TST$/);
   });
 
-  it('keeps the declared view with a caveat when simulation rejects', async () => {
+  it('marks a simulated NFT row on its unsigned value too', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({
+      view: {
+        ...verifiedView('mtst1acct'),
+        outgoing: [],
+        incoming: [],
+        outgoingNfts: [{ faucetId: 'fN', assetId: '0xabc' }],
+        incomingNfts: [{ faucetId: 'fM', assetId: '0xdef' }]
+      }
+    });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(Array.from(document.querySelectorAll('[data-verified="true"]'), el => el.textContent)).toEqual([
+      'nft 0xabc',
+      'nft 0xdef'
+    ]);
+  });
+
+  it("shows the simulated view's held-note count apart from its input notes", async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({
+      view: { ...verifiedView('mtst1acct'), inputNotesConsumed: 3, heldNotesSpent: 2 }
+    });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('tx-held-notes-spent')).toHaveTextContent(/^2$/);
+    expect(screen.getByText('inputNotesConsumed').parentElement).toHaveTextContent('inputNotesConsumed3');
+  });
+
+  // The executed dry run of a fully authorized account stays in the background; the window renders only the view
+  // the background decoded from it, so it has nothing of its own to decode.
+  it('renders the verified view the background decoded, whatever the account kind', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ view: verifiedView('mtst1executed') });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-account', 'mtst1executed');
+    expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
+    expect(simulatedBytesToView).not.toHaveBeenCalled();
+    expect(noteFlowFromSimulatedBytes).not.toHaveBeenCalled();
+  });
+
+  // The user approves only the simulated view: the sheet never shows the declared view in its place.
+  const acceptButton = () => screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton);
+
+  it('blocks the approval until the simulated view is on the sheet', async () => {
+    let finish: (value: { view: TxAssetView }) => void = () => undefined;
+    (ctx as any).simulateCustomTransaction.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('tx-simulation-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('tx-asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
+    // The window names the site that asks while it waits for the simulated view.
+    expect(screen.getByTestId('confirm-request-origin')).toHaveAttribute('title', customPayload().origin);
+
+    await act(async () => {
+      finish({ view: verifiedView('mtst1acct') });
+    });
+
+    await waitFor(() => expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(acceptButton()).not.toBeDisabled();
+  });
+
+  it('shows that the transaction cannot be approved when simulation errors, and no declared view', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('customTransactionNotSimulated', 'inline');
+    expect(screen.queryByTestId('tx-asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
+  });
+
+  it('shows that the transaction cannot be approved when requestBytes is absent', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'x' });
+    setPayload(customPayload({ requestBytes: undefined }));
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
+  });
+
+  // A dry run the background could not decode answers with no view.
+  it('shows that the transaction cannot be approved when the background returns no view', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({});
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
+    expect(screen.queryByTestId('tx-asset-view')).not.toBeInTheDocument();
+    expect(acceptButton()).toBeDisabled();
+  });
+
+  it('shows that the transaction cannot be approved when simulation rejects', async () => {
     (ctx as any).simulateCustomTransaction.mockRejectedValue(new Error('service worker gone'));
     setPayload(customPayload());
     render(<ConfirmPage />);
 
-    await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
-    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+    await waitFor(() => expect(screen.getByText('customTransactionNotSimulated')).toBeInTheDocument());
+    expect(screen.queryByTestId('tx-asset-view')).not.toBeInTheDocument();
   });
 
   it('marks the could-not-simulate line for E2E', async () => {
@@ -1342,7 +1422,9 @@ describe('ConfirmPage custom transaction', () => {
     render(<ConfirmPage />);
 
     await waitFor(() =>
-      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('couldNotVerifyBySimulation')
+      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('customTransactionNotSimulated')
     );
+    // A request that cannot be approved still names the site, so the user knows whose request they decline.
+    expect(screen.getByTestId('confirm-request-origin')).toHaveAttribute('title', customPayload().origin);
   });
 });

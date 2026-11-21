@@ -1,0 +1,9 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<mask id="phone-restore-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+<rect width="24" height="24" fill="white"/>
+<path d="M15.2 12.6a3.3 3.3 0 1 1-1-2.7" stroke="black" stroke-width="2.1" stroke-linecap="round"/>
+<path d="M14.9 7.8v2.6h-2.6" stroke="black" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="10.4" y="18.2" width="3.2" height="1.6" rx="0.8" fill="black"/>
+</mask>
+<rect x="5" y="1.5" width="14" height="21" rx="4" fill="currentColor" mask="url(#phone-restore-cut)"/>
+</svg>

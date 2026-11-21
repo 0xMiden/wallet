@@ -1153,12 +1153,13 @@ const signature = await adapter.signBytes(word.serialize(), 'word');
 // or: adapter.signBytes(signingInputs.serialize(), 'signingInputs')
 // signature: the SDK's serialized Signature bytes</code></pre></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>kind</th><th>message holds</th></tr></thead>
+          <thead><tr><th>kind</th><th>What Bread signs</th></tr></thead>
           <tbody>
-            <tr><td><code>'word'</code></td><td>A serialized <code>Word</code>, 32 bytes</td></tr>
-            <tr><td><code>'signingInputs'</code></td><td>Serialized <code>SigningInputs</code></td></tr>
+            <tr><td><code>'signingInputs'</code> holding Arbitrary</td><td>Signs the domain-separated commitment of that payload, tag Poseidon2 of <code>miden-wallet/sign-bytes/v1</code>, not the raw payload, and cannot authorize a transaction. The preimage must not be 24 elements (the length of a transaction summary) or have the layout of a Guardian lookup.</td></tr>
+            <tr><td>Any other request: <code>'word'</code>, a transaction summary, or Blind</td><td>Refused before any prompt: the wallet signs only arbitrary signing inputs that carry their preimage.</td></tr>
           </tbody>
         </table></div>
+        <p>To verify, take the word Bread signed and check <code>publicKey.verify(word, Signature.deserialize(signature))</code>. Compute that word with <code>domainSeparatedSignCommitment(data, kind)</code> from <code>@miden-sdk/miden-sdk</code> 0.17.10. A page that calls the injected provider directly also gets the word back as <code>signedCommitment</code>. The signature does not verify against the raw payload.</p>
         <p>To sign people in, use the login key below instead: it is separate from the account's transaction keys.</p>
       </section>
 

@@ -19,6 +19,7 @@ import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import {
   TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_NEVER_COMMITTED_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
@@ -29,8 +30,8 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 // Imported AFTER the mocks are registered.
 
 import { groupActivityEntries } from './activityGroups';
-import History from './History';
-import { HistoryEntryType } from './IHistoryEntry';
+import History, { patchLoadedActivityStatus } from './History';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 
@@ -772,6 +773,46 @@ describe('History', () => {
       (e: any) => e.key === 'completed-bridge-fill-confirmed'
     );
     expect(bridgeFillConfirmed.isUnconfirmed).toBe(true);
+  });
+
+  it('reads a refused row by what is left to judge, not by the refusal (#2060)', async () => {
+    const send = { accountId: '0xme', displayIcon: 'SEND', type: 'send', displayMessage: 'Sending' };
+    const refused = {
+      ...send,
+      status: STATUS.Failed,
+      stage: 'submitting',
+      mayHaveSubmitted: true,
+      error:
+        'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
+    };
+    const bareEntry = { attemptId: 'a', capturedAt: 1, source: 'stage' };
+    const openEntry = {
+      ...bareEntry,
+      transactionId: '0x01',
+      initialCommitment: '0x02',
+      finalCommitment: '0x03',
+      initialNonce: '4',
+      outputNoteIds: ['0x05'],
+      nullifiers: [],
+      refBlock: 100,
+      refBlockCommitment: '0x06'
+    };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      { ...refused, id: 'refused-open', completedAt: 500, submitEvidence: [openEntry] },
+      { ...refused, id: 'refused-bare', completedAt: 600 },
+      { ...refused, id: 'refused-retired', completedAt: 700, submitEvidence: [{ ...openEntry, preSubmitEnd: true }] },
+      { ...refused, id: 'refused-uncheckable', completedAt: 800, submitEvidence: [bareEntry] }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(4));
+
+    const byKey = (key: string) => mockHistoryViewProps.entries.find((e: { key: string }) => e.key === key);
+    expect(byKey('completed-refused-open').isUnconfirmed).toBe(true);
+    expect(byKey('completed-refused-bare').isUnconfirmed).toBe(false);
+    expect(byKey('completed-refused-retired').isUnconfirmed).toBe(false);
+    expect(byKey('completed-refused-uncheckable').isUnconfirmed).toBe(false);
   });
 
   it('reads an Unconfirmed row and a Failed row with an open entry as not confirmed, a retired one as failed (#1081)', async () => {
@@ -3117,6 +3158,72 @@ describe('History USDCx entry plumbing', () => {
       bridgeInPhase: 'received'
     });
   });
+
+  it('projects only a local original pre-source stop into the Activity list, not a restored copy', async () => {
+    const stopped = {
+      version: 1,
+      owner: 'wallet',
+      operationId: 'original',
+      revision: 'claim',
+      review: {},
+      sourceAttempt: { phase: 'stopped-before-source' }
+    };
+    const approval = {
+      chainId: 11155111,
+      account: `0x${'1'.repeat(40)}`,
+      token: `0x${'2'.repeat(40)}`,
+      spender: `0x${'3'.repeat(40)}`,
+      amount: '1000000',
+      hash: `0x${'4'.repeat(64)}`
+    };
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'ORIGINAL-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 3000,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      },
+      {
+        id: 'RESTORED-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 2000,
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      },
+      {
+        id: 'APPROVED-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 1000,
+        extraInputs: {
+          provider: 'agglayer',
+          phase: 'submitting',
+          bridgeOperation: { ...stopped, approvals: [approval] }
+        }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+    const entries = mockHistoryViewProps.entries;
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-ORIGINAL-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(true);
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-RESTORED-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(false);
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-APPROVED-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(false);
+  });
 });
 
 // A batch claim's secondary assets are rendered on the row, so they have to
@@ -3858,6 +3965,86 @@ describe('History on the real SWR cache', () => {
     }
   }, 15_000);
 
+  it('keeps an older row not confirmed through a refusal, and fails it once nothing is left to judge (#2060)', async () => {
+    await Repo.transactions.clear();
+    const head: ITransaction = {
+      id: 'REFUSED-HEAD',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const older: ITransaction = {
+      id: 'OLDER-REFUSED',
+      accountId: '0xme',
+      status: ITransactionStatus.Unconfirmed,
+      stage: 'submitting',
+      type: 'send',
+      initiatedAt: 4000,
+      completedAt: 4000,
+      displayMessage: 'Not confirmed',
+      displayIcon: 'SEND',
+      submitEvidence: [
+        {
+          attemptId: 'attempt-1',
+          capturedAt: 4000,
+          source: 'stage',
+          transactionId: '0x01',
+          initialCommitment: '0x02',
+          finalCommitment: '0x03',
+          initialNonce: '4',
+          outputNoteIds: ['0x05'],
+          nullifiers: [],
+          refBlock: 100,
+          refBlockCommitment: '0x06'
+        }
+      ]
+    };
+    const refusal =
+      'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters';
+    const cursorFor = (tx: ITransaction): CompletedHistoryCursor => ({
+      effectiveTimestamp: tx.completedAt ?? tx.initiatedAt ?? 0,
+      transactionId: tx.id,
+      status: tx.status,
+      initiatedAt: tx.initiatedAt
+    });
+    await Repo.transactions.put(older);
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursorFor(head) }
+        : { transactions: [older], rawCount: 1, hasMore: false, nextCursor: cursorFor(older) }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const entryFor = (id: string) => visibleView().entries.find((entry: any) => entry.txId === id);
+      await waitFor(() => expect(entryFor(older.id)?.isUnconfirmed).toBe(true));
+
+      await Repo.transactions.put({ ...older, status: ITransactionStatus.Failed, error: refusal });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+      await waitFor(() => expect(entryFor(older.id)?.status).toBe(ITransactionStatus.Failed));
+      expect(entryFor(older.id)?.isUnconfirmed).toBe(true);
+
+      await Repo.transactions.put({
+        ...older,
+        status: ITransactionStatus.Failed,
+        error: refusal,
+        submitEvidence: [{ attemptId: 'attempt-1', capturedAt: 4000, source: 'stage', preSubmitEnd: true }]
+      });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+      await waitFor(() => expect(entryFor(older.id)?.isUnconfirmed).toBe(false));
+    } finally {
+      await Repo.transactions.clear();
+    }
+  }, 15_000);
+
   it('refreshes an older Unconfirmed row when reconciliation proves it never committed', async () => {
     await Repo.transactions.clear();
     const head: ITransaction = {
@@ -3905,8 +4092,9 @@ describe('History on the real SWR cache', () => {
       await Repo.transactions.put({
         ...older,
         status: ITransactionStatus.Failed,
+        stage: 'submitting',
         error: TRANSACTION_NEVER_COMMITTED_ERROR,
-        rawError: 'node verdict: never committed',
+        rawError: TRANSACTION_INTERRUPTED_ON_STARTUP,
         displayMessage: 'Failed',
         displayIcon: 'FAILED',
         neverCommittedAt: 6000
@@ -4440,5 +4628,40 @@ describe('History on the real SWR cache', () => {
       await act(() => new Promise(resolve => setTimeout(resolve, 0)));
       expect(shownSince(from, 'completed-attempt')).toBe(false);
     });
+  });
+});
+
+describe('patchLoadedActivityStatus', () => {
+  it('keeps the loaded rows when a refresh reads an unchanged bridge row with output notes', () => {
+    const row = {
+      id: 'bridge-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Failed,
+      type: 'bridged-send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'FAILED',
+      outputNoteIds: ['n1'],
+      extraInputs: { provider: 'epoch', epochStatus: 'failed', reclaimHeight: 1200 }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-bridge-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.outputNoteIds).toEqual(['n1']);
+    // IndexedDB hands back a fresh copy of the same row on every read.
+    const refreshed = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, outputNoteIds: ['n1'] }]])
+    );
+    expect(refreshed).toBe(loaded);
   });
 });

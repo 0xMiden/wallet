@@ -352,6 +352,31 @@ test.describe('dApp provider', () => {
     expect(sent.transactionId).toBe(sendRow.id);
   });
 
+  test('the connect prompt names an internationalized host by its ASCII form', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    test.setTimeout(540_000);
+
+    const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
+    const walletPage = await extensionContext.newPage();
+    await completeSeedImportOnboarding(walletPage, fullpageUrl);
+
+    // The browser hands the extension the ASCII serialization of the origin it navigated to.
+    const idnOrigin = `https://miden-d${String.fromCharCode(0x430)}pp-fixture.invalid`;
+    const dapp = await openFixtureDapp(extensionContext, 30_000, idnOrigin);
+
+    const connectPopupPromise = waitForConfirmPopup(extensionContext, 20_000);
+    const connectCall = dapp.evaluate(pageConnect);
+    const connectPopup = await waitForConfirmForm(await connectPopupPromise, CONFIRM_TESTID.connectApprove, 15_000);
+
+    await expect(connectPopup.getByTestId('connect-origin')).toHaveText('https://xn--miden-dpp-fixture-y4n.invalid');
+    await connectPopup.screenshot({ path: test.info().outputPath('posture-connect-idn.png') });
+
+    await clickConfirmAction(connectPopup, CONFIRM_TESTID.connectApprove, 15_000);
+    await connectCall;
+  });
+
   /**
    * Budget, itemised (same rule as above — the timeout must exceed the sum):
    *
@@ -415,10 +440,11 @@ test.describe('dApp provider', () => {
     await expect(signPopup.getByTestId('confirm-request-origin')).toHaveText(FIXTURE_DAPP_ORIGIN);
 
     // The message on screen must be the preimage the dApp asked to have signed.
-    // Expanded from the "Raw value" disclosure, so a wallet-side mix-up (wrong
-    // payload rendered, or a stale request's message shown for this one) fails.
-    await signPopup.getByTestId('advanced-details-toggle').click({ timeout: 15_000 });
-    await expect(signPopup.getByTestId('advanced-details-content')).toHaveText(SIGN_PREIMAGE.join(', '));
+    // Shown open under "Raw value", so a wallet-side mix-up (wrong payload
+    // rendered, or a stale request's message shown for this one) fails.
+    await expect(signPopup.getByTestId('confirm-sign-raw-value')).toHaveText(SIGN_PREIMAGE.join(', '), {
+      timeout: 15_000
+    });
 
     await clickConfirmAction(signPopup, CONFIRM_TESTID.signDecline, 15_000);
     const declined = await declinedCall;

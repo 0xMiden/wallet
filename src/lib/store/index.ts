@@ -3,11 +3,13 @@ import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
+import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
+import { isSyncFused } from 'lib/miden/front/sync-fuse';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
@@ -258,7 +260,7 @@ export function withLandedBalances(
     balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
   };
   const finalRows = result.balances[accountAddress];
-  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot);
+  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot, accountAddress);
   return result;
 }
 
@@ -322,6 +324,8 @@ export const useWalletStore = create<WalletStore>()(
     // Initial balance state
     balances: {},
     balancesLoading: {},
+    balanceReadFailed: {},
+    balanceReadInFlight: {},
     balancesLastFetched: {},
     balancesDisplayFaucetId: {},
 
@@ -439,6 +443,12 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.UnlockResponse);
+    },
+
+    platformUnlock: async command => {
+      const res = await request({ type: WalletMessageType.PlatformUnlockRequest, command });
+      assertResponse(res.type === WalletMessageType.PlatformUnlockResponse);
+      return res.result;
     },
 
     // Account actions
@@ -670,16 +680,6 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Signing actions
-    signData: async (publicKey, signingInputs) => {
-      const res = await request({
-        type: WalletMessageType.SignDataRequest,
-        publicKey,
-        signingInputs
-      });
-      assertResponse(res.type === WalletMessageType.SignDataResponse);
-      return res.signature;
-    },
-
     signTransaction: async (publicKey, signingInputs) => {
       const res = await request({
         type: WalletMessageType.SignTransactionRequest,
@@ -859,7 +859,7 @@ export const useWalletStore = create<WalletStore>()(
         id
       });
       assertResponse(res.type === MidenMessageType.DAppSimulateTransactionResponse);
-      return { summaryBytes: res.summaryBytes, executedBytes: res.executedBytes, error: res.error };
+      return { ...(res.effects && fromSimulatedEffectsWire(res.effects)), error: res.error };
     },
 
     estimateUsdcxBurnFee: async (accountPublicKey, destinationChainId) => {
@@ -871,7 +871,7 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
       const failure = burnFeeFailureOf(res);
       return res.outcome === 'measured'
-        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve), faucetId: res.faucetId, scope: res.scope }
         : res.outcome === 'failed' && failure
           ? { outcome: 'failed', failure }
           : { outcome: res.outcome };
@@ -991,6 +991,24 @@ export const useWalletStore = create<WalletStore>()(
       fetchingAddresses.add(accountAddress);
 
       try {
+        // Before the first await, so a caller that already found this address in flight still sees it.
+        set(state => ({
+          balanceReadInFlight: { ...state.balanceReadInFlight, [accountAddress]: true }
+        }));
+        const recordUnlandedRead = () => {
+          const hasBalances = get().balances[accountAddress] !== undefined;
+          if (hasBalances) {
+            set(state => ({
+              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false }
+            }));
+            return;
+          }
+          if (isSyncFused('balances')) {
+            set(state => ({
+              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
+            }));
+          }
+        };
         const effectiveNetwork = () => `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
         const network = effectiveNetwork();
         const overridden = new Set<string>();
@@ -1012,12 +1030,31 @@ export const useWalletStore = create<WalletStore>()(
         });
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
-        if (balances === null) return;
+        if (balances === null) {
+          recordUnlandedRead();
+          return;
+        }
         // A Developer Settings save repointed this realm while the read was out: these are the old
         // node's balances. The metadata it wrote stays, each faucet's own record on any network.
-        if (effectiveNetwork() !== network) return;
-        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot));
+        if (effectiveNetwork() !== network) {
+          recordUnlandedRead();
+          return;
+        }
+        set(state => ({
+          ...withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot),
+          balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false }
+        }));
+      } catch (error) {
+        if (get().balances[accountAddress] === undefined) {
+          set(state => ({
+            balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
+          }));
+        }
+        throw error;
       } finally {
+        set(state => ({
+          balanceReadInFlight: { ...state.balanceReadInFlight, [accountAddress]: false }
+        }));
         fetchingAddresses.delete(accountAddress);
       }
     },
@@ -1029,7 +1066,13 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     clearBalances: () => {
-      set({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
+      set({
+        balances: {},
+        balancesLoading: {},
+        balancesLastFetched: {},
+        balanceReadFailed: {},
+        balanceReadInFlight: {}
+      });
     },
 
     // Asset actions
@@ -1675,4 +1718,42 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       setTestSyncPaused(false);
     }
   });
+  // Proves an abandon on the Guardian under test: pushes a 1-unit public send as a candidate (signing the proposal
+  // pushes its delta), never executes it, abandons it and polls the quarantine to its end. The sleeps run outside the
+  // WASM lock; the proposal steps take it themselves.
+  Reflect.set(
+    globalThis,
+    '__TEST_GUARDIAN_ABANDON_PROBE__',
+    async (accountPublicKey: string, recipient: string, faucetId: string) => {
+      setTestSyncPaused(true);
+      try {
+        const [{ NoteType }, { getOrCreateMultisigService }, { zustandProvider }, { sameWalletAccountId }] =
+          await Promise.all([
+            import('@miden-sdk/miden-sdk/lazy'),
+            import('lib/miden/front/guardian-manager'),
+            import('lib/miden/front/guardian-sync'),
+            import('lib/miden/sdk/helpers')
+          ]);
+        const walletAccount = useWalletStore
+          .getState()
+          .accounts.find(account => sameWalletAccountId(account.publicKey, accountPublicKey));
+        if (!walletAccount) return { error: `No wallet account ${accountPublicKey}` };
+        const service = await getOrCreateMultisigService(walletAccount.publicKey, zustandProvider);
+        const proposal = await service.createSendProposal(recipient, faucetId, 1n, NoteType.Public);
+        await service.signAndCreateTransactionRequest(proposal.id);
+        const ticket = await service.abandonCandidate(proposal.nonce, proposal.id);
+        const deadline = Date.now() + 150_000;
+        for (;;) {
+          const status = await service.abandonStatus(proposal.nonce, ticket);
+          if (status !== 'waiting') return { legacy: ticket.legacy, status };
+          if (Date.now() >= deadline) return { error: 'abandon still waiting after 150 s' };
+          await new Promise(resolve => setTimeout(resolve, 3_000));
+        }
+      } catch (e) {
+        return { error: describeHookError(e) };
+      } finally {
+        setTestSyncPaused(false);
+      }
+    }
+  );
 }

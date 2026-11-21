@@ -170,10 +170,11 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
       // Earn deposit is greyed out until the wallet has a collateral faucet, and the reload
       // above dropped the override, so it is set here too, before the Deposit button.
       await walletA.page.evaluate(setEarnFaucet, faucetHex);
-      const vaultRow = walletA.page.locator('[data-testid^="earn-vault-row-"]').first();
+      const workbench = walletA.page.getByTestId('command-shell').getByTestId('command-workbench');
+      const vaultRow = workbench.locator('[data-testid^="command-earn-deposit-"]').first();
       await expect(vaultRow).toBeVisible({ timeout: 30_000 });
       const rowTestId = await vaultRow.getAttribute('data-testid');
-      const vaultId = (rowTestId ?? '').replace('earn-vault-row-', '');
+      const vaultId = (rowTestId ?? '').replace('command-earn-deposit-', '');
       expect(vaultId, 'derived vault id').not.toBe('');
 
       await vaultRow.click();
@@ -181,19 +182,15 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
       await expect(depositBtn).toBeVisible({ timeout: 30_000 });
       await depositBtn.click();
 
-      // The deposit CTA lands on the amount screen (proves routing). The deposit
-      // itself is placed from a deep link to the review route, so it carries exactly
-      // DEPOSIT_AMOUNT; the link names the faucet set below, as the amount step's
-      // does, because a review is bound to the collateral it names.
-      await expect(walletA.page.getByTestId('earn-deposit-amount-page')).toBeVisible({ timeout: 30_000 });
-
-      await walletA.navigateTo(
-        `/earn/vaults/${vaultId}/deposit/review?amount=${DEPOSIT_AMOUNT}&collateral=${encodeURIComponent(faucetHex)}`
-      );
-      // Set the collateral-faucet override in the freshly-loaded review page realm -
-      // `openEarnPosition` reads it (page-side) on confirm.
-      await walletA.page.evaluate(setEarnFaucet, faucetHex);
-      const confirm = walletA.page.getByTestId('earn-deposit-review-confirm');
+      // Drive the actual Command amount and footer instead of deep-linking past the input.
+      const amountPage = workbench.getByTestId('earn-deposit-amount-page');
+      await expect(amountPage).toBeVisible({ timeout: 30_000 });
+      await amountPage.getByTestId('send-amount-input').fill(DEPOSIT_AMOUNT);
+      await workbench.getByTestId('command-footer').getByRole('button', { name: 'Confirm' }).click();
+      const review = workbench.getByTestId('earn-deposit-review-page');
+      await expect(review).toBeVisible({ timeout: 30_000 });
+      expect(new URL(walletA.page.url()).hash).toContain(`amount=${DEPOSIT_AMOUNT}`);
+      const confirm = workbench.getByTestId('command-footer').getByTestId('earn-deposit-review-confirm');
       await expect(confirm).toBeEnabled({ timeout: 30_000 });
       await confirm.click();
 

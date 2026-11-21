@@ -6,12 +6,14 @@
   "accountNotFound": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "sheet": {
     "simulatedEffects": "Simulated effects:",
-    "notSimulated": "This transaction could not be simulated, so its effects are unknown.",
-    "reasonPrefix": "Reason, ",
     "leaves": "Leaves this account",
     "fee": "Network fee, ",
     "notesConsumed": "Notes consumed, ",
     "notesCreated": "Notes created, "
+  },
+  "notSimulatedRefusal": {
+    "text": "The transaction could not be simulated, so the wallet cannot show what it does and does not ask for approval.",
+    "reasonPrefix": "Reason: "
   },
   "texts": {
     "R5": {

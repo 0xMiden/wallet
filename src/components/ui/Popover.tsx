@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react';
 import {
   autoUpdate,
   FloatingFocusManager,
+  flip,
   offset,
   shift,
   size,
@@ -14,6 +15,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion';
 
 import { usePageActive } from 'app/layouts/page-active';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { useTabBarMotion } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
@@ -21,8 +23,7 @@ import Portal from 'lib/ui/Portal';
 import { cn } from 'lib/ui/util';
 import { useLocation } from 'lib/woozie';
 
-/** Which edge of the anchor the panel lines up with. Only its end (right) edge has a caller. */
-export type PopoverAlign = 'end';
+export type PopoverAlign = 'start' | 'end';
 
 export interface PopoverProps {
   open: boolean;
@@ -69,6 +70,7 @@ export const Popover: React.FC<PopoverProps> = ({
   'data-testid': dataTestId
 }) => {
   const motionTokens = useTabBarMotion();
+  const command = useFlowPresentation() === 'command';
 
   const { refs, floatingStyles, context } = useFloating({
     open,
@@ -83,6 +85,7 @@ export const Popover: React.FC<PopoverProps> = ({
     whileElementsMounted: autoUpdate,
     middleware: [
       offset(ANCHOR_GAP),
+      command && flip({ padding: VIEWPORT_MARGIN }),
       shift({ padding: VIEWPORT_MARGIN }),
       size({
         padding: VIEWPORT_MARGIN,
@@ -130,15 +133,17 @@ export const Popover: React.FC<PopoverProps> = ({
               ref={refs.setFloating}
               aria-modal="true"
               aria-label={ariaLabel}
+              data-command-popover={command ? '' : undefined}
               data-testid={dataTestId}
-              style={{ ...floatingStyles, transformOrigin: 'top right' }}
+              style={{ ...floatingStyles, transformOrigin: align === 'start' ? 'top left' : 'top right' }}
               initial={{ opacity: 0, scale: 0.94, y: -6 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: -4 }}
               transition={motionTokens.highlight}
               className={cn(
                 'z-50 w-72 overflow-y-auto overscroll-contain rounded-2xl bg-page outline-none',
-                'border border-hairline shadow-raised no-scrollbar'
+                'border border-hairline shadow-raised no-scrollbar',
+                command && 'dark w-88 max-w-[calc(100vw-2rem)] text-ink'
               )}
               {...getFloatingProps()}
             >

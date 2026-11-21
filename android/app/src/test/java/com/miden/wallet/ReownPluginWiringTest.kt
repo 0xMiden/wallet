@@ -3,6 +3,8 @@ package com.miden.wallet
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -180,5 +182,162 @@ class ReownPluginWiringTest {
         assertTrue(section("onSessionRejected").contains("notifyListeners(\"sessionResponse\", JSObject().put(\"error\", rejectedSession.reason))"))
         assertTrue(section("onError").contains("notifyListeners(\"sessionResponse\", JSObject().put(\"error\", error.throwable.message))"))
         assertFalse(source.contains("ReownNativeOrigin.OTHER"))
+    }
+}
+
+class GuardianProbeHttpBookTest {
+    private val source = File("src/main/java/com/miden/wallet/GuardianProbeHttpPlugin.kt").readText()
+
+    @Test
+    fun pluginCancelUsesTheBook() {
+        val cancel = functionBody("cancel")
+        assertTrue(cancel.contains("abandon("))
+        assertFalse(cancel.contains("markCancelled"))
+    }
+
+    @Test
+    fun pluginAdmitsIoBeforeConnectingCalls() {
+        val request = functionBody("request")
+        val admission = request.indexOf("admitIo(")
+        val outputStream = request.indexOf("outputStream")
+        val responseCode = request.indexOf("responseCode")
+        assertTrue("request must admit I/O", admission >= 0)
+        assertTrue("admission must precede outputStream", admission < outputStream)
+        assertTrue("admission must precede responseCode", admission < responseCode)
+    }
+
+    @Test
+    fun pluginRetriesAbandonedDisconnect() {
+        val request = functionBody("request")
+        val cancel = functionBody("cancel")
+        assertTrue("cancel must claim the disconnect retry", cancel.contains("claimRetry("))
+        assertTrue("deadline must claim the disconnect retry", request.contains("claimRetry("))
+        assertTrue(request.contains("DISCONNECT_RETRY_MS"))
+        assertTrue(request.contains("abandonedSocket("))
+    }
+
+    @Test
+    fun abandonedBeforeAdmitNeverStartsIo() {
+        val book = GuardianProbeHttpBook<LazyProbeSocket>()
+        val id = "probe"
+        val socket = LazyProbeSocket()
+        assertEquals(GuardianProbeBegin.started, book.begin(id))
+        assertFalse(book.claimRetry(id))
+        assertTrue(book.publish(id, socket))
+        book.abandon(id)?.disconnect()
+        assertFalse(socket.stuckClosed)
+        assertFalse(book.admitIo(id))
+        assertSame(socket, book.abandonedSocket(id))
+    }
+
+    @Test
+    fun abandonedAfterAdmitStaysReachableUntilFinish() {
+        val book = GuardianProbeHttpBook<LazyProbeSocket>()
+        val id = "probe"
+        val socket = LazyProbeSocket()
+        assertEquals(GuardianProbeBegin.started, book.begin(id))
+        assertTrue(book.publish(id, socket))
+        assertTrue(book.admitIo(id))
+        val abandoned = book.abandon(id)
+        assertSame(socket, abandoned)
+        abandoned?.disconnect()
+        assertFalse(socket.stuckClosed)
+        socket.engineReady = true
+        assertSame(socket, book.abandonedSocket(id))
+        book.abandonedSocket(id)?.disconnect()
+        assertTrue(socket.stuckClosed)
+        assertTrue(book.claimRetry(id))
+        assertFalse(book.claimRetry(id))
+        book.finish(id)
+        assertNull(book.abandonedSocket(id))
+        assertFalse(book.claimRetry(id))
+    }
+
+    @Test
+    fun lateCancelOfFinishedRequestRetainsNothing() {
+        val book = GuardianProbeHttpBook<String>()
+        val id = "probe"
+        book.begin(id)
+        book.finish(id)
+        book.abandon(id)
+        book.abandon(id)
+        assertEquals(0, book.pendingCount())
+        assertEquals(0, book.activeCount())
+    }
+
+    @Test
+    fun pendingCancelIsCapped() {
+        val book = GuardianProbeHttpBook<String>()
+        val PENDING_CAP = GuardianProbeHttpBook.PENDING_CAP
+        assertEquals(64, PENDING_CAP)
+        repeat(PENDING_CAP + 1) { index -> book.abandon("pre-$index") }
+        assertEquals(PENDING_CAP, book.pendingCount())
+        assertEquals(GuardianProbeBegin.started, book.begin("pre-0"))
+        assertEquals(GuardianProbeBegin.alreadyCancelled, book.begin("pre-$PENDING_CAP"))
+    }
+
+    @Test
+    fun cancelAfterBeginPreventsPublish() {
+        val book = GuardianProbeHttpBook<String>()
+        val id = "probe"
+        assertEquals(GuardianProbeBegin.started, book.begin(id))
+        book.abandon(id)
+        assertFalse(book.publish(id, "socket"))
+        assertEquals(0, book.pendingCount())
+
+        val published = "published-socket"
+        val second = "probe-2"
+        assertEquals(GuardianProbeBegin.started, book.begin(second))
+        assertTrue(book.publish(second, published))
+        assertTrue(book.abandon(second) === published)
+        assertTrue(book.abandon(second) === published)
+        book.finish(second)
+        assertNull(book.abandon(second))
+        assertEquals(0, book.pendingCount())
+    }
+
+    @Test
+    fun finishedIdsAreCapped() {
+        val book = GuardianProbeHttpBook<String>()
+        val FINISHED_CAP = GuardianProbeHttpBook.FINISHED_CAP
+        assertEquals(64, FINISHED_CAP)
+        val newest = "id-$FINISHED_CAP"
+        for (index in 0..FINISHED_CAP) {
+            val id = "id-$index"
+            assertEquals(GuardianProbeBegin.started, book.begin(id))
+            book.finish(id)
+        }
+        assertEquals(FINISHED_CAP, book.finishedCount())
+        book.abandon(newest)
+        assertEquals(0, book.pendingCount())
+        assertEquals(FINISHED_CAP, book.finishedCount())
+    }
+
+    private fun functionBody(name: String): String {
+        val declaration = Regex("\\bfun\\s+${Regex.escape(name)}\\s*\\(").find(source)
+        assertTrue("Missing function $name", declaration != null)
+        val start = source.indexOf('{', requireNotNull(declaration).range.first)
+        assertTrue("Missing body for $name", start >= 0)
+        var depth = 0
+        for (index in start until source.length) {
+            when (source[index]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return source.substring(start + 1, index)
+                }
+            }
+        }
+        error("Unbalanced body for $name")
+    }
+
+    private class LazyProbeSocket {
+        var engineReady: Boolean = false
+        var stuckClosed: Boolean = false
+            private set
+
+        fun disconnect() {
+            if (engineReady) stuckClosed = true
+        }
     }
 }

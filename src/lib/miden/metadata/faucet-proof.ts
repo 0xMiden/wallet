@@ -48,14 +48,24 @@ function readSymbol(value: bigint): string {
   return symbol;
 }
 
-/** Reads the complete standard storage layout using miden-standards 0.17.1 decoding rules. */
-export function readFaucetProofMetadata(proof: AccountProof): AssetMetadata {
+/** Reads the standard token configuration without loading storage maps. */
+export function readFaucetProofTokenConfig(proof: AccountProof): {
+  supply: bigint;
+  decimals: number;
+  symbol: string;
+} {
   const [supply, maxSupply, decimals, encodedSymbol] = readWord(proof, 'fungible::token_config');
   if (supply > MAX_AMOUNT || maxSupply > MAX_AMOUNT || supply > maxSupply) {
     throw new Error('Invalid faucet supply');
   }
   if (decimals > 12n) throw new Error('Invalid faucet decimals');
   const symbol = readSymbol(encodedSymbol);
+  return { supply, decimals: Number(decimals), symbol };
+}
+
+/** Reads the complete standard storage layout using miden-standards 0.17.1 decoding rules. */
+export function readFaucetProofMetadata(proof: AccountProof): AssetMetadata {
+  const { decimals, symbol } = readFaucetProofTokenConfig(proof);
   const name = readString(proof, 'token_name', 2, 32);
   const description = readString(proof, 'token_description', 7, 195);
   readString(proof, 'logo_uri', 7, 195);
@@ -66,7 +76,7 @@ export function readFaucetProofMetadata(proof: AccountProof): AssetMetadata {
   return {
     symbol,
     name: name || symbol,
-    decimals: Number(decimals),
+    decimals,
     scaleIsUnknown: false,
     ...(description ? { description } : {})
   };

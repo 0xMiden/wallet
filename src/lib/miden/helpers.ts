@@ -77,8 +77,12 @@ export const ESTIMATED_MS_PER_BLOCK = 3_000;
 
 /**
  * Blocks a request the wallet submits on its own may wait for inclusion: about 30 minutes at the estimated cadence
- * (#1081). A submitted transaction without one never expires, so "it never committed" could be proven only by the
- * account moving on without it.
+ * (#1081), where the fee asset leaves it that long. A submitted transaction without one never expires, so "it never
+ * committed" could be proven only by the account moving on without it.
+ *
+ * Every delta here is an upper bound. A fee faucet with a transfer policy, as on mainnet, caps a fee-paying transaction
+ * at 20 blocks from its reference block whatever the request asks for, and the freshness guard before a Guardian submit
+ * (`guardian/proof-freshness.ts`) reads the proof's own expiration for that reason (#2060).
  */
 export const EXPIRATION_DELTA_BLOCKS = 600;
 
@@ -86,7 +90,8 @@ export const EXPIRATION_DELTA_BLOCKS = 600;
  * Blocks for a request proposed through a Guardian: 540 s at 3 s blocks, inside the Guardian's ~600 s pending hold,
  * which starts after the proposal's bound block. Its transaction can then only land before the Guardian could discard
  * the candidate, while blocks come at least every 3.3 s. A proposal executes at the tip, so a wallet-built one carries
- * this as its approval expiration, counted from the bound block (`createRebasedCustomProposal`).
+ * this as its approval expiration, counted from the bound block (`createRebasedCustomProposal`). It does not set the
+ * mainnet proof window, which the fee policy above holds to 20 blocks from the execution's reference block.
  */
 export const GUARDIAN_EXPIRATION_DELTA_BLOCKS = 180;
 
@@ -132,6 +137,43 @@ export const assertValidRecallBlocks = (recallBlocks: number | undefined | null)
     throw new Error(`recallBlocks must be a whole number between 0 and ${MAX_RECALL_BLOCKS}, got ${recallBlocks}`);
   }
 };
+
+export function parseCalendarRecallTarget(target: unknown): Date | undefined {
+  if (typeof target !== 'string' || !target) return undefined;
+  const date = new Date(target);
+  return Number.isFinite(date.getTime()) && date.toISOString() === target ? date : undefined;
+}
+
+export class CalendarRecallReviewRequiredError extends Error {
+  readonly errorBeforeSubmit = true;
+
+  constructor() {
+    super('The approved calendar recall target is no longer valid for a new request.');
+    this.name = 'CalendarRecallReviewRequiredError';
+  }
+}
+
+/** Project a reviewed date at first build, not at queue admission. Relative sends keep their exact offset. */
+export function resolveSendReclaimHeight(
+  syncHeight: number,
+  recallBlocks: number | undefined,
+  calendarRecallTarget?: string
+): number | undefined {
+  if (calendarRecallTarget === undefined) return recallBlocks ? syncHeight + recallBlocks : undefined;
+  const target = parseCalendarRecallTarget(calendarRecallTarget);
+  const blocks = target ? Math.floor((target.getTime() - Date.now()) / ESTIMATED_MS_PER_BLOCK) : 0;
+  const height = syncHeight + blocks;
+  if (
+    !Number.isSafeInteger(syncHeight) ||
+    syncHeight < 0 ||
+    blocks < 1 ||
+    blocks > MAX_RECALL_BLOCKS ||
+    height > 0xffffffff
+  ) {
+    throw new CalendarRecallReviewRequiredError();
+  }
+  return height;
+}
 
 // P2IDE note storage layout (miden-standards 0.16 `src/note/p2ide.rs`,
 // `impl From<P2ideNoteStorage> for NoteStorage`):

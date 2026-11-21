@@ -12,15 +12,18 @@
 // reap the document under memory pressure; the next `ensureOffscreenDocument`
 // recreates it. Cold start re-pays WASM init + thread-pool spawn (~1-3s).
 
+import { isOffscreenDocumentSender } from 'lib/intercom/sender';
+
+import { OFFSCREEN_URL } from './offscreen-codec';
 import { isInOffscreenDocument } from './offscreen-realm';
 
 // Re-exported so every existing importer of `isInOffscreenDocument` from here —
 // and every test that mocks this module wholesale — is unchanged by the split.
 // Modules that need ONLY the realm check should import `./offscreen-realm`
-// directly; see that file for why the two are separate.
-export { isInOffscreenDocument };
-
-const OFFSCREEN_URL = 'offscreen.html';
+// directly; see that file for why the two are separate. `OFFSCREEN_URL` lives in
+// the codec for the same reason: the service worker's sender check reads it, and a
+// partial mock of this module must not turn it into `undefined`.
+export { isInOffscreenDocument, OFFSCREEN_URL };
 
 // Lifecycle queue for create+close serialization. The offscreen API throws
 // "Only a single offscreen document may be created" if create races with
@@ -178,12 +181,13 @@ function waitForOffscreenReady(): Promise<void> {
       chrome.runtime.onMessage.removeListener(handler);
       reject(new Error('Offscreen prover ready signal timed out (>30s)'));
     }, 30_000);
-    const handler = (msg: { type?: string }) => {
-      if (msg?.type === 'OFFSCREEN_READY') {
-        clearTimeout(timeout);
-        chrome.runtime.onMessage.removeListener(handler);
-        resolve();
-      }
+    const handler = (msg: { type?: string }, sender?: { id?: string; url?: string; tab?: unknown }) => {
+      // A page, the worker, a content script, or a missing sender leaves this listener in place.
+      if (msg?.type !== 'OFFSCREEN_READY') return;
+      if (!isOffscreenDocumentSender(sender, chrome.runtime.id, chrome.runtime.getURL(OFFSCREEN_URL))) return;
+      clearTimeout(timeout);
+      chrome.runtime.onMessage.removeListener(handler);
+      resolve();
     };
     chrome.runtime.onMessage.addListener(handler);
   });

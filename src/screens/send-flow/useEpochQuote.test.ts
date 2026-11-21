@@ -7,7 +7,14 @@ import { type EpochToken, selectEpochOutputToken, selectEvmChainId } from 'lib/r
 
 import { useEpochQuote } from './useEpochQuote';
 
-jest.mock('use-debounce', () => ({ useDebounce: (value: unknown) => [value] }));
+let mockHoldDebounce = false;
+let mockDebouncedValue: unknown;
+jest.mock('use-debounce', () => ({
+  useDebounce: (value: unknown) => {
+    if (!mockHoldDebounce) mockDebouncedValue = value;
+    return [mockDebouncedValue];
+  }
+}));
 jest.mock('lib/epoch', () => ({ quoteEpochSendOutput: jest.fn() }));
 jest.mock('lib/epoch/bridge', () => ({ normalizeMidenIdToHex: (id: string) => id }));
 jest.mock('lib/remote-config/values', () => ({ selectEpochOutputToken: jest.fn(), selectEvmChainId: jest.fn() }));
@@ -61,7 +68,13 @@ const configFor = ({
       }
     },
     agglayer: { indexer: SKIPPED },
-    epoch: { allocator: { state: 'ok', value: true }, market: SKIPPED, midenUsdcFaucet: SKIPPED, vaults: SKIPPED }
+    epoch: {
+      allocator: { state: 'ok', value: true },
+      allocatorAccount: SKIPPED,
+      market: SKIPPED,
+      midenUsdcFaucet: SKIPPED,
+      vaults: SKIPPED
+    }
   },
   lastFetch: null
 });
@@ -107,6 +120,8 @@ const READY = {
 };
 
 beforeEach(() => {
+  mockHoldDebounce = false;
+  mockDebouncedValue = undefined;
   mockConfigSnapshot = configFor();
   jest.mocked(selectEvmChainId).mockImplementation(({ config }) => config?.supportedEvmChains.sepolia?.chainId ?? null);
   // As the real selector reads a document whose tokens name no faucet: the route's USDC, usable only while its read
@@ -126,6 +141,21 @@ const pendingQuote = () => {
   });
   return { promise, resolve };
 };
+
+it('keeps the provider validity bound to the request, and removes it immediately on input change', async () => {
+  jest.mocked(quoteEpochSendOutput).mockResolvedValue({
+    amount: '4.9',
+    symbol: 'USDC',
+    validity: { kind: 'provider' }
+  });
+  const { result, rerender } = renderHook(props => useEpochQuote(props), { initialProps: READY });
+  await act(async () => undefined);
+  expect(result.current).toEqual(expect.objectContaining({ amount: '4.9', validity: { kind: 'provider' } }));
+  mockHoldDebounce = true;
+  rerender({ ...READY, amount: 6n });
+  expect(result.current.validity).toBeUndefined();
+  expect(result.current.amount).toBeUndefined();
+});
 
 it('names the configured output token until a quote names its own', async () => {
   jest.mocked(quoteEpochSendOutput).mockResolvedValue({ amount: '4.9', symbol: 'USDT' });
@@ -155,6 +185,18 @@ it('names no token while the config has none, and keeps a failed quote on the co
     address: USDC.address,
     decimals: 18
   });
+});
+
+it('withholds a previously resolved quote immediately while new inputs are still debouncing', async () => {
+  jest.mocked(quoteEpochSendOutput).mockResolvedValue({ amount: '4.9', symbol: 'USDC' });
+  const { result, rerender } = renderHook(props => useEpochQuote(props), { initialProps: READY });
+  await act(async () => undefined);
+  expect(result.current.amount).toBe('4.9');
+  mockHoldDebounce = true;
+  act(() => rerender({ ...READY, amount: 6n }));
+  expect(result.current.amount).toBeUndefined();
+  expect(result.current.loading).toBe(true);
+  expect(quoteEpochSendOutput).toHaveBeenCalledTimes(1);
 });
 
 it('looks the output token up on the destination chain, by the sent faucet', () => {

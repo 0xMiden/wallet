@@ -4,12 +4,13 @@ import { useTranslation } from 'react-i18next';
 
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 
+import { earnMarketLabel, EarnDepositArrowGlyph, useEarnCollateralFallback } from '../TransactionSummaryBadge';
 import { buildReceiptRows } from './receipt';
 import {
   ReceiptRows,
@@ -18,7 +19,6 @@ import {
   TransactionSuccessProps,
   useReceiptFeeText
 } from './TransactionSuccessLayout';
-import { earnMarketLabel, EarnDepositArrowGlyph, useEarnCollateralFallback } from '../TransactionSummaryBadge';
 
 /**
  * "You're Earning!" receipt for a completed `earn-deposit` — routed from the
@@ -46,10 +46,13 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
   // resolved: the unknown-token placeholder is not evidence about this faucet.
   const tokenMetadata = hasKnownScale(stored) ? stored : undefined;
   const scale = tokenMetadata ?? collateral;
-  const amountText =
-    transaction?.amount !== undefined && scale
-      ? `${formatAmount(transaction.amount, scale.decimals)} ${scale.symbol}`
-      : undefined;
+  const amountText = useMemo(
+    () =>
+      transaction?.amount !== undefined && scale ? (
+        <TokenAmount amount={transaction.amount} decimals={scale.decimals} symbol={scale.symbol} rounding="up" />
+      ) : undefined,
+    [transaction?.amount, scale]
+  );
 
   const marketUid: unknown = transaction?.extraInputs?.marketUid;
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });

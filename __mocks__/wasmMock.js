@@ -79,6 +79,10 @@ module.exports = {
   NoteFilter: jest.fn(),
   NoteId: jest.fn(),
   Note: jest.fn(),
+  // `swapOrderOf` names an order by this root. Fixtures return the same `root()`.
+  NoteScript: {
+    pswap: () => ({ root: () => ({ toHex: () => 'pswap' }) })
+  },
   AuthSecretKey: jest.fn(),
   // The lazy entry's WASM loader. Static classes above are usable only after it
   // resolves in production; the mock has no module to load, so it resolves empty.

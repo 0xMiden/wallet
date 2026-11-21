@@ -54,7 +54,8 @@ final class ManagedHostClose {
         if (finished) { completion.run(); return; }
         completions.add(completion);
         if (closing()) { if (failed) retry(); return; }
-        visible = owner.isShowing();
+        boolean unseenWarm = owner.retireUnseenWarmPresentation();
+        visible = owner.isShowing() && !unseenWarm;
         owner.disableClosingPage();
         host.addOnLayoutChangeListener(layoutListener);
         ensureReturnInsets();

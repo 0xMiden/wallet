@@ -1,5 +1,5 @@
 /**
- * MultisigService — wraps MultisigClient/Multisig/GuardianHttpClient into a
+ * MultisigService - wraps MultisigClient/Multisig/GuardianHttpClient into a
  * narrower surface used by the wallet. These tests cover:
  *   - constructor / accountId getter
  *   - proposal builders (send, consume, custom)
@@ -11,9 +11,11 @@
  * All external collaborators are stubbed to keep tests hermetic.
  */
 
-import { Account } from '@miden-sdk/miden-sdk/lazy';
-import { GuardianHttpClient } from '@openzeppelin/miden-multisig-client';
+import { Account, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { GuardianHttpClient, type Proposal } from '@openzeppelin/miden-multisig-client';
 
+import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
+import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
@@ -21,13 +23,24 @@ import {
   GuardianReRegisterRefusedError,
   isGuardianAuthRejection,
   isProposalChainSyncError,
+  isPostPushProposalVerificationFailure,
+  isProposalIdMismatchError,
   MultisigService,
   POST_COMMIT_GUARDIAN_TIMEOUT_MS,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
   ProposalChainSyncError,
+  ProposalIdMismatchError,
+  type AbandonTicket,
   type ProposalSyncPhase
 } from './index';
-import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import {
+  GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS,
+  GUARDIAN_RETRY_MAX_ATTEMPTS,
+  isGuardianStateNotOnChain,
+  isNewGuardianAnswer,
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
+} from './serialize';
+import { WalletSigner } from './signer';
 import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -37,9 +50,9 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm
  * These tests replaced `setTimeout` with an immediate-invoke stub so they would
  * not sit on real backoff timers. That also fires the `withTimeout` deadlines the
  * guardian calls are wrapped in, so every bounded request "timed out" on its
- * first tick — the stub silently rewrote what was under test. Bounded by the cap
+ * first tick - the stub silently rewrote what was under test. Bounded by the cap
  * on the delays being skipped (`GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS`, and the
- * shorter sync retry wait below it), so anything longer — i.e. a deadline — keeps
+ * shorter sync retry wait below it), so anything longer - i.e. a deadline - keeps
  * a real timer and never fires before the promise it guards settles.
  */
 const skipRetryBackoffs = () => {
@@ -68,7 +81,7 @@ jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn(() => new Uint8Array([1, 2, 3]))
 }));
 
-// Keep the id parser simple — we only assert it was called with the inputs we
+// Keep the id parser simple - we only assert it was called with the inputs we
 // passed; the real implementation parses bech32/hex, which needs WASM.
 const mockAccountRefToSdk = jest.fn((ref: string) => ({ toString: () => `sdk(${ref})` }));
 const mockFeeAwareRequestBuilder = jest.fn();
@@ -95,18 +108,25 @@ jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
 }));
 
 const mockGetAccount = jest.fn();
+const mockAccountGet = jest.fn();
 const mockAccountInspectorFromAccount = jest.fn();
 const mockSyncState = jest.fn(async () => {});
 const callOrder: string[] = [];
 const mockSyncChain = jest.fn(async () => {
   callOrder.push('syncChain');
 });
-const mockRawWebClient = { kind: 'raw-web-client', syncChain: () => mockSyncChain() };
+const mockRawWebClient = {
+  kind: 'raw-web-client',
+  syncChain: () => mockSyncChain(),
+  accounts: { get: (...args: unknown[]) => mockAccountGet(...args) }
+};
 const mockBuildPswapCancelRequest = jest.fn();
+const mockBuildPswapConsumeRequest = jest.fn(async (..._args: unknown[]) => new Uint8Array([6, 6, 1]));
 const mockMidenClient = {
   getAccount: (...args: unknown[]) => mockGetAccount(...args),
   syncState: () => mockSyncState(),
   buildPswapCancelRequest: (...args: unknown[]) => mockBuildPswapCancelRequest(...args),
+  buildPswapConsumeRequest: (...args: unknown[]) => mockBuildPswapConsumeRequest(...args),
   client: mockRawWebClient
 };
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
@@ -118,6 +138,16 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // indistinguishable, and the guardian sync is the wallet's DEFAULT account type's
 // idle sync (#777).
 let currentWasmHold: object | null = null;
+const mockYieldWasmClientLock = jest.fn(async <T>(operation: () => Promise<T>, hold?: object): Promise<T> => {
+  const previous = currentWasmHold;
+  if (hold !== undefined && hold !== previous) throw new Error('yielded a hold this test does not own');
+  currentWasmHold = null;
+  try {
+    return await operation();
+  } finally {
+    currentWasmHold = previous;
+  }
+});
 let wasmLockTail: Promise<void> = Promise.resolve();
 // Set by the one test that needs the watchdog to land mid-build.
 let evictDuringClientBuild = false;
@@ -140,8 +170,9 @@ jest.mock('../sdk/miden-client', () => {
     // Models hold OWNERSHIP: the code under test re-checks it after the client build, so a
     // pass-through mock with no hold makes that guard both unreachable and a TypeError.
     getCurrentWasmLockHold: () => currentWasmHold,
+    yieldWasmClientLock: (...args: Parameters<typeof mockYieldWasmClientLock>) => mockYieldWasmClientLock(...args),
     // The shared post-await re-check (#788 follow-up). Re-implements the
-    // comparison against THIS mock's current hold — a no-op stub here would make
+    // comparison against THIS mock's current hold - a no-op stub here would make
     // every eviction test below vacuously green.
     assertWasmHoldCurrent: (hold: object | null, where: string) => {
       if (hold !== null && currentWasmHold === hold) return;
@@ -176,7 +207,7 @@ jest.mock('../sdk/miden-client-interface', () => ({
   }
 }));
 
-// Guardian SDK stubs — each constructor pulls from a per-test config so the
+// Guardian SDK stubs - each constructor pulls from a per-test config so the
 // same `new GuardianHttpClient(...)` call can return different behavior per
 // test without juggling prototypes.
 const guardianConfig: {
@@ -185,12 +216,14 @@ const guardianConfig: {
   setSigner: jest.Mock;
   getDeltaProposal: jest.Mock;
   pushDelta: jest.Mock;
+  configure: jest.Mock;
 } = {
   getPubkey: jest.fn(),
   getState: jest.fn(),
   setSigner: jest.fn(),
   getDeltaProposal: jest.fn(),
-  pushDelta: jest.fn()
+  pushDelta: jest.fn(),
+  configure: jest.fn()
 };
 const multisigClientConfig: { load: jest.Mock } = {
   load: jest.fn()
@@ -200,10 +233,16 @@ const mockBuildUpdateSignersTransactionRequest = jest.fn(async (..._args: unknow
   request: { kind: 'request' },
   salt: { toHex: () => 'salt-hex' }
 }));
+// The summary commitment the mocked local execution derives. A proposal made from that summary has it as its id.
+const SUMMARY_COMMITMENT = `0x${'5e'.repeat(32)}`;
+const mockSummaryFree = jest.fn();
 const mockExecuteForSummaryAtTip = jest.fn(async (..._args: unknown[]) => ({
-  serialize: () => new Uint8Array([0xab])
+  serialize: () => new Uint8Array([0xab]),
+  toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: () => {} }),
+  free: () => mockSummaryFree()
 }));
 const mockRequestBoundBlockNum = jest.fn((_request: unknown): number | undefined => 4242);
+const mockSummaryBoundBlockNum = jest.fn((_summary: unknown): number | undefined => 5150);
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   GuardianHttpClient: jest.fn().mockImplementation(() => ({
@@ -211,7 +250,8 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
     getState: (...a: unknown[]) => guardianConfig.getState(...a),
     setSigner: (...a: unknown[]) => guardianConfig.setSigner(...a),
     getDeltaProposal: guardianConfig.getDeltaProposal,
-    pushDelta: guardianConfig.pushDelta
+    pushDelta: guardianConfig.pushDelta,
+    configure: guardianConfig.configure
   })),
   MultisigClient: jest.fn().mockImplementation(() => ({
     load: (...a: unknown[]) => multisigClientConfig.load(...a)
@@ -219,6 +259,7 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   buildUpdateSignersTransactionRequest: (...a: unknown[]) => mockBuildUpdateSignersTransactionRequest(...a),
   executeForSummaryAtTip: (...a: unknown[]) => mockExecuteForSummaryAtTip(...a),
   requestBoundBlockNum: (a: unknown) => mockRequestBoundBlockNum(a),
+  summaryBoundBlockNum: (a: unknown) => mockSummaryBoundBlockNum(a),
   AccountInspector: { fromAccount: (...a: unknown[]) => mockAccountInspectorFromAccount(...a) }
 }));
 
@@ -235,7 +276,7 @@ jest.mock('./account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
   insertGuardianAccountMonotonically: (...a: unknown[]) => mockInsertGuardianAccountMonotonically(...a),
   // Resolve to the per-account endpoint, falling back to the stored value the
-  // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
+  // fetchFromStorage mock returns - mirrors the real resolveGuardianEndpoint.
   resolveGuardianEndpoint: (acc: { guardianEndpoint?: string }) =>
     acc.guardianEndpoint ?? 'https://stored.guardian.test'
 }));
@@ -244,10 +285,21 @@ jest.mock('./account', () => ({
 jest.mock('./native-http');
 // A pubkey-check deadline no other deadline shares, so a test can tell which one a call reads.
 jest.mock('./serialize', () => ({ ...jest.requireActual('./serialize'), NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000 }));
+// The wallet's own nonce-only abandon request, covered against the real client in legacy-abandon.test.ts.
+const mockAbandonCandidateByNonce = jest.fn(async (..._args: unknown[]): Promise<{ commitment?: string }> => ({}));
+jest.mock('./legacy-abandon', () => ({
+  ...jest.requireActual('./legacy-abandon'),
+  abandonCandidateByNonce: (...a: unknown[]) => mockAbandonCandidateByNonce(...a)
+}));
+// The chain wait in front of a switch's registration, covered against the node read in direct-switch.test.ts.
+const mockWaitForStateOnChain = jest.fn(async (_accountId: string, _commitmentHex: string) => true);
+jest.mock('./direct-switch', () => ({
+  waitForStateOnChain: (accountId: string, commitmentHex: string) => mockWaitForStateOnChain(accountId, commitmentHex)
+}));
 const { mockProbeVerdicts, resetMockProbes } =
   jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
-// atob is globally available on Node 16+ but jsdom stubs can vary — provide
+// atob is globally available on Node 16+ but jsdom stubs can vary - provide
 // a deterministic polyfill for these tests.
 if (typeof global.atob === 'undefined') {
   global.atob = (str: string) => Buffer.from(str, 'base64').toString('binary');
@@ -257,6 +309,8 @@ if (typeof global.atob === 'undefined') {
 // request deserializer + note array the rebased custom proposal rebuilds through.
 const mockAccountDeserialize = jest.fn();
 const mockTransactionRequestDeserialize = jest.fn();
+const mockTransactionSummaryDeserialize = jest.fn();
+const mockWordFromFelts = jest.fn();
 const mockNoteArray = jest.fn((notes: unknown) => ({ kind: 'note-array', notes }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
@@ -269,6 +323,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     TransactionRequest: {
       deserialize: (...args: unknown[]) => mockTransactionRequestDeserialize(...args)
     },
+    TransactionSummary: { deserialize: (...args: unknown[]) => mockTransactionSummaryDeserialize(...args) },
+    Word: Object.assign(actual.Word, { newFromFelts: (...args: unknown[]) => mockWordFromFelts(...args) }),
     NoteArray: function (notes: unknown) {
       return mockNoteArray(notes);
     }
@@ -287,6 +343,8 @@ jest.mock('@miden-sdk/miden-sdk', () => {
     TransactionRequest: {
       deserialize: (...args: unknown[]) => mockTransactionRequestDeserialize(...args)
     },
+    TransactionSummary: { deserialize: (...args: unknown[]) => mockTransactionSummaryDeserialize(...args) },
+    Word: Object.assign(actual.Word, { newFromFelts: (...args: unknown[]) => mockWordFromFelts(...args) }),
     NoteArray: function (notes: unknown) {
       return mockNoteArray(notes);
     }
@@ -302,7 +360,7 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   getEffectiveThreshold: jest.fn(() => 1),
   createP2idProposal: jest.fn(async () => ({ kind: 'p2id' })),
   createConsumeNotesProposal: jest.fn(async () => ({ kind: 'consume' })),
-  createProposal: jest.fn(async () => ({ kind: 'custom', id: 'proposal-id' })),
+  createProposal: jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT })),
   createTransactionProposalRequest: jest.fn(async () => 'tx-req'),
   signProposal: jest.fn(async () => ({ signatures: [] })),
   abandonCandidate: jest.fn(async () => ({ state: 'pending' })),
@@ -317,17 +375,44 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   })),
   getConsumableNotes: jest.fn(async () => ['note-a']),
   createSwitchGuardianProposal: jest.fn(async () => ({
+    id: 'switch-proposal',
     nonce: 7,
     txSummary: 'txs-b64',
     metadata: { proposalType: 'switch-guardian' }
   })),
+  exportProposalToJson: jest.fn((proposalId: string) => JSON.stringify({ commitment: proposalId })),
+  importProposal: jest.fn(async () => ({ id: 'imported' })),
   setGuardianClient: jest.fn(),
   registerOnGuardian: jest.fn(async () => {}),
   guardianPublicKey: 'old-pubkey',
   ...overrides
 });
 
-// The gate that decides whether the sync loop may cold-re-register — i.e.
+const LEGACY_TICKET: AbandonTicket = { legacy: true };
+
+// A service registers on its `MultisigClient`'s Guardian client until a switch moves it on.
+const serviceClient = () => ({ guardianClient: new GuardianHttpClient('https://x') });
+// The `/configure` request a registration of `data` sends for this account.
+const registeredState = (data: string) =>
+  expect.objectContaining({ accountId: 'acc-id', initialState: { data, accountId: 'acc-id' } });
+// The signer set a loaded service caches; a re-register replaces it only with a complete fresh read.
+const CACHED_SIGNERS = ['0xhot', '0xcold'];
+// A complete ECDSA read of an account with these signers, as multisig-client 0.19 reports it.
+const ecdsaRead = (signerCommitments: string[]) => ({
+  numSigners: signerCommitments.length,
+  signerCommitments,
+  signers: signerCommitments.map(commitment => ({ commitment, scheme: 'ecdsa' })),
+  guardianScheme: 'ecdsa'
+});
+const ECDSA_READ = ecdsaRead(['0xhot', '0xcold']);
+
+// A proposal path abandons through the service itself, handing over the proposal id it holds.
+const stubAbandon = (
+  service: MultisigService,
+  impl: (nonce: number, proposalId: string | undefined) => Promise<AbandonTicket> = async () => LEGACY_TICKET
+) => jest.spyOn(service, 'abandonCandidate').mockImplementation(impl);
+
+// The gate that decides whether the sync loop may cold-re-register, i.e.
 // whether this device may POST `/configure`, an account-wide write. Every test
 // that drives that path lives in guardian-sync.test.ts, which stubs this module,
 // so the real classifier had no test of its own: it could have been inverted or
@@ -361,6 +446,34 @@ describe('isGuardianAuthRejection', () => {
   });
 });
 
+describe('isPostPushProposalVerificationFailure', () => {
+  const named = (name: string, message = 'unclassified'): Error => Object.assign(new Error(message), { name });
+
+  it.each([
+    ['a message that starts with Invalid proposal:', new Error('Invalid proposal: bad binding')],
+    ['BoundBlockMismatchError', named('BoundBlockMismatchError')],
+    ['ProposalSaltMalformedError', named('ProposalSaltMalformedError')],
+    ['ChainBehindBoundBlockError', named('ChainBehindBoundBlockError')],
+    ['a malformed boundBlockNum', new Error('malformed boundBlockNum in proposal metadata')]
+  ])('abandons after %s', (_label, error) => {
+    expect(isPostPushProposalVerificationFailure(error)).toBe(true);
+  });
+
+  it.each([
+    ['ProposalIdMismatchError', new ProposalIdMismatchError(`0x${'ab'.repeat(32)}`, `0x${'cd'.repeat(32)}`)],
+    ['a named ProposalIdMismatchError', named('ProposalIdMismatchError', 'Invalid proposal: id mismatch')],
+    ['TransactionSummaryLayoutError', named('TransactionSummaryLayoutError', 'Invalid proposal: layout')],
+    [
+      'a pending conflict',
+      Object.assign(new Error('Invalid proposal: pending'), { status: 409, code: 'conflict_pending_delta' })
+    ],
+    ['a request that failed to decode', new Error('failed to decode transaction request')],
+    ['any other refusal', new Error('proposal refused')]
+  ])('does not abandon %s', (_label, error) => {
+    expect(isPostPushProposalVerificationFailure(error)).toBe(false);
+  });
+});
+
 describe('MultisigService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -373,9 +486,19 @@ describe('MultisigService', () => {
     callOrder.length = 0;
     syncHoldsSeen.length = 0;
     mockTransactionRequestDeserialize.mockReset();
+    mockAccountGet.mockReset();
+    mockAccountGet.mockResolvedValue({ nonce: () => ({ asInt: () => 40n }) });
+    mockSummaryBoundBlockNum.mockReset();
+    mockSummaryBoundBlockNum.mockImplementation((_summary: unknown) => 5150);
+    // The request a custom proposal derives its summary commitment from.
+    mockTransactionRequestDeserialize.mockImplementation(() => ({ free: () => {} }));
     mockFetchFromStorage.mockResolvedValue('https://stored.guardian.test');
     // Default: AccountInspector reads an empty signer set unless a test overrides it.
     mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
+    guardianConfig.configure.mockReset();
+    guardianConfig.configure.mockResolvedValue({ success: true, message: 'ok' });
+    mockWaitForStateOnChain.mockReset();
+    mockWaitForStateOnChain.mockResolvedValue(true);
   });
 
   describe('constructor + getters', () => {
@@ -418,7 +541,7 @@ describe('MultisigService', () => {
   describe('proposal builders', () => {
     // Through `accountRefToSdk`, not the bech32-only parser: faucet ids reach
     // the wallet in both hex and bech32 form, and the sibling recallable-send
-    // path already accepts both — a hex id it sends fine must not throw here.
+    // path already accepts both - a hex id it sends fine must not throw here.
     it('createSendProposal normalizes recipient+faucet ids through accountRefToSdk', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
@@ -427,7 +550,7 @@ describe('MultisigService', () => {
 
       expect(mockAccountRefToSdk).toHaveBeenCalledWith('rec');
       expect(mockAccountRefToSdk).toHaveBeenCalledWith('fauc');
-      // Options are the 4th argument since multisig-client 0.17 — they used to
+      // Options are the 4th argument since multisig-client 0.17 - they used to
       // sit behind a `nonce` slot that no longer exists.
       expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, {
         noteType: 'Private'
@@ -436,7 +559,7 @@ describe('MultisigService', () => {
     });
 
     // Was hardcoded Private, so a Public guardian send emitted a private note
-    // the recipient was never handed — the row said 'public', so the relay in
+    // the recipient was never handed - the row said 'public', so the relay in
     // completeSendTransaction was skipped too.
     it('createSendProposal forwards the caller-resolved note type', async () => {
       const multisig = makeMultisig();
@@ -470,16 +593,379 @@ describe('MultisigService', () => {
       expect(proposal).toEqual({ kind: 'update-threshold' });
     });
 
-    it('createCustomProposal forwards request bytes and proposal type', async () => {
-      const createCustomFn = jest.fn(async () => ({ kind: 'custom' }));
-      const multisig = makeMultisig({ createCustomProposal: createCustomFn });
+    it('rejects a hyphenated proposal type before executing', async () => {
+      const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+      const multisig = makeMultisig({ createProposal });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.createCustomProposal(new Uint8Array([1, 2, 3]), 'my-type')).rejects.toThrow(
+        "proposalType 'my-type' must be lowercase snake_case ([a-z0-9_]): no spaces, hyphens, or other characters"
+      );
+      expect(mockExecuteForSummaryAtTip).not.toHaveBeenCalled();
+      expect(createProposal).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['   ', 'proposalType must not be empty'],
+      ['add_signer', "'add_signer' is a built-in proposal type; use the typed proposal API instead"]
+    ])('rejects proposal type %j before executing', async (proposalType, message) => {
+      const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+      const multisig = makeMultisig({ createProposal });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.createCustomProposal(new Uint8Array([1, 2, 3]), proposalType)).rejects.toThrow(message);
+      expect(mockExecuteForSummaryAtTip).not.toHaveBeenCalled();
+      expect(createProposal).not.toHaveBeenCalled();
+    });
+
+    describe('custom proposal id check', () => {
       const bytes = new Uint8Array([1, 2, 3]);
 
-      const proposal = await service.createCustomProposal(bytes, 'my-type');
+      it('yields the WASM lock while abandoning a mismatched proposal', async () => {
+        const otherId = `0x${'77'.repeat(32)}`;
+        let holdDuringSummary: object | null = null;
+        let holdDuringAbandon: object | null = null;
+        mockExecuteForSummaryAtTip.mockImplementationOnce(async () => {
+          holdDuringSummary = currentWasmHold;
+          return {
+            serialize: () => new Uint8Array([0xab]),
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: () => {} }),
+            free: () => mockSummaryFree()
+          };
+        });
+        const proposal = { kind: 'custom', id: otherId, nonce: 41 };
+        const multisig = makeMultisig({ createProposal: jest.fn(async () => proposal) });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        stubAbandon(service, async () => {
+          holdDuringAbandon = currentWasmHold;
+          return LEGACY_TICKET;
+        });
 
-      expect(createCustomFn).toHaveBeenCalledWith(bytes, 'my-type');
-      expect(proposal).toEqual({ kind: 'custom' });
+        await expect(service.createCustomProposal(bytes)).rejects.toBeInstanceOf(ProposalIdMismatchError);
+
+        expect(holdDuringSummary).not.toBeNull();
+        expect(holdDuringAbandon).toBeNull();
+        expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
+        expect(mockYieldWasmClientLock.mock.calls[0]?.[1]).toBe(holdDuringSummary);
+      });
+
+      it('executes the custom request once', async () => {
+        const createCustomProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        const multisig = makeMultisig({ createCustomProposal, createProposal });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        let proposalError: unknown;
+
+        try {
+          await service.createCustomProposal(bytes, '  Custom_Transaction ');
+        } catch (error) {
+          proposalError = error;
+        }
+
+        expect(mockExecuteForSummaryAtTip).toHaveBeenCalledTimes(1);
+        expect(createProposal).toHaveBeenCalledWith(41, 'base64-bytes', {
+          boundBlockNum: 5150,
+          proposalType: 'custom',
+          description: '',
+          rawProposalType: 'custom_transaction',
+          requiredSignatures: 1
+        });
+        expect(createCustomProposal).not.toHaveBeenCalled();
+        expect(multisig.getEffectiveThreshold).toHaveBeenCalledWith('custom');
+        expect(proposalError).toBeUndefined();
+      });
+
+      it('does not propose or abandon when the summary bound block cannot be read', async () => {
+        const error = Object.assign(new Error('unsupported layout'), { name: 'TransactionSummaryLayoutError' });
+        mockSummaryBoundBlockNum.mockImplementationOnce(() => {
+          throw error;
+        });
+        const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        const multisig = makeMultisig({ createProposal });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
+
+        await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
+
+        expect(createProposal).not.toHaveBeenCalled();
+        expect(abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it('abandons the prepared nonce when createCustomProposal throws Invalid proposal', async () => {
+        const error = new Error('Invalid proposal: bound block mismatch');
+        let proposeHold: object | null = null;
+        let holdDuringAbandon: object | null = null;
+        const createProposal = jest.fn(async () => {
+          proposeHold = currentWasmHold;
+          throw error;
+        });
+        const multisig = makeMultisig({ createProposal });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service, async () => {
+          holdDuringAbandon = currentWasmHold;
+          return LEGACY_TICKET;
+        });
+
+        await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
+
+        expect(mockAccountGet).toHaveBeenCalledWith('acc-id');
+        expect(createProposal).toHaveBeenCalledWith(41, 'base64-bytes', {
+          boundBlockNum: 5150,
+          proposalType: 'custom',
+          description: '',
+          rawProposalType: 'custom_transaction',
+          requiredSignatures: 1
+        });
+        expect(abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(abandonCandidate).toHaveBeenCalledWith(41, SUMMARY_COMMITMENT);
+        expect(holdDuringAbandon).toBeNull();
+        expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
+        expect(mockYieldWasmClientLock.mock.calls[0]?.[1]).toBe(proposeHold);
+      });
+
+      it('keeps the SDK error when abandoning the prepared nonce fails', async () => {
+        const error = new Error('Invalid proposal: salt');
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const multisig = makeMultisig({ createProposal: jest.fn(async () => Promise.reject(error)) });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service, async () => {
+          throw new Error('abandon refused');
+        });
+
+        try {
+          await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
+          expect(abandonCandidate).toHaveBeenCalledWith(41, SUMMARY_COMMITMENT);
+          expect(warn).toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it.each([
+        ['proposal refused', new Error('proposal refused')],
+        ['a decode failure', new Error('failed to decode transaction request')],
+        [
+          'a pending conflict',
+          Object.assign(new Error('conflict_pending_delta'), { status: 409, code: 'conflict_pending_delta' })
+        ],
+        [
+          'a summary layout error',
+          Object.assign(new Error('unsupported layout'), { name: 'TransactionSummaryLayoutError' })
+        ]
+      ])('does not abandon when createCustomProposal throws %s', async (_label, error) => {
+        const multisig = makeMultisig({ createProposal: jest.fn(async () => Promise.reject(error)) });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
+
+        await expect(service.createCustomProposal(bytes)).rejects.toBe(error);
+
+        expect(abandonCandidate).not.toHaveBeenCalled();
+        expect(mockYieldWasmClientLock).not.toHaveBeenCalled();
+      });
+
+      it('uses the multisig account snapshot when the store has no account', async () => {
+        const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        mockAccountGet.mockResolvedValueOnce(null);
+        const multisig = makeMultisig({ createProposal });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+        await service.createCustomProposal(bytes);
+
+        expect(createProposal).toHaveBeenCalledWith(6, 'base64-bytes', {
+          boundBlockNum: 5150,
+          proposalType: 'custom',
+          description: '',
+          rawProposalType: 'custom_transaction',
+          requiredSignatures: 1
+        });
+      });
+
+      it('refuses a nonce above the safe integer range before creating a proposal', async () => {
+        const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        mockAccountGet.mockResolvedValueOnce({
+          nonce: () => ({ asInt: () => BigInt(Number.MAX_SAFE_INTEGER) })
+        });
+        const multisig = makeMultisig({ createProposal });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
+
+        await expect(service.createCustomProposal(bytes)).rejects.toThrow(/nonce is too large/);
+
+        expect(createProposal).not.toHaveBeenCalled();
+        expect(abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it('abandons nothing when the hold is evicted while reading the proposal nonce', async () => {
+        const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        mockAccountGet.mockImplementationOnce(async () => {
+          currentWasmHold = null;
+          return { nonce: () => ({ asInt: () => 40n }) };
+        });
+        const multisig = makeMultisig({ createProposal });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
+
+        await expect(service.createCustomProposal(bytes)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+
+        expect(createProposal).not.toHaveBeenCalled();
+        expect(abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it('derives the summary commitment from the proposed bytes in the same hold, before the proposal', async () => {
+        const request = { free: jest.fn() };
+        let deriveHold: object | null = null;
+        let proposeHold: object | null = null;
+        mockTransactionRequestDeserialize.mockImplementation(() => request);
+        mockExecuteForSummaryAtTip.mockImplementationOnce(async (..._args: unknown[]) => {
+          callOrder.push('executeForSummaryAtTip');
+          deriveHold = currentWasmHold;
+          return {
+            serialize: () => new Uint8Array([0xab]),
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: () => {} }),
+            free: () => mockSummaryFree()
+          };
+        });
+        const createProposal = jest.fn(async () => {
+          callOrder.push('createProposal');
+          proposeHold = currentWasmHold;
+          return { kind: 'custom', id: SUMMARY_COMMITMENT };
+        });
+        const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+
+        await service.createCustomProposal(bytes);
+
+        expect(mockTransactionRequestDeserialize).toHaveBeenCalledWith(bytes);
+        expect(mockExecuteForSummaryAtTip).toHaveBeenCalledWith(mockRawWebClient, 'acc-id', request);
+        expect(callOrder).toEqual(['syncChain', 'executeForSummaryAtTip', 'createProposal']);
+        expect(deriveHold).not.toBeNull();
+        expect(proposeHold).toBe(deriveHold);
+        expect(request.free).toHaveBeenCalledTimes(1);
+        expect(mockSummaryFree).toHaveBeenCalledTimes(1);
+      });
+
+      it('accepts an id that is the same word in another hex form', async () => {
+        const unpadded = `0X${'5E'.repeat(32)}`;
+        const service = new MultisigService(
+          makeMultisig({ createProposal: jest.fn(async () => ({ kind: 'custom', id: unpadded })) }) as never,
+          {} as never,
+          'https://x'
+        );
+
+        await expect(service.createCustomProposal(bytes)).resolves.toEqual({ kind: 'custom', id: unpadded });
+      });
+
+      it('fails with ProposalIdMismatchError when the returned id is not the derived commitment', async () => {
+        const otherId = `0x${'77'.repeat(32)}`;
+        const multisig = makeMultisig({
+          createProposal: jest.fn(async () => ({ kind: 'custom', id: otherId }))
+        });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+        const error: unknown = await service.createCustomProposal(bytes).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ProposalIdMismatchError);
+        expect(isProposalIdMismatchError(error)).toBe(true);
+        expect(error).toMatchObject({ expectedId: SUMMARY_COMMITMENT, returnedId: otherId });
+        // The message names only the local commitment.
+        expect(error).toMatchObject({ message: expect.not.stringContaining(otherId) });
+        expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
+        expect(multisig.signProposal).not.toHaveBeenCalled();
+      });
+
+      it('makes no proposal when the hold is evicted during the summary execution', async () => {
+        const request = { free: jest.fn() };
+        mockTransactionRequestDeserialize.mockImplementation(() => request);
+        mockExecuteForSummaryAtTip.mockImplementationOnce(async () => {
+          currentWasmHold = null;
+          return {
+            serialize: () => new Uint8Array([0xab]),
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: () => {} }),
+            free: () => mockSummaryFree()
+          };
+        });
+        const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+        const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+
+        await expect(service.createCustomProposal(bytes)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+        expect(createProposal).not.toHaveBeenCalled();
+        // Past an eviction the WASM objects belong to an abandoned flow.
+        expect(request.free).not.toHaveBeenCalled();
+        expect(mockSummaryFree).not.toHaveBeenCalled();
+      });
+
+      describe('a read that fails', () => {
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        const throwing = () => {
+          throw new Error('freed after the trap');
+        };
+
+        it('rejects with a trap from the commitment read and frees nothing the trap left behind', async () => {
+          const request = { free: jest.fn(throwing) };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          const commitmentFree = jest.fn(throwing);
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => new Uint8Array([0xab]),
+            toCommitment: () => ({
+              toHex: () => {
+                throw trap;
+              },
+              free: commitmentFree
+            }),
+            free: () => {
+              mockSummaryFree();
+              throwing();
+            }
+          }));
+          const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+          const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toBe(trap);
+          expect(commitmentFree).not.toHaveBeenCalled();
+          expect(mockSummaryFree).not.toHaveBeenCalled();
+          expect(request.free).not.toHaveBeenCalled();
+          expect(createProposal).not.toHaveBeenCalled();
+        });
+
+        it('rejects with a trap from the summary serialize and frees neither the summary nor the request', async () => {
+          const request = { free: jest.fn(throwing) };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          const commitmentFree = jest.fn();
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => {
+              throw trap;
+            },
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: commitmentFree }),
+            free: () => {
+              mockSummaryFree();
+              throwing();
+            }
+          }));
+          const createProposal = jest.fn(async () => ({ kind: 'custom', id: SUMMARY_COMMITMENT }));
+          const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toBe(trap);
+          expect(commitmentFree).toHaveBeenCalledTimes(1);
+          expect(mockSummaryFree).not.toHaveBeenCalled();
+          expect(request.free).not.toHaveBeenCalled();
+        });
+
+        it('still frees the summary and the request when the serialize fails with an ordinary error', async () => {
+          const request = { free: jest.fn() };
+          mockTransactionRequestDeserialize.mockImplementation(() => request);
+          mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+            serialize: () => {
+              throw new Error('layout');
+            },
+            toCommitment: () => ({ toHex: () => SUMMARY_COMMITMENT, free: jest.fn() }),
+            free: () => mockSummaryFree()
+          }));
+          const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+
+          await expect(service.createCustomProposal(bytes)).rejects.toThrow('layout');
+          expect(request.free).toHaveBeenCalledTimes(1);
+          expect(mockSummaryFree).toHaveBeenCalledTimes(1);
+        });
+      });
     });
 
     it.each([
@@ -497,7 +983,7 @@ describe('MultisigService', () => {
       },
       {
         label: 'custom',
-        sdk: 'createCustomProposal',
+        sdk: 'createProposal',
         securityChange: undefined,
         create: (service: MultisigService) => service.createCustomProposal(new Uint8Array([1]), 'my_type')
       }
@@ -507,9 +993,11 @@ describe('MultisigService', () => {
         const error = new Error('proposal refused');
         const multisig = makeMultisig({ [sdk]: jest.fn(async () => Promise.reject(error)) });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
 
         await expect(create(service)).rejects.toBe(error);
 
+        expect(abandonCandidate).not.toHaveBeenCalled();
         expect(snapshotCrashDiagnostics(error)).toEqual(
           securityChange === undefined
             ? { proposalStep: 'proposal_create' }
@@ -517,6 +1005,166 @@ describe('MultisigService', () => {
         );
       }
     );
+
+    // On an id mismatch, every path releases the delta the Guardian holds at the proposal's own nonce, naming the id
+    // the Guardian returned for it, and the mismatch error stays the error the caller gets.
+    describe('the candidate of a proposal whose id is not the derived commitment', () => {
+      const PROPOSAL_NONCE = 41;
+      const OTHER_ID = `0x${'77'.repeat(32)}`;
+      const paths: Array<{
+        path: string;
+        sdk: 'createCustomProposal' | 'createProposal';
+        create: (service: MultisigService) => Promise<unknown>;
+      }> = [
+        {
+          path: 'custom',
+          sdk: 'createProposal',
+          create: service => service.createCustomProposal(new Uint8Array([1]))
+        },
+        {
+          path: 'rebased custom',
+          sdk: 'createProposal',
+          create: service => {
+            mockTransactionRequestDeserialize.mockImplementation(() => ({
+              expectedOutputOwnNotes: () => [],
+              free: () => {}
+            }));
+            const builder = {
+              withOwnOutputNotes: () => builder,
+              build: () => ({ serialize: () => new Uint8Array([9]) })
+            };
+            mockFeeAwareRequestBuilder.mockResolvedValueOnce(builder);
+            return service.createRebasedCustomProposal(new Uint8Array([1]), 'swap');
+          }
+        },
+        {
+          path: 'PSWAP cancel',
+          sdk: 'createProposal',
+          create: service => {
+            mockBuildPswapCancelRequest.mockResolvedValueOnce(new Uint8Array([4]));
+            return service.createPswapCancelProposal('tip', async () => {});
+          }
+        },
+        {
+          path: 'PSWAP consume',
+          sdk: 'createProposal',
+          create: service =>
+            service.createPswapConsumeProposal(
+              { noteId: 'sale', fillAmount: 1n, creatorAccountId: 'seller' },
+              async () => {}
+            )
+        },
+        {
+          path: 'replace-hot-key',
+          sdk: 'createProposal',
+          create: service => {
+            mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+            return service.createReplaceHotKeyProposal(
+              { id: () => ({ toString: () => 'acc-id' }) } as never,
+              '0xnewhotcommit'
+            );
+          }
+        }
+      ];
+
+      const arrange = (
+        sdk: string,
+        id: string,
+        abandon?: (nonce: number, proposalId: string | undefined) => Promise<AbandonTicket>
+      ) => {
+        let pathHold: object | null = null;
+        const respond = jest.fn(async () => {
+          pathHold = currentWasmHold;
+          return { kind: 'custom', id, nonce: PROPOSAL_NONCE };
+        });
+        const multisig = makeMultisig({
+          threshold: 1,
+          [sdk]: respond,
+          // Chain-synced paths call createProposal; replace-hot-key already names that method.
+          ...(sdk === 'createProposal' ? {} : { createProposal: respond })
+        });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        return { multisig, pathHold: () => pathHold, service, abandonCandidate: stubAbandon(service, abandon) };
+      };
+
+      it.each(paths)(
+        '$path: abandons the candidate at the proposal nonce with the id the Guardian returned, then fails',
+        async ({ sdk, create }) => {
+          const { multisig, service, abandonCandidate } = arrange(sdk, OTHER_ID);
+
+          await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
+
+          expect(abandonCandidate).toHaveBeenCalledTimes(1);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, OTHER_ID);
+          expect(multisig.signProposal).not.toHaveBeenCalled();
+          expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
+        }
+      );
+
+      it.each(paths)('$path: abandons nothing when the id is the derived commitment', async ({ sdk, create }) => {
+        const { service, abandonCandidate } = arrange(sdk, SUMMARY_COMMITMENT);
+
+        await create(service);
+
+        expect(abandonCandidate).not.toHaveBeenCalled();
+      });
+
+      it.each(paths)('$path: a failed abandon still ends in ProposalIdMismatchError', async ({ sdk, create }) => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { service, abandonCandidate } = arrange(sdk, OTHER_ID, async () => {
+          throw new Error('abandon refused');
+        });
+
+        try {
+          await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, OTHER_ID);
+          expect(warn).toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it.each(paths)('$path: the mismatch abandon observes a null hold', async ({ sdk, create }) => {
+        let holdDuringAbandon: object | null = null;
+        const { service, pathHold, abandonCandidate } = arrange(sdk, OTHER_ID, async () => {
+          holdDuringAbandon = currentWasmHold;
+          return LEGACY_TICKET;
+        });
+
+        await expect(create(service)).rejects.toBeInstanceOf(ProposalIdMismatchError);
+
+        expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, OTHER_ID);
+        expect(holdDuringAbandon).toBeNull();
+        expect(pathHold()).not.toBeNull();
+        expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
+        expect(mockYieldWasmClientLock.mock.calls[0]?.[1]).toBe(pathHold());
+      });
+
+      it('a hanging custom abandon still rejects as ProposalIdMismatchError after the warn', async () => {
+        jest.useFakeTimers();
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const { service, abandonCandidate } = arrange('createProposal', OTHER_ID, () => new Promise<never>(() => {}));
+          const outcome = service.createCustomProposal(new Uint8Array([1]));
+          const rejected = outcome.then(
+            () => {
+              throw new Error('expected ProposalIdMismatchError');
+            },
+            error => {
+              expect(error).toBeInstanceOf(ProposalIdMismatchError);
+            }
+          );
+
+          await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS);
+          await rejected;
+          expect(abandonCandidate).toHaveBeenCalledWith(PROPOSAL_NONCE, OTHER_ID);
+          expect(warn).toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+          jest.useRealTimers();
+        }
+      });
+    });
 
     describe('createRebasedCustomProposal', () => {
       const originalBytes = new Uint8Array([1, 2, 3]);
@@ -536,23 +1184,23 @@ describe('MultisigService', () => {
         };
         mockTransactionRequestDeserialize.mockImplementation(() => {
           holdsSeen.deserialize = currentWasmHold;
-          return { expectedOutputOwnNotes: () => ownNotes };
+          return { expectedOutputOwnNotes: () => ownNotes, free: () => {} };
         });
         mockFeeAwareRequestBuilder.mockImplementation(async () => {
           holdsSeen.builder = currentWasmHold;
           return builder;
         });
-        const createCustomFn = jest.fn(async () => {
+        const createProposal = jest.fn(async () => {
           holdsSeen.propose = currentWasmHold;
-          return { kind: 'custom', id: 'rebased-proposal' };
+          return { kind: 'custom', id: SUMMARY_COMMITMENT };
         });
-        const multisig = makeMultisig({ createCustomProposal: createCustomFn });
+        const multisig = makeMultisig({ createProposal });
         const service = new MultisigService(multisig as never, {} as never, 'https://x');
-        return { service, builder, createCustomFn };
+        return { service, builder, createProposal };
       };
 
       it('rebuilds the request from its own output notes on the fee-aware builder and proposes exactly those bytes', async () => {
-        const { service, builder, createCustomFn } = arrange();
+        const { service, builder, createProposal } = arrange();
 
         const result = await service.createRebasedCustomProposal(originalBytes, 'swap');
 
@@ -566,10 +1214,64 @@ describe('MultisigService', () => {
         expect(builder.withOwnOutputNotes).toHaveBeenCalledWith({ kind: 'note-array', notes: ownNotes });
         expect(builder.build).toHaveBeenCalledTimes(1);
         // Proposed from the rebuilt bytes, never the ones passed in, with the caller's type.
-        expect(createCustomFn).toHaveBeenCalledTimes(1);
-        expect(createCustomFn).toHaveBeenCalledWith(rebasedBytes, 'swap');
-        expect(result.proposal).toEqual({ kind: 'custom', id: 'rebased-proposal' });
+        expect(createProposal).toHaveBeenCalledTimes(1);
+        expect(createProposal).toHaveBeenCalledWith(41, 'base64-bytes', {
+          boundBlockNum: 5150,
+          proposalType: 'custom',
+          description: '',
+          rawProposalType: 'swap',
+          requiredSignatures: 1
+        });
+        expect(result.proposal).toEqual({ kind: 'custom', id: SUMMARY_COMMITMENT });
         expect(result.requestBytes).toBe(rebasedBytes);
+        // The id check derives the commitment from the rebuilt bytes, not from the bytes passed in.
+        expect(mockTransactionRequestDeserialize).toHaveBeenLastCalledWith(rebasedBytes);
+      });
+
+      // The rebuild carries the notes over, and the order is read off the request whose bytes it returns, so the
+      // caller records it in the same write as those bytes.
+      it('a swap rebuild returns the order its rebuilt request names, beside the bytes', async () => {
+        const { service, builder } = arrange();
+        const orderNoteId = `0x${'AB'.repeat(32)}`;
+        const rebuiltOrderNote = {
+          id: () => ({ toString: () => orderNoteId }),
+          metadata: () => ({ noteType: () => NoteType.Public }),
+          recipient: () => ({
+            script: () => ({ root: () => NoteScript.pswap().root() }),
+            serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+          })
+        };
+        const rebuilt = { serialize: () => rebasedBytes, expectedOutputOwnNotes: jest.fn(() => [rebuiltOrderNote]) };
+        builder.build.mockReturnValue(rebuilt);
+
+        const result = await service.createRebasedCustomProposal(originalBytes, 'swap');
+
+        expect(result).toEqual({
+          proposal: { kind: 'custom', id: SUMMARY_COMMITMENT },
+          requestBytes: rebasedBytes,
+          order: { orderId: '42', orderNoteId: orderNoteId.toLowerCase() }
+        });
+        expect(rebuilt.expectedOutputOwnNotes).toHaveBeenCalledTimes(1);
+      });
+
+      it('a rebuild of another type reads no order', async () => {
+        const { service, builder } = arrange();
+        const rebuilt = { serialize: () => rebasedBytes, expectedOutputOwnNotes: jest.fn(() => []) };
+        builder.build.mockReturnValue(rebuilt);
+
+        const result = await service.createRebasedCustomProposal(originalBytes, 'earn_deposit');
+
+        expect(result).not.toHaveProperty('order');
+        expect(rebuilt.expectedOutputOwnNotes).not.toHaveBeenCalled();
+      });
+
+      it('fails with ProposalIdMismatchError when the id is not the commitment of the rebuilt bytes', async () => {
+        const { service, createProposal } = arrange();
+        createProposal.mockResolvedValueOnce({ kind: 'custom', id: `0x${'77'.repeat(32)}` });
+
+        await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toBeInstanceOf(
+          ProposalIdMismatchError
+        );
       });
 
       it('syncs the chain in the same hold before rebuilding, so the request binds the fresh height (#1442)', async () => {
@@ -587,19 +1289,19 @@ describe('MultisigService', () => {
       });
 
       it('rebuilds and proposes nothing when the chain sync fails (#1442)', async () => {
-        const { service, createCustomFn } = arrange();
+        const { service, createProposal } = arrange();
         mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
 
         await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toThrow('node unreachable');
 
         expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
-        expect(createCustomFn).not.toHaveBeenCalled();
+        expect(createProposal).not.toHaveBeenCalled();
       });
 
       it('names a rejected rebased proposal creation apart from a failed rebuild', async () => {
-        const { service, createCustomFn } = arrange();
+        const { service, createProposal } = arrange();
         const error = new Error('proposal refused');
-        createCustomFn.mockRejectedValueOnce(error);
+        createProposal.mockRejectedValueOnce(error);
         await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toBe(error);
         expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
 
@@ -612,12 +1314,18 @@ describe('MultisigService', () => {
       // The rebuild drops the request's own expiration delta, so a Guardian expiration has to be the approval
       // expiration the fee-aware builder binds to the bound block (#1081).
       it('hands the approval expiration it is given to the fee-aware builder', async () => {
-        const { service, createCustomFn } = arrange();
+        const { service, createProposal } = arrange();
 
         await service.createRebasedCustomProposal(originalBytes, 'swap', 180);
 
         expect(mockFeeAwareRequestBuilder).toHaveBeenCalledWith(mockRawWebClient, 'acc-id', mockFeeSalt, 180);
-        expect(createCustomFn).toHaveBeenCalledWith(rebasedBytes, 'swap');
+        expect(createProposal).toHaveBeenCalledWith(41, 'base64-bytes', {
+          boundBlockNum: 5150,
+          proposalType: 'custom',
+          description: '',
+          rawProposalType: 'swap',
+          requiredSignatures: 1
+        });
       });
 
       it('rebuilds and proposes inside one wasm lock hold', async () => {
@@ -635,7 +1343,7 @@ describe('MultisigService', () => {
       });
 
       it('stops before building or proposing when the hold is evicted during the fee-aware builder', async () => {
-        const { service, builder, createCustomFn } = arrange();
+        const { service, builder, createProposal } = arrange();
         mockFeeAwareRequestBuilder.mockImplementationOnce(async () => {
           currentWasmHold = null;
           return builder;
@@ -646,11 +1354,11 @@ describe('MultisigService', () => {
         });
         expect(builder.withOwnOutputNotes).not.toHaveBeenCalled();
         expect(builder.build).not.toHaveBeenCalled();
-        expect(createCustomFn).not.toHaveBeenCalled();
+        expect(createProposal).not.toHaveBeenCalled();
       });
 
       it('stops before touching the request when the hold is evicted during the client build', async () => {
-        const { service, createCustomFn } = arrange();
+        const { service, createProposal } = arrange();
         evictDuringClientBuild = true;
 
         await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toMatchObject({
@@ -658,7 +1366,7 @@ describe('MultisigService', () => {
         });
         expect(mockTransactionRequestDeserialize).not.toHaveBeenCalled();
         expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
-        expect(createCustomFn).not.toHaveBeenCalled();
+        expect(createProposal).not.toHaveBeenCalled();
       });
     });
   });
@@ -682,21 +1390,17 @@ describe('MultisigService', () => {
         callOrder.push('persistRequest');
         holdsSeen.persist = currentWasmHold;
       });
-      const createCustomFn = jest.fn(async () => {
-        callOrder.push('createCustomProposal');
+      const createProposal = jest.fn(async () => {
+        callOrder.push('createProposal');
         holdsSeen.propose = currentWasmHold;
-        return { kind: 'custom', id: 'cancel-proposal' };
+        return { kind: 'custom', id: SUMMARY_COMMITMENT };
       });
-      const service = new MultisigService(
-        makeMultisig({ createCustomProposal: createCustomFn }) as never,
-        {} as never,
-        'https://x'
-      );
-      return { service, persistRequest, createCustomFn };
+      const service = new MultisigService(makeMultisig({ createProposal }) as never, {} as never, 'https://x');
+      return { service, persistRequest, createProposal };
     };
 
     it('builds the cancel after the chain sync, persists it, then proposes exactly those bytes in one hold', async () => {
-      const { service, persistRequest, createCustomFn } = arrange();
+      const { service, persistRequest, createProposal } = arrange();
       wasmLockOptionsSeen.length = 0;
 
       const proposal = await service.createPswapCancelProposal('zero-fill-tip', persistRequest);
@@ -706,13 +1410,30 @@ describe('MultisigService', () => {
         allowNodeNote: false
       });
       expect(persistRequest).toHaveBeenCalledWith(cancelBytes);
-      expect(createCustomFn).toHaveBeenCalledWith(cancelBytes, 'custom_transaction');
-      expect(callOrder).toEqual(['syncChain', 'buildPswapCancelRequest', 'persistRequest', 'createCustomProposal']);
+      expect(createProposal).toHaveBeenCalledWith(41, 'base64-bytes', {
+        boundBlockNum: 5150,
+        proposalType: 'custom',
+        description: '',
+        rawProposalType: 'custom_transaction',
+        requiredSignatures: 1
+      });
+      expect(callOrder).toEqual(['syncChain', 'buildPswapCancelRequest', 'persistRequest', 'createProposal']);
       expect(wasmLockOptionsSeen).toHaveLength(1);
       expect(holdsSeen.build).toBe(syncHoldsSeen[0]);
       expect(holdsSeen.persist).toBe(syncHoldsSeen[0]);
       expect(holdsSeen.propose).toBe(syncHoldsSeen[0]);
-      expect(proposal).toEqual({ kind: 'custom', id: 'cancel-proposal' });
+      expect(proposal).toEqual({ kind: 'custom', id: SUMMARY_COMMITMENT });
+      expect(mockExecuteForSummaryAtTip).toHaveBeenCalledTimes(1);
+      expect(mockTransactionRequestDeserialize).toHaveBeenCalledWith(cancelBytes);
+    });
+
+    it('fails with ProposalIdMismatchError when the id is not the commitment of the persisted cancel', async () => {
+      const { service, persistRequest, createProposal } = arrange();
+      createProposal.mockResolvedValueOnce({ kind: 'custom', id: `0x${'77'.repeat(32)}` });
+
+      await expect(service.createPswapCancelProposal('zero-fill-tip', persistRequest)).rejects.toBeInstanceOf(
+        ProposalIdMismatchError
+      );
     });
 
     it("lets a recovered order's rebuild read its note from the node, as its own eligibility says", async () => {
@@ -726,7 +1447,7 @@ describe('MultisigService', () => {
     });
 
     it('builds and proposes nothing when the chain sync fails', async () => {
-      const { service, persistRequest, createCustomFn } = arrange();
+      const { service, persistRequest, createProposal } = arrange();
       mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
 
       await expect(service.createPswapCancelProposal('zero-fill-tip', persistRequest)).rejects.toThrow(
@@ -734,14 +1455,14 @@ describe('MultisigService', () => {
       );
       expect(mockBuildPswapCancelRequest).not.toHaveBeenCalled();
       expect(persistRequest).not.toHaveBeenCalled();
-      expect(createCustomFn).not.toHaveBeenCalled();
+      expect(createProposal).not.toHaveBeenCalled();
     });
 
     it.each([
       ['inside the build', 'build'],
       ['while the request is persisted', 'persist']
     ])('proposes nothing when the hold is evicted %s', async (_label, step) => {
-      const { service, persistRequest, createCustomFn } = arrange();
+      const { service, persistRequest, createProposal } = arrange();
       if (step === 'build') {
         mockBuildPswapCancelRequest.mockImplementationOnce(
           async (_accountId: string, _noteId: string, assertLive: (at: string) => void) => {
@@ -759,14 +1480,13 @@ describe('MultisigService', () => {
       await expect(service.createPswapCancelProposal('zero-fill-tip', persistRequest)).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
-      expect(createCustomFn).not.toHaveBeenCalled();
+      expect(createProposal).not.toHaveBeenCalled();
     });
   });
 
   describe('signing helpers', () => {
     it.each([
       { name: 'standalone signing', run: (service: MultisigService) => service.signProposal('p') },
-      { name: 'sign and execute', run: (service: MultisigService) => service.signAndExecuteProposal('p') },
       {
         name: 'sign and prepare a request',
         run: (service: MultisigService) => service.signAndCreateTransactionRequest('p')
@@ -869,11 +1589,6 @@ describe('MultisigService', () => {
         name: 'standalone signing',
         proposalType: 'send',
         run: (service: MultisigService) => service.signProposal('p')
-      },
-      {
-        name: 'sign and execute',
-        proposalType: 'send',
-        run: (service: MultisigService) => service.signAndExecuteProposal('p')
       },
       {
         name: 'normal request preparation',
@@ -1010,16 +1725,6 @@ describe('MultisigService', () => {
       }
     );
 
-    it('signAndExecuteProposal signs then executes a given proposal', async () => {
-      const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
-
-      await service.signAndExecuteProposal('p-1');
-
-      expect(multisig.signProposal).toHaveBeenCalledWith('p-1');
-      expect(multisig.executeProposal).toHaveBeenCalledWith('p-1');
-    });
-
     it('signAndCreateTransactionRequest signs then returns the request payload', async () => {
       // Non-custom proposal → the normal createTransactionProposalRequest path.
       const multisig = makeMultisig({
@@ -1045,22 +1750,134 @@ describe('MultisigService', () => {
       );
     });
 
-    it('abandonCandidate forwards the candidate nonce to the Guardian SDK', async () => {
-      const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+    const unauthenticated = { code: 'authentication_failed', status: 401 };
+    const serviceWithStatus = (multisig: unknown, getStatus: jest.Mock) =>
+      new MultisigService(multisig as never, { guardianClient: { getStatus } } as never, 'https://x', {
+        publicKey: '0x02aa'
+      } as never);
 
-      await service.abandonCandidate(7);
+    it('abandonCandidate asks the SDK with the proposal id and returns its commitment', async () => {
+      const multisig = makeMultisig({
+        abandonCandidate: jest.fn(async () => ({ state: 'pending', commitment: '0xc0ffee' }))
+      });
+      const getStatus = jest.fn();
+      const service = serviceWithStatus(multisig, getStatus);
 
-      expect(multisig.abandonCandidate).toHaveBeenCalledWith(7);
+      await expect(service.abandonCandidate(7, 'prop-7')).resolves.toEqual({ commitment: '0xc0ffee', legacy: false });
+
+      expect(multisig.abandonCandidate).toHaveBeenCalledWith(7, 'prop-7');
+      expect(mockAbandonCandidateByNonce).not.toHaveBeenCalled();
+      expect(getStatus).not.toHaveBeenCalled();
     });
 
-    it('abandonStatus forwards the candidate nonce to the Guardian SDK (#1081)', async () => {
+    it('a 401 from a Guardian reporting 0.18.3 retries once with the nonce-only request', async () => {
+      const multisig = makeMultisig({ abandonCandidate: jest.fn(async () => Promise.reject(unauthenticated)) });
+      const service = serviceWithStatus(
+        multisig,
+        jest.fn(async () => ({ version: '0.18.3' }))
+      );
+      mockAbandonCandidateByNonce.mockResolvedValueOnce({ commitment: '0xc0ffee' });
+
+      await expect(service.abandonCandidate(7, 'prop-7')).resolves.toEqual({ commitment: '0xc0ffee', legacy: true });
+
+      expect(multisig.abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(mockAbandonCandidateByNonce).toHaveBeenCalledTimes(1);
+      expect(mockAbandonCandidateByNonce).toHaveBeenCalledWith('https://x', { publicKey: '0x02aa' }, 'acc-id', 7);
+    });
+
+    it.each([
+      ['reports 0.19.0-rc.1', jest.fn(async () => ({ version: '0.19.0-rc.1' })), unauthenticated],
+      ['status throws', jest.fn(async () => Promise.reject(new Error('down'))), unauthenticated],
+      ['version does not parse', jest.fn(async () => ({ version: 'nightly' })), unauthenticated],
+      [
+        '401 is another code',
+        jest.fn(async () => ({ version: '0.18.3' })),
+        { code: 'timestamp_out_of_window', status: 401 }
+      ]
+    ])('a 401 is rethrown unchanged when the Guardian %s', async (_label, getStatus, error) => {
+      const multisig = makeMultisig({ abandonCandidate: jest.fn(async () => Promise.reject(error)) });
+      const service = serviceWithStatus(multisig, getStatus);
+
+      await expect(service.abandonCandidate(7, 'prop-7')).rejects.toBe(error);
+
+      expect(mockAbandonCandidateByNonce).not.toHaveBeenCalled();
+    });
+
+    it('a record without a proposal id goes straight to the nonce-only request', async () => {
+      const multisig = makeMultisig();
+      const getStatus = jest.fn();
+      const service = serviceWithStatus(multisig, getStatus);
+
+      await expect(service.abandonCandidate(7, undefined)).resolves.toEqual({ legacy: true });
+
+      expect(mockAbandonCandidateByNonce).toHaveBeenCalledWith('https://x', { publicKey: '0x02aa' }, 'acc-id', 7);
+      expect(multisig.abandonCandidate).not.toHaveBeenCalled();
+      expect(getStatus).not.toHaveBeenCalled();
+    });
+
+    it('abandonCandidate refuses without a request signer and sends nothing', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
-      await expect(service.abandonStatus(7)).resolves.toBe('waiting');
+      await expect(service.abandonCandidate(7, undefined)).rejects.toThrow(/request signer/);
 
-      expect(multisig.abandonStatus).toHaveBeenCalledWith(7);
+      expect(mockAbandonCandidateByNonce).not.toHaveBeenCalled();
+      expect(multisig.abandonCandidate).not.toHaveBeenCalled();
+    });
+
+    it('abandonStatus reads the abandon by the commitment its Guardian named (#1081)', async () => {
+      const multisig = makeMultisig();
+      const getDelta = jest.fn();
+      const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
+
+      await expect(service.abandonStatus(7, { commitment: '0xc0ffee', legacy: true })).resolves.toBe('waiting');
+
+      expect(multisig.abandonStatus).toHaveBeenCalledWith(7, '0xc0ffee');
+      expect(getDelta).not.toHaveBeenCalled();
+    });
+
+    // A 0.18 Guardian names no commitment, so the status of the delta it holds at the nonce answers, mapped as the
+    // 0.18.1 client did, with or without a new commitment on that delta.
+    it.each([
+      ['a nonce-only canonical delta reads landed', { status: 'canonical' }, '0xd31a', 'landed'],
+      [
+        'a nonce-only client-abandoned discard reads abandoned',
+        { status: 'discarded', reason: 'client_abandoned' },
+        undefined,
+        'abandoned'
+      ]
+    ])('%s', async (_label, status, newCommitment, expected) => {
+      const multisig = makeMultisig();
+      const getDelta = jest.fn(async () => ({ accountId: 'acc-id', nonce: 7, newCommitment, status }));
+      const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
+
+      await expect(service.abandonStatus(7, LEGACY_TICKET)).resolves.toBe(expected);
+
+      expect(getDelta).toHaveBeenCalledWith('acc-id', 7);
+      expect(multisig.abandonStatus).not.toHaveBeenCalled();
+    });
+
+    it('abandonStatus reads a Guardian that holds no delta at the nonce as unexpected, as the SDK does', async () => {
+      const multisig = makeMultisig();
+      const getDelta = jest.fn(async () => {
+        throw Object.assign(new Error('Delta not found'), { status: 404, code: 'delta_not_found' });
+      });
+      const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
+
+      await expect(service.abandonStatus(7, LEGACY_TICKET)).resolves.toBe('unexpected');
+      expect(multisig.abandonStatus).not.toHaveBeenCalled();
+    });
+
+    it('abandonStatus rejects with any other failure of the delta read', async () => {
+      const multisig = makeMultisig();
+      const unavailable = Object.assign(new Error('Service Unavailable'), { status: 503 });
+      const getDelta = jest.fn(async () => {
+        throw unavailable;
+      });
+      const service = new MultisigService(multisig as never, { guardianClient: { getDelta } } as never, 'https://x');
+
+      await expect(service.abandonStatus(7, LEGACY_TICKET)).rejects.toBe(unavailable);
+      expect(multisig.abandonStatus).not.toHaveBeenCalled();
     });
 
     it('getConsumableNotes forwards to the wrapped Multisig', async () => {
@@ -1266,7 +2083,7 @@ describe('MultisigService', () => {
 
     it('bounds adoptGuardianStateOnce too, not just the retrying sync (#777)', async () => {
       // The read-half adopt takes its own hold, and it is the one a cold restore
-      // and the stale-allowlist check go through — an unbounded hold there is the
+      // and the stale-allowlist check go through - an unbounded hold there is the
       // same five-minute app-wide WASM freeze as the retrying sync's.
       wasmLockOptionsSeen.length = 0;
       const multisig = makeMultisig();
@@ -1304,7 +2121,7 @@ describe('MultisigService', () => {
 
     it('holds the WASM lock on the bounded sync ceiling (#777)', async () => {
       // A guardian sync is a pure-sync hold whose RPC carries no transport
-      // deadline on wasm32, and guardian is the wallet's default account type — on
+      // deadline on wasm32, and guardian is the wallet's default account type - on
       // the five-minute backstop one parked guardian sync froze every send, claim
       // and balance read in the app for five minutes at a time.
       wasmLockOptionsSeen.length = 0;
@@ -1363,7 +2180,7 @@ describe('MultisigService', () => {
 
     it('waits out a canonicalizing guardian without re-registering, then the retried sync succeeds', async () => {
       // "Refusing to overwrite local state" means the guardian is mid-canonicalization
-      // (its blob briefly lags on-chain). It's transient, so we WAIT and retry — we must
+      // (its blob briefly lags on-chain). It's transient, so we WAIT and retry - we must
       // NOT re-register on the first sign (that re-`configure`s the old guardian after a
       // switch and strands the account).
       const restoreTimers = skipRetryBackoffs();
@@ -1374,14 +2191,13 @@ describe('MultisigService', () => {
           new Error('Refusing to overwrite local state: incoming commitment does not match on-chain commitment')
         )
         .mockResolvedValueOnce(undefined);
-      const registerOnGuardian = jest.fn(async () => {});
-      const multisig = makeMultisig({ syncState, registerOnGuardian });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const multisig = makeMultisig({ syncState });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
 
       try {
         await service.sync();
-        expect(registerOnGuardian).not.toHaveBeenCalled(); // waited, did not re-register
+        expect(guardianConfig.configure).not.toHaveBeenCalled(); // waited, did not re-register
         expect(syncState).toHaveBeenCalledTimes(2); // initial + one retry
       } finally {
         restoreTimers();
@@ -1402,22 +2218,46 @@ describe('MultisigService', () => {
           throw new Error('Refusing to overwrite local state');
         }
       });
-      const registerOnGuardian = jest.fn(async () => {});
-      const multisig = makeMultisig({ syncState, registerOnGuardian });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const multisig = makeMultisig({ syncState, signerCommitments: CACHED_SIGNERS });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+      mockAccountInspectorFromAccount.mockReturnValue(ECDSA_READ);
       wasmLockOptionsSeen.length = 0;
 
       try {
         await service.sync();
         expect(multisig.verifyStateCommitment).toHaveBeenCalledTimes(1);
-        expect(registerOnGuardian).toHaveBeenCalledTimes(1); // last-resort re-register, once
+        expect(guardianConfig.configure).toHaveBeenCalledTimes(1); // last-resort re-register, once
         expect(syncState).toHaveBeenCalledTimes(32); // 31 lag failures + 1 success after re-register
         // The idle loop reaches this re-register, so its hold is bounded and labelled like the sync's.
         expect(
           wasmLockOptionsSeen.filter(options => (options as { label?: string } | undefined)?.label !== 'guardian-sync')
         ).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync-realign' }]);
       } finally {
+        restoreTimers();
+      }
+    });
+
+    // The guardian sync laps again, so a Guardian whose node lags ends the last-resort push at its first refusal.
+    it('stops the last-resort push at the first state_not_on_chain', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const syncState = jest.fn(async () => {
+        throw new Error('Refusing to overwrite local state');
+      });
+      const multisig = makeMultisig({ syncState, signerCommitments: CACHED_SIGNERS });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+      mockAccountInspectorFromAccount.mockReturnValue(ECDSA_READ);
+      guardianConfig.configure.mockRejectedValue(
+        Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), { status: 409, code: 'state_not_on_chain' })
+      );
+
+      try {
+        await expect(service.sync()).rejects.toThrow('Refusing to overwrite local state');
+        expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
         restoreTimers();
       }
     });
@@ -1441,19 +2281,18 @@ describe('MultisigService', () => {
       const syncState = jest.fn(async () => {
         throw new Error(refusal);
       });
-      const registerOnGuardian = jest.fn(async () => {});
       const verifyStateCommitment = jest.fn(async () => {
         throw new Error(verifyFailure);
       });
-      const multisig = makeMultisig({ syncState, registerOnGuardian, verifyStateCommitment });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const multisig = makeMultisig({ syncState, verifyStateCommitment });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
 
       try {
         await expect(service.sync()).rejects.toThrow(refusal);
         expect(verifyStateCommitment).toHaveBeenCalledTimes(1);
         expect(mockGetAccount).not.toHaveBeenCalled();
-        expect(registerOnGuardian).not.toHaveBeenCalled();
+        expect(guardianConfig.configure).not.toHaveBeenCalled();
         // The initial attempt and the thirty waited retries; the last-resort push was refused.
         expect(syncState).toHaveBeenCalledTimes(31);
       } finally {
@@ -1466,16 +2305,15 @@ describe('MultisigService', () => {
       const syncState = jest.fn(async () => {
         throw new Error('GUARDIAN public key commitment mismatch');
       });
-      const registerOnGuardian = jest.fn(async () => {});
-      const multisig = makeMultisig({ syncState, registerOnGuardian });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const multisig = makeMultisig({ syncState });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
 
       try {
         await expect(service.sync()).rejects.toThrow('GUARDIAN public key commitment mismatch');
         // Not a canonicalizing guardian: no wait, and never the last-resort push.
         expect(syncState).toHaveBeenCalledTimes(1);
-        expect(registerOnGuardian).not.toHaveBeenCalled();
+        expect(guardianConfig.configure).not.toHaveBeenCalled();
       } finally {
         restoreTimers();
       }
@@ -1483,22 +2321,45 @@ describe('MultisigService', () => {
   });
 
   describe('reRegisterCurrentStateOnGuardian', () => {
+    beforeEach(() => {
+      mockAccountInspectorFromAccount.mockReturnValue(ECDSA_READ);
+    });
+
     it('syncs, serializes the current account, and re-registers it on the guardian', async () => {
-      const registerOnGuardian = jest.fn(async () => {});
-      const multisig = makeMultisig({ registerOnGuardian });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const multisig = makeMultisig({ signerCommitments: CACHED_SIGNERS });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
 
       await service.reRegisterCurrentStateOnGuardian();
 
       expect(mockSyncState).toHaveBeenCalled();
       expect(multisig.verifyStateCommitment).toHaveBeenCalledTimes(1);
-      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+    });
+
+    // rc.1's `registerOnGuardian` reads the WASM client before it posts, so the service posts its own `/configure`.
+    it("reRegisterCurrentStateOnGuardian registers freshSignerCommitments on the service's guardian", async () => {
+      const multisig = makeMultisig({ signerCommitments: ['0xoldhot', '0xcold'] });
+      const client = serviceClient();
+      const service = new MultisigService(multisig as never, client as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      mockAccountInspectorFromAccount.mockReturnValue(ecdsaRead(['0xnewhot', '0xcold']));
+
+      await service.reRegisterCurrentStateOnGuardian();
+
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+      expect(guardianConfig.configure).toHaveBeenCalledWith({
+        accountId: 'acc-id',
+        auth: { MidenEcdsa: { cosigner_commitments: ['0xnewhot', '0xcold'] } },
+        initialState: { data: 'base64-bytes', accountId: 'acc-id' }
+      });
+      expect(guardianConfig.configure.mock.contexts[0]).toBe(client.guardianClient);
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     });
 
     it('throws when the account is missing from the local client', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue(null);
       const onPushStart = jest.fn();
 
@@ -1510,14 +2371,14 @@ describe('MultisigService', () => {
       const syncError = new Error('node unreachable');
       mockSyncState.mockRejectedValueOnce(syncError);
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       const onPushStart = jest.fn();
 
       await expect(service.reRegisterCurrentStateOnGuardian(onPushStart)).rejects.toBe(syncError);
       expect(onPushStart).not.toHaveBeenCalled();
       expect(multisig.verifyStateCommitment).not.toHaveBeenCalled();
       expect(mockGetAccount).not.toHaveBeenCalled();
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('fails a watchdog rejection of the hold itself before the push starts', async () => {
@@ -1526,7 +2387,7 @@ describe('MultisigService', () => {
         throw evicted;
       };
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       const onPushStart = jest.fn();
 
       try {
@@ -1536,16 +2397,14 @@ describe('MultisigService', () => {
       }
       expect(onPushStart).not.toHaveBeenCalled();
       expect(mockSyncState).not.toHaveBeenCalled();
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('starts the push once, before the first registration attempt, when the push fails', async () => {
       const restoreTimers = skipRetryBackoffs();
-      const registerOnGuardian = jest.fn(async () => {
-        throw new Error('guardian down');
-      });
-      const multisig = makeMultisig({ registerOnGuardian });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      guardianConfig.configure.mockRejectedValue(new Error('guardian down'));
+      const multisig = makeMultisig({ signerCommitments: CACHED_SIGNERS });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
       const onPushStart = jest.fn();
 
@@ -1558,15 +2417,17 @@ describe('MultisigService', () => {
 
       expect(error).toBeInstanceOf(Error);
       expect(error).not.toBeInstanceOf(GuardianReRegisterRefusedError);
-      expect(registerOnGuardian).toHaveBeenCalledTimes(8);
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(8);
       expect(onPushStart).toHaveBeenCalledTimes(1);
-      expect(onPushStart.mock.invocationCallOrder[0]).toBeLessThan(registerOnGuardian.mock.invocationCallOrder[0]!);
+      expect(onPushStart.mock.invocationCallOrder[0]).toBeLessThan(
+        guardianConfig.configure.mock.invocationCallOrder[0]!
+      );
     });
 
     it('hands the push-start callback the signer set it derived from the chain-verified account (#1233)', async () => {
-      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+      const service = new MultisigService(makeMultisig() as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
-      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+      mockAccountInspectorFromAccount.mockReturnValue(ecdsaRead(['0xnewhot', '0xcold']));
       const onPushStart = jest.fn();
 
       await service.reRegisterCurrentStateOnGuardian(onPushStart);
@@ -1576,7 +2437,11 @@ describe('MultisigService', () => {
     });
 
     it('holds its lock on the options a caller passes, and on the default hold otherwise', async () => {
-      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+      const service = new MultisigService(
+        makeMultisig({ signerCommitments: CACHED_SIGNERS }) as never,
+        serviceClient() as never,
+        'https://x'
+      );
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
       const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-reregister' };
       wasmLockOptionsSeen.length = 0;
@@ -1585,6 +2450,36 @@ describe('MultisigService', () => {
       await service.reRegisterCurrentStateOnGuardian();
 
       expect(wasmLockOptionsSeen).toEqual([options, undefined]);
+    });
+
+    // A cadence caller's next lap asks again, so it stops at the first refusal from a Guardian whose node lags.
+    it.each([
+      ['stops at the first refusal when the caller asks', true, 1],
+      ['retries the refusal through the whole budget otherwise', false, GUARDIAN_RETRY_MAX_ATTEMPTS]
+    ])('state_not_on_chain %s', async (_label, stopAtStateNotOnChain, posts) => {
+      const restoreTimers = skipRetryBackoffs();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const service = new MultisigService(
+        makeMultisig({ signerCommitments: CACHED_SIGNERS }) as never,
+        serviceClient() as never,
+        'https://x'
+      );
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      guardianConfig.configure.mockRejectedValue(
+        Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), { status: 409, code: 'state_not_on_chain' })
+      );
+
+      try {
+        const error = await service
+          .reRegisterCurrentStateOnGuardian(undefined, undefined, stopAtStateNotOnChain)
+          .catch((e: unknown) => e);
+
+        expect(isGuardianStateNotOnChain(error)).toBe(true);
+        expect(guardianConfig.configure).toHaveBeenCalledTimes(posts);
+      } finally {
+        warn.mockRestore();
+        restoreTimers();
+      }
     });
 
     /**
@@ -1601,11 +2496,12 @@ describe('MultisigService', () => {
      */
     it('fires onBeforeRegister after the local reads and immediately before the POST', async () => {
       const order: string[] = [];
-      const registerOnGuardian = jest.fn(async () => {
+      guardianConfig.configure.mockImplementation(async () => {
         order.push('register');
+        return { success: true, message: 'ok' };
       });
-      const multisig = makeMultisig({ registerOnGuardian });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const multisig = makeMultisig({ signerCommitments: CACHED_SIGNERS });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockSyncState.mockImplementationOnce(async () => {
         order.push('sync');
       });
@@ -1623,7 +2519,7 @@ describe('MultisigService', () => {
     // the callback UNFIRED, because that is what makes the attempt refundable.
     it('does not fire onBeforeRegister when the hold is evicted before the POST', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       const onBeforeRegister = jest.fn();
       mockGetAccount.mockImplementationOnce(async () => {
         currentWasmHold = null;
@@ -1634,25 +2530,18 @@ describe('MultisigService', () => {
         name: 'WasmClientPoisonedError'
       });
       expect(onBeforeRegister).not.toHaveBeenCalled();
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('re-derives the guardian allowlist from the fresh on-chain account before registering (#619 gap 3)', async () => {
       // The multisig was loaded from a possibly-stale guardian blob, so its
       // cached signerCommitments still hold the PRE-rotation [old-hot, cold].
-      let commitmentsAtRegisterTime: string[] | undefined;
-      const registerOnGuardian = jest.fn(async () => {
-        commitmentsAtRegisterTime = [...(multisig as unknown as { signerCommitments: string[] }).signerCommitments];
-      });
-      const multisig = makeMultisig({
-        registerOnGuardian,
-        signerCommitments: ['0xoldhot', '0xcold']
-      });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const multisig = makeMultisig({ signerCommitments: ['0xoldhot', '0xcold'] });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       const freshAccount = { serialize: () => new Uint8Array([1, 2, 3]) };
       mockGetAccount.mockResolvedValue(freshAccount);
       // The freshly-synced on-chain account resolves to the POST-rotation set.
-      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+      mockAccountInspectorFromAccount.mockReturnValue(ecdsaRead(['0xnewhot', '0xcold']));
 
       await service.reRegisterCurrentStateOnGuardian();
 
@@ -1665,16 +2554,18 @@ describe('MultisigService', () => {
         '0xnewhot',
         '0xcold'
       ]);
-      expect(commitmentsAtRegisterTime).toEqual(['0xnewhot', '0xcold']);
+      expect(guardianConfig.configure).toHaveBeenCalledWith(
+        expect.objectContaining({ auth: { MidenEcdsa: { cosigner_commitments: ['0xnewhot', '0xcold'] } } })
+      );
     });
 
     // #788 follow-up: this method is reachable from the BACKGROUND runSync
     // stage-2 last resort, i.e. exactly the unattended loop whose failure mode is
-    // a client parked on a node that never answers — the population the watchdog
+    // a client parked on a node that never answers - the population the watchdog
     // eviction exists for. Pre-registration throughout, so stopping is safe.
     it('stops before the account read when the hold is evicted during the sync (#788)', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockSyncState.mockImplementationOnce(async () => {
         currentWasmHold = null;
       });
@@ -1685,12 +2576,12 @@ describe('MultisigService', () => {
       });
       expect(onPushStart).not.toHaveBeenCalled();
       expect(mockGetAccount).not.toHaveBeenCalled();
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('stops before the allowlist derive when the hold is evicted during the account read (#788)', async () => {
       const multisig = makeMultisig({ signerCommitments: ['0xhot', '0xcold'] });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       const serialize = jest.fn(() => new Uint8Array([1]));
       mockGetAccount.mockImplementationOnce(async () => {
         currentWasmHold = null;
@@ -1708,56 +2599,55 @@ describe('MultisigService', () => {
       expect(serialize).not.toHaveBeenCalled();
       // The cached allowlist survives an abandoned read untouched.
       expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual(['0xhot', '0xcold']);
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
-    it('keeps the cached allowlist (does NOT overwrite with empty) when the fresh account reads back no signers', async () => {
-      // A truncated storage read yields an empty set from AccountInspector;
-      // overwriting a good allowlist with [] would re-arm the 401 this prevents.
-      const registerOnGuardian = jest.fn(async () => {});
-      const multisig = makeMultisig({ registerOnGuardian, signerCommitments: ['0xhot', '0xcold'] });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+    // AccountInspector skips what it cannot read, so a truncated storage read comes back short or empty. The cached set
+    // is no fallback: the server refuses a set that is not the chain's, so the push would only spend an attempt.
+    it.each([
+      ['an empty read', { numSigners: 2, signerCommitments: [], signers: [], guardianScheme: 'ecdsa' }],
+      ['a short read', { ...ECDSA_READ, signerCommitments: ['0xhot'] }]
+    ])('refuses %s before any /configure, keeping the cached allowlist', async (_label, read) => {
+      const multisig = makeMultisig({ signerCommitments: ['0xhot', '0xcold'] });
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
-      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
+      mockAccountInspectorFromAccount.mockReturnValue(read);
+      const onPushStart = jest.fn();
 
-      await service.reRegisterCurrentStateOnGuardian();
+      await expect(service.reRegisterCurrentStateOnGuardian(onPushStart)).rejects.toThrow('Refusing to register');
 
-      // cached set preserved, and the state blob is still pushed (best-effort).
+      expect(onPushStart).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
       expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual(['0xhot', '0xcold']);
-      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
     });
 
     it('refuses a local copy that is not the on-chain state, writing nothing (#1233)', async () => {
       const mismatch = new Error('Local account commitment does not match on-chain commitment for account acc-id');
-      const registerOnGuardian = jest.fn(async () => {});
       const multisig = makeMultisig({
-        registerOnGuardian,
         verifyStateCommitment: jest.fn(async () => {
           throw mismatch;
         })
       });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
 
       const error = await service.reRegisterCurrentStateOnGuardian().catch((caught: unknown) => caught);
 
       expect(error).toBeInstanceOf(GuardianReRegisterRefusedError);
       expect(error).toHaveProperty('cause', mismatch);
       expect(mockGetAccount).not.toHaveBeenCalled();
-      expect(registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('does not push when the chain commitment cannot be read (#1233)', async () => {
-      const registerOnGuardian = jest.fn(async () => {});
       const multisig = makeMultisig({
-        registerOnGuardian,
         verifyStateCommitment: jest.fn(async () => {
           throw new Error('On-chain account details not found for account acc-id');
         })
       });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
 
       await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toBeInstanceOf(GuardianReRegisterRefusedError);
-      expect(registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('stops before the account read when the hold is evicted during the chain check (#1233)', async () => {
@@ -1767,7 +2657,7 @@ describe('MultisigService', () => {
           return { accountId: 'acc-id', localCommitment: '0xc0', onChainCommitment: '0xc0' };
         })
       });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://x');
       const onPushStart = jest.fn();
 
       await expect(service.reRegisterCurrentStateOnGuardian(onPushStart)).rejects.toMatchObject({
@@ -1775,7 +2665,7 @@ describe('MultisigService', () => {
       });
       expect(onPushStart).not.toHaveBeenCalled();
       expect(mockGetAccount).not.toHaveBeenCalled();
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
   });
 
@@ -1800,7 +2690,7 @@ describe('MultisigService', () => {
 
       expect(guardianConfig.setSigner).toHaveBeenCalled();
       expect(mockAccountDeserialize).toHaveBeenCalled();
-      // Routed through the guard, never straight to accounts.insert — an
+      // Routed through the guard, never straight to accounts.insert - an
       // unguarded overwrite here is what let a stale snapshot win.
       expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalledWith(webClient, fakeAccount);
       expect(webClient.accounts.insert).not.toHaveBeenCalled();
@@ -1925,12 +2815,21 @@ describe('MultisigService', () => {
   });
 
   describe('guardian switch', () => {
+    // finalizeGuardianSwitch signs the new Guardian's `/configure` with the service's request signer.
+    const REQUEST_SIGNER = new WalletSigner('0x02aa', '0xc0de', async () => '0xsig');
     // A real `GET /pubkey` commitment is a 32-byte word, and the switch path now
     // refuses anything else before it reaches the transaction script.
     const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
+    // The commitment of the post-switch state the finalize serializes.
+    const POST_SWITCH_COMMITMENT = `0x${'5c'.repeat(32)}`;
+    const postSwitchAccount = () => ({
+      serialize: () => new Uint8Array([1]),
+      to_commitment: () => ({ toHex: () => POST_SWITCH_COMMITMENT })
+    });
 
     beforeEach(() => {
       resetMockProbes();
+      mockAccountInspectorFromAccount.mockReturnValue(ECDSA_READ);
     });
 
     it('createSwitchGuardianProposal builds the proposal from the new guardian commitment and keeps its origin', async () => {
@@ -1942,11 +2841,38 @@ describe('MultisigService', () => {
 
       expect(newEndpoint).toBe('https://new');
       expect(multisig.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new', NEW_GUARDIAN_COMMITMENT);
-      // `createSwitchGuardianProposal` already creates the proposal — it must NOT
+      // `createSwitchGuardianProposal` already creates the proposal - it must NOT
       // be re-created via the generic `createProposal` (that would duplicate it).
       expect(multisig.createProposal).not.toHaveBeenCalled();
       // On mobile the new endpoint stays routed through native HTTP once its key checks out.
       expect(mockProbeVerdicts).toEqual([['https://new', true]]);
+    });
+
+    it('returns the SDK export captured under the switch creation hold', async () => {
+      const proposal = { id: 'switch-proposal', nonce: 7 };
+      const exportBytes = '{"commitment":"switch-proposal"}';
+      let creationHold: object | null = null;
+      let exportHold: object | null = null;
+      const exportProposalToJson = jest.fn(() => {
+        exportHold = currentWasmHold;
+        return exportBytes;
+      });
+      const multisig = makeMultisig({
+        createSwitchGuardianProposal: jest.fn(async () => {
+          creationHold = currentWasmHold;
+          return proposal;
+        }),
+        exportProposalToJson
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
+
+      const result = await service.createSwitchGuardianProposal('https://new');
+
+      expect(exportProposalToJson).toHaveBeenCalledWith(proposal.id);
+      expect(creationHold).not.toBeNull();
+      expect(exportHold).toBe(creationHold);
+      expect(result).toMatchObject({ proposal, exportedProposal: exportBytes });
     });
 
     it('names a rejected switch-guardian proposal creation but not the new guardian key fetch', async () => {
@@ -1966,6 +2892,25 @@ describe('MultisigService', () => {
       expect(snapshotCrashDiagnostics(fetchError)).toEqual({});
     });
 
+    it('marks the new guardian key fetch rejection as the new guardian answer, without wrapping it', async () => {
+      const fetchRefusal = Object.assign(new Error('Forbidden'), { status: 403 });
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockRejectedValueOnce(fetchRefusal);
+      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toBe(fetchRefusal);
+      expect(isNewGuardianAnswer(fetchRefusal)).toBe(true);
+
+      // The outgoing guardian's own 403 from the proposal push is never marked.
+      const pushRefusal = Object.assign(new Error('Forbidden'), { status: 403 });
+      const pushMultisig = makeMultisig({
+        createSwitchGuardianProposal: jest.fn(async () => Promise.reject(pushRefusal))
+      });
+      const pushService = new MultisigService(pushMultisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
+      await expect(pushService.createSwitchGuardianProposal('https://new')).rejects.toBe(pushRefusal);
+      expect(isNewGuardianAnswer(pushRefusal)).toBe(false);
+    });
+
     it('createSwitchGuardianProposal re-throws when the new guardian fetch fails and releases its origin', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
@@ -1977,7 +2922,7 @@ describe('MultisigService', () => {
 
     // The SDK interpolates this value into MASM source after a `normalizeHexWord`
     // that only lowercases and left-pads to 64, so an over-long response passes
-    // through with whatever followed it — including newlines. The coordinated path
+    // through with whatever followed it - including newlines. The coordinated path
     // has the same sink as the direct one and gets the same guard.
     it('createSwitchGuardianProposal refuses a malformed commitment and releases the new origin', async () => {
       const multisig = makeMultisig();
@@ -2022,6 +2967,42 @@ describe('MultisigService', () => {
       expect(mockProbeVerdicts).toEqual([['https://new', false]]);
     });
 
+    it('createSwitchGuardianProposal takes the answer a freeze held back, so it never rotates a live guardian away (#2060)', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      let answer: (value: { commitment: string }) => void = () => undefined;
+      guardianConfig.getPubkey.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            answer = resolve;
+          })
+      );
+
+      jest.useFakeTimers();
+      const doc = installHiddenDocument();
+      initBackgroundTimeTracking();
+      try {
+        let failure: unknown;
+        void service.createSwitchGuardianProposal('https://new').catch((err: unknown) => {
+          failure = err;
+        });
+        await jest.advanceTimersByTimeAsync(0);
+        doc.setHidden(true);
+        doc.freezeFor(NEW_GUARDIAN_PUBKEY_TIMEOUT_MS + 1);
+        doc.setHidden(false);
+        await jest.advanceTimersByTimeAsync(0);
+        answer({ commitment: NEW_GUARDIAN_COMMITMENT });
+        await jest.advanceTimersByTimeAsync(0);
+
+        expect(failure).toBeUndefined();
+        expect(multisig.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new', NEW_GUARDIAN_COMMITMENT);
+      } finally {
+        __resetBackgroundTimeForTest();
+        doc.restore();
+        jest.useRealTimers();
+      }
+    });
+
     // A service that has signed a switch proposal, ready to finalize it; the history read answers with `delta`.
     const setUpSignedSwitch = async () => {
       const multisig = makeMultisig({
@@ -2042,7 +3023,7 @@ describe('MultisigService', () => {
       return { multisig, service, delta };
     };
     const queueFinalize = () => {
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT });
     };
     const flushPush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -2050,7 +3031,7 @@ describe('MultisigService', () => {
     it.each([false, true])(
       'records switch history on the old operator without holding up registration (old source fails: %s)',
       async fails => {
-        const { multisig, service, delta } = await setUpSignedSwitch();
+        const { service, delta } = await setUpSignedSwitch();
         guardianConfig.pushDelta.mockImplementationOnce(async () => {
           if (fails) throw new Error('Old Guardian is unavailable');
         });
@@ -2062,7 +3043,7 @@ describe('MultisigService', () => {
 
         expect(guardianConfig.getDeltaProposal).toHaveBeenCalledWith('acc-id', 'proposal-id');
         expect(guardianConfig.pushDelta).toHaveBeenCalledWith({ ...delta, deltaPayload: { data: 'summary' } });
-        expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
+        expect(guardianConfig.configure).toHaveBeenCalledWith(registeredState('base64-bytes'));
         const constructed = jest.mocked(GuardianHttpClient).mock;
         const pushedOn = constructed.results.findIndex(
           result => result.value === guardianConfig.pushDelta.mock.contexts[0]
@@ -2072,7 +3053,7 @@ describe('MultisigService', () => {
     );
 
     it('registers on the new Guardian while the old operator never answers, and returns once the history read times out', async () => {
-      const { multisig, service } = await setUpSignedSwitch();
+      const { service } = await setUpSignedSwitch();
       guardianConfig.getDeltaProposal.mockReset();
       guardianConfig.getDeltaProposal.mockImplementationOnce(() => new Promise(() => {}));
       queueFinalize();
@@ -2084,7 +3065,7 @@ describe('MultisigService', () => {
           settled = true;
         });
         await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS - 1);
-        expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
+        expect(guardianConfig.configure).toHaveBeenCalledWith(registeredState('base64-bytes'));
         expect(settled).toBe(false);
 
         await jest.advanceTimersByTimeAsync(2);
@@ -2098,7 +3079,7 @@ describe('MultisigService', () => {
     });
 
     it('returns only after the history push, so the push signs inside the switch', async () => {
-      const { multisig, service, delta } = await setUpSignedSwitch();
+      const { service, delta } = await setUpSignedSwitch();
       let answerHistory: (value: typeof delta) => void = () => {};
       guardianConfig.getDeltaProposal.mockReset();
       guardianConfig.getDeltaProposal.mockImplementationOnce(
@@ -2114,7 +3095,7 @@ describe('MultisigService', () => {
         settled = true;
       });
       // A macrotask at a time: finalize would resolve a few microtasks after registration if it did not wait.
-      while (!multisig.registerOnGuardian.mock.calls.length) await flushPush();
+      while (!guardianConfig.configure.mock.calls.length) await flushPush();
       await flushPush();
       expect(settled).toBe(false);
       expect(guardianConfig.pushDelta).not.toHaveBeenCalled();
@@ -2125,7 +3106,7 @@ describe('MultisigService', () => {
     });
 
     it("pushes a switch's history at most once, even after a failed push", async () => {
-      const { multisig, service } = await setUpSignedSwitch();
+      const { service } = await setUpSignedSwitch();
       guardianConfig.pushDelta.mockRejectedValueOnce(new Error('Old Guardian is unavailable'));
       queueFinalize();
       queueFinalize();
@@ -2136,13 +3117,55 @@ describe('MultisigService', () => {
       await flushPush();
 
       expect(guardianConfig.getDeltaProposal).toHaveBeenCalledTimes(1);
-      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(2);
+    });
+
+    // A 0.19 Guardian stores a state past nonce 0 only once the chain holds it.
+    it('finalizeGuardianSwitch waits for the post-switch commitment before its first /configure', async () => {
+      const { service } = await setUpSignedSwitch();
+      queueFinalize();
+      let landed: (onChain: boolean) => void = () => {};
+      const lockHeldDuringWait: boolean[] = [];
+      mockWaitForStateOnChain.mockImplementationOnce(async () => {
+        lockHeldDuringWait.push(currentWasmHold !== null);
+        return new Promise<boolean>(resolve => {
+          landed = resolve;
+        });
+      });
+
+      const finalized = service.finalizeGuardianSwitch('https://new');
+      for (let turn = 0; turn < 50 && !mockWaitForStateOnChain.mock.calls.length; turn++) await flushPush();
+      await flushPush();
+
+      expect(mockWaitForStateOnChain).toHaveBeenCalledWith('acc-id', POST_SWITCH_COMMITMENT);
+      expect(lockHeldDuringWait).toEqual([false]);
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
+
+      landed(true);
+      await finalized;
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+      expect(guardianConfig.configure).toHaveBeenCalledWith(registeredState('base64-bytes'));
+    });
+
+    // Review Focus 2 on the coordinated path: a 0.18 Guardian accepts the state as before.
+    it('finalizeGuardianSwitch registers once when the chain wait runs out', async () => {
+      const { service } = await setUpSignedSwitch();
+      queueFinalize();
+      mockWaitForStateOnChain.mockResolvedValueOnce(false);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await service.finalizeGuardianSwitch('https://new');
+
+      expect(mockWaitForStateOnChain).toHaveBeenCalledTimes(1);
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
     });
 
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      const signer = REQUEST_SIGNER;
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', signer);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       await service.finalizeGuardianSwitch('https://new');
@@ -2151,7 +3174,88 @@ describe('MultisigService', () => {
       expect(multisig.setGuardianClient).toHaveBeenCalled();
       expect(multisig.guardianPublicKey).toBe(NEW_GUARDIAN_COMMITMENT);
       expect(service.guardianEndpoint).toBe('https://new');
-      expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
+      expect(guardianConfig.configure).toHaveBeenCalledWith(registeredState('base64-bytes'));
+    });
+
+    // `/configure` authenticates, so the client it posts on carries this service's signer itself.
+    it('the new guardian client is signed before configure', async () => {
+      const multisig = makeMultisig();
+      const signer = REQUEST_SIGNER;
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', signer);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
+
+      await service.finalizeGuardianSwitch('https://new');
+
+      const constructed = jest.mocked(GuardianHttpClient).mock;
+      const newAt = constructed.invocationCallOrder[constructed.calls.findIndex(call => call[0] === 'https://new')]!;
+      const signedAt = guardianConfig.setSigner.mock.calls.findIndex(call => call[0] === signer);
+      expect(signedAt).toBeGreaterThanOrEqual(0);
+      expect(guardianConfig.setSigner.mock.invocationCallOrder[signedAt]).toBeGreaterThan(newAt);
+      expect(guardianConfig.setSigner.mock.invocationCallOrder[signedAt]).toBeLessThan(
+        guardianConfig.configure.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('finalizeGuardianSwitch refuses before any /configure without a request signer', async () => {
+      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://old');
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow(/request signer/);
+
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
+    });
+
+    it('finalizeGuardianSwitch registers the cosigners read in its own hold on the new guardian', async () => {
+      const multisig = makeMultisig({ signerCommitments: ['0xstale', '0xcold'] });
+      const oldClient = serviceClient();
+      const service = new MultisigService(multisig as never, oldClient as never, 'https://old', REQUEST_SIGNER);
+      const account = postSwitchAccount();
+      mockGetAccount.mockResolvedValueOnce(account);
+      const readInHold: boolean[] = [];
+      mockAccountInspectorFromAccount.mockImplementation(() => {
+        readInHold.push(currentWasmHold !== null);
+        return ECDSA_READ;
+      });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
+
+      await service.finalizeGuardianSwitch('https://new');
+
+      expect(mockAccountInspectorFromAccount).toHaveBeenCalledWith(account);
+      expect(readInHold).toEqual([true]);
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
+      expect(guardianConfig.configure).toHaveBeenCalledWith({
+        accountId: 'acc-id',
+        auth: { MidenEcdsa: { cosigner_commitments: ['0xhot', '0xcold'] } },
+        initialState: { data: 'base64-bytes', accountId: 'acc-id' }
+      });
+      const constructed = jest.mocked(GuardianHttpClient).mock;
+      const postedOn = constructed.results.findIndex(
+        result => result.value === guardianConfig.configure.mock.contexts[0]
+      );
+      expect(constructed.calls[postedOn]?.[0]).toBe('https://new');
+      expect(guardianConfig.configure.mock.contexts[0]).not.toBe(oldClient.guardianClient);
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    // Review Focus 5: a signer set read short, or not all ECDSA, is no policy to install on the new operator.
+    it.each([
+      ['a truncated read', { ...ECDSA_READ, signerCommitments: ['0xhot'] }],
+      [
+        'a falcon signer',
+        { ...ECDSA_READ, signers: [ECDSA_READ.signers[0], { commitment: '0xcold', scheme: 'falcon' }] }
+      ],
+      ['an unread guardian scheme', { ...ECDSA_READ, guardianScheme: null }]
+    ])('finalizeGuardianSwitch refuses %s before any /configure', async (_label, read) => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, serviceClient() as never, 'https://old', REQUEST_SIGNER);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
+      mockAccountInspectorFromAccount.mockReturnValue(read);
+
+      await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow('Refusing to register');
+      expect(guardianConfig.getPubkey).not.toHaveBeenCalled();
+      expect(multisig.setGuardianClient).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     // The post-commit sibling of the proposal-path guard above, and it needed its
@@ -2165,8 +3269,8 @@ describe('MultisigService', () => {
       ['a non-string body', 1234]
     ])('finalizeGuardianSwitch refuses %s from the new guardian', async (_label, commitment) => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment, pubkey: 'new-pubkey' });
 
       await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow('malformed key commitment');
@@ -2174,18 +3278,18 @@ describe('MultisigService', () => {
       // service pointed at the new operator with an unusable key is worse than a
       // refusal the caller books as `registerFailed` and the self-heal retries.
       expect(multisig.setGuardianClient).not.toHaveBeenCalled();
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('finalizeGuardianSwitch throws when the SDK has no record of the switched account', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockGetAccount.mockResolvedValueOnce(null);
 
       await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow(
         `Updated account acc-id is missing from local client`
       );
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     // #788 follow-up: syncState is the canonical parking await (a node that never
@@ -2194,7 +3298,7 @@ describe('MultisigService', () => {
     // an abandoned finalize is strictly cheaper than the double borrow.
     it('finalizeGuardianSwitch stops before the account read when the hold is evicted during the sync', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       mockSyncState.mockImplementationOnce(async () => {
         currentWasmHold = null;
       });
@@ -2204,12 +3308,12 @@ describe('MultisigService', () => {
       });
       expect(mockGetAccount).not.toHaveBeenCalled();
       expect(multisig.setGuardianClient).not.toHaveBeenCalled();
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('finalizeGuardianSwitch stops before serializing when the hold is evicted during the account read', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
       const serialize = jest.fn(() => new Uint8Array([1]));
       mockGetAccount.mockImplementationOnce(async () => {
         currentWasmHold = null;
@@ -2221,39 +3325,38 @@ describe('MultisigService', () => {
       });
       expect(serialize).not.toHaveBeenCalled();
       expect(multisig.setGuardianClient).not.toHaveBeenCalled();
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('finalizeGuardianSwitch retries a transient registration failure then succeeds', async () => {
       const restoreTimers = skipRetryBackoffs();
 
-      const multisig = makeMultisig({
-        registerOnGuardian: jest.fn().mockRejectedValueOnce(new Error('guardian down')).mockResolvedValueOnce(undefined)
-      });
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.configure.mockRejectedValueOnce(new Error('guardian down'));
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       try {
         await service.finalizeGuardianSwitch('https://new');
-        expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+        expect(guardianConfig.configure).toHaveBeenCalledTimes(2);
       } finally {
         restoreTimers();
       }
     });
 
     // Both calls this makes to the NEW guardian sit PAST the on-chain commit, and
-    // `GuardianHttpClient` uses bare `fetch` with no `AbortSignal` — so an operator
+    // `GuardianHttpClient` uses bare `fetch` with no `AbortSignal` - so an operator
     // that accepts the connection and then goes silent produces no error at all.
     // The retry budget bounds REJECTIONS and never advances on silence, so an
     // unbounded wait here parks `completeSwitchGuardianTransaction` before its
     // terminal status write: a committed rotation stuck at GeneratingTransaction,
-    // with `registerFailed` — the flag whose self-heal would finish the job —
+    // with `registerFailed` - the flag whose self-heal would finish the job -
     // never written. F-144 bounded the endpoint persist beside it and left these.
     it('finalizeGuardianSwitch gives up on a new guardian whose /pubkey never answers', async () => {
       const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
 
       jest.useFakeTimers();
@@ -2269,13 +3372,14 @@ describe('MultisigService', () => {
       } finally {
         jest.useRealTimers();
       }
-      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+      expect(guardianConfig.configure).not.toHaveBeenCalled();
     });
 
     it('finalizeGuardianSwitch gives up on a new guardian whose registration never answers', async () => {
-      const multisig = makeMultisig({ registerOnGuardian: jest.fn(() => new Promise(() => {})) });
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.configure.mockImplementation(() => new Promise(() => {}));
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       jest.useFakeTimers();
@@ -2285,7 +3389,7 @@ describe('MultisigService', () => {
           (err: Error) => err.message
         );
         // Every attempt has to expire on its own deadline, so the whole budget is
-        // what bounds the silence — and it terminates.
+        // what bounds the silence - and it terminates.
         await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS * 10 + 60_000 * 10);
         expect(await outcome).toMatch('Failed to register account on the new guardian');
       } finally {
@@ -2299,24 +3403,24 @@ describe('MultisigService', () => {
     // for a state that needs no healing, arming a self-heal against nothing.
     it('finalizeGuardianSwitch treats "already registered" as the goal state', async () => {
       const alreadyThere = Object.assign(new Error('nope'), { code: 'account_already_exists' });
-      const multisig = makeMultisig({ registerOnGuardian: jest.fn(async () => Promise.reject(alreadyThere)) });
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.configure.mockRejectedValue(alreadyThere);
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       await expect(service.finalizeGuardianSwitch('https://new')).resolves.toBeUndefined();
-      // Not retried into the budget — one look is enough.
-      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+      // Not retried into the budget: one look is enough.
+      expect(guardianConfig.configure).toHaveBeenCalledTimes(1);
     });
 
     it('finalizeGuardianSwitch throws after exhausting registration retries', async () => {
       const restoreTimers = skipRetryBackoffs();
 
-      const multisig = makeMultisig({
-        registerOnGuardian: jest.fn(async () => Promise.reject(new Error('guardian down')))
-      });
-      const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.configure.mockRejectedValue(new Error('guardian down'));
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old', REQUEST_SIGNER);
+      mockGetAccount.mockResolvedValueOnce(postSwitchAccount());
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       try {
@@ -2324,7 +3428,7 @@ describe('MultisigService', () => {
           'Failed to register account on the new guardian after switching'
         );
         // GUARDIAN_RETRY_MAX_ATTEMPTS attempts.
-        expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(8);
+        expect(guardianConfig.configure).toHaveBeenCalledTimes(8);
       } finally {
         restoreTimers();
       }
@@ -2345,7 +3449,12 @@ describe('MultisigService', () => {
         callOrder.push('createSwitchGuardianProposal');
         multisigHold = currentWasmHold;
         expect(currentWasmHold).not.toBeNull();
-        return { nonce: 7, txSummary: 'txs-b64', metadata: { proposalType: 'switch-guardian' } };
+        return {
+          id: 'switch-proposal',
+          nonce: 7,
+          txSummary: 'txs-b64',
+          metadata: { proposalType: 'switch-guardian' }
+        };
       });
       const multisig = makeMultisig({ createSwitchGuardianProposal });
       return {
@@ -2538,7 +3647,7 @@ describe('MultisigService', () => {
     const wrapperCases: Array<[string, string, (s: MultisigService) => Promise<unknown>]> = [
       ['createSendProposal', 'createP2idProposal', s => s.createSendProposal('rec', 'fauc', 5n, 'Public' as never)],
       ['createConsumeNotesProposal', 'createConsumeNotesProposal', s => s.createConsumeNotesProposal(['note-a'])],
-      ['createCustomProposal', 'createCustomProposal', s => s.createCustomProposal(new Uint8Array([1]))]
+      ['createCustomProposal', 'createProposal', s => s.createCustomProposal(new Uint8Array([1]))]
     ];
 
     it.each(wrapperCases)(
@@ -2548,7 +3657,7 @@ describe('MultisigService', () => {
         const multisigCall = jest.fn(async () => {
           callOrder.push(multisigMethod);
           multisigHold = currentWasmHold;
-          return { kind: multisigMethod };
+          return { kind: multisigMethod, id: SUMMARY_COMMITMENT };
         });
         const service = new MultisigService(
           makeMultisig({ [multisigMethod]: multisigCall }) as never,
@@ -2618,8 +3727,166 @@ describe('MultisigService', () => {
       await service.signProposal('p-3');
 
       expect(multisig.signProposal).toHaveBeenCalledWith('p-3');
+      expect(multisig.importProposal).not.toHaveBeenCalled();
       expect(multisig.executeProposal).not.toHaveBeenCalled();
       expect(multisig.createTransactionProposalRequest).not.toHaveBeenCalled();
+    });
+
+    // #2225: the SDK looks for a proposal that is not in its cache in the Guardian's full pending list, and
+    // one pending proposal that does not parse (a signature from a replaced hot key) fails that read.
+    it('adopts a known proposal before it signs, so the SDK finds it in its cache', async () => {
+      const calls: string[] = [];
+      const importedId = `0x${'cd'.repeat(32)}`;
+      const exported = JSON.stringify({
+        accountId: 'acc-id',
+        nonce: 7,
+        commitment: '0xPROP',
+        txSummaryBase64: 'txs-b64',
+        signatures: [
+          {
+            commitment: '0xhot',
+            signatureHex: '0xsig',
+            scheme: 'ecdsa',
+            publicKey: '0xpub',
+            messageFormat: 'eip712',
+            timestamp: '2026-11-19T00:00:00.000Z'
+          },
+          {
+            commitment: '0xfalcon',
+            signatureHex: '0xfsig',
+            scheme: 'falcon',
+            timestamp: '2026-11-19T00:00:01.000Z'
+          }
+        ],
+        metadata: { proposalType: 'switch_guardian' }
+      });
+      const importProposal = jest.fn(async (json: string) => {
+        calls.push('import');
+        return { id: json === exported ? importedId : 'other-spelling' };
+      });
+      const multisig = makeMultisig({
+        importProposal,
+        signProposal: jest.fn(async () => {
+          calls.push('sign');
+          return { signatures: [] };
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.signProposal('0xPROP', undefined, exported);
+
+      expect(calls).toEqual(['import', 'sign']);
+      expect(importProposal).toHaveBeenCalledWith(exported);
+      expect(multisig.signProposal).toHaveBeenCalledWith(importedId);
+    });
+
+    it('does not sign when the known proposal fails its adoption', async () => {
+      const multisig = makeMultisig({
+        importProposal: jest.fn(async () => {
+          throw new Error('Invalid proposal: metadata salt does not match');
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.signProposal('0xprop', undefined, '{"commitment":"0xprop"}')).rejects.toThrow(
+        'metadata salt does not match'
+      );
+      expect(multisig.signProposal).not.toHaveBeenCalled();
+    });
+
+    it('does not start cold adoption after its caller stops waiting', async () => {
+      const importProposal = jest.fn(async () => ({}));
+      const multisig = makeMultisig({ importProposal });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: true };
+
+      await expect(service.signProposal('0xprop', undefined, '{"commitment":"0xprop"}', phase)).rejects.toThrow(
+        'abandoned'
+      );
+      expect(importProposal).not.toHaveBeenCalled();
+      expect(multisig.signProposal).not.toHaveBeenCalled();
+    });
+
+    it('signs an imported switch proposal from the SDK cache without listing pending proposals', async () => {
+      const { Multisig } = jest.requireActual<typeof import('@openzeppelin/miden-multisig-client')>(
+        '../../../../node_modules/@openzeppelin/miden-multisig-client/dist/multisig.js'
+      );
+      const commitment = `0x${'11'.repeat(32)}`;
+      const salt = `0x${'22'.repeat(32)}`;
+      const signerCommitment = `0x${'33'.repeat(32)}`;
+      const accountId = '0x000000000000000000000000000001';
+      const proposal: Proposal = {
+        id: commitment,
+        accountId,
+        nonce: 7,
+        status: 'pending',
+        txSummary: 'AQ==',
+        signatures: [],
+        metadata: {
+          description: 'Switch Guardian',
+          proposalType: 'switch_guardian',
+          newGuardianPubkey: signerCommitment,
+          newGuardianEndpoint: 'https://new.test',
+          saltHex: salt
+        },
+        verification: { status: 'unchecked' }
+      };
+      const summaryBytes = new Uint8Array(87);
+      summaryBytes[0] = 1;
+      mockTransactionSummaryDeserialize.mockReturnValue({
+        toCommitment: () => ({ toHex: () => commitment }),
+        serialize: () => summaryBytes,
+        blockCommitment: () => ({ serialize: () => new Uint8Array(32), free: () => {} }),
+        userParams: () => Array.from({ length: 6 }, () => ({ asInt: () => 0n })),
+        expirationDelta: () => 0
+      });
+      mockWordFromFelts.mockReturnValue({ toHex: () => salt });
+      const getDeltaProposals = jest.fn(async () => {
+        throw new Error('The test does not list pending proposals');
+      });
+      const signDeltaProposal = jest.fn(async () => ({
+        accountId,
+        nonce: proposal.nonce,
+        deltaPayload: { txSummary: { data: proposal.txSummary } },
+        status: { status: 'candidate' }
+      }));
+      const guardian = { getDeltaProposals, signDeltaProposal };
+      const signer = { commitment: signerCommitment, scheme: 'falcon', signCommitment: async () => '0x01' };
+      const client = {
+        defaultProver: null,
+        accounts: { get: async () => null },
+        syncChain: async () => {}
+      };
+      const multisig = new Multisig(
+        {} as never,
+        { threshold: 1, signerCommitments: [signerCommitment], guardianCommitment: signerCommitment },
+        guardian as never,
+        signer as never,
+        client as never,
+        accountId,
+        'https://node.test'
+      );
+      const service = new MultisigService(multisig, {} as never, 'https://old.test');
+      const exportedProposal = JSON.stringify({
+        accountId: proposal.accountId,
+        nonce: proposal.nonce,
+        commitment: proposal.id,
+        txSummaryBase64: proposal.txSummary,
+        signatures: [],
+        metadata: proposal.metadata
+      });
+
+      let outcome: PromiseSettledResult<void>;
+      try {
+        await service.signProposal(commitment, undefined, exportedProposal);
+        outcome = { status: 'fulfilled', value: undefined };
+      } catch (reason) {
+        outcome = { status: 'rejected', reason };
+      }
+
+      expect(getDeltaProposals).not.toHaveBeenCalled();
+      expect(outcome).toEqual({ status: 'fulfilled', value: undefined });
+      expect(signDeltaProposal).toHaveBeenCalledWith(expect.objectContaining({ accountId, commitment }));
     });
   });
 
@@ -2638,7 +3905,7 @@ describe('MultisigService', () => {
       expect(svc).toBeInstanceOf(MultisigService);
       // The service initialized via init forwards the COLD pubkey/commitment
       // (each prefixed with 0x) to the WalletSigner. We can't introspect that
-      // directly here, so we assert load was called — proving init proceeded.
+      // directly here, so we assert load was called - proving init proceeded.
       expect(multisigClientConfig.load).toHaveBeenCalledWith('acc-id', expect.anything());
       // Endpoint is resolved per-account (here falling back to the stored value).
       expect(svc.guardianEndpoint).toBe('https://stored.guardian.test');
@@ -2742,13 +4009,106 @@ describe('MultisigService', () => {
         expect.anything(),
         expect.not.objectContaining({ chainAnchor: expect.anything() })
       );
-      expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
+      expect(result).toEqual({ kind: 'custom', id: SUMMARY_COMMITMENT });
+    });
+
+    it('fails with ProposalIdMismatchError when the id is not the commitment of the summary it sent', async () => {
+      const otherId = `0x${'77'.repeat(32)}`;
+      const multisig = makeMultisig({
+        threshold: 1,
+        createProposal: jest.fn(async () => ({ kind: 'custom', id: otherId, nonce: 7 }))
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const abandonCandidate = stubAbandon(service);
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
+        request: { kind: 'request' },
+        salt: { toHex: () => 'salt-hex' }
+      });
+      mockRequestBoundBlockNum.mockReturnValueOnce(4242);
+
+      const error: unknown = await service
+        .createReplaceHotKeyProposal(account, '0xnewhotcommit')
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ProposalIdMismatchError);
+      expect(error).toMatchObject({ expectedId: SUMMARY_COMMITMENT, returnedId: otherId });
+      expect(snapshotCrashDiagnostics(error)).toEqual({
+        proposalStep: 'proposal_create',
+        securityChange: 'replace-hot-key'
+      });
+      expect(multisig.signProposal).not.toHaveBeenCalled();
+      expect(abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledWith(7, otherId);
+    });
+
+    it('labels the proposal with the store nonce plus one and creates it inside the build hold', async () => {
+      let holdDuringCreate: object | null = null;
+      const multisig = makeMultisig({
+        threshold: 1,
+        createProposal: jest.fn(async () => {
+          holdDuringCreate = currentWasmHold;
+          return { kind: 'custom', id: SUMMARY_COMMITMENT, nonce: 5 };
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      mockAccountGet.mockResolvedValue({ nonce: () => ({ asInt: () => 4n }) });
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+
+      await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
+
+      expect(multisig.createProposal).toHaveBeenCalledWith(5, 'base64-bytes', expect.anything());
+      expect(holdDuringCreate).not.toBeNull();
+    });
+
+    it('a post-push verification failure abandons nonce 5 with the summary commitment', async () => {
+      const error = new Error('Invalid proposal: bound block mismatch');
+      const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const abandonCandidate = stubAbandon(service);
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      mockAccountGet.mockResolvedValue({ nonce: () => ({ asInt: () => 4n }) });
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
+
+      expect(abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledWith(5, SUMMARY_COMMITMENT);
+      expect(mockYieldWasmClientLock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not abandon a pre-push failure or a pending conflict', async () => {
+      const refused = new Error('proposal refused');
+      const pending = Object.assign(new Error('conflict_pending_delta'), {
+        status: 409,
+        code: 'conflict_pending_delta'
+      });
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      for (const error of [refused, pending]) {
+        const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
+        const service = new MultisigService(multisig as never, {} as never, 'https://x');
+        const abandonCandidate = stubAbandon(service);
+        mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+        mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
+          request: { kind: 'request' },
+          salt: { toHex: () => 'salt-hex' }
+        });
+        mockRequestBoundBlockNum.mockReturnValueOnce(4242);
+
+        await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
+
+        expect(abandonCandidate).not.toHaveBeenCalled();
+        expect(mockYieldWasmClientLock).not.toHaveBeenCalled();
+      }
     });
 
     it('names a rejected replace-hot-key proposal creation but not its request build', async () => {
       const error = new Error('proposal refused');
       const multisig = makeMultisig({ threshold: 1, createProposal: jest.fn(async () => Promise.reject(error)) });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const abandonCandidate = stubAbandon(service);
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
       mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
@@ -2757,6 +4117,7 @@ describe('MultisigService', () => {
       });
       mockRequestBoundBlockNum.mockReturnValueOnce(4242);
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(error);
+      expect(abandonCandidate).not.toHaveBeenCalled();
       expect(snapshotCrashDiagnostics(error)).toEqual({
         proposalStep: 'proposal_create',
         securityChange: 'replace-hot-key'
@@ -2769,7 +4130,7 @@ describe('MultisigService', () => {
       expect(snapshotCrashDiagnostics(buildError)).toEqual({});
     });
 
-    // #788 follow-up: an eviction ABANDONS this flow rather than cancelling it —
+    // #788 follow-up: an eviction ABANDONS this flow rather than cancelling it -
     // the mutex belongs to a successor the instant the watchdog fires, so every
     // WASM call after a parking await would be a second borrow of a client
     // somebody else is inside. All three transitions here are pre-sign/pre-submit,
@@ -2822,9 +4183,10 @@ describe('MultisigService', () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       seedReplaceHotKeyCollaborators();
       const summarySerialize = jest.fn(() => new Uint8Array([0xab]));
+      const summaryToCommitment = jest.fn(() => ({ toHex: () => SUMMARY_COMMITMENT, free: () => {} }));
       mockExecuteForSummaryAtTip.mockImplementationOnce(async () => {
         currentWasmHold = null;
-        return { serialize: summarySerialize };
+        return { serialize: summarySerialize, toCommitment: summaryToCommitment, free: () => mockSummaryFree() };
       });
 
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
@@ -2832,6 +4194,32 @@ describe('MultisigService', () => {
       });
       // The summary and salt are borrows of the client a successor now owns.
       expect(summarySerialize).not.toHaveBeenCalled();
+      expect(summaryToCommitment).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+    });
+
+    it('rejects with a trap from the commitment read without freeing the commitment', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const commitmentFree = jest.fn(() => {
+        throw new Error('freed after the trap');
+      });
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      seedReplaceHotKeyCollaborators();
+      mockExecuteForSummaryAtTip.mockImplementationOnce(async () => ({
+        serialize: () => new Uint8Array([0xab]),
+        toCommitment: () => ({
+          toHex: () => {
+            throw trap;
+          },
+          free: commitmentFree
+        }),
+        free: () => mockSummaryFree()
+      }));
+
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(trap);
+      expect(commitmentFree).not.toHaveBeenCalled();
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
 

@@ -1,3 +1,4 @@
+import { swapMinimumError } from 'lib/miden/swap/minimum';
 import { quotedPrice } from 'lib/prices/binance';
 
 import { USD_QUOTE_MAX_AGE_MS, tokenToUsd, usdToToken, usdQuoteStatus, usdEstimateText } from './amount';
@@ -64,6 +65,40 @@ describe('trustworthy USD estimates', () => {
     expect(usdQuoteStatus(quote(2, now - USD_QUOTE_MAX_AGE_MS - 1), now)).toBe('stale');
     expect(usdQuoteStatus(quote(2, now + 1), now)).toBe('stale');
     expect(usdQuoteStatus(fixedQuote('USDCX'), now)).toBe('ready');
+  });
+
+  it.each(['SWPA', 'SWPB'])('gives %s a fixed dollar price only inside an E2E build', symbol => {
+    const previous = process.env.MIDEN_E2E_TEST;
+    try {
+      process.env.MIDEN_E2E_TEST = 'true';
+      const fixture = fixedQuote(symbol);
+      expect(fixture?.price).toBe(1);
+      expect(quotedPrice({}, symbol)).toBe(fixture);
+      expect(usdQuoteStatus(fixture, Date.now() + USD_QUOTE_MAX_AGE_MS * 2)).toBe('ready');
+      expect(swapMinimumError('0.99', fixture)).toBe('swapBelowMinimum');
+      expect(swapMinimumError('1', fixture)).toBeUndefined();
+      process.env.MIDEN_E2E_TEST = 'false';
+      expect(fixedQuote(symbol)).toBeUndefined();
+      expect(usdQuoteStatus(quotedPrice({}, symbol))).toBe('unavailable');
+      expect(swapMinimumError('10', fixedQuote(symbol))).toBe('swapMinimumPriceUnavailable');
+    } finally {
+      if (previous === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = previous;
+    }
+  });
+
+  it('leaves TST and forged symbols without fixed frontend prices in an E2E build', () => {
+    const previous = process.env.MIDEN_E2E_TEST;
+    try {
+      process.env.MIDEN_E2E_TEST = 'true';
+      for (const symbol of ['TST', 'SWPA_FAKE', 'SWPBX', 'swpa', '__proto__', 'ETH']) {
+        expect(fixedQuote(symbol)).toBeUndefined();
+        expect(usdQuoteStatus(quotedPrice({}, symbol))).toBe('unavailable');
+      }
+    } finally {
+      if (previous === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = previous;
+    }
   });
 
   it('keeps empty, zero, subunit and atomic amounts distinct', () => {

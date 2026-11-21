@@ -16,6 +16,8 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
+import CommandLauncher from 'app/layouts/CommandLauncher';
+import { useHomePagerPreview } from 'app/layouts/home-pager-preview';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import {
   PageActiveContext,
@@ -25,7 +27,7 @@ import {
   usePageRevealedByLayer
 } from 'app/layouts/page-active';
 import { announceFooterMounted } from 'app/pages/Browser/peek-footer';
-import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
+import { BottomNav, BottomNavItem, SegmentedActionBar, type SegmentedActionBarProps } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { useHasUnreadBadges } from 'lib/badges/useWalletBadges';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -93,6 +95,16 @@ const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
       </TabActiveContext.Provider>
     </div>
   );
+};
+
+/**
+ * The Home action bar. A leaf on purpose: during a swipe it shows the page the pager previews
+ * (`useHomePagerPreview`), so the pill moves with the swipe, and only the bar re-renders for it.
+ */
+const HomeActionBar: FC<SegmentedActionBarProps> = ({ activeId, ...props }) => {
+  const previewId = useHomePagerPreview();
+  // Keep activeId bound to the route so a previewed segment can still be selected.
+  return <SegmentedActionBar {...props} activeId={activeId} displayId={previewId} />;
 };
 
 function activeTabFromPath(pathname: string): string {
@@ -319,8 +331,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // The Home pane holds the swipe carousel for every home-group route.
   panesRef.current[activeTab] = showActionBar ? (
     <>
+      {activeAction !== 'overview' && <CommandLauncher />}
       <div className="shrink-0 relative z-10" data-home-actions="true">
-        <SegmentedActionBar
+        <HomeActionBar
           items={actionItems}
           activeId={activeAction}
           onChange={handleActionChange}

@@ -3,8 +3,9 @@ import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 import { evmChainSlug } from './chains';
 import { type GeoBlocks, readGeoBlocks } from './geo';
+import { expectedOneClickFees, parseOneClickFeePolicy } from '../one-click/fees';
 import { parseOneClickEvmAssets } from '../one-click/identity';
-import type { OneClickEvmAssetConfig } from '../one-click/types';
+import type { OneClickEvmAssetConfig, OneClickFeePolicy } from '../one-click/types';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];
@@ -22,6 +23,7 @@ export interface OneClickAppFeeConfig {
 }
 
 export interface OneClickConfig {
+  feePolicy?: OneClickFeePolicy;
   serviceUrl: string;
   midenAssets: OneClickMidenAssetConfig[];
   evmAssets?: OneClickEvmAssetConfig[];
@@ -173,7 +175,7 @@ export interface AgglayerChainConfig extends RouteSwitches {
 
 export type UsdcxDepositConfig =
   | { route: 'xreserve'; xReserve: EvmAddress }
-  | { route: 'executor'; executorChain: string; tokenMessengerWithFees: EvmAddress };
+  | { route: 'executor'; executorChain: string; tokenMessengerWithFees: EvmAddress; tokenMessenger?: EvmAddress };
 
 export interface UsdcxChainConfig extends RouteSwitches {
   domain: number;
@@ -222,6 +224,7 @@ export interface BridgeConfig {
     bridgeOut?: boolean;
     /** Buying Game Coins in Arcade; only there when the document sets it, and `arcade` exists exactly when true. */
     arcadeGcPurchase?: boolean;
+    openFullscreen?: boolean;
   };
   /**
    * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
@@ -371,7 +374,15 @@ function oneClick(
     });
     if (appFees.reduce((sum, fee) => sum + fee.fee, 0) > 1000) return invalid();
   }
-  return { serviceUrl, midenAssets, evmAssets, ...(appFees === undefined ? {} : { appFees }) };
+  const feePolicy = parseOneClickFeePolicy(config.feePolicy);
+  expectedOneClickFees(appFees ?? [], feePolicy);
+  return {
+    serviceUrl,
+    midenAssets,
+    evmAssets,
+    ...(appFees === undefined ? {} : { appFees }),
+    ...(feePolicy === undefined ? {} : { feePolicy })
+  };
 }
 
 function isSafeIntegerInRange(value: unknown, min: number, max: number): value is number {
@@ -520,7 +531,8 @@ function usdcxDeposit(value: ConfigValue): UsdcxDepositConfig | undefined {
       return {
         route: 'executor',
         executorChain: deposit.executorChain,
-        tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees)
+        tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees),
+        ...(deposit.tokenMessenger === undefined ? {} : { tokenMessenger: evmAddress(deposit.tokenMessenger) })
       };
     default:
       return typeof deposit.route === 'string' ? undefined : invalid();
@@ -783,7 +795,7 @@ function readConfig(
       earn: earnEnabled,
       nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
-        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase']
+        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase', 'openFullscreen']
           .filter(name => features[name] !== undefined)
           .map(name => [name, featureSwitch(features, name)])
       )

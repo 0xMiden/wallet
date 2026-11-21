@@ -1,9 +1,19 @@
 import type { CollateralType, IntentTransactionStatus, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
+import { isHash, parseUnits } from 'viem';
 import { create } from 'zustand';
 
+import {
+  assertBridgeOperationCurrent,
+  bridgeOperationOf,
+  claimBridgeSourceAttempt,
+  hasBridgeOperation,
+  recordBridgeSourceAttempt,
+  type BridgeOperationSnapshot
+} from 'lib/bridge/operation';
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
-import type { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
+import type { IBridgedReceiveExtraInputs, IEpochLockedDeposit, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
@@ -179,6 +189,41 @@ let latestRequest = 0;
 // and a read that a reset replaced must not hold up the next request's.
 let pollInFlight: number | undefined;
 
+function assertOwnedEpochQuote(row: ITransaction, operation: BridgeOperationSnapshot, quote: Quote): void {
+  assertBridgeOperationCurrent(row, operation);
+  const { review } = operation;
+  const source = review.route.source;
+  const destination = review.route.destination;
+  if (
+    review.route.provider !== 'epoch' ||
+    review.route.mode !== 'receive' ||
+    !review.quote ||
+    source.kind === 'miden' ||
+    destination.kind !== 'miden' ||
+    !('sourceChainId' in quote.params)
+  )
+    throw new Error('Bridge operation terms changed');
+  const params = quote.params;
+  const chain = review.route.recovery.config.supportedEvmChains[source.network];
+  const token = source.kind === 'erc20' ? source.address : '0x0000000000000000000000000000000000000000';
+  if (
+    !quote.quoteResult.success ||
+    params.sourceChainId !== chain?.chainId ||
+    params.destinationChainId !== MIDEN_DESTINATION_CHAIN_ID ||
+    params.evmSourceAddress.toLowerCase() !== review.accounts.evmAddress.toLowerCase() ||
+    params.evmTokenAddress.toLowerCase() !== token.toLowerCase() ||
+    !sameWalletAccountId(params.midenRecipientId, review.accounts.midenAccount) ||
+    !sameWalletAccountId(params.midenFaucetId, destination.faucetId) ||
+    (params.isNative === true) !== (source.kind === 'native') ||
+    !/^\d+$/.test(params.minTokenOut) ||
+    BigInt(params.minTokenOut) !== parseUnits(review.quote.received, destination.decimals) ||
+    typeof quote.quoteResult.tokenIn !== 'string' ||
+    !/^\d+$/.test(quote.quoteResult.tokenIn) ||
+    BigInt(quote.quoteResult.tokenIn) !== parseUnits(review.amount, source.decimals)
+  )
+    throw new Error('Bridge operation terms changed');
+}
+
 export const useEpochStore = create<EpochStore>((set, get) => ({
   ...INITIAL_STATE,
 
@@ -216,14 +261,52 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   },
 
   async executeEVMToMiden(bridgeReceiveTxId) {
+    const row = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
+    if (bridgeReceiveTxId !== undefined && (!bridgeReceiveTxId.trim() || !row)) return;
+    const tagged = row !== undefined && hasBridgeOperation(row);
+    const operation = row && bridgeOperationOf(row);
     const { status, flow, quote } = get();
+    if (
+      tagged &&
+      (!row ||
+        !operation ||
+        row.restoredFromBackup ||
+        row.recovered ||
+        row.type !== 'bridged-receive' ||
+        row.extraInputs?.provider !== 'epoch' ||
+        operation.sourceAttempt ||
+        status !== 'quoted')
+    )
+      return;
     if (flow !== 'evm-to-miden' || status !== 'quoted' || !quote || !('sourceChainId' in quote.params)) {
       throw new Error('executeEVMToMiden requires a quoted EVM→Miden flow');
     }
     const sourceChainId = quote.params.sourceChainId;
-    set({ status: 'signing', error: null, bridgeReceiveTxId: bridgeReceiveTxId ?? null, compactWatchClosed: false });
+    const request = latestRequest;
+    let claimedOperation: BridgeOperationSnapshot | undefined;
     try {
-      const row = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
+      if (tagged && row && operation) {
+        assertOwnedEpochQuote(row, operation, quote);
+        if ((await claimBridgeSourceAttempt(operation.operationId, operation.revision)) !== 'claimed') return;
+        const claimedRow = await Repo.transactions.get(row.id);
+        const claimed = claimedRow && bridgeOperationOf(claimedRow);
+        const claimedInputs: IBridgedReceiveExtraInputs | undefined = claimedRow?.extraInputs;
+        if (
+          !claimedRow ||
+          !claimed ||
+          claimed.operationId !== operation.operationId ||
+          claimed.revision === operation.revision ||
+          claimed.sourceAttempt?.phase !== 'running' ||
+          claimedInputs?.phase !== 'submitting' ||
+          claimedInputs.evmTxHash ||
+          claimedInputs.intentNonce
+        )
+          return;
+        assertOwnedEpochQuote(claimedRow, operation, quote);
+        claimedOperation = { ...operation, revision: claimed.revision };
+      }
+      if (tagged && request !== latestRequest) throw new Error('Bridge operation terms changed');
+      set({ status: 'signing', error: null, bridgeReceiveTxId: bridgeReceiveTxId ?? null, compactWatchClosed: false });
       const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
       // viem's writeContract rejects when walletClient.chain.id (Sepolia)
       // doesn't match the wallet's currently-selected chain. The WC session
@@ -241,6 +324,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (!connection.address) {
         throw walletRaised(new Error('Connect an EVM wallet first'));
       }
+      const sourceAddress = connection.address;
       if (!connection.isNative && connection.chainId !== sourceChainId) {
         throw walletRaised(
           new Error(
@@ -251,17 +335,71 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       const allocatorUrl = inputs?.epochAllocatorUrl ?? getEpochAllocatorUrl();
       const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl });
       if (!sdk) throw walletRaised(new Error('Connect an EVM wallet first'));
-      const intent = await buildEVMToMidenIntent(sdk, {
-        ...(quote as EVMToMidenQuote).params,
-        preFetchedQuote: quote as EVMToMidenQuote
-      });
-      console.log('[epoch] EVM→Miden intent', intent);
+      const assertOwnedCurrent = async () => {
+        if (!claimedOperation || !row) throw new Error('Bridge operation terms changed');
+        connection = await getEvmConnection();
+        const currentRow = await Repo.transactions.get(row.id);
+        const currentOperation = currentRow && bridgeOperationOf(currentRow);
+        const currentInputs: IBridgedReceiveExtraInputs | undefined = currentRow?.extraInputs;
+        if (
+          !currentRow ||
+          !currentOperation ||
+          currentOperation.revision !== claimedOperation.revision ||
+          currentOperation.sourceAttempt?.phase !== 'running' ||
+          currentInputs?.phase !== 'submitting' ||
+          currentInputs.evmTxHash ||
+          currentInputs.intentNonce ||
+          request !== latestRequest ||
+          connection.address?.toLowerCase() !== claimedOperation.review.accounts.evmAddress.toLowerCase() ||
+          (!connection.isNative && connection.chainId !== sourceChainId)
+        )
+          throw new Error('Bridge operation terms changed');
+        assertOwnedEpochQuote(currentRow, claimedOperation, quote);
+      };
+      if (claimedOperation) await assertOwnedCurrent();
+      const buildParams = {
+        ...quote.params,
+        preFetchedQuote: { ...quote, params: quote.params }
+      };
+      const intent = claimedOperation
+        ? await buildEVMToMidenIntent(sdk, buildParams, assertOwnedCurrent)
+        : await buildEVMToMidenIntent(sdk, buildParams);
+      const nonce = intent.intentNonce ?? intent.solveResult?.nonce;
+      const evmTxHash = intent.solveResult?.depositResult?.transactionHash ?? intent.solveResult?.hash;
+      if (claimedOperation) {
+        if (evmTxHash !== undefined && !isHash(evmTxHash)) throw new Error('Invalid bridge source identity');
+        const known: Parameters<typeof recordBridgeSourceAttempt>[2] = {
+          hash: evmTxHash,
+          intentNonce: nonce,
+          phase: evmTxHash || nonce ? undefined : 'uncertain'
+        };
+        const saved = await recordBridgeSourceAttempt(claimedOperation.operationId, claimedOperation.revision, known);
+        if (!saved) throw new Error('Bridge source attempt changed');
+        if (!intent.error && !evmTxHash && !nonce) throw new Error('Bridge source outcome is uncertain');
+      }
+      if (!tagged) console.log('[epoch] EVM→Miden intent', intent);
       if (intent.error) {
-        set({ status: 'failed', intent, error: intent.error });
-        if (bridgeReceiveTxId) {
+        if (!tagged || request === latestRequest) set({ status: 'failed', intent, error: intent.error });
+        if (bridgeReceiveTxId && !tagged) {
+          const stranded = intent.strandedDeposit;
+          const params = quote.params;
+          // The deposit landed but has no allocation: keep what the sponsor needs to register it again or to
+          // withdraw it, so the row offers recovery instead of a plain failure (#2120).
+          const epochLockedDeposit: IEpochLockedDeposit | undefined = stranded && {
+            sponsorAddress: params.evmSourceAddress,
+            chainId: sourceChainId,
+            lockId: stranded.lockId,
+            tokenAddress: stranded.tokenAddress,
+            isNative: params.isNative === true,
+            amount: stranded.amount,
+            taskTypeString: intent.taskTypeString,
+            intentData: intent.intentData,
+            lockedAt: Math.floor(Date.now() / 1000)
+          };
           // The Epoch SDK's own text, viem's flattened answer, so its report reads it as the cause.
           await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
             error: intent.error,
+            ...(epochLockedDeposit ? { epochLockedDeposit, epochAllocatorUrl: allocatorUrl } : {}),
             failure: {
               step: 'epoch_solve',
               requestClient: connection.isNative ? 'native_reown' : 'wagmi',
@@ -271,14 +409,13 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         }
         return;
       }
-      set({ status: 'pending', intent, pollStartedAt: Date.now(), allocatorUrl });
+      if (!tagged || request === latestRequest)
+        set({ status: 'pending', intent, pollStartedAt: Date.now(), allocatorUrl });
 
       // Park the intent metadata in storage NOW — if the user closes the
       // deposit screen before its polling loop ever reports the Miden note id,
       // the consume-completion hook does a one-shot poll against this record
       // and still tags the auto-consumed note as a bridge-in.
-      const nonce = intent.intentNonce ?? intent.solveResult?.nonce;
-      const evmTxHash = intent.solveResult?.depositResult?.transactionHash ?? intent.solveResult?.hash;
       if (bridgeReceiveTxId) {
         await updateBridgedReceivePhase(bridgeReceiveTxId, 'delivering', {
           intentNonce: nonce,
@@ -294,7 +431,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         const trackingRow = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
         const trackingInputs: IBridgedReceiveExtraInputs | undefined =
           trackingRow?.type === 'bridged-receive' ? trackingRow.extraInputs : undefined;
-        await registerPendingBridgeIn(connection.address, nonce, {
+        await registerPendingBridgeIn(sourceAddress, nonce, {
           provider: 'epoch',
           sourceAmount: trackingInputs?.sourceAmount,
           sourceSymbol: trackingInputs?.sourceSymbol,
@@ -305,9 +442,16 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         }).catch(err => console.warn('[epoch] registerPendingBridgeIn failed', err));
       }
     } catch (err) {
-      console.error('[epoch] executeEVMToMiden failed', err);
+      if (!tagged) console.error('[epoch] executeEVMToMiden failed', err);
       const message = errorMessage(err);
-      set({ status: 'failed', error: message });
+      if (!tagged || request === latestRequest) set({ status: 'failed', error: message });
+      if (tagged) {
+        if (claimedOperation)
+          await recordBridgeSourceAttempt(claimedOperation.operationId, claimedOperation.revision, {
+            phase: 'uncertain'
+          }).catch(() => undefined);
+        return;
+      }
       if (bridgeReceiveTxId) {
         await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
           error: message,

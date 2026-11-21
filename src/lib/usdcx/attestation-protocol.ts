@@ -1,5 +1,7 @@
 import { Hash, Hex, hexToBigInt, hexToNumber, isHex } from 'viem';
 
+import { getCircleJson } from 'lib/bridge/providers/xreserve/circle-http';
+
 // Circle's API can accept the socket and then stay silent. Bound every request
 // so a poll tick fails and retries instead of hanging the status screen.
 const XRESERVE_FETCH_TIMEOUT_MS = 15_000;
@@ -54,22 +56,10 @@ export async function fetchXReserveAttestations(
   txHash: Hash,
   { baseUrl, timeoutMs = XRESERVE_FETCH_TIMEOUT_MS }: FetchXReserveAttestationsOptions
 ): Promise<XReserveAttestation[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${baseUrl}/v1/attestations?txHash=${encodeURIComponent(txHash)}`, {
-      signal: controller.signal
-    });
-    if (!response.ok) {
-      throw new Error(`xReserve attestation request failed: HTTP ${response.status}`);
-    }
-    const body: object | string | number | boolean | null = await response.json();
-    const list = body && typeof body === 'object' ? Reflect.get(body, 'attestations') : undefined;
-    if (!Array.isArray(list)) return [];
-    return list.map(parseAttestation).filter((entry): entry is XReserveAttestation => entry !== undefined);
-  } finally {
-    clearTimeout(timer);
-  }
+  const body = await getCircleJson(`${baseUrl}/v1/attestations?txHash=${encodeURIComponent(txHash)}`, timeoutMs);
+  const list = body && typeof body === 'object' ? Reflect.get(body, 'attestations') : undefined;
+  if (!Array.isArray(list)) return [];
+  return list.map(parseAttestation).filter((entry): entry is XReserveAttestation => entry !== undefined);
 }
 
 /** First 4 bytes of a Circle xReserve DepositIntent payload. */

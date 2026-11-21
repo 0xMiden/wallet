@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { PAGE_RETRY_MS } from '../helpers/dapp-command-server';
+import { runMeasuredCustomSubmit, type DappOutput, type MeasuredSubmitContext } from './protocol';
 
 // The loop runs on import (command-loop.ts exports nothing), against a fetch that stands in for the command server.
 interface PollAnswer {
@@ -66,7 +67,9 @@ function installFetch(): void {
   Object.defineProperty(window, 'fetch', { value: fakeFetch, configurable: true, writable: true });
 }
 
-function installPage(call: (command: string, input: unknown) => Promise<unknown>): void {
+function installPage(
+  call: (command: string, input: unknown, expiresAt?: number, measured?: MeasuredSubmitContext) => Promise<unknown>
+): void {
   Object.defineProperty(window, 'testDapp', { value: { ready: true, call }, configurable: true, writable: true });
 }
 
@@ -185,6 +188,29 @@ test('answers a command with the value the page returned', async () => {
   expect(resultsPosted()).toEqual([{ id: 'c1', ok: true, value: { name: 'session', input: { a: 1 } } }]);
 });
 
+test('forwards the measured submission expiry to the page', async () => {
+  const expiresAt = Date.now() + 30_000;
+  const answer = jest.fn(async (_name: string, _input: unknown, _expiry?: number, measured?: MeasuredSubmitContext) => {
+    await measured?.reportLeadingNode({ name: 'ChainUnavailableError', message: 'node failure' });
+    await measured?.reportLeadingNode();
+    return {};
+  });
+  installPage(answer);
+  pollAnswers = [
+    () => Promise.resolve({ status: 200, body: { id: 'c1', command: 'submitCustomMeasured', input: {}, expiresAt } })
+  ];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(100);
+  expect(answer).toHaveBeenCalledWith('submitCustomMeasured', {}, expiresAt, {
+    reportLeadingNode: expect.any(Function),
+    trailingCutoff: expiresAt - (2 * POST_ATTEMPT_MS + PAGE_RETRY_MS + 1_000)
+  });
+  expect(eventsOf('leading-node-failure')).toEqual([
+    { kind: 'leading-node-failure', data: { id: 'c1', name: 'ChainUnavailableError', message: 'node failure' } }
+  ]);
+  expect(eventsOf('leading-node-recovered')).toEqual([{ kind: 'leading-node-recovered', data: { id: 'c1' } }]);
+});
+
 test('answers a result JSON cannot carry with an error naming the command', async () => {
   installPage(async () => ({ amount: BigInt(1) }));
   pollAnswers = [command('c2', 'chainAccount')];
@@ -270,6 +296,26 @@ test('abandons a never-settling first result POST after the bound and delivers t
   expect(resultAttempts).toBe(2);
   expect(resultSignals.map(signal => signal?.aborted)).toEqual([true, false]);
   expect(eventsOf('result-undelivered')).toEqual([]);
+});
+
+test('delivers the measured refusal on retry when the trailing read stalls', async () => {
+  const expiresAt = Date.now() + 30_000;
+  const refusal: DappOutput<'submitCustom'> = { ok: false, error: { name: 'Refused', message: 'refused' } };
+  const sync = jest.fn().mockResolvedValueOnce({ height: 10 }).mockImplementation(() => new Promise(() => undefined));
+  const submit = jest.fn(async () => refusal);
+  installPage((_name, _input, expiry, context) => runMeasuredCustomSubmit(sync, submit, expiry, context));
+  resultReplies = [neverPosted, () => new Promise(resolve => setTimeout(() => resolve(204), POST_ATTEMPT_MS - 100))];
+  pollAnswers = [
+    () => Promise.resolve({ status: 200, body: { id: 'measured', command: 'submitCustomMeasured', input: {}, expiresAt } })
+  ];
+  startLoop();
+  await jest.advanceTimersByTimeAsync(29_500);
+  expect(Date.now()).toBeLessThan(expiresAt);
+  expect(resultAttempts).toBe(2);
+  expect(resultsPosted()).toEqual([
+    { id: 'measured', ok: true, value: { result: refusal, timing: expect.objectContaining({ trailingReadFailed: true }) } }
+  ]);
+  expect(submit).toHaveBeenCalledTimes(1);
 });
 
 test('reports result-undelivered after three never-settling result POST attempts', async () => {

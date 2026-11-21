@@ -56,10 +56,10 @@ describe('coverage', () => {
     expect(isCoveredSymbol('constructor')).toBe(false);
   });
 
-  it('covers the E2E fixture symbol only inside an E2E build', async () => {
-    expect(isCoveredSymbol('TST')).toBe(false);
+  it.each(['TST', 'SWPA', 'SWPB'])('covers fixture %s only inside an E2E build', async symbol => {
+    expect(isCoveredSymbol(symbol)).toBe(false);
     await withE2eFlagSet(() => {
-      expect(isCoveredSymbol('TST')).toBe(true);
+      expect(isCoveredSymbol(symbol)).toBe(true);
     });
   });
 });
@@ -147,16 +147,16 @@ describe('getPriceMicro', () => {
     await expect(getPriceMicro('ETH', 1_050)).resolves.toBeUndefined();
   });
 
-  it('prices the E2E fixture symbol at exactly one dollar, reading neither the cache nor the feed', async () => {
+  it.each(['TST', 'SWPA', 'SWPB'])('prices fixture %s at one dollar without cache or feed', async symbol => {
     await withE2eFlagSet(async () => {
-      await expect(getPriceMicro('TST', 1_000)).resolves.toBe(1_000_000n);
+      await expect(getPriceMicro(symbol, 1_000)).resolves.toBe(1_000_000n);
     });
     expect(mockedRead).not.toHaveBeenCalled();
     expect(mockedFetch).not.toHaveBeenCalled();
   });
 
-  it('leaves the fixture symbol unpriced outside an E2E build', async () => {
-    await expect(getPriceMicro('TST', 1_000)).resolves.toBeUndefined();
+  it.each(['TST', 'SWPA', 'SWPB'])('leaves fixture %s unpriced outside an E2E build', async symbol => {
+    await expect(getPriceMicro(symbol, 1_000)).resolves.toBeUndefined();
   });
 
   it('treats a cache read failure as empty rather than letting it crash the lookup', async () => {

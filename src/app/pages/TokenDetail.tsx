@@ -12,13 +12,14 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
+import { BasketComposition } from 'components/BasketComposition';
 import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { CopyButton } from 'components/ui/CopyButton';
-import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
@@ -26,8 +27,8 @@ import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import { UnverifiedTokenSheet } from 'components/UnverifiedTokenSheet';
-import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -39,8 +40,11 @@ import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
-import type { Timeframe, TokenPriceInfo } from 'lib/prices';
+import type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from 'lib/prices';
+import { basketChange24h, basketKlines } from 'lib/prices/basket';
+import { isBasketQuote } from 'lib/prices/basket-nav';
 import { isNominalQuote } from 'lib/prices/binance';
+import { fetchKlineSeries } from 'lib/prices/feed';
 import { isFixedQuote } from 'lib/prices/fixed';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -94,7 +98,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const account = useAccount();
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const allTokensMetadata = useAllTokensBaseMetadata();
-  const { data: balances } = useAllBalances(account.publicKey, allTokensMetadata);
+  const { data: balances, isLoading: balancesLoading } = useAllBalances(account.publicKey, allTokensMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
@@ -104,7 +108,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const title = midenTokenLabel(bridgeConfig, tokenId, symbol);
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
   // 0.00. Once read, a token with no entry holds nothing.
-  const balance = balances ? (token?.balance ?? 0) : null;
+  const balance = !balancesLoading && balances ? (token?.balance ?? 0) : null;
   // The quote of the symbol the feed prices this token under (IETH at ETH), or the nominal $1 a
   // unit `quotedPrice` gives a token the feed does not quote while the switch is on. A token
   // without one has no dollar figure and no price section.
@@ -117,8 +121,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   // emphatic number in the wallet; an em dash says "not known" where a rendered
   // quantity would say "this is what you have".
   const scaleIsKnown = hasKnownScale(metadata);
-  const formatBalance = adaptiveFormatterFor(balance ?? 0);
-  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
   const verification = useTokenVerification(tokenId);
   const [unverifiedSheetOpen, setUnverifiedSheetOpen] = useState(false);
 
@@ -142,7 +144,6 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             valueClassName="font-extrabold"
             visual={
               <TokenLogo
-                symbol={symbol}
                 faucetId={tokenId}
                 size="2xl"
                 // An unverified token carries the warning on its own mark, where the eye already is.
@@ -164,23 +165,12 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               />
             }
             value={
-              <AnimatedNumber
-                value={scaleIsKnown ? balance : null}
-                format={formatBalance}
-                // An em dash, not a translated phrase: this slot is a number in the hero,
-                // and the header above it already names the token.
-                placeholder="—"
-              />
+              <TokenAmount amount={scaleIsKnown ? balance : null} animated rounding="down" trimTrailingZeros={false} />
             }
             subtitle={
               // The dash while prices load; no line once they have and none quotes this token.
               scaleIsKnown && (quote || !pricesLoaded(tokenPrices, [priceSymbol])) ? (
-                <AnimatedNumber
-                  value={fiatValue}
-                  format={value => `$${formatFiat(value)}`}
-                  // Same dash as the value above: this line hasn't priced anything yet either.
-                  placeholder="—"
-                />
+                <UsdAmount amount={fiatValue} animated grouping={false} />
               ) : undefined
             }
           />
@@ -232,12 +222,29 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
+          {/* Only the nominal rate has no price, no move and no line. A basket's value is a dollar figure from its vault.
+              Its move and line follow its tokens. */}
           <SectionDivider />
 
-          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && priceSymbol && (
+          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && !isBasketQuote(quote) && priceSymbol && (
             <>
               <PriceChart symbol={priceSymbol} priceInfo={quote} />
+              <SectionDivider />
+            </>
+          )}
+
+          {/* A basket priced from its vault: its line and move are its tokens', weighted by the vault's mix, and the
+              mix itself follows. */}
+          {quote && isBasketQuote(quote) && quote.composition && priceSymbol && (
+            <>
+              <BasketPriceChart
+                symbol={priceSymbol}
+                priceInfo={quote}
+                composition={quote.composition}
+                prices={tokenPrices}
+              />
+              <SectionDivider />
+              <BasketComposition components={quote.composition} />
               <SectionDivider />
             </>
           )}
@@ -282,16 +289,55 @@ function priceChange(percentageChange24h: number): { tone: PillTone; label: stri
   return { tone: 'neutral', label: (0).toFixed(1) };
 }
 
-const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol, priceInfo }) => {
+/** A basket's price section: its net asset value, with the move and line its tokens' candles give it. */
+const BasketPriceChart: FC<{
+  symbol: string;
+  priceInfo: TokenPriceInfo;
+  composition: BasketComponent[];
+  prices: TokenPrices;
+}> = ({ symbol, priceInfo, composition, prices }) => {
+  const change = basketChange24h(composition, prices);
+  const mix = composition.map(c => `${c.priceSymbol}:${c.weight}`).join(',');
+  return (
+    <PriceChart
+      symbol={symbol}
+      priceInfo={{ ...priceInfo, percentageChange24h: change ?? 0 }}
+      showChange={change !== undefined}
+      klines={{
+        key: `basket:${mix}:${priceInfo.price}`,
+        load: async timeframe =>
+          basketKlines(
+            composition,
+            await Promise.all(composition.map(c => fetchKlineSeries(c.priceSymbol, timeframe))),
+            priceInfo.price,
+            prices
+          )
+      }}
+    />
+  );
+};
+
+const PriceChart: FC<{
+  symbol: string;
+  priceInfo: TokenPriceInfo;
+  /** Hide the 24h pill, for a price with no move to show. */
+  showChange?: boolean;
+  /** Where the line comes from, when it is not the symbol's own candles. */
+  klines?: { key: string; load: (timeframe: Timeframe) => Promise<KlinePoint[]> };
+}> = ({ symbol, priceInfo, showChange = true, klines }) => {
   const { t } = useTranslation();
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
 
-  const { data: klineData } = useRetryableSWR(['kline', symbol, timeframe], () => fetchKlineData(symbol, timeframe), {
-    dedupingInterval: 30_000,
-    // Hold the previous timeframe's line while the next one loads, so switching does not flash
-    // the skeleton; only the very first load shows it.
-    keepPreviousData: true
-  });
+  const { data: klineData } = useRetryableSWR(
+    ['kline', klines?.key ?? symbol, timeframe],
+    () => (klines ? klines.load(timeframe) : fetchKlineData(symbol, timeframe)),
+    {
+      dedupingInterval: 30_000,
+      // Hold the previous timeframe's line while the next one loads, so switching does not flash
+      // the skeleton; only the very first load shows it.
+      keepPreviousData: true
+    }
+  );
 
   // `fetchKlineData` resolves `[]` on failure or for a token with no market, so `undefined` only
   // ever means the first load is still in flight.
@@ -311,8 +357,6 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   const change = priceChange(priceInfo.percentageChange24h);
   // Pinned to the destination so the count keeps one shape.
   const minimumFormatDecimals = PRICE_MINIMUM_DECIMALS[symbol] ?? DEFAULT_PRICE_MINIMUM_DECIMALS;
-  const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, minimumFormatDecimals);
-  const formatPrice = (value: number) => `$${formatAdaptivePrice(value)}`;
 
   // Sits on `page`, not a `Card`: the chart reads better at the full content width than inset in a
   // card, and a neutral `Pill` on a `fill` card would not show at all.
@@ -322,19 +366,23 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
         {t('tokenPrice')}
       </SectionHeader>
       <div className="flex items-center justify-between gap-3 px-1">
-        <AnimatedNumber
+        <UsdAmount
           className="min-w-0 truncate text-hero-value text-ink"
-          value={priceInfo.price}
-          format={formatPrice}
+          amount={priceInfo.price}
+          minimumFractionDigits={minimumFormatDecimals}
+          grouping={false}
+          animated
         />
         {/* The tone is the SHOWN change's, read once from the destination, so the pill does not
             change colour on its way there; the label follows each frame. */}
-        <Pill size="md" tone={change.tone} data-testid="token-detail-price-change">
-          <AnimatedNumber
-            value={priceInfo.percentageChange24h}
-            format={value => t('tokenDetailChange24h', { change: priceChange(value).label })}
-          />
-        </Pill>
+        {showChange && (
+          <Pill size="md" tone={change.tone} data-testid="token-detail-price-change">
+            <AnimatedNumber
+              value={priceInfo.percentageChange24h}
+              format={value => t('tokenDetailChange24h', { change: priceChange(value).label })}
+            />
+          </Pill>
+        )}
       </div>
       <div className="mt-4 h-28">
         {loading ? (
@@ -364,7 +412,13 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   const point = payload[0].payload;
                   return (
                     <div className="rounded-xl bg-ink px-2 py-1 text-xs text-page">
-                      <div className="text-badge">${toAdaptiveFixed(point.value, minimumFormatDecimals)}</div>
+                      <div className="text-badge">
+                        <UsdAmount
+                          amount={point.value}
+                          minimumFractionDigits={minimumFormatDecimals}
+                          grouping={false}
+                        />
+                      </div>
                       {point.time && <div>{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
                   );
@@ -433,6 +487,7 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const edited = canEdit && hasOverride;
   const [editOpen, setEditOpen] = useState(false);
   const [editSession, setEditSession] = useState(0);
+  const [faucetOpen, setFaucetOpen] = useState(false);
   // Undefined on a build with no explorer configured for the effective network (e.g. a custom
   // dev-settings override with a blank explorer URL) — the row below degrades by not rendering,
   // the same way history's explorer links do (`TransactionStatus.tsx`'s `ExternalLinkValue`).
@@ -481,31 +536,39 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
         {t('tokenInfo')}
       </SectionHeader>
       <DetailCard surface="outline">
-        {/* What the token is: the faucet's own words, or the wallet's for testnet iETH. It comes first
-            because it describes the token; the rows after it are identifiers. The text can be long,
-            so it wraps under the label.
-            A stacked row breaks inside words, which suits an address but not prose. The span breaks
-            at spaces and breaks a word only when the word is wider than the card. */}
+        {metadata?.name && metadata.name !== metadata.symbol && (
+          <DetailRow label={t('tokenNameLabel')} stacked data-testid="token-detail-name">
+            <span className="break-normal wrap-break-word">{metadata.name}</span>
+          </DetailRow>
+        )}
         {description && (
           <DetailRow label={t('tokenDescription')} stacked data-testid="token-detail-description">
             <span className="break-normal wrap-break-word">{description}</span>
           </DetailRow>
         )}
-        {/* The faucet that mints this token, under the name the transaction detail page gives every
-            faucet id. A bare copy glyph beside the id cut by the shared `truncateHash`, in the row's
-            value style; the full id is what gets copied. */}
-        <DetailRow label={t('faucetId')} data-testid="token-detail-contract">
-          <CopyButton
-            text={tokenId}
-            label={truncateHash(tokenId, 8)}
-            // The visible label is a value, so the control is named by what it does.
-            aria-label={copied => (copied ? t('copied') : t('copyToClipboard'))}
-            icon="leading"
-            className="min-w-0 text-ink"
-            contentClassName="text-value"
-            data-testid="token-detail-copy-contract"
-          />
-        </DetailRow>
+        <DetailDisclosure
+          title={t('faucetId')}
+          summary={truncateHash(tokenId, 8)}
+          open={faucetOpen}
+          onOpenChange={setFaucetOpen}
+          data-testid="token-detail-contract"
+        >
+          <DetailRow label={t('faucetId')} stacked>
+            <div className="flex min-w-0 w-full flex-col gap-2">
+              <span dir="ltr" className="select-text break-all" data-testid="token-detail-full-faucet-id">
+                {tokenId}
+              </span>
+              <CopyButton
+                text={tokenId}
+                aria-label={copied => (copied ? t('copied') : t('copyToClipboard'))}
+                icon="leading"
+                className="min-h-11 self-start text-ink"
+                contentClassName="text-value"
+                data-testid="token-detail-copy-contract"
+              />
+            </div>
+          </DetailRow>
+        </DetailDisclosure>
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
         {/* Centred on the chip, which is taller than the label's line. */}
         <DetailRow label={t('network')} className="items-center">

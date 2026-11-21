@@ -53,7 +53,11 @@ jest.mock('./miden-client-proxy', () => ({
 }));
 
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
-  fn({ vault: { signData: jest.fn(async () => 'fake-signature-base64') } })
+  fn({
+    vault: {
+      signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' }))
+    }
+  })
 );
 jest.mock('lib/miden/back/store', () => ({
   store: { getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: 'Ready' }) },

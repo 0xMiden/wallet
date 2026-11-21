@@ -25,6 +25,37 @@ beforeEach(() => {
 });
 
 describe('user-visible error reports', () => {
+  it('recognizes the Earn balance load error id', () => {
+    expect(USER_ERROR_IDS).toContain('earnBalanceLoadError');
+    expect(isUserErrorId('earnBalanceLoadError')).toBe(true);
+  });
+
+  it('recognizes the localized fullscreen tab creation failure as a closed error id', () => {
+    expect(isUserErrorId('commandFullscreenOpenFailed')).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(en, 'commandFullscreenOpenFailed')).toBe(true);
+  });
+
+  it('reports the fixed bridge review identity without rendered text or arbitrary bridge details', () => {
+    expect(isUserErrorId('bridgeReviewChanged')).toBe(true);
+    expect(en.bridgeReviewChanged).toBe('The bridge terms changed. Check Activity before continuing.');
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'bridgeReviewChanged',
+      'review',
+      {
+        message: 'private rendered refusal',
+        rpcUrl: 'https://wallet.example/private',
+        recipient: '0xprivate',
+        quote: { amount: '123.45', bytes: new Uint8Array([81, 82]) }
+      }
+    ]);
+    const error = jest.mocked(captureCrash).mock.calls[0]?.[0];
+    if (!(error instanceof Error)) throw new Error('Missing bridge review report');
+    expect(error.message).toBe('User-visible error: bridgeReviewChanged; surface review');
+    expect(error.stack).toBeUndefined();
+    expect(error.cause).toBeUndefined();
+    expect(snapshotCrashDiagnostics(error)).toEqual({ userErrorId: 'bridgeReviewChanged', userErrorSurface: 'review' });
+  });
+
   it('reports a known id and surface once as WalletUserVisibleError', () => {
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
 
@@ -175,8 +206,9 @@ describe('user-visible error reports', () => {
 test('startup warning retains closed attempt diagnostics without attaching them to unrelated reports', () => {
   const diagnostics = {
     startupEligibilityStage: 'eligibility_lookup',
-    startupEligibilityReason: 'version_mismatch',
-    startupEligibilityRetry: 'config_not_advanced'
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'config_not_advanced',
+    startupEligibilityRequestFailure: 'timeout'
   };
   const reportWithDiagnostics = reportUserVisibleError as (...args: unknown[]) => void;
   reportWithDiagnostics('walletAccessUnavailableBody', 'startup', diagnostics);
@@ -356,6 +388,7 @@ it('rejects arbitrary or accessor-backed burn fee diagnostics without evaluating
 });
 
 it.each([
+  ['earnBalanceLoadError', 'notice'],
   ['earnPositionsLoadError', 'inline'],
   ['earnVaultLoadError', 'notice']
 ])('rejects an Earn load observation on the mismatching pair %s/%s', (id, surface) => {

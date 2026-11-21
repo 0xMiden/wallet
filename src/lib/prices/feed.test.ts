@@ -1,5 +1,5 @@
 import * as binance from './binance';
-import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket, usdMarketPending } from './feed';
+import { fetchKlineData, fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket, usdMarketPending } from './feed';
 import * as kraken from './kraken';
 
 jest.mock('./binance');
@@ -15,7 +15,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   jest.spyOn(Date, 'now').mockReturnValue(mockPriceNow);
   primary.fetchTokenPrices.mockResolvedValue({ USDT: dollars, USDC: dollars });
-  primary.fetchKlineData.mockResolvedValue([]);
+  primary.fetchKlineSeries.mockResolvedValue({ points: [], stepMs: NaN });
   primary.isListedSymbol.mockReturnValue(true);
   fallback.findKrakenUsdMarket.mockResolvedValue(null);
   fallback.fetchKrakenPrices.mockResolvedValue({});
@@ -89,8 +89,23 @@ it('uses Kraken direct USD history when Binance has no market', async () => {
   expect(fallback.fetchKrakenKlineData).toHaveBeenCalledWith('HISTORYUSD', '1D');
 });
 
+it('gives the candle length of the provider that served the history', async () => {
+  fallback.krakenCandleMs.mockReturnValue(14_400_000);
+  primary.fetchKlineSeries.mockResolvedValueOnce({ points: [{ time: 1, value: 2 }], stepMs: 21_600_000 });
+  expect(await fetchKlineSeries('SOL', '1M')).toEqual({ points: [{ time: 1, value: 2 }], stepMs: 21_600_000 });
+
+  primary.isListedSymbol.mockReturnValue(false);
+  fallback.findKrakenUsdMarket.mockResolvedValueOnce('HISTORYUSD');
+  fallback.fetchKrakenKlineData.mockResolvedValueOnce([{ time: 3, value: 0.5 }]);
+  expect(await fetchKlineSeries('HISTORY', '1M')).toEqual({ points: [{ time: 3, value: 0.5 }], stepMs: 14_400_000 });
+  expect(fallback.krakenCandleMs).toHaveBeenCalledWith('1M');
+
+  fallback.findKrakenUsdMarket.mockRejectedValueOnce(new Error('rate limit'));
+  expect(await fetchKlineSeries('HISTORYRETRY', '1M')).toEqual({ points: [], stepMs: 14_400_000 });
+});
+
 it('keeps Binance history and does not mask a failed Binance history request with another provider', async () => {
-  primary.fetchKlineData.mockResolvedValueOnce([{ time: 1, value: 2 }]);
+  primary.fetchKlineSeries.mockResolvedValueOnce({ points: [{ time: 1, value: 2 }], stepMs: 60_000 });
   expect(await fetchKlineData('SOL', '1H')).toEqual([{ time: 1, value: 2 }]);
   expect(await fetchKlineData('SOL', '1H')).toEqual([]);
   expect(fallback.findKrakenUsdMarket).not.toHaveBeenCalled();

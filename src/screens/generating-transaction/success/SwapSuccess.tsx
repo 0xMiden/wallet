@@ -6,9 +6,9 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 
@@ -52,7 +52,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
   // none — the sentence below drops to naming the token.
   const offeredAmount =
     transaction?.amount !== undefined && offered.scaleIsKnown
-      ? formatAmount(transaction.amount, offered.decimals)
+      ? formatAmountDisplay(transaction.amount, { decimals: offered.decimals, rounding: 'down' })
       : undefined;
   const returnAmountText = offeredAmount ? `${offeredAmount} ${offeredLabel}` : undefined;
 

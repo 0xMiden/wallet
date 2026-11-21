@@ -12,6 +12,7 @@ const NATIVE_ETH: BridgeToken = {
   scale: 10
 };
 const SKIPPED: Probe<never> = { state: 'skipped' };
+const ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
 const MARKET: EarnMarket = {
   marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
   protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
@@ -122,6 +123,7 @@ const whole = (): DerivedBridgeConfig => ({
   agglayer: { indexer: { state: 'absent' } },
   epoch: {
     allocator: { state: 'error', message: 'HTTP 502' },
+    allocatorAccount: { state: 'ok', value: { accountId: ALLOCATOR_ACCOUNT } },
     market: { state: 'ok', value: MARKET },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     vaults: { state: 'ok', value: [DUMMY_VAULT, EULER_VAULT] }
@@ -345,7 +347,7 @@ it('reads a derivation that threw as every check failed, on every configured cha
     // Each token of a chain's Epoch route fails; a chain with no route has none.
     chains: { 11155111: { agglayer, epoch: { tokens: { USDC: error } } }, 84532: { agglayer, epoch: { tokens: {} } } },
     agglayer: { indexer: error },
-    epoch: { allocator: error, market: error, midenUsdcFaucet: error, vaults: error },
+    epoch: { allocator: error, allocatorAccount: error, market: error, midenUsdcFaucet: error, vaults: error },
     swap: { pairs: error }
   });
 });
@@ -420,6 +422,31 @@ describe('the Earn vault catalogue', () => {
     const parsed = parseStoredDerived(stored(withVaults(vaults)), 'testnet', 4);
     expect(parsed).toStrictEqual({ ...whole(), epoch: { ...whole().epoch, vaults: MALFORMED } });
   });
+});
+
+it('reads a copy with no allocator account, as a build before it stored it, as missing', () => {
+  const stored = whole();
+  const { allocatorAccount: _account, ...before } = stored.epoch;
+  expect(parseStoredDerived({ ...stored, epoch: before }, 'testnet', 4)).toStrictEqual({
+    ...stored,
+    epoch: { ...stored.epoch, allocatorAccount: { state: 'absent' } }
+  });
+});
+
+it.each([
+  ['only its account id', { accountId: ALLOCATOR_ACCOUNT }],
+  ['an older URL beside its account id', { allocatorUrl: 'https://allocator.test', accountId: ALLOCATOR_ACCOUNT }]
+])('reads an allocator account with %s', (_label, value) => {
+  const epoch = { ...whole().epoch, allocatorAccount: { state: 'ok', value } };
+  expect(parseStoredDerived({ ...whole(), epoch }, 'testnet', 4)).toStrictEqual(whole());
+});
+
+it('rejects a snapshot whose allocator account id is not lowercase hex', () => {
+  const epoch = {
+    ...whole().epoch,
+    allocatorAccount: { state: 'ok', value: { accountId: 'mtst1allocator' } }
+  };
+  expect(parseStoredDerived({ ...whole(), epoch }, 'testnet', 4)).toBeNull();
 });
 
 it('reads a copy with no swap pairs, as a build before them stored it, as missing', () => {

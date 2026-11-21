@@ -6,13 +6,17 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import { CONNECTIVITY_STATE_KEY, type ConnectivityStateSnapshot } from 'lib/miden/activity/connectivity-state';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
-import { WalletStatus } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
+import { isExtension } from 'lib/platform';
+import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { getIntercom, useWalletStore } from 'lib/store';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
 import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
 
 import { useAllBalances, getAllBalanceSWRKey, type TokenBalanceData } from './balance';
+import { fetchFromStorage, onStorageChanged } from './storage';
+import { __resetSyncFuseStateForTests, noteSyncParked } from './sync-fuse';
 
 // webextension-polyfill auto-mock causes isExtension() to return true in tests.
 // Override to return false so balance hooks use the WASM polling path.
@@ -22,6 +26,14 @@ jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
   isExtension: jest.fn(() => false)
 }));
+jest.mock('./storage', () => {
+  const actual = jest.requireActual('./storage');
+  return {
+    ...actual,
+    fetchFromStorage: jest.fn(),
+    onStorageChanged: jest.fn(() => Object.assign(() => {}, { attached: Promise.resolve() }))
+  };
+});
 
 // Tests assume the native asset ID is already known — simulates the post-
 // discovery steady state. Without this, buildDefaultZeroBalance() returns [].
@@ -57,6 +69,7 @@ jest.mock('lib/store/utils/fetchBalances', () => ({
 // otherwise hold its address into the next test.
 beforeEach(() => {
   fetchingAddresses.clear();
+  useWalletStore.setState({ balanceReadFailed: {}, balanceReadInFlight: {} });
 });
 
 describe('useAllBalances infinite loop protection', () => {
@@ -631,12 +644,15 @@ describe('the first read for an address (#1123)', () => {
     }
   });
 
-  const mount = async (address: string, onRender?: (isLoading: boolean) => void) => {
+  const mount = async (
+    address: string,
+    onRender?: (isLoading: boolean, readFailed: boolean, balanceReadInFlight: boolean) => void
+  ) => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
     const Consumer = () => {
-      const { isLoading } = useAllBalances(address, {});
-      onRender?.(isLoading);
+      const { isLoading, readFailed, balanceReadInFlight } = useAllBalances(address, {});
+      onRender?.(isLoading, readFailed, balanceReadInFlight);
       return <div />;
     };
     await act(async () => {
@@ -682,6 +698,145 @@ describe('the first read for an address (#1123)', () => {
     expect(useWalletStore.getState().balancesLoading['unmounted-address']).toBe(false);
   });
 
+  it("reports the owner's read failure to a consumer that skipped the in-flight address", async () => {
+    jest.useFakeTimers();
+    let rejectRead!: (error: Error) => void;
+    let rejectRetry!: (error: Error) => void;
+    fetchBalancesMock()
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectRead = reject)))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectRetry = reject)));
+    const ownerContainer = document.createElement('div');
+    const siblingContainer = document.createElement('div');
+    const ownerRoot = createRoot(ownerContainer);
+    const siblingRoot = createRoot(siblingContainer);
+    let siblingIsLoading = false;
+    let siblingReadFailed = false;
+    let siblingReadInFlight = false;
+    const Owner = () => {
+      useAllBalances('shared-address', {});
+      return <div />;
+    };
+    const Sibling = () => {
+      const { isLoading, readFailed, balanceReadInFlight } = useAllBalances('shared-address', {});
+      siblingIsLoading = isLoading;
+      siblingReadFailed = readFailed;
+      siblingReadInFlight = balanceReadInFlight;
+      return <div />;
+    };
+
+    try {
+      await act(async () => {
+        ownerRoot.render(<Owner />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(fetchingAddresses.has('shared-address')).toBe(true);
+
+      await act(async () => {
+        siblingRoot.render(<Sibling />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        rejectRead(new Error('evicted'));
+        await Promise.resolve();
+      });
+      expect(siblingReadFailed).toBe(true);
+      expect(siblingIsLoading).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+        await Promise.resolve();
+      });
+      expect(siblingReadFailed).toBe(true);
+      expect(siblingReadInFlight).toBe(true);
+
+      await act(async () => {
+        rejectRetry(new Error('evicted'));
+        await Promise.resolve();
+      });
+      expect(siblingReadFailed).toBe(true);
+      expect(siblingReadInFlight).toBe(false);
+    } finally {
+      try {
+        ownerRoot.unmount();
+        siblingRoot.unmount();
+      } finally {
+        ownerContainer.remove();
+        siblingContainer.remove();
+        jest.useRealTimers();
+      }
+    }
+  });
+
+  it('publishes a rejected native read to the sibling that stayed mounted', async () => {
+    let rejectRead!: (error: Error) => void;
+    fetchBalancesMock().mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectRead = reject)));
+    const ownerContainer = document.createElement('div');
+    const siblingContainer = document.createElement('div');
+    const ownerRoot = createRoot(ownerContainer);
+    const siblingRoot = createRoot(siblingContainer);
+    let siblingIsLoading = false;
+    let siblingReadFailed = true;
+    let siblingReadInFlight = false;
+    const Owner = () => {
+      useAllBalances('owner-unmount-address', {});
+      return <div />;
+    };
+    const Sibling = () => {
+      const { isLoading, readFailed, balanceReadInFlight } = useAllBalances('owner-unmount-address', {});
+      siblingIsLoading = isLoading;
+      siblingReadFailed = readFailed;
+      siblingReadInFlight = balanceReadInFlight;
+      return <div />;
+    };
+
+    try {
+      await act(async () => {
+        ownerRoot.render(<Owner />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(fetchingAddresses.has('owner-unmount-address')).toBe(true);
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        siblingRoot.render(<Sibling />);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(siblingReadInFlight).toBe(true);
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        ownerRoot.render(null);
+      });
+      expect(siblingReadInFlight).toBe(true);
+      expect(siblingReadFailed).toBe(false);
+
+      await act(async () => {
+        rejectRead(new Error('evicted'));
+        await Promise.resolve();
+      });
+
+      expect(siblingReadFailed).toBe(true);
+      expect(siblingReadInFlight).toBe(false);
+      expect(siblingIsLoading).toBe(true);
+      expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    } finally {
+      ownerRoot.unmount();
+      siblingRoot.unmount();
+      ownerContainer.remove();
+      siblingContainer.remove();
+    }
+  });
+
   it('does not queue a second read behind a Ready-time read that is still in flight', async () => {
     // The import path: the store's Ready-time read is queued, then Home mounts before it lands.
     fetchBalancesMock().mockImplementation(() => new Promise(() => {}));
@@ -699,6 +854,61 @@ describe('the first read for an address (#1123)', () => {
     await mount('import-address');
 
     expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a Ready-time rejection on a hook that mounted while that read was in flight', async () => {
+    let rejectRead!: (error: Error) => void;
+    fetchBalancesMock().mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectRead = reject)));
+    const account = { publicKey: 'ready-time-address', name: 'Account 1', isPublic: true, hdIndex: 0 };
+    useWalletStore.setState({ status: WalletStatus.Locked });
+    useWalletStore.getState().syncFromBackend({
+      status: WalletStatus.Ready,
+      accounts: [account],
+      currentAccount: account,
+      networks: [],
+      settings: { contacts: [] },
+      ownMnemonic: true
+    } as any);
+    let isLoading = false;
+    let readFailed = false;
+    let balanceReadInFlight = false;
+
+    await mount('ready-time-address', (loading, failed, inFlight) => {
+      isLoading = loading;
+      readFailed = failed;
+      balanceReadInFlight = inFlight;
+    });
+    expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+    expect(balanceReadInFlight).toBe(true);
+    expect(readFailed).toBe(false);
+    expect(isLoading).toBe(true);
+
+    await act(async () => {
+      rejectRead(new Error('evicted'));
+      await Promise.resolve();
+    });
+
+    expect(readFailed).toBe(true);
+    expect(balanceReadInFlight).toBe(false);
+    expect(isLoading).toBe(true);
+    expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the first native balance read busy until it settles', async () => {
+    let settleRead!: (rows: TokenBalanceData[]) => void;
+    fetchBalancesMock().mockImplementationOnce(() => new Promise(resolve => (settleRead = resolve)));
+    let balanceReadInFlight = false;
+
+    await mount('pending-address', (_isLoading, _readFailed, inFlight) => {
+      balanceReadInFlight = inFlight;
+    });
+    expect(balanceReadInFlight).toBe(true);
+
+    await act(async () => {
+      settleRead([]);
+      await Promise.resolve();
+    });
+    expect(balanceReadInFlight).toBe(false);
   });
 
   it('does not ask a refresh to wait once the address has balances', async () => {
@@ -730,15 +940,20 @@ describe('the first read for an address (#1123)', () => {
     jest.useFakeTimers();
     try {
       let lastIsLoading: boolean | undefined;
+      let lastReadFailed: boolean | undefined;
       fetchBalancesMock().mockRejectedValueOnce(new Error('evicted'));
 
-      await mount('failing-address', isLoading => (lastIsLoading = isLoading));
+      await mount('failing-address', (isLoading, readFailed) => {
+        lastIsLoading = isLoading;
+        lastReadFailed = readFailed;
+      });
       await act(async () => {
         await Promise.resolve();
       });
 
       expect(fetchBalancesMock()).toHaveBeenCalledTimes(1);
       expect(lastIsLoading).toBe(true);
+      expect(lastReadFailed).toBe(true);
       expect(useWalletStore.getState().balancesLoading['failing-address']).toBeUndefined();
 
       // The poll interval is 5s; the failed read took no dedupe slot, so the next tick reads.
@@ -886,17 +1101,280 @@ describe('the first read for an address (#1123)', () => {
     });
   });
 
-  it('stays loading when the read is skipped by the fuse', async () => {
+  it('stays loading when the read is skipped by the WASM lock', async () => {
     let lastIsLoading: boolean | undefined;
+    let lastReadFailed: boolean | undefined;
     fetchBalancesMock().mockResolvedValue(null);
 
-    await mount('fused-address', isLoading => (lastIsLoading = isLoading));
+    await mount('busy-address', (isLoading, readFailed) => {
+      lastIsLoading = isLoading;
+      lastReadFailed = readFailed;
+    });
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
     expect(fetchBalancesMock()).toHaveBeenCalled();
     expect(lastIsLoading).toBe(true);
-    expect(useWalletStore.getState().balances['fused-address']).toBeUndefined();
+    expect(lastReadFailed).toBe(false);
+    expect(useWalletStore.getState().balances['busy-address']).toBeUndefined();
+  });
+
+  it('shows the failure state when a resolved null follows a fused balance probe', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    let lastIsLoading: boolean | undefined;
+    let lastReadFailed: boolean | undefined;
+    fetchBalancesMock().mockResolvedValue(null);
+    noteSyncParked('balances');
+
+    try {
+      await mount('fused-address', (isLoading, readFailed) => {
+        lastIsLoading = isLoading;
+        lastReadFailed = readFailed;
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(fetchBalancesMock()).toHaveBeenCalled();
+      expect(lastIsLoading).toBe(true);
+      expect(lastReadFailed).toBe(true);
+      expect(useWalletStore.getState().balances['fused-address']).toBeUndefined();
+    } finally {
+      __resetSyncFuseStateForTests();
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('extension balance read failures and retries', () => {
+  let testRoot: ReturnType<typeof createRoot> | null = null;
+  let testContainer: HTMLDivElement | null = null;
+  let requestSpy: jest.SpyInstance;
+  let currentView: ReturnType<typeof useAllBalances> | undefined;
+  const address = 'extension-balance-address';
+  const fetchBalancesMock = () => jest.requireMock('lib/store/utils/fetchBalances').fetchBalances as jest.Mock;
+
+  const connectivitySnapshot = (
+    active: Partial<Record<'network' | 'node' | 'prover' | 'resolving', boolean>> = {}
+  ): ConnectivityStateSnapshot => ({
+    network: { active: active.network ?? false, since: active.network ? 1 : null },
+    node: { active: active.node ?? false, since: active.node ? 1 : null },
+    prover: { active: active.prover ?? false, since: active.prover ? 1 : null },
+    resolving: { active: active.resolving ?? false, since: active.resolving ? 1 : null }
+  });
+
+  const mount = async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    const Consumer = () => {
+      currentView = useAllBalances(address, {});
+      return <div />;
+    };
+    await act(async () => {
+      testRoot!.render(<Consumer />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
+  const advance = async (milliseconds: number) => {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(milliseconds);
+    });
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    jest.mocked(isExtension).mockReturnValue(true);
+    jest.mocked(fetchFromStorage).mockResolvedValue(null);
+    jest
+      .mocked(onStorageChanged)
+      .mockReturnValue(Object.assign(() => {}, { attached: Promise.resolve() }) as ReturnType<typeof onStorageChanged>);
+    useWalletStore.setState({
+      balances: {},
+      balancesLoading: {},
+      balancesLastFetched: {},
+      hasCompletedInitialSync: false,
+      isSyncing: false,
+      assetsMetadata: {}
+    });
+    fetchBalancesMock().mockClear();
+    requestSpy = jest
+      .spyOn(getIntercom(), 'request')
+      .mockResolvedValue({ type: WalletMessageType.SyncResponse } as any);
+    currentView = undefined;
+  });
+
+  afterEach(async () => {
+    if (testRoot) {
+      await act(async () => {
+        testRoot!.unmount();
+      });
+      testRoot = null;
+    }
+    testContainer?.remove();
+    testContainer = null;
+    requestSpy?.mockRestore();
+    jest.mocked(isExtension).mockReturnValue(false);
+    __resetSyncFuseStateForTests();
+    jest.useRealTimers();
+  });
+
+  it('keeps a connectivity-derived first-read failure visible while retry runs', async () => {
+    jest.mocked(fetchFromStorage).mockResolvedValueOnce(connectivitySnapshot({ node: true }));
+    await mount();
+
+    expect(currentView?.readFailed).toBe(true);
+    expect(currentView?.isLoading).toBe(true);
+    expect(fetchBalancesMock()).not.toHaveBeenCalled();
+    expect(fetchFromStorage).toHaveBeenCalledWith(CONNECTIVITY_STATE_KEY);
+    expect(onStorageChanged).toHaveBeenCalledWith(CONNECTIVITY_STATE_KEY, expect.any(Function));
+
+    await act(async () => {
+      await currentView!.mutate();
+    });
+    expect(requestSpy).toHaveBeenCalledWith({ type: WalletMessageType.SyncRequest, force: true });
+    expect(currentView?.readFailed).toBe(true);
+    expect(currentView?.balanceReadInFlight).toBe(true);
+  });
+
+  it('does not treat a prover-only connectivity snapshot as a balance read failure', async () => {
+    jest.mocked(fetchFromStorage).mockResolvedValueOnce(connectivitySnapshot({ prover: true }));
+    await mount();
+    await advance(3_000);
+
+    expect(currentView?.readFailed).toBe(false);
+    expect(currentView?.isLoading).toBe(true);
+    expect(fetchBalancesMock()).not.toHaveBeenCalled();
+  });
+
+  it('ignores a malformed connectivity snapshot and a rejected storage read', async () => {
+    jest.mocked(fetchFromStorage).mockResolvedValueOnce({ network: { active: true, since: 1 } });
+    await mount();
+    expect(currentView?.readFailed).toBe(false);
+
+    await act(async () => {
+      testRoot!.unmount();
+    });
+    testRoot = null;
+    testContainer?.remove();
+    testContainer = null;
+    currentView = undefined;
+
+    jest.mocked(fetchFromStorage).mockRejectedValueOnce(new Error('storage unavailable'));
+    await mount();
+    const remountedView = currentView as ReturnType<typeof useAllBalances> | undefined;
+    expect(remountedView?.readFailed).toBe(false);
+  });
+
+  it('keeps a newer connectivity event when the initial storage read settles late', async () => {
+    let settleRead!: (value: unknown) => void;
+    const pendingRead = new Promise<unknown>(resolve => (settleRead = resolve));
+    jest.mocked(fetchFromStorage).mockReturnValueOnce(pendingRead);
+    await mount();
+
+    const onChange = jest.mocked(onStorageChanged).mock.calls[0]?.[1] as ((value: unknown) => void) | undefined;
+    expect(onChange).toBeDefined();
+    await act(async () => {
+      onChange!(connectivitySnapshot());
+    });
+    await act(async () => {
+      settleRead(connectivitySnapshot({ node: true }));
+      await Promise.resolve();
+    });
+
+    expect(currentView?.readFailed).toBe(false);
+  });
+
+  it('does not mark the extension read failed before initial sync completes', async () => {
+    await mount();
+    await advance(3_000);
+
+    expect(useWalletStore.getState().isSyncing).toBe(false);
+    expect(currentView?.readFailed).toBe(false);
+  });
+
+  it('marks the extension read failed after initial sync completes', async () => {
+    useWalletStore.setState({ hasCompletedInitialSync: true, isSyncing: false });
+    await mount();
+    await advance(2_999);
+    expect(currentView?.readFailed).toBe(false);
+    await advance(1);
+
+    expect(currentView?.readFailed).toBe(true);
+    expect(currentView?.isLoading).toBe(true);
+  });
+
+  it('keeps a deposit retry busy through a balance poll and clears it on a later landing', async () => {
+    useWalletStore.setState({ hasCompletedInitialSync: true, isSyncing: false });
+    let settleRequest!: (response: { type: WalletMessageType }) => void;
+    requestSpy.mockImplementationOnce(() => new Promise<any>(resolve => (settleRequest = resolve)));
+    await mount();
+
+    let retry: Promise<unknown> | undefined;
+    await act(async () => {
+      retry = currentView!.mutate();
+      await Promise.resolve();
+    });
+    expect(requestSpy).toHaveBeenCalledWith({ type: WalletMessageType.SyncRequest, force: true });
+    expect(currentView?.balanceReadInFlight).toBe(true);
+    expect(currentView?.readFailed).toBe(false);
+
+    // A storage poll can run while the forced request is still pending.
+    await advance(3_000);
+    expect(currentView?.balanceReadInFlight).toBe(true);
+    expect(currentView?.readFailed).toBe(false);
+
+    await act(async () => {
+      settleRequest({ type: WalletMessageType.SyncResponse });
+      await retry;
+    });
+    expect(currentView?.balanceReadInFlight).toBe(true);
+    expect(currentView?.readFailed).toBe(false);
+
+    await act(async () => {
+      await currentView!.mutate();
+    });
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    await advance(2_999);
+    expect(currentView?.balanceReadInFlight).toBe(true);
+    expect(currentView?.readFailed).toBe(false);
+    await advance(1);
+    expect(currentView?.balanceReadInFlight).toBe(false);
+    expect(currentView?.readFailed).toBe(true);
+
+    requestSpy.mockResolvedValueOnce({ type: WalletMessageType.SyncResponse } as any);
+    await act(async () => {
+      await currentView!.mutate();
+    });
+    expect(currentView?.balanceReadInFlight).toBe(true);
+    expect(currentView?.readFailed).toBe(true);
+
+    await advance(1_000);
+    await act(async () => {
+      useWalletStore.setState({
+        balancesLoading: { [address]: false },
+        balancesLastFetched: { [address]: Date.now() },
+        balances: {
+          [address]: [
+            {
+              tokenId: 'token',
+              tokenSlug: 'TOK',
+              metadata: { name: 'Token', symbol: 'TOK', decimals: 8 },
+              balance: 1,
+              fiatPrice: 1,
+              change24h: 0
+            }
+          ]
+        }
+      });
+    });
+    expect(currentView?.balanceReadInFlight).toBe(false);
+    expect(currentView?.readFailed).toBe(false);
+    await advance(2_000);
+    expect(currentView?.balanceReadInFlight).toBe(false);
+    expect(currentView?.readFailed).toBe(false);
   });
 });

@@ -39,6 +39,8 @@ async function prepareWallet(
   fixture: HermeticOneClickFixture,
   midenDepositAddress?: string
 ): Promise<{ accountAddress: string; faucetHex: string }> {
+  // The fake service is worker-scoped; the previous scenario may have ended with a terminal refund.
+  fixture.service.setStatus('PENDING_DEPOSIT');
   await wallet.createGuardianWallet(GUARDIAN_URL);
   const funded = await fundBridgeToken(midenCli, wallet, { symbol: 'MLOCAL', decimals: 6, amount: 1_000_000_000 });
   const accountAddress = await wallet.getAccountAddress();
@@ -196,6 +198,8 @@ test('inbound WC keeps its session after amount edits, sends only on confirm, an
   oneClick
 }) => {
   test.setTimeout(900_000);
+  // The worker-scoped provider still holds the preceding case's terminal refund.
+  oneClick.service.setStatus('PENDING_DEPOSIT');
   const { accountAddress, faucetHex } = await prepareWallet(walletA, midenCli, oneClick);
   await chooseRoute(walletA.page, 'eth', 'miden');
   const wc = new WcCounterparty({ chainId: 1, sessionChainIds: [1], rpcUrl: 'http://127.0.0.1:8545' });

@@ -4,6 +4,8 @@
 
 // The hooks run in the service worker, which has no document and so no bridge config scheduler; a node environment
 // keeps the real remote-config runtime on that path.
+import Dexie from 'dexie';
+
 import * as Repo from 'lib/miden/repo';
 import { PRESERVED_STORAGE_KEYS } from 'lib/miden/reset';
 import {
@@ -119,6 +121,28 @@ beforeEach(async () => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+it('does not report completion when tracking creation or the actual delivering write fails', async () => {
+  await startUp();
+  installBridgeInTestHooks();
+  const add = jest.spyOn(Repo.transactions, 'add').mockRejectedValueOnce(new Error('tracking storage unavailable'));
+  await expect(createArcReceive()).rejects.toThrow('tracking storage unavailable');
+  add.mockRestore();
+  let entered: () => void = () => undefined;
+  const phaseEntered = new Promise<void>(resolve => {
+    entered = resolve;
+  });
+  jest.spyOn(Repo.db.Collection.prototype, 'modify').mockImplementationOnce(() => {
+    entered();
+    return Dexie.Promise.reject(new Error('delivering storage unavailable'));
+  });
+  const outcome = createArcReceive().catch((error: unknown) => error);
+  await phaseEntered;
+  expect(await outcome).toEqual(new Error('delivering storage unavailable'));
+  const row = (await Repo.transactions.toArray())[0];
+  expect(row?.extraInputs?.phase).toBe('submitting');
+  expect(row?.extraInputs?.evmTxHash).toBeUndefined();
 });
 
 it('creates a USDCx tracking row with the document domain right after a wallet-creation wipe, with no fetch', async () => {

@@ -26,6 +26,15 @@ import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
 const G = globalThis as any;
+const originalE2eFlag = process.env.MIDEN_E2E_TEST;
+const mockRestoreFetchFaults = jest.fn<Promise<void>, []>();
+jest.mock('./e2e-fetch-faults', () => ({ restoreOffscreenFetchFaults: () => mockRestoreFetchFaults() }), {
+  virtual: true
+});
+const mockAssertGuardianAuthorization = jest.fn(async (..._args: unknown[]) => undefined);
+jest.mock('../lib/miden/sdk/test-guardian-authorization', () => ({
+  assertTestGuardianRequestAuthorization: (...args: unknown[]) => mockAssertGuardianAuthorization(...args)
+}));
 
 // This spec has no static import/export, so without a module marker TS treats it
 // as a global script and its top-level helpers (logSpy/flush/loadModule/…) collide
@@ -62,6 +71,11 @@ jest.mock('lib/miden-chain/native-asset', () => ({
     assertLive();
     return true;
   })
+}));
+// A tip read runs on an RpcClient of its own, outside the client this suite fakes.
+jest.mock('lib/miden/sdk/pswap-order-note', () => ({
+  ...jest.requireActual('lib/miden/sdk/pswap-order-note'),
+  readChainTip: (...a: any[]) => (globalThis as any).__off.readChainTip(...a)
 }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
@@ -241,6 +255,8 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     __evictHolder,
     __lastRunning: () => lastRunning,
     getCurrentWasmLockHold: () => currentHold,
+    // A caught trap's retire, routed to the control object so a test can see which hold it was handed.
+    retireWasmClientForCaughtTrap: (...a: unknown[]) => g.__off.retireWasmClientForCaughtTrap?.(...a),
     // #788 follow-up: the shared post-await ownership re-check the dispatches run.
     // Re-implements the REAL comparison against this mock's own `currentHold` —
     // a no-op here would satisfy every eviction test below vacuously, because the
@@ -362,6 +378,9 @@ jest.mock('./prove-worker-client', () => ({
 // What a service worker on the build's own network sends with every call (#1482).
 const SW_ENDPOINTS = { override: null, feeFaucetId: undefined };
 
+// The forward channel accepts this extension's service worker, which arrives with an id and neither a url nor a tab.
+const EXTENSION_ID = 'this-extension';
+
 let capturedListener: Listener | undefined;
 let logSpy: jest.SpyInstance;
 let warnSpy: jest.SpyInstance;
@@ -377,6 +396,7 @@ function resetControl() {
     initThreadPool: jest.fn(async () => {}),
     webClientCtorCount: 0,
     deserializeTxResult: jest.fn(() => ({ __txResult: true })),
+    readChainTip: jest.fn(async () => 0),
     // Slice 6a: TransactionRequest.deserialize(trBytes) → a request handle the
     // guardianPipeline hands to executeRequest. Echo the bytes so the test can
     // assert the co-signed request crossed intact.
@@ -658,13 +678,21 @@ function installChromeMock() {
   capturedListener = undefined;
   G.chrome = {
     runtime: {
+      id: EXTENSION_ID,
+      getURL: (path: string) => `chrome-extension://${EXTENSION_ID}/${path}`,
       // The Guardian leaf submits only once the service worker opens its submit gate (#1644).
       sendMessage: jest.fn((m?: { type?: string }) =>
         Promise.resolve(m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined)
       ),
       onMessage: {
         addListener: jest.fn((l: Listener) => {
-          capturedListener = l;
+          // Existing calls pass `{}`. A sender with no id, url, or tab is the worker fixture, so those calls still
+          // reach the handler. An explicit sender, including a missing one, is left as the caller passed it.
+          capturedListener = (msg, sender, sendResponse) => {
+            const bare =
+              sender != null && sender.id === undefined && sender.url === undefined && sender.tab === undefined;
+            return l(msg, bare ? { id: EXTENSION_ID } : sender, sendResponse);
+          };
         })
       }
     }
@@ -711,6 +739,8 @@ async function loadModule(opts: { coi?: boolean; hwc?: number | undefined } = {}
 
 beforeEach(() => {
   resetControl();
+  mockAssertGuardianAuthorization.mockReset().mockResolvedValue(undefined);
+  mockRestoreFetchFaults.mockReset().mockResolvedValue(undefined);
   mockProveTransport.prove.mockClear();
   mockProveTransport.prewarm.mockClear();
   mockProveTransport.ctorCount = 0;
@@ -723,6 +753,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalE2eFlag === undefined) delete process.env.MIDEN_E2E_TEST;
+  else process.env.MIDEN_E2E_TEST = originalE2eFlag;
   logSpy.mockRestore();
   warnSpy.mockRestore();
   errorSpy.mockRestore();
@@ -730,6 +762,39 @@ afterEach(() => {
 });
 
 describe('offscreen/main — startup / init()', () => {
+  it('waits for restored E2E faults before starting WASM', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    let release: (() => void) | undefined;
+    mockRestoreFetchFaults.mockReturnValue(new Promise<void>(resolve => (release = resolve)));
+    try {
+      await loadModule();
+      expect(G.__off.getWasmOrThrow).not.toHaveBeenCalled();
+      release?.();
+      await flush();
+      expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
+      expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+    } finally {
+      release?.();
+      await flush();
+    }
+  });
+
+  it('does not start WASM or signal ready after an E2E fault-policy read failure', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    mockRestoreFetchFaults.mockRejectedValue(new Error('fault-policy read unavailable'));
+    await loadModule();
+    expect(G.__off.getWasmOrThrow).not.toHaveBeenCalled();
+    expect(G.chrome.runtime.sendMessage).not.toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+  });
+
+  it('does not gate ordinary startup on E2E fault storage', async () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    mockRestoreFetchFaults.mockRejectedValue(new Error('must not read fault storage'));
+    await loadModule();
+    expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
+    expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+  });
+
   it('boots the rayon pool and signals OFFSCREEN_READY (COI on, MT build, hwc known)', async () => {
     await loadModule({ coi: true, hwc: 8 });
 
@@ -911,6 +976,70 @@ describe('offscreen/main — onMessage listener guard clauses', () => {
     expect(ret).toBe(false);
     await flush();
     expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('answers OFFSCREEN_CALL from the service worker and from an extension page', async () => {
+    await loadModule();
+    const call = (opId: string) => ({
+      target: 'offscreen',
+      type: 'OFFSCREEN_CALL',
+      op_id: opId,
+      method: 'getAccount',
+      argsB64: [encodeArg('mtst1qqaccount')],
+      deadline_ms: 1000,
+      endpoints: SW_ENDPOINTS
+    });
+
+    const workerResponse = jest.fn();
+    expect(capturedListener!(call('op-worker'), { id: G.chrome.runtime.id }, workerResponse)).toBe(true);
+    await flush();
+    expect(workerResponse).toHaveBeenCalled();
+
+    const pageResponse = jest.fn();
+    expect(
+      capturedListener!(
+        call('op-page'),
+        { id: G.chrome.runtime.id, url: G.chrome.runtime.getURL('popup.html'), tab: { id: 4 } },
+        pageResponse
+      )
+    ).toBe(true);
+    await flush();
+    expect(pageResponse).toHaveBeenCalled();
+  });
+
+  it('refuses a content script, a foreign id, and a missing sender for every offscreen op', async () => {
+    await loadModule();
+    const requests = [
+      {
+        target: 'offscreen',
+        type: 'OFFSCREEN_CALL',
+        op_id: 'op-refused',
+        method: 'getAccount',
+        argsB64: [encodeArg('mtst1qqaccount')],
+        deadline_ms: 1000,
+        endpoints: SW_ENDPOINTS
+      },
+      {
+        target: 'offscreen',
+        type: 'OFFSCREEN_PROVE',
+        txResultB64: Buffer.from([9]).toString('base64'),
+        proverDescriptor: null
+      },
+      { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', endpoints: SW_ENDPOINTS }
+    ];
+    const senders = [
+      { id: G.chrome.runtime.id, url: 'https://dapp.example/', tab: { id: 3 } },
+      { id: 'some-other-extension-id' },
+      undefined
+    ];
+    for (const sender of senders) {
+      for (const request of requests) {
+        const sendResponse = jest.fn();
+        expect(capturedListener!(request, sender, sendResponse)).toBe(false);
+        await flush();
+        expect(sendResponse).not.toHaveBeenCalled();
+      }
+    }
   });
 });
 
@@ -3132,7 +3261,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     it.each([
       ['an execution failure', () => new Error('the kernel assertion failed')],
-      ['a trap', () => new WebAssembly.RuntimeError('unreachable')]
+      ['a trap', () => new WebAssembly.RuntimeError('failed to generate signature')]
     ])('reports %s as it stands, with no local retry', async (_kind, failure) => {
       await loadModule();
       const { executeForSummaryAtTip } = await import('@openzeppelin/miden-multisig-client');
@@ -3498,6 +3627,120 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
   });
 
+  // A single-key write whose service worker gates its submit asks that gate for its 'submitting' stamp and waits for the
+  // answer, so the worker records the crossing before the submit; a refusal, or no answer, submits nothing (#1081).
+  describe('a single-key write the service worker gates', () => {
+    const gatedWrites: Array<[string, string, string[]]> = [
+      [
+        'sendTransaction',
+        'clientSendTransaction',
+        [
+          encodeArg({
+            accountId: 'mtst1qacc',
+            secondaryAccountId: 'mtst1qrecipient',
+            faucetId: 'mtst1qfaucet',
+            noteType: 'private',
+            amount: '1',
+            extraInputs: {}
+          })
+        ]
+      ],
+      [
+        'swapTransaction',
+        'clientSwapTransaction',
+        [
+          encodeArg({
+            accountId: 'mtst1qacc',
+            faucetId: 'mtst1qoffered',
+            amount: '1',
+            extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '2' },
+            swapFeeContext: {
+              scope: 'testnet|queued-endpoint',
+              nativeAssetId: 'mtst1qfee',
+              feeFaucetId: null,
+              baseFee: '7'
+            }
+          })
+        ]
+      ],
+      [
+        'newTransaction',
+        'clientNewTransaction',
+        [encodeArg('mtst1qacc'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+      ]
+    ];
+    // The leaf as the client drives it: the 'submitting' stamp, then the submit.
+    const leafThatSubmits = (order: string[]) =>
+      jest.fn(async (...args: unknown[]) => {
+        const onStage = args.find(arg => typeof arg === 'function');
+        if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
+        order.push('submit');
+        return { serialize: () => new Uint8Array([1]) };
+      });
+
+    it.each(gatedWrites)('%s submits only once its gate answered yes', async (method, leaf, argsB64) => {
+      await loadModule();
+      const order: string[] = [];
+      const posted: any[] = [];
+      let answer: ((reply: unknown) => void) | undefined;
+      G.chrome.runtime.sendMessage = jest.fn((m: any) => {
+        posted.push(m);
+        if (m?.type !== OFFSCREEN_SUBMIT_GATE) return Promise.resolve(undefined);
+        order.push('gate');
+        return new Promise(resolve => {
+          answer = resolve;
+        });
+      });
+      G.__off[leaf] = leafThatSubmits(order);
+      const sendResponse = jest.fn();
+      capturedListener!(callReq({ op_id: 'op-gated', method, argsB64, submitGated: true }), {}, sendResponse);
+      await flush();
+
+      expect(order).toEqual(['gate']);
+      expect(posted).toContainEqual({
+        target: 'sw',
+        type: OFFSCREEN_SUBMIT_GATE,
+        op_id: 'op-gated',
+        evidence: { refBlock: 9 }
+      });
+      answer?.({ ok: true });
+      await flush();
+      expect(order).toEqual(['gate', 'submit']);
+      // The gate is the crossing's record, so no fire-and-forget 'submitting' stamp rides beside it.
+      expect(posted.filter(m => m?.type === 'OFFSCREEN_STAGE_EVENT' && m.stage === 'submitting')).toEqual([]);
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+    });
+
+    const refusals: Array<[string, () => Promise<unknown>]> = [
+      ['a refusal', async () => ({ ok: false, error: 'op op-gated has already settled' })],
+      ['no answer', async () => undefined],
+      ['a lost message', async () => Promise.reject(new Error('Could not establish connection'))]
+    ];
+    it.each(
+      gatedWrites.flatMap(([method, leaf, argsB64]) =>
+        refusals.map(([label, reply]) => [method, label, leaf, argsB64, reply] as const)
+      )
+    )('%s submits nothing after %s, failing before its submit', async (method, _label, leaf, argsB64, reply) => {
+      await loadModule();
+      const order: string[] = [];
+      G.chrome.runtime.sendMessage = jest.fn((m: any) =>
+        m?.type === OFFSCREEN_SUBMIT_GATE ? reply() : Promise.resolve(undefined)
+      );
+      G.__off[leaf] = leafThatSubmits(order);
+      const sendResponse = jest.fn();
+      capturedListener!(callReq({ op_id: 'op-gated', method, argsB64, submitGated: true }), {}, sendResponse);
+      await flush();
+
+      expect(order).toEqual([]);
+      // Not a prover failure: nothing re-proves it, and the service worker leaves no entry for it.
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'SubmitCrossingUnrecordedError',
+        errorBeforeSubmit: true
+      });
+    });
+  });
+
   it('a stage-event post failure NEVER reaches the write (rejects and synchronous throws are both swallowed)', async () => {
     await loadModule();
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
@@ -3701,6 +3944,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       await flush();
       expect(sendResponse.mock.calls[0][0].ok).toBe(false);
       expect(sendResponse.mock.calls[0][0].errorBeforeSubmit).toBeUndefined();
+      // Only a trap there crosses as landed; an ordinary failure keeps its own shape.
+      expect(sendResponse.mock.calls[0][0].errorCode).toBeUndefined();
     }
   );
 
@@ -3741,6 +3986,90 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(leaves[method]).not.toHaveBeenCalled();
     }
   );
+
+  it.each([
+    ['refused', { ok: false, error: 'operation no longer owns this source' }],
+    ['missing', undefined]
+  ])('owned newTransaction never submits when the existing SW gate response is %s', async (_label, answer) => {
+    await loadModule();
+    const submit = jest.fn();
+    G.__off.clientNewTransaction.mockImplementation(
+      async (
+        _account: string,
+        _bytes: Uint8Array,
+        _delegated: boolean,
+        onStage: (stage: string, detail?: { evidence: { refBlock: number } }) => void | Promise<void>
+      ) => {
+        await onStage('submitting', { evidence: { refBlock: 4 } });
+        submit();
+        return { serialize: () => new Uint8Array([88, 99]) };
+      }
+    );
+    G.chrome.runtime.sendMessage = jest.fn(async (message: { type?: string }) =>
+      message.type === OFFSCREEN_SUBMIT_GATE ? answer : undefined
+    );
+    const reply = new Promise<unknown>(resolve => {
+      capturedListener!(
+        callReq({
+          method: 'newTransaction',
+          argsB64: [encodeArg('acct'), encodeArg(new Uint8Array([1])), encodeArg(false), encodeArg(true)]
+        }),
+        {},
+        resolve
+      );
+    });
+    expect(await reply).toMatchObject({ ok: false });
+    expect(submit).not.toHaveBeenCalled();
+    expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: OFFSCREEN_SUBMIT_GATE,
+        op_id: 'op-abc',
+        evidence: { refBlock: 4 }
+      })
+    );
+  });
+
+  it('owned newTransaction waits for the authoritative gate before its one source submission', async () => {
+    await loadModule();
+    let open: (answer: unknown) => void = () => undefined;
+    const gate = new Promise(resolve => {
+      open = resolve;
+    });
+    const submit = jest.fn();
+    G.chrome.runtime.sendMessage = jest.fn(async (message: { type?: string }) =>
+      message.type === OFFSCREEN_SUBMIT_GATE ? gate : undefined
+    );
+    G.__off.clientNewTransaction.mockImplementation(
+      async (
+        _account: string,
+        _bytes: Uint8Array,
+        _delegated: boolean,
+        onStage: (stage: string, detail?: { evidence: { refBlock: number } }) => void | Promise<void>
+      ) => {
+        await onStage('submitting', { evidence: { refBlock: 4 } });
+        submit();
+        return { serialize: () => new Uint8Array([88, 99]) };
+      }
+    );
+    const reply = new Promise<unknown>(resolve => {
+      capturedListener!(
+        callReq({
+          method: 'newTransaction',
+          argsB64: [encodeArg('acct'), encodeArg(new Uint8Array([1])), encodeArg(false), encodeArg(true)]
+        }),
+        {},
+        resolve
+      );
+    });
+    try {
+      await flush();
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      open({ ok: true });
+    }
+    expect(await reply).toMatchObject({ ok: true });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
 
   it('dispatches newTransaction (execute) with positional args — requestBytes as raw bytes — and serializes the result (slice 5b)', async () => {
     await loadModule();
@@ -3935,6 +4264,38 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   });
 
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
+  it('guardianPipeline refuses before execute when the exact signed authority is missing or expired', async () => {
+    mockAssertGuardianAuthorization.mockRejectedValue(new Error('Guardian signed authority expired'));
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'guardian-actual-byte-gate',
+        method: 'guardianPipeline',
+        argsB64: [
+          encodeArg('mtst1qguardian'),
+          encodeArg(new Uint8Array([1, 2, 3, 4])),
+          encodeArg(false),
+          encodeArg(null),
+          encodeArg(undefined),
+          encodeArg(false),
+          encodeArg('send')
+        ]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+    expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({
+      ok: false,
+      errorBeforeSubmit: true,
+      error: expect.stringContaining('Guardian signed authority expired')
+    });
+    expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).not.toBe(true);
+  });
+
   it('guardianPipeline sends only closed observations from the exact executed request on rejection', async () => {
     await loadModule();
     const original = new Error('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH private 0xabcdef');
@@ -4660,6 +5021,142 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       sendResponse
     );
 
+  it("guardianPipeline: a trap in the apply after submit retires through the dispatch's hold and replies with the apply-after-submit code", async () => {
+    await loadModule();
+    const miden = jest.requireMock<typeof import('lib/miden/sdk/miden-client')>('lib/miden/sdk/miden-client');
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    G.__off.retireWasmClientForCaughtTrap = jest.fn();
+    const apply = jest.fn(async () => {
+      throw trap;
+    });
+    let submittingHold: unknown;
+    G.__off.guardianSubmitProven = jest.fn(async () => {
+      submittingHold = miden.getCurrentWasmLockHold();
+      return { apply };
+    });
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorCode: 'ApplyTransactionAfterSubmitFailed' });
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(submittingHold).toBeTruthy();
+    expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
+    expect(G.__off.retireWasmClientForCaughtTrap.mock.calls[0][0]).toBe(submittingHold);
+    expect(G.__off.retireWasmClientForCaughtTrap.mock.calls[0][1]).toBe(trap);
+  });
+
+  // The leaf submitted and applied before the serialize, so a trap there is the client failing past submit. It is
+  // retired through the dispatch's own hold and replies as landed: an untagged reply fails a row the node holds.
+  it.each(['sendTransaction', 'consumeNoteId', 'swapTransaction', 'newTransaction', 'guardianPipeline'])(
+    "%s: a trap serializing the applied result retires through the dispatch's hold and replies landed",
+    async method => {
+      await loadModule();
+      const miden = jest.requireMock<typeof import('lib/miden/sdk/miden-client')>('lib/miden/sdk/miden-client');
+      const { isApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      G.__off.retireWasmClientForCaughtTrap = jest.fn();
+      let dispatchHold: unknown;
+      const trappingResult = () => {
+        dispatchHold = miden.getCurrentWasmLockHold();
+        return {
+          // The Guardian leaf's worker prove serializes the result before its submit too; only the one after is landed.
+          serialize: () => {
+            if (method === 'guardianPipeline' && !G.__off.guardianApplied) return new Uint8Array([1]);
+            throw trap;
+          }
+        };
+      };
+      G.__off.clientSendTransaction = jest.fn(async () => trappingResult());
+      G.__off.clientConsumeNoteId = jest.fn(async () => trappingResult());
+      G.__off.clientSwapTransaction = jest.fn(async () => trappingResult());
+      G.__off.clientNewTransaction = jest.fn(async () => trappingResult());
+      const guardianExecute = G.__off.guardianExecuteRequest.getMockImplementation()!;
+      G.__off.guardianExecuteRequest = jest.fn(async (accountId: string, request: unknown) => ({
+        ...(await guardianExecute(accountId, request)),
+        result: trappingResult()
+      }));
+      const args: Record<string, unknown[]> = {
+        sendTransaction: [
+          {
+            accountId: 'a',
+            secondaryAccountId: 'b',
+            faucetId: 'f',
+            noteType: 'private',
+            amount: '1',
+            extraInputs: {}
+          }
+        ],
+        consumeNoteId: [{ accountId: 'a', noteId: 'n', noteIds: ['n'] }],
+        swapTransaction: [
+          {
+            accountId: 'a',
+            faucetId: 'f',
+            amount: '1',
+            extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' },
+            swapFeeContext: {
+              scope: 'testnet|queued-endpoint',
+              nativeAssetId: 'mtst1qfee',
+              feeFaucetId: null,
+              baseFee: '7'
+            }
+          }
+        ],
+        newTransaction: ['a', new Uint8Array([1]), false],
+        guardianPipeline: ['mtst1qguardian', new Uint8Array([1]), false]
+      };
+      const sendResponse = jest.fn();
+
+      capturedListener!(callReq({ method, argsB64: args[method]!.map(encodeArg) }), {}, sendResponse);
+      await waitForReply(sendResponse);
+
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp).toMatchObject({ ok: false, errorCode: 'ApplyTransactionAfterSubmitFailed' });
+      // The apply completed, so the store holds the notes the attempt's stamp recorded: a landed send owes them.
+      expect(resp.errorLanded).toEqual({ applied: true });
+      expect(resp.errorBeforeSubmit).toBeUndefined();
+      expect(isApplyAfterSubmitError({ errorCode: resp.errorCode })).toBe(true);
+      // Only the Guardian leaf applies through this harness's own apply; the other leaves' clients are stubs.
+      expect(G.__off.guardianApplied).toBe(method === 'guardianPipeline');
+      expect(dispatchHold).toBeTruthy();
+      expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
+      expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledWith(dispatchHold, trap);
+    }
+  );
+
+  it('swapTransaction: a retire that throws after a trap serializing the applied result still replies landed', async () => {
+    await loadModule();
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    G.__off.retireWasmClientForCaughtTrap = jest.fn(() => {
+      throw new Error('retire failed');
+    });
+    G.__off.clientSwapTransaction = jest.fn(async () => ({
+      serialize: () => {
+        throw trap;
+      }
+    }));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const sendResponse = jest.fn();
+    const dto = {
+      accountId: 'a',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' },
+      swapFeeContext: { scope: 'testnet|queued-endpoint', nativeAssetId: 'mtst1qfee', feeFaucetId: null, baseFee: '7' }
+    };
+
+    try {
+      capturedListener!(callReq({ method: 'swapTransaction', argsB64: [encodeArg(dto)] }), {}, sendResponse);
+      await waitForReply(sendResponse);
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(G.__off.retireWasmClientForCaughtTrap).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorCode: 'ApplyTransactionAfterSubmitFailed' });
+  });
+
   it('guardianPipeline: a failure before the submit call replies tagged (#1081)', async () => {
     await loadModule();
     G.__off.guardianExecuteRequest = jest.fn(async () => {
@@ -4716,6 +5213,334 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
     }
   );
+
+  describe('guardianPipeline: a proof past its submit window (#2060)', () => {
+    const FEE_POLICY_WINDOW_BLOCKS = 20;
+    const proofOnBlock = (refBlock: number) => ({
+      refBlockNumber: () => refBlock,
+      expirationBlockNumber: () => refBlock + FEE_POLICY_WINDOW_BLOCKS
+    });
+
+    /** Every worker prove comes back on the next of `refBlocks`, the last repeating; `events` lists what crossed. */
+    const arrange = async (refBlocks: number[], tip: number) => {
+      await loadModule();
+      const events: string[] = [];
+      const gates: any[] = [];
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          gates.push(m);
+          events.push('gate');
+          return { ok: true };
+        }
+        return undefined;
+      });
+      const proofs = refBlocks.map(proofOnBlock);
+      let proved = 0;
+      mockProveTransport.prove.mockImplementation(async () => {
+        proved += 1;
+        return { proven: new Uint8Array([1]), durationMs: 1 };
+      });
+      G.__off.deserializeProof = jest.fn(() => proofs[Math.min(proved, proofs.length) - 1]);
+      G.__off.readChainTip = jest.fn(async () => tip);
+      G.__off.guardianExecuteRequest = jest.fn(async () => {
+        events.push('execute');
+        return { result: retryableResult(), id: { toHex: () => '0xlanded' } };
+      });
+      G.__off.guardianSubmitProven = jest.fn(async () => {
+        events.push('submit');
+        return { apply: jest.fn(async () => {}) };
+      });
+      return { events, gates, proofs };
+    };
+
+    afterEach(() => {
+      mockProveTransport.prove.mockImplementation(async () => ({ proven: new Uint8Array([1, 2, 3]), durationMs: 42 }));
+    });
+
+    it('re-executes a stale proof at a later tip and sends only the fresh one', async () => {
+      const { events, gates, proofs } = await arrange([1_000, 1_018], 1_018);
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(2);
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+      // A re-execution posts no stage: the row stays on 'proving', as on the inline leaf.
+      expect(events).toEqual(['executing', 'execute', 'proving', 'execute', 'gate', 'submit']);
+      expect(gates).toHaveLength(1);
+      expect(gates[0].evidence).toMatchObject({ refBlock: 1_018, expirationBlock: 1_038 });
+      expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(1);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
+    });
+
+    it('re-executes a delegated swap past its window on the same approval and submits the fresh proof once', async () => {
+      const { events, gates, proofs } = await arrange([1_000, 1_018], 1_018);
+      const executeRequest = G.__off.guardianExecuteRequest;
+      const submits: jest.Mock[] = [];
+      G.__off.guardianExecuteRequest = jest.fn(async (...args: unknown[]) => {
+        const proof = proofs[submits.length];
+        const submit = jest.fn(async () => {
+          events.push('submit');
+          return { apply: jest.fn(async () => {}) };
+        });
+        submits.push(submit);
+        return { ...(await executeRequest(...args)), prove: jest.fn(async () => ({ proof, submit })) };
+      });
+      const sendResponse = jest.fn();
+      // The leaf takes a swap's co-signed request like any other, so what makes this one a delegated swap is its call.
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([7, 7])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(events).toEqual(['executing', 'execute', 'proving', 'execute', 'gate', 'submit']);
+      expect(gates).toHaveLength(1);
+      expect(gates[0].evidence).toMatchObject({ refBlock: 1_018, expirationBlock: 1_038 });
+      expect(G.__off.deserializeTxRequest).toHaveBeenCalledTimes(1);
+      const request = G.__off.deserializeTxRequest.mock.results[0]?.value;
+      expect(G.__off.guardianExecuteRequest.mock.calls.map((call: unknown[]) => call[1])).toEqual([request, request]);
+      expect(submits[0]).not.toHaveBeenCalled();
+      expect(submits[1]).toHaveBeenCalledTimes(1);
+      expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    });
+
+    const initialCommitmentOf = (execution: number) => `0xinitial${execution}`;
+
+    /** A result that says which execution it came from. */
+    const resultOfExecution = (execution: number) => {
+      const base = retryableResult();
+      return {
+        serialize: () => new Uint8Array([execution]),
+        executedTransaction: () => ({
+          ...base.executedTransaction(),
+          id: () => ({ toHex: () => `0xexecution${execution}` }),
+          initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => initialCommitmentOf(execution) }) })
+        })
+      };
+    };
+
+    /**
+     * Each execution hands out its own result. The first apply fails, and a retried apply goes ahead only on the
+     * commitment of the result it was handed, so the store holds the second execution's.
+     */
+    const arrangeResults = () => {
+      const results: ReturnType<typeof resultOfExecution>[] = [];
+      G.__off.guardianExecuteRequest = jest.fn(async () => {
+        const result = resultOfExecution(results.length);
+        results.push(result);
+        return { result, id: { toHex: () => '0xlanded' } };
+      });
+      const apply = jest.fn(async () => {}).mockRejectedValueOnce(new Error('IndexedDB transaction aborted'));
+      G.__off.guardianSubmitProven = jest.fn(async () => ({ apply }));
+      G.__off.clientAccountsGet = jest.fn(async () => ({
+        to_commitment: () => ({ toHex: () => initialCommitmentOf(1) })
+      }));
+      return { results, apply };
+    };
+
+    const expectFreshExecutionCarriedThrough = ({ results, apply }: ReturnType<typeof arrangeResults>, reply: any) => {
+      expect(reply.ok).toBe(true);
+      expect(results).toHaveLength(2);
+      expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(1);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][1]).toBe(results[1]);
+      expect(apply).toHaveBeenCalledTimes(2);
+      expect(Array.from(Buffer.from(reply.resultB64, 'base64'))).toEqual([1]);
+    };
+
+    it('pairs a worker proof with its own execution through the submit, the apply and the reply', async () => {
+      const { proofs } = await arrange([1_000, 1_018], 1_018);
+      const arranged = arrangeResults();
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expectFreshExecutionCarriedThrough(arranged, sendResponse.mock.calls[0][0]);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
+    });
+
+    it('pairs a fallback proof with its own execution, and keeps off the prover that failed', async () => {
+      const { proofs } = await arrange([1_000, 1_018], 1_018);
+      const arranged = arrangeResults();
+      const executeRequest = G.__off.guardianExecuteRequest;
+      G.__off.guardianExecuteRequest = jest.fn(async (...args: unknown[]) => ({
+        ...(await executeRequest(...args)),
+        prove: jest.fn(async (options: unknown) => {
+          G.__off.guardianProveCalls.push(options);
+          throw new Error('remote prover did not answer');
+        })
+      }));
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      await waitForReply(sendResponse);
+
+      expectFreshExecutionCarriedThrough(arranged, sendResponse.mock.calls[0][0]);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
+      // One wait on the remote prover: the fallback proved the first pass, and the second went straight to the worker.
+      expect(G.__off.guardianProveCalls).toHaveLength(1);
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops at the budget that keeps it inside the write deadline, past which the inline leaf goes on', async () => {
+      await arrange([1_000], 1_100);
+      let clock = performance.now();
+      const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
+      const executeRequest = G.__off.guardianExecuteRequest;
+      G.__off.guardianExecuteRequest = jest.fn(async (...args: unknown[]) => ({
+        ...(await executeRequest(...args)),
+        prove: jest.fn(async () => {
+          clock += 123_000;
+          throw new Error('remote prover did not answer');
+        })
+      }));
+      const workerProve = mockProveTransport.prove.getMockImplementation()!;
+      mockProveTransport.prove.mockImplementation(async (...args: unknown[]) => {
+        clock += 20_000;
+        return workerProve(...(args as Parameters<typeof workerProve>));
+      });
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      try {
+        await waitForReply(sendResponse);
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'StaleProofError',
+        errorBeforeSubmit: true
+      });
+      expect(G.__off.guardianExecuteRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives up before its gate, tagged, once the re-executions are spent', async () => {
+      const { events } = await arrange([1_000], 1_100);
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'StaleProofError',
+        errorBeforeSubmit: true
+      });
+      expect(events).toEqual(['executing', 'execute', 'proving', 'execute', 'execute']);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
+
+    it.each([
+      ['a stale', 1_100],
+      ['a fresh', 1_000]
+    ])('stops %s proof on an eviction during the tip read, before its gate', async (_label, tip) => {
+      const { events } = await arrange([1_000], 1_100);
+      const miden: any = await import('lib/miden/sdk/miden-client');
+      let answerTip!: (tip: number) => void;
+      G.__off.readChainTip = jest.fn(
+        () =>
+          new Promise<number>(resolve => {
+            answerTip = resolve;
+          })
+      );
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await flush();
+      expect(G.__off.readChainTip).toHaveBeenCalledTimes(1);
+
+      miden.__evictHolder();
+      answerTip(tip);
+      await flush();
+
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(1);
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(1);
+      expect(events).toEqual(['executing', 'execute', 'proving']);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+      expect(sendResponse.mock.calls[0][0].errorBeforeSubmit).toBeUndefined();
+    });
+
+    it('sends the proof as before when the tip cannot be read', async () => {
+      const { events, proofs } = await arrange([1_000], 1_100);
+      G.__off.readChainTip = jest.fn(async () => {
+        throw new Error('node down');
+      });
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'submit']);
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[0]);
+    });
+
+    it('reads no tip for a proof with no expiration', async () => {
+      await loadModule();
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(G.__off.readChainTip).not.toHaveBeenCalled();
+    });
+
+    it('re-proves remotely on a delegated write and submits only the fresh proof', async () => {
+      await arrange([1_000], 1_018);
+      const submits: jest.Mock[] = [];
+      let refBlock = 1_000;
+      G.__off.guardianExecuteRequest = jest.fn(async () => {
+        const proof = proofOnBlock(refBlock);
+        refBlock = 1_018;
+        const submit = jest.fn(async () => ({ apply: jest.fn(async () => {}) }));
+        submits.push(submit);
+        return {
+          result: retryableResult(),
+          id: { toHex: () => '0xlanded' },
+          prove: jest.fn(async (options: unknown) => {
+            G.__off.guardianProveCalls.push(options);
+            return { proof, submit };
+          })
+        };
+      });
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(G.__off.guardianProveCalls).toHaveLength(2);
+      expect(submits[0]).not.toHaveBeenCalled();
+      expect(submits[1]).toHaveBeenCalledTimes(1);
+      expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    });
+  });
 
   it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {
     await loadModule();
@@ -4849,6 +5674,27 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
     expect(reply).not.toHaveProperty('errorTransactionId');
     expect(reply).not.toHaveProperty('errorPrivateOutputNotes');
+  });
+
+  it('guardianPipeline: a landed failure replies with its order id as a JSON-safe string', async () => {
+    await loadModule();
+    const { ApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    G.__off.guardianExecuteRequest = jest.fn(async () => {
+      throw new ApplyAfterSubmitError(new Error('QuotaExceededError'), {
+        transactionId: '0xlanded',
+        orderId: '42',
+        orderNoteId
+      });
+    });
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    const reply = sendResponse.mock.calls[0][0];
+    expect(reply.errorLanded).toEqual({ transactionId: '0xlanded', orderId: '42', orderNoteId });
+    expect(() => JSON.stringify(reply)).not.toThrow();
   });
 
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {

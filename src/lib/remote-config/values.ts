@@ -66,6 +66,13 @@ export function selectEpochChain(s: BridgeConfigSnapshot, chainId?: number): Sup
   return chains.find(chain => chain.bridges.epoch && (chainId === undefined || chain.chainId === chainId)) ?? null;
 }
 
+/** The id of every chain with an Epoch route, in document order, whether or not the route takes deposits. */
+export function selectEpochChainIds(s: BridgeConfigSnapshot): number[] {
+  return Object.values(s.config?.supportedEvmChains ?? {}).flatMap(chain =>
+    chain.bridges.epoch ? [chain.chainId] : []
+  );
+}
+
 export function selectAgglayerChain(s: BridgeConfigSnapshot, chainId?: number): SupportedEvmChainConfig | null {
   const chains = Object.values(s.config?.supportedEvmChains ?? {});
   return chains.find(chain => chain.bridges.agglayer && (chainId === undefined || chain.chainId === chainId)) ?? null;
@@ -163,6 +170,26 @@ export function selectEpochOutputToken(
 /** Read the market returned by the Epoch positions service. */
 export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
   return okValue(s.derived?.epoch.market);
+}
+
+/**
+ * The Miden account (lowercase hex) that the derivation read from the Epoch allocator at `allocatorUrl`
+ * (`derived.epoch.allocatorAccount`). Null while no derivation holds one for that allocator, or while its read failed.
+ */
+export function selectEpochAllocatorAccount(s: BridgeConfigSnapshot): string | null {
+  return okValue(s.derived?.epoch.allocatorAccount)?.accountId ?? null;
+}
+
+/**
+ * The Epoch allocator the snapshot's document names, with the account the derivation read for it. Null while the
+ * document names no `epoch.allocatorUrl`. The account is null while its probe is not `ok`.
+ */
+export function selectEpochAllocator(
+  s: BridgeConfigSnapshot
+): { allocatorUrl: string; accountId: string | null } | null {
+  const allocatorUrl = s.config?.['bridge-providers'].epoch.allocatorUrl ?? null;
+  if (allocatorUrl === null) return null;
+  return { allocatorUrl, accountId: selectEpochAllocatorAccount(s) };
 }
 
 /**

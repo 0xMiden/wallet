@@ -21,7 +21,7 @@ import Dexie from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
 
-import { ConsumeTransaction, ITransaction, ITransactionStatus } from '../db/types';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import * as SdkHelpers from '../sdk/helpers';
 import * as WasmClient from '../sdk/miden-client';
 import { ConsumableNote, NoteTypeEnum } from '../types';
@@ -61,7 +61,8 @@ jest.mock('../sdk/miden-client-interface', () => ({
 }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: () => mockNativeAssetId(),
-  getVerificationBaseFee: () => mockVerificationBaseFee()
+  getVerificationBaseFee: () => mockVerificationBaseFee(),
+  refreshVerificationBaseFee: () => mockVerificationBaseFee()
 }));
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {
@@ -73,6 +74,8 @@ jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {
+  ClaimBelowFloorError,
+  ClaimCohortRefusedError,
   ClaimInsertRefusedError,
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
@@ -92,6 +95,7 @@ const note = (id: string, amount = '1000000'): ConsumableNote => ({
   amount,
   senderAddress: 'mtst1sender',
   isBeingClaimed: false,
+  standardPayment: true,
   type: NoteTypeEnum.Public
 });
 
@@ -143,6 +147,108 @@ describe('queueConsumeNotes — swap settlement link', () => {
     }
 
     expect(inserted).toEqual([{ swapOrderTxId: 'swap-row', swapSettleKind: 'settle' }]);
+  });
+});
+
+describe('queueConsumeNotes: settlement cohort', () => {
+  const notes = () => [note('backed-off'), note('fresh')];
+  const settlementCall = (cohort?: readonly string[]) =>
+    initiateConsumeNotesTransaction(
+      ACCOUNT,
+      notes(),
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'swap_settlement',
+      undefined,
+      { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+      cohort
+    );
+
+  it('writes no row for a settlement cohort while one member is backing off', async () => {
+    // The coverage sum still counts the backed-off payback, so the fresh note must not be queued alone.
+    const failed = new ConsumeTransaction(ACCOUNT, [note('backed-off')], false);
+    failed.status = ITransactionStatus.Failed;
+    failed.completedAt = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(failed);
+
+    await expect(settlementCall(['backed-off', 'fresh'])).rejects.toBeInstanceOf(ClaimCohortRefusedError);
+    expect((await consumeRows()).map(row => row.id)).toEqual([failed.id]);
+
+    await settlementCall(undefined);
+    const queued = (await consumeRows()).filter(row => row.status === ITransactionStatus.Queued);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['fresh']);
+  });
+
+  it('does not refuse a cohort note a live claim already covers', async () => {
+    const live = new ConsumeTransaction(ACCOUNT, [note('held')], false);
+    await Repo.transactions.add(live);
+
+    await initiateConsumeNotesTransaction(
+      ACCOUNT,
+      [note('fresh')],
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'swap_settlement',
+      undefined,
+      { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+      ['held', 'fresh']
+    );
+
+    const queued = (await consumeRows()).filter(row => row.id !== live.id);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['fresh']);
+  });
+
+  it('does not refuse a cohort note a live claim covers while an earlier claim of it backs off', async () => {
+    const failed = new ConsumeTransaction(ACCOUNT, [note('held')], false);
+    failed.status = ITransactionStatus.Failed;
+    failed.completedAt = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(failed);
+    const live = new ConsumeTransaction(ACCOUNT, [note('held')], false);
+    await Repo.transactions.add(live);
+
+    await initiateConsumeNotesTransaction(
+      ACCOUNT,
+      [note('fresh')],
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'swap_settlement',
+      undefined,
+      { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+      ['held', 'fresh']
+    );
+
+    const queued = (await consumeRows()).filter(row => row.id !== live.id && row.id !== failed.id);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['fresh']);
+  });
+
+  it('writes no row for a settlement cohort while a dApp transaction holds one member', async () => {
+    const dapp = new Transaction(ACCOUNT, new Uint8Array([1]));
+    await Repo.transactions.put({ ...dapp, heldNoteIds: ['held-by-dapp'], status: ITransactionStatus.Queued });
+
+    await expect(
+      initiateConsumeNotesTransaction(
+        ACCOUNT,
+        [note('fresh')],
+        false,
+        undefined,
+        undefined,
+        undefined,
+        'swap_settlement',
+        undefined,
+        { swapOrderTxId: 'swap-row', swapSettleKind: 'settle' },
+        ['held-by-dapp', 'fresh']
+      )
+    ).rejects.toBeInstanceOf(ClaimCohortRefusedError);
+    expect(await consumeRows()).toEqual([]);
   });
 });
 
@@ -362,8 +468,8 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
   });
 
   it('isolates every candidate when no fee is supplied', async () => {
-    // A manual retry passes no fee: the user asked, so nothing is second-guessed. Same
-    // fail-open contract `isWorthClaiming` has on an unknown fee everywhere else.
+    // A manual retry passes no fee: the user asked, so nothing is second-guessed. The isolation
+    // compares against 0 then, not the unknown fee the claim floor refuses.
     await failedBatch(['poor', 'rich']);
 
     await initiateConsumeNotesTransaction(ACCOUNT, [note('poor', '1'), note('rich', '5000000')], false, false, true);
@@ -426,6 +532,107 @@ describe('queueConsumeNotes - the row covering each note', () => {
 
     expect(coveringTxIdByNoteId.get('a')).toBe(failed.id);
     expect(committedId).toBe(failed.id);
+  });
+});
+
+describe('auto-consume: the claim floor after the queue filters notes (#2192)', () => {
+  // The floor is 30 times the base fee: 210 units.
+  const BASE_FEE = 7;
+  const BIG = '1000';
+  const DUST = '100';
+
+  /** An auto-consumer's batch call, with isolation on, as the three callers make it. */
+  const autoConsume = (notes: ConsumableNote[], fee: number | null = BASE_FEE) =>
+    queueConsumeNotes(ACCOUNT, notes, false, false, true, fee, 'auto_consume');
+
+  /** A claim of `id` that failed now, so its #215 backoff runs. */
+  const backingOff = async (id: string, amount: string) => {
+    const failed = new ConsumeTransaction(ACCOUNT, [note(id, amount)], false);
+    failed.status = ITransactionStatus.Failed;
+    failed.completedAt = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(failed);
+    return failed;
+  };
+
+  const queuedRows = async () => (await consumeRows()).filter(row => row.status === ITransactionStatus.Queued);
+
+  it('does not queue a dust note alone when the large note of its batch is in backoff', async () => {
+    const failed = await backingOff('big', BIG);
+
+    const { committedId, coveringTxIdByNoteId } = await autoConsume([note('big', BIG), note('dust', DUST)]);
+
+    expect(await queuedRows()).toHaveLength(0);
+    expect(committedId).toBe(failed.id);
+    expect(coveringTxIdByNoteId.has('dust')).toBe(false);
+  });
+
+  it('does not queue a dust note alone when a live claim covers the large note', async () => {
+    const live = new ConsumeTransaction(ACCOUNT, [note('big', BIG)], false);
+    await Repo.transactions.add(live);
+
+    const { committedId } = await autoConsume([note('big', BIG), note('dust', DUST)]);
+
+    expect((await queuedRows()).map(row => row.id)).toEqual([live.id]);
+    expect(committedId).toBe(live.id);
+  });
+
+  it('queues no row for new dust notes on successive passes while the large note is in backoff', async () => {
+    await backingOff('big', BIG);
+
+    await autoConsume([note('big', BIG), note('dust-1', DUST)]);
+    await autoConsume([note('big', BIG), note('dust-1', DUST), note('dust-2', '50')]);
+
+    expect(await queuedRows()).toHaveLength(0);
+  });
+
+  it('queues the remainder when it is worth the floor by itself', async () => {
+    await backingOff('big', BIG);
+
+    await autoConsume([note('big', BIG), note('a', '150'), note('b', '150')]);
+
+    const queued = await queuedRows();
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toEqual(['a', 'b']);
+  });
+
+  it('refuses a set that is below the floor when no row covers any note', async () => {
+    await expect(autoConsume([note('dust', DUST)])).rejects.toBeInstanceOf(ClaimBelowFloorError);
+    expect(await consumeRows()).toHaveLength(0);
+  });
+
+  it('refuses the per-note fallback for a note below the floor', async () => {
+    await expect(
+      initiateConsumeTransaction(ACCOUNT, note('dust', DUST), false, false, 'auto_consume', undefined, BASE_FEE)
+    ).rejects.toBeInstanceOf(ClaimBelowFloorError);
+    expect(await consumeRows()).toHaveLength(0);
+  });
+
+  it('refuses an auto-consume while the fee is unknown', async () => {
+    await expect(
+      initiateConsumeTransaction(ACCOUNT, note('big', BIG), false, false, 'auto_consume')
+    ).rejects.toBeInstanceOf(ClaimBelowFloorError);
+    expect(await consumeRows()).toHaveLength(0);
+  });
+
+  it('applies a fee that the chain reports after the caller measured its batch', async () => {
+    mockVerificationBaseFee.mockResolvedValue(BASE_FEE);
+
+    await expect(autoConsume([note('dust', DUST)], 0)).rejects.toBeInstanceOf(ClaimBelowFloorError);
+    expect(await consumeRows()).toHaveLength(0);
+  });
+
+  it('queues every note on a chain that charges no fee', async () => {
+    await autoConsume([note('dust', DUST)], 0);
+
+    expect((await queuedRows()).map(row => row.noteIds)).toEqual([['dust']]);
+  });
+
+  it('queues a dust note alone for a user claim', async () => {
+    await backingOff('big', BIG);
+
+    await queueConsumeNotes(ACCOUNT, [note('dust', DUST)], false, true, undefined, undefined, 'claim');
+
+    expect((await queuedRows()).map(row => row.noteIds)).toEqual([['dust']]);
   });
 });
 

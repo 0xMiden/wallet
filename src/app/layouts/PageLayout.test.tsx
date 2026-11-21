@@ -201,6 +201,17 @@ describe('PageLayout', () => {
     expect(inner.style.minHeight).toBe('20rem');
   });
 
+  it('lets the enclosing workbench size and scroll an embedded full-page receipt', () => {
+    setEnv({ fullPage: true });
+    const { container } = render(
+      <PageLayout embedded hideToolbar>
+        receipt body
+      </PageLayout>
+    );
+    expect(screen.getByText('receipt body')).toBeVisible();
+    expect(container.querySelector('div[style*="600px"], div.overflow-hidden')).toBeNull();
+  });
+
   it('uses fixed popup size when not full-page/side-panel/mobile/desktop', () => {
     const { container } = render(<PageLayout>content</PageLayout>);
     const el = getContainerEl(container);

@@ -1,3 +1,5 @@
+import { ReactNode } from 'react';
+
 import { IBridgeProvider } from 'lib/miden/db/types';
 import { truncateHash } from 'utils/string';
 
@@ -12,7 +14,7 @@ interface BuildReceiptRowsArgs {
   /** Label for the address row; defaults to "To" (consume receipts pass "From" — the note sender). */
   destinationLabel?: string;
   /** Formatted "amount symbol" shown in the amount row. */
-  amountText?: string;
+  amountText?: ReactNode;
   /** Label for the amount row; defaults to "Total Paid" (consume receipts pass "Total Accepted"). */
   amountLabel?: string;
   /** Ids of the notes a consume accepted; rendered as a "Transfer IDs" row. */
@@ -22,7 +24,7 @@ interface BuildReceiptRowsArgs {
   /** When provided, the transaction-id value becomes a button. */
   onViewExplorer?: () => void;
   /** Formatted "amount symbol" for the network fee this transaction paid. */
-  feeText?: string;
+  feeText?: ReactNode;
   /** Optional "Route" row value (e.g. "Slow"); bridge sends only. */
   route?: string;
   /** Optional sub-line under the "Route" value (e.g. "Via Epoch"). */
