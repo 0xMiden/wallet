@@ -1,7 +1,7 @@
 name: Independent NEAR custody audit (read only)
 on:
   push:
-    branches: [wiktor/green04-no-sign-stage-once]
+    branches: [wiktor/green04-no-sign-overlay-once]
 permissions:
   contents: read
   actions: read
@@ -25,9 +25,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/wiktor/green04-no-sign-stage-once
+          test "$GITHUB_REF" = refs/heads/wiktor/green04-no-sign-overlay-once
           base=1c93c1c5e154aa0b109014c9d9b751050d0d3dc0
-          test "$(git rev-parse HEAD^^)" = "$base"
+          test "$(git rev-parse HEAD^^^)" = "$base"
           gh api "repos/0xMiden/wallet/compare/$base...main" --jq .status | grep -Ex 'identical|ahead'
           test "$(gh run list --workflow e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44844609625:completed
           gh run view 44318071333 --json headSha,attempt,conclusion,jobs | jq -e '.headSha=="eb23473d006c3564a30cdb991f177e64ff89ec24" and .attempt==1 and .conclusion=="failure" and ([.jobs[].steps[]|select(.name=="Wait for mainnet NEAR forward" and .conclusion=="failure")]|length)==1' >/dev/null
@@ -51,6 +51,17 @@ jobs:
       - uses: ./.github/actions/apt-drop-unused-repos
       - run: npx playwright install --with-deps chromium
       - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start owned provider loop config
+        run: |
+          set -euo pipefail
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Owned provider overlay did not become ready.' >&2; exit 1
       - run: yarn test:e2e:blockchain:build
         env:
           WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
