@@ -91,7 +91,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import { protocolTags, signableArbitraryElements } from './dapp-sign-inputs';
-import { GUARDIAN_LOOKUP_ELEMENT_COUNT, TRANSACTION_SUMMARY_ELEMENT_COUNT } from './dapp-sign-rule';
+import {
+  GUARDIAN_LOOKUP_ELEMENT_COUNT,
+  MAX_SIGN_PREIMAGE_ELEMENTS,
+  TRANSACTION_SUMMARY_ELEMENT_COUNT
+} from './dapp-sign-rule';
 
 /** The Guardian lookup domain tag as `domainTagWord('guardian.lookup.v1')` in the multisig client computes it. */
 const KNOWN_LOOKUP_TAG = [12760442403760176969n, 2807383406242250561n, 12812781962877582355n, 4063594356491030589n];
@@ -135,6 +139,13 @@ describe('signableArbitraryElements on the real SDK', () => {
     const longer = sequence(TRANSACTION_SUMMARY_ELEMENT_COUNT + 1, 1n);
     expect(signableArbitraryElements('signingInputs', arbitraryPayload(shorter))).toEqual(shorter);
     expect(signableArbitraryElements('signingInputs', arbitraryPayload(longer))).toEqual(longer);
+  });
+
+  it('accepts a preimage of the element cap and refuses one element more', () => {
+    const atCap = sequence(MAX_SIGN_PREIMAGE_ELEMENTS, 1n);
+    const overCap = sequence(MAX_SIGN_PREIMAGE_ELEMENTS + 1, 1n);
+    expect(signableArbitraryElements('signingInputs', arbitraryPayload(atCap))).toEqual(atCap);
+    expect(signableArbitraryElements('signingInputs', arbitraryPayload(overCap))).toBeUndefined();
   });
 
   it('refuses a preimage with the Guardian lookup layout and accepts one with another tag', () => {

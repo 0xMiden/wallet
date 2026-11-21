@@ -1,14 +1,14 @@
 /**
- * The rule for a dApp signature request (`signBytes`) on a Guardian account. Every wallet account is a Guardian
- * account, and its hot key signs a request only when the request obeys this rule. The dApp receives this text when
- * the wallet refuses a request.
+ * The rule for a dApp signature request (`signBytes`). Every account signs a request only when it obeys this rule,
+ * whether it is a Guardian account (its hot key signs) or a single-key account. The dApp receives this text when the
+ * wallet refuses a request.
  *
  * This module has no SDK import, so the E2E harness can read it. `dapp-sign-inputs.ts` applies the rule to a payload.
  */
 export const DAPP_SIGN_RULE =
   'This wallet signs only arbitrary signing inputs that carry their preimage. It refuses a raw word, a blind ' +
   'commitment, a transaction summary, a preimage of 24 elements (the length of a transaction summary), and a ' +
-  'preimage with the layout of a Guardian lookup.';
+  'preimage with the layout of a Guardian lookup, and a preimage of more than 256 elements.';
 
 /**
  * The number of field elements in `TransactionSummary::to_elements` (miden-protocol 0.17, `tx_summary.rs`,
@@ -17,6 +17,12 @@ export const DAPP_SIGN_RULE =
  * later summary version is refused too.
  */
 export const TRANSACTION_SUMMARY_ELEMENT_COUNT = 24;
+
+/**
+ * The most field elements the wallet reads from a preimage, so that a dApp cannot make the wallet copy and render an
+ * unbounded request before the user can decline it. Longer preimages are refused, never truncated.
+ */
+export const MAX_SIGN_PREIMAGE_ELEMENTS = 256;
 
 /**
  * The number of field elements in a Guardian lookup-auth message: the four domain-tag elements, the timestamp and

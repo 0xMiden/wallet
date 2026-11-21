@@ -1147,15 +1147,15 @@ const notes = await adapter.requestConsumableNotes();     // listed if this acco
         <h2 id="h-signing"><a class="anchor" href="#signing">Sign bytes</a></h2>
         <p class="intro"><code>signBytes</code> asks the connected account to sign data you prepared with the Miden SDK. The user approves every signature.</p>
         <div class="code reveal-code"><div class="code-bar"><span class="fname">sign.ts</span><button class="copy" type="button"><svg class="cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="ok" aria-hidden="true"><use href="#i-check"/></svg><span>Copy</span></button></div>
-<pre><code data-lang="ts">import { Word } from '@miden-sdk/miden-sdk';
+<pre><code data-lang="ts">import { Felt, SigningInputs } from '@miden-sdk/miden-sdk';
 
-const signature = await adapter.signBytes(word.serialize(), 'word');
-// or: adapter.signBytes(signingInputs.serialize(), 'signingInputs')
+const signingInputs = SigningInputs.newArbitrary([new Felt(1n), new Felt(2n), new Felt(3n)]);
+const signature = await adapter.signBytes(signingInputs.serialize(), 'signingInputs');
 // signature: the SDK's serialized Signature bytes</code></pre></div>
         <div class="table-wrap"><table>
           <thead><tr><th>kind</th><th>What Bread signs</th></tr></thead>
           <tbody>
-            <tr><td><code>'signingInputs'</code> holding Arbitrary</td><td>Signs the domain-separated commitment of that payload, tag Poseidon2 of <code>miden-wallet/sign-bytes/v1</code>, not the raw payload, and cannot authorize a transaction. The preimage must not be 24 elements (the length of a transaction summary) or have the layout of a Guardian lookup.</td></tr>
+            <tr><td><code>'signingInputs'</code> holding Arbitrary</td><td>Signs the domain-separated commitment of that payload, tag Poseidon2 of <code>miden-wallet/sign-bytes/v1</code>, not the raw payload, and cannot authorize a transaction. The preimage must not be 24 elements (the length of a transaction summary), have the layout of a Guardian lookup, or be longer than 256 elements.</td></tr>
             <tr><td>Any other request: <code>'word'</code>, a transaction summary, or Blind</td><td>Refused before any prompt: the wallet signs only arbitrary signing inputs that carry their preimage.</td></tr>
           </tbody>
         </table></div>

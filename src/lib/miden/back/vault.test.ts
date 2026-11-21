@@ -7,6 +7,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { getMessage } from 'lib/i18n';
 import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { importedAccountBackupFailure } from 'lib/miden/backup-file';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
@@ -364,7 +365,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
         free: jest.fn()
       }))
     },
-    SigningInputs: { deserialize: jest.fn(() => ({})) },
+    // `SigningInputs`, `SigningInputsType` and `Rpo256` keep the wasmMock defaults: every payload reads as Arbitrary
+    // signing inputs with a three-element preimage, which `signData` accepts.
     Word: { deserialize: jest.fn(() => ({})) },
     // AccountBuilder records the fluent chain so assertions can verify
     // correct args — auth component type, storage mode, etc.
@@ -825,28 +827,38 @@ describe('Vault (instance)', () => {
       await encryptAndSaveMany([[keys.accAuthSecretKey(pk), hex]], vaultKey);
     }
 
-    it.each(['word', 'signingInputs'] as const)(
-      'signData signs the domain word for kind %s and returns it',
-      async kind => {
-        const vault = await seedVault('pw');
-        await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
-        const word = fakeInputs([5, 6, 7]);
-        mockSignBytesInputs.mockReturnValueOnce(word);
-        const key = defaultDeserializedSecret();
-        mockAuthSecretKeyDeserialize.mockReturnValueOnce(key);
+    it('signData signs the domain word for kind signingInputs and returns it', async () => {
+      const vault = await seedVault('pw');
+      await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
+      const word = fakeInputs([5, 6, 7]);
+      mockSignBytesInputs.mockReturnValueOnce(word);
+      const key = defaultDeserializedSecret();
+      mockAuthSecretKeyDeserialize.mockReturnValueOnce(key);
 
-        const res = await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), kind);
+      const res = await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'signingInputs');
 
-        expect(mockSignBytesInputs).toHaveBeenCalledWith(new Uint8Array(Buffer.from('hello')), kind);
-        expect(key.sign).toHaveBeenCalledWith(word);
-        expect(key.signData).not.toHaveBeenCalled();
-        expect(res).toEqual({
-          signature: Buffer.from([9, 9, 9]).toString('base64'),
-          signedCommitment: Buffer.from([5, 6, 7]).toString('base64')
-        });
-        expect(word.free).toHaveBeenCalled();
-      }
-    );
+      expect(mockSignBytesInputs).toHaveBeenCalledWith(new Uint8Array(Buffer.from('hello')), 'signingInputs');
+      expect(key.sign).toHaveBeenCalledWith(word);
+      expect(key.signData).not.toHaveBeenCalled();
+      expect(res).toEqual({
+        signature: Buffer.from([9, 9, 9]).toString('base64'),
+        signedCommitment: Buffer.from([5, 6, 7]).toString('base64')
+      });
+      expect(word.free).toHaveBeenCalled();
+    });
+
+    it('signData refuses a raw word with the sign rule before it reads the key', async () => {
+      const vault = await seedVault('pw');
+      await seedSecret(vault, 'acc-pub-key-1', '00'.repeat(32));
+      mockSignBytesInputs.mockClear();
+      mockAuthSecretKeyDeserialize.mockClear();
+
+      const refusal = vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'word');
+      await expect(refusal).rejects.toThrow(PublicError);
+      await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+      expect(mockSignBytesInputs).not.toHaveBeenCalled();
+      expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
+    });
 
     it('signData signs the summary word the domain module returned', async () => {
       const vault = await seedVault('pw');
@@ -871,9 +883,9 @@ describe('Vault (instance)', () => {
       });
       mockAuthSecretKeyDeserialize.mockClear();
 
-      await expect(vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'word')).rejects.toThrow(
-        'unsupported sign kind'
-      );
+      await expect(
+        vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'signingInputs')
+      ).rejects.toThrow('unsupported sign kind');
       expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
     });
 
@@ -883,7 +895,7 @@ describe('Vault (instance)', () => {
       const key = defaultDeserializedSecret();
       mockSignBytesInputs.mockReturnValueOnce(fakeInputs([5, 6, 7]));
       mockAuthSecretKeyDeserialize.mockReturnValueOnce(key);
-      await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'word');
+      await vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'signingInputs');
       expect(key.free).toHaveBeenCalledTimes(1);
 
       const failing = defaultDeserializedSecret();
@@ -894,9 +906,9 @@ describe('Vault (instance)', () => {
       failing.signData.mockImplementation(refuse);
       mockSignBytesInputs.mockReturnValueOnce(fakeInputs([5, 6, 7]));
       mockAuthSecretKeyDeserialize.mockReturnValueOnce(failing);
-      await expect(vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'word')).rejects.toThrow(
-        'sign failed'
-      );
+      await expect(
+        vault.signData('acc-pub-key-1', Buffer.from('hello').toString('base64'), 'signingInputs')
+      ).rejects.toThrow('sign failed');
       expect(failing.free).toHaveBeenCalledTimes(1);
     });
 

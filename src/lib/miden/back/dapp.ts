@@ -747,11 +747,11 @@ export async function requestSign(
     throw new Error(`${MidenDAppErrorType.NotGranted}: signing key is not the connected account's key`);
   }
 
-  // Every wallet account is a Guardian account, and its hot key signs only `Arbitrary` signing inputs whose
-  // preimage has no protocol message layout (see `signableArbitraryElements`). Refuse all other requests here,
-  // before any prompt, so that the user never sees a request that the wallet will not sign. The vault applies
-  // the same rule again at sign time. The service worker loads the WASM module only on demand.
-  await getWasmOrThrow();
+  // Every account, Guardian or single-key, signs only `Arbitrary` signing inputs whose preimage has no protocol
+  // message layout (see `signableArbitraryElements`). Refuse all other requests here, before any prompt, so that
+  // the user never sees a request that the wallet will not sign. The vault applies the same rule again at sign
+  // time. The service worker loads the WASM module only on demand, and only a `signingInputs` payload needs it.
+  if (req.kind === 'signingInputs') await getWasmOrThrow();
   const messageElements = signableArbitraryElements(req.kind, req.payload);
   if (messageElements === undefined) {
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${DAPP_SIGN_RULE}`);
@@ -762,7 +762,7 @@ export async function requestSign(
   // unhandled rejection and leave the dApp's promise unsettled forever (the
   // caller only ever sees the injection script's 5-minute "Request timeout").
   return new Promise((resolve, reject) => {
-    generatePromisifySign(resolve, reject, origin, dApp, req, messageElements.length, sessionId).catch(reject);
+    generatePromisifySign(resolve, reject, origin, dApp, req, messageElements, sessionId).catch(reject);
   });
 }
 
@@ -772,7 +772,7 @@ const generatePromisifySign = async (
   origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSignRequest,
-  messageLength: number,
+  messageElements: bigint[],
   sessionId?: string
 ) => {
   const id = nanoid();
@@ -793,7 +793,7 @@ const generatePromisifySign = async (
         origin,
         dApp,
         networkRpc,
-        formatSignPreview(req, messageLength),
+        formatSignPreview(req, messageElements),
         sessionId,
         waits.deadline
       );
@@ -3761,15 +3761,16 @@ const UNLISTED_ASSETS_WARNING =
  * What the mobile modal / desktop overlay show for `signBytes`.
  *
  * `requestSign` refuses every request but `Arbitrary` signing inputs whose preimage has no protocol message
- * layout, before the prompt. So a request that reaches the prompt is always a message of `messageLength` field
- * elements, and these rows say so with the same text as the extension's message alert (`SignMessageContent` in
- * ConfirmPage).
+ * layout, before the prompt. So a request that reaches the prompt is always a message of field elements. These
+ * rows say how many, with the same text as the extension's message alert (`SignatureRequest`), then list them, as the
+ * extension does, so the user sees the value being signed.
  */
-function formatSignPreview(req: MidenDAppSignRequest, messageLength: number): string[] {
+function formatSignPreview(req: MidenDAppSignRequest, messageElements: bigint[]): string[] {
   return [
     `Kind, ${req.kind}`,
     `Account, ${truncateAddress(req.sourcePublicKey)}`,
-    getMessage('signMessageWarning', { count: messageLength })
+    getMessage('signMessageWarning', { count: messageElements.length }),
+    `Message, ${messageElements.join(', ')}`
   ];
 }
 

@@ -357,9 +357,29 @@ describe('Vault instance signData - Guardian account', () => {
       ],
       currentPk: addr
     });
-    const data = u8ToB64(new Uint8Array(32).fill(0x22));
+    const data = u8ToB64(new Uint8Array([0x01, 0x22]));
 
-    await expect(vault.signData('some-commitment', data, 'word', addr)).rejects.toThrow(/everyday key/i);
+    await expect(vault.signData('some-commitment', data, 'signingInputs', addr)).rejects.toThrow(/everyday key/i);
+  });
+
+  it('refuses a word request for a Guardian account with no everyday key with the sign rule', async () => {
+    const addr = 'mtst1-guardian-pending-word';
+    const vault = await seedVault('pw', {
+      accounts: [
+        {
+          publicKey: addr,
+          name: 'Guardian pending',
+          isPublic: false,
+          type: WalletType.Guardian,
+          coldPublicKey: 'coldpub-only',
+          requiresHotKeyRotation: true
+        } as any
+      ],
+      currentPk: addr
+    });
+
+    const refusal = vault.signData('some-commitment', u8ToB64(new Uint8Array(32).fill(0x22)), 'word', addr);
+    await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
   });
 
   it('still uses the default key path for a non-Guardian account when accountId is passed', async () => {
@@ -372,8 +392,8 @@ describe('Vault instance signData - Guardian account', () => {
     const vaultKey = (vault as any).vaultKey as CryptoKey;
     await encryptAndSaveMany([[keys.accAuthSecretKey(commitment), '01020304']], vaultKey);
 
-    const data = u8ToB64(new Uint8Array(32).fill(0x11));
-    const sig = await vault.signData(commitment, data, 'word', addr);
+    const data = u8ToB64(new Uint8Array([0x01, 0x11, 0x11]));
+    const sig = await vault.signData(commitment, data, 'signingInputs', addr);
     const word = mockSignBytesInputs.mock.results.at(-1)!.value;
     const key = mockAuthSecretKeyDeserialize.mock.results.at(-1)!.value;
 
@@ -382,6 +402,38 @@ describe('Vault instance signData - Guardian account', () => {
     expect(key.signData).not.toHaveBeenCalled();
     expect(Array.from(b64ToU8(sig.signature))).toEqual([0xff, 0xaa, 0xbb, 0xcc]);
     expect(mockWordFromHex).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a raw word', 'word' as const, new Uint8Array(32).fill(0x11)],
+    ['transaction summary signing inputs', 'signingInputs' as const, new Uint8Array([0x00, 0x10, 0x20])],
+    ['blind signing inputs', 'signingInputs' as const, new Uint8Array([0x02, 0x10, 0x20])],
+    [
+      'an arbitrary preimage of 257 elements',
+      'signingInputs' as const,
+      new Uint8Array([0x01, ...Array(257).fill(0x07)])
+    ]
+  ])('refuses %s for a single-key account with the sign rule, before it reads a key', async (_case, kind, payload) => {
+    const addr = 'mtst1-plain-refused';
+    const commitment = 'cafe'.repeat(16);
+    const vault = await seedVault('pw', {
+      accounts: [{ publicKey: addr, name: 'Plain', isPublic: true, type: WalletType.OnChain } as any],
+      currentPk: addr
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey(commitment), '01020304']], vaultKey);
+    mockAuthSecretKeyDeserialize.mockClear();
+    mockSignBytesInputs.mockClear();
+    const getWasm = jest.requireMock('@miden-sdk/miden-sdk/lazy').getWasmOrThrow as jest.Mock;
+    getWasm.mockClear();
+
+    const refusal = vault.signData(commitment, u8ToB64(payload), kind, addr);
+    await expect(refusal).rejects.toThrow(PublicError);
+    await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+    expect(mockSignBytesInputs).not.toHaveBeenCalled();
+    expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
+    // Only a signingInputs payload needs the SDK, so a word is refused before the module loads.
+    expect(getWasm).toHaveBeenCalledTimes(kind === 'word' ? 0 : 1);
   });
 
   it('the hot key signs the word the single-key path signs for arbitrary signing inputs', async () => {
@@ -442,7 +494,7 @@ describe('Vault instance signData - Guardian account', () => {
     expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
   });
 
-  it.each(['word', 'signingInputs'] as const)(
+  it.each(['signingInputs'] as const)(
     'refuses a %s request from a session whose key is no longer the hot key',
     async kind => {
       const vault = await seedGuardianVault();
@@ -470,7 +522,7 @@ describe('Vault instance signData - Guardian account', () => {
       );
     });
 
-    it.each(['word', 'signingInputs'] as const)('refuses a %s request for a different commitment', async kind => {
+    it.each(['signingInputs'] as const)('refuses a %s request for a different commitment', async kind => {
       const vault = await seedGuardianVault();
       const data = u8ToB64(new Uint8Array(32).fill(0x01));
 
@@ -479,7 +531,7 @@ describe('Vault instance signData - Guardian account', () => {
     });
   });
 
-  it.each(['word', 'signingInputs'] as const)('refuses a %s request whose key is not a commitment', async kind => {
+  it.each(['signingInputs'] as const)('refuses a %s request whose key is not a commitment', async kind => {
     const vault = await seedGuardianVault();
     const data = u8ToB64(new Uint8Array(32).fill(0x01));
 

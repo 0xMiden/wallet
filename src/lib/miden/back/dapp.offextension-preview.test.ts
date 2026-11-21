@@ -296,12 +296,27 @@ describe('dApp sign approval on mobile and desktop', () => {
     free: () => undefined
   });
 
-  it('shows an arbitrary message with its element count', async () => {
+  it('shows an arbitrary message with its element count and its elements', async () => {
     sdk.SigningInputs = { deserialize: () => signingInputs(1, [4n, 5n, 6n, 7n]) };
 
     await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
 
-    expect(sheetRows()).toEqual(['Kind, signingInputs', 'Account, miden-account-1', 'signMessageWarning:4']);
+    expect(sheetRows()).toEqual([
+      'Kind, signingInputs',
+      'Account, miden-account-1',
+      'signMessageWarning:4',
+      'Message, 4, 5, 6, 7'
+    ]);
+  });
+
+  it('refuses a raw word before it loads the WASM module', async () => {
+    const getWasm = sdk.getWasmOrThrow as jest.Mock;
+    getWasm.mockClear();
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('word'), 'session-1')).rejects.toThrow(DAPP_SIGN_RULE);
+
+    expect(getWasm).not.toHaveBeenCalled();
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
   it.each<[string, SignKind, () => unknown]>([
@@ -318,6 +333,7 @@ describe('dApp sign approval on mobile and desktop', () => {
       'signingInputs',
       () => signingInputs(1, [2n, ...Array<bigint>(23).fill(9n)])
     ],
+    ['an arbitrary preimage of 257 elements', 'signingInputs', () => signingInputs(1, Array<bigint>(257).fill(9n))],
     [
       'bytes that do not decode',
       'signingInputs',
@@ -552,6 +568,8 @@ describe('signBytes developer documentation', () => {
     expect(section).toContain('signedCommitment');
     expect(section).toContain('publicKey.verify');
     expect(section).toContain('miden-wallet/sign-bytes/v1');
+    expect(section).toContain("signBytes(signingInputs.serialize(), 'signingInputs')");
+    expect(section).not.toContain("signBytes(word.serialize(), 'word')");
 
     const source = fs.readFileSync(__filename, 'utf8');
     const header = source.slice(0, source.indexOf('\nimport '));

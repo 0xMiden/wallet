@@ -25,6 +25,7 @@ import {
   domainTagPreimage,
   GUARDIAN_LOOKUP_DOMAIN_STRING,
   isProtocolMessageLayout,
+  MAX_SIGN_PREIMAGE_ELEMENTS,
   TRANSACTION_SUMMARY_ELEMENT_COUNT
 } from './dapp-sign-rule';
 
@@ -87,6 +88,23 @@ describe('signableArbitraryElements', () => {
     expect(signableArbitraryElements('signingInputs', PAYLOAD)).toBeUndefined();
     expect(inputs.toElements).not.toHaveBeenCalled();
     expect(inputs.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a preimage longer than the element cap without reading its elements, and frees the inputs', () => {
+    const { inputs, array } = signingInputs(1, Array<bigint>(MAX_SIGN_PREIMAGE_ELEMENTS + 1).fill(9n));
+    mockDeserialize.mockReturnValue(inputs);
+
+    expect(signableArbitraryElements('signingInputs', PAYLOAD)).toBeUndefined();
+    expect(array.get).not.toHaveBeenCalled();
+    expect(inputs.free).toHaveBeenCalledTimes(1);
+    expect(array.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a preimage of exactly the element cap', () => {
+    const values = Array<bigint>(MAX_SIGN_PREIMAGE_ELEMENTS).fill(9n);
+    mockDeserialize.mockReturnValue(signingInputs(1, values).inputs);
+
+    expect(signableArbitraryElements('signingInputs', PAYLOAD)).toEqual(values);
   });
 
   it('refuses the word kind without reading the payload', () => {

@@ -1921,7 +1921,7 @@ describe('Full confirmation cycles in extension mode', () => {
     });
   });
 
-  // The hot key signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. Every other
+  // Every account signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. Every other
   // request is refused before the popup opens, so the user never sees a request that the wallet will not sign.
   describe('requestSign — the sign rule applies before the popup opens', () => {
     // The SDK stub that `lib/miden/dapp-sign-inputs` reads; each case replaces its `SigningInputs` and restores it.
@@ -1931,7 +1931,23 @@ describe('Full confirmation cycles in extension mode', () => {
     it.each<[string, SignKind, { deserialize: () => unknown }]>([
       ['a raw word', 'word', { deserialize: () => variant(1) }],
       ['transaction summary signing inputs', 'signingInputs', { deserialize: () => variant(0) }],
-      ['blind signing inputs', 'signingInputs', { deserialize: () => variant(2) }]
+      ['blind signing inputs', 'signingInputs', { deserialize: () => variant(2) }],
+      [
+        'an arbitrary preimage of 257 elements, without reading it',
+        'signingInputs',
+        {
+          deserialize: () => ({
+            ...variant(1),
+            toElements: () => ({
+              length: () => 257,
+              get: () => {
+                throw new Error('the element cap must refuse before any element is read');
+              },
+              free: () => undefined
+            })
+          })
+        }
+      ]
     ])('refuses %s', async (_label, kind, signingInputs) => {
       arrangeSignerAccount();
       const signData = jest.fn(async () => 'fake-signature-base64');

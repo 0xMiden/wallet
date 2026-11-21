@@ -2479,6 +2479,13 @@ export class Vault {
   async authorize(_sendTransaction: SendTransaction) {}
 
   async signData(publicKey: string, data: string, signKind: SignKind, accountId?: string): Promise<SignedBytes> {
+    // Every account signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. The dApp
+    // request path refuses all other requests before the prompt; this check refuses them again at sign time, before
+    // any key is read, for a Guardian and a single-key account alike. Only a `signingInputs` payload needs the SDK.
+    if (signKind === 'signingInputs') await getWasmOrThrow();
+    if (signableArbitraryElements(signKind, data) === undefined) {
+      throw new PublicError(DAPP_SIGN_RULE);
+    }
     // A Guardian account's signing key is its hot key, stored by `hotPublicKey` under the secure-hot-key
     // facade, while the dApp holds the hot key's COMMITMENT from connect. The default path below reads
     // accAuthSecretKeyStrgKey(<commitment>), which for a Guardian account holds the cold (recovery) key under
@@ -2530,12 +2537,6 @@ export class Vault {
       throw new PublicError(
         "This Guardian account's everyday key changed after this site connected. Reconnect the site, then try again."
       );
-    }
-    // The hot key signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. The dApp
-    // request path refuses all other requests before the prompt; this check refuses them again at sign time.
-    await getWasmOrThrow();
-    if (signableArbitraryElements(signKind, data) === undefined) {
-      throw new PublicError(DAPP_SIGN_RULE);
     }
     // Same word the single-key path signs, so the hot key returns that signature and signed word. The native hot-key
     // plugins sign only 32-byte words.
