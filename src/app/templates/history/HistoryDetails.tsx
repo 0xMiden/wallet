@@ -361,6 +361,34 @@ const HistoryError: FC<React.ComponentProps<'p'> & { errorId: UserErrorId | null
   return <p {...props} />;
 };
 
+// Swap lineage polling lives at the app root. This screen consumes the latest
+// store value and asks a parked order to refresh when opened.
+function useHistorySwapOrderTracking(
+  readFailed: boolean | undefined,
+  orderId: string | bigint | null,
+  transaction: ITransaction | undefined
+) {
+  const orderKey = readFailed || orderId == null ? undefined : String(orderId);
+  const trackingEntry = useSwapOrderTrackingStore(state =>
+    orderKey === undefined ? undefined : state.entries[orderKey]
+  );
+  // A restored row is not tracked, except an open recovered order, which the manager reads from the node (#1487).
+  const recoveredOrderOpen = transaction !== undefined && isOpenRecoveredOrder(transaction);
+  const tracksOrder = transaction?.restoredFromBackup !== true || recoveredOrderOpen;
+  useEffect(() => {
+    if (orderKey === undefined || !tracksOrder) return;
+    requestSwapOrderRefresh(orderKey);
+  }, [orderKey, tracksOrder]);
+
+  // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
+  // bounded interval and updates the receipt whenever a consume row changes.
+  const settlementNotes = useSwapSettlementNotes(
+    !readFailed && transaction?.type === 'swap' ? transaction.id : undefined
+  );
+
+  return { trackingEntry, orderKey, tracksOrder, recoveredOrderOpen, settlementNotes };
+}
+
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
   const command = useFlowPresentation() === 'command';
@@ -666,28 +694,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     transaction?.accountId ?? account?.publicKey ?? '',
     transaction?.restoredFromBackup === true
   );
+  const { trackingEntry, orderKey, tracksOrder, recoveredOrderOpen, settlementNotes } = useHistorySwapOrderTracking(
+    readFailed,
+    orderId,
+    transaction
+  );
   const { canCancel, canRetry, earnRetryKind, acknowledgement } = actions;
   const heldByGuardian = guardianHoldUntil !== undefined;
-
-  // Swap lineage polling lives at the app root. This screen consumes the latest
-  // store value and asks a parked order to refresh when opened.
-  const orderKey = readFailed || orderId == null ? undefined : String(orderId);
-  const trackingEntry = useSwapOrderTrackingStore(state =>
-    orderKey === undefined ? undefined : state.entries[orderKey]
-  );
-  // A restored row is not tracked, except an open recovered order, which the manager reads from the node (#1487).
-  const recoveredOrderOpen = transaction !== undefined && isOpenRecoveredOrder(transaction);
-  const tracksOrder = transaction?.restoredFromBackup !== true || recoveredOrderOpen;
-  useEffect(() => {
-    if (orderKey === undefined || !tracksOrder) return;
-    requestSwapOrderRefresh(orderKey);
-  }, [orderKey, tracksOrder]);
-
-  // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
-  // bounded interval and updates the receipt whenever a consume row changes.
-  const settlementNotes = useSwapSettlementNotes(
-    !readFailed && transaction?.type === 'swap' ? transaction.id : undefined
-  );
 
   // A closed recovered order reads no entry: one closed outside the poll keeps its last open one (#1487). Every other
   // row, a file-restored order included, reads its entry.
