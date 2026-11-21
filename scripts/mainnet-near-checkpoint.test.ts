@@ -79,6 +79,40 @@ it('accepts only a fully receipted native round trip with actual EVM/native fees
   const state = complete();
   expect(parseMainnetNearCheckpoint(state)).toEqual(state);
 });
+it('persists one retired NEAR return separately from a distinct replacement', () => {
+  const state = complete();
+  const checkpoint = {
+    ...state,
+    sourceRunId: '44318071333',
+    authorizationRunId: '44318071333',
+    lossBudgetUsdMicros: '1712349',
+    retiredReturn: {
+      runId: '44844609625',
+      replacementRunId: '44930000000',
+      quote: {
+        ...state.reverseQuote!,
+        quoteHash: '3'.repeat(44),
+        depositAddress: `0x${'4'.repeat(40)}`,
+        deadline: '2026-11-12T12:04:00.000Z'
+      },
+      nonce: state.evmNonceBefore!,
+      valuation: state.returnValuation!
+    }
+  };
+  const path = join(directory, 'roundtrip.json');
+  saveMainnetNearCheckpoint(path, parseMainnetNearCheckpoint(checkpoint));
+  expect(loadMainnetNearCheckpoint(path)).toEqual(checkpoint);
+  for (const retiredReturn of [
+    { ...checkpoint.retiredReturn, runId: checkpoint.retiredReturn.replacementRunId },
+    { ...checkpoint.retiredReturn, nonce: 1 },
+    { ...checkpoint.retiredReturn, quote: { ...checkpoint.retiredReturn.quote, amountIn: '1' } },
+    { ...checkpoint.retiredReturn, quote: state.reverseQuote },
+    { ...checkpoint.retiredReturn, rawSignature: 'never persist' }
+  ]) {
+    expect(() => parseMainnetNearCheckpoint({ ...checkpoint, retiredReturn })).toThrow();
+  }
+  expect(() => parseMainnetNearCheckpoint({ ...checkpoint, reverseQuote: undefined })).toThrow();
+});
 it('retains the final signed Guardian consume fingerprint/deadline alongside the original note reference', () => {
   const state = complete();
   const checkpoint = {
