@@ -2,6 +2,12 @@ import type { BrowserContext, Page } from '@playwright/test';
 
 import { IMPORTED_WALLET_PASSWORD, importWallet } from '../e2e/helpers/import-wallet';
 import { expect, test } from '../fixtures/extension';
+import {
+  NATIVE_ASSET_ID_CACHE,
+  NATIVE_ASSET_META_CACHE,
+  NATIVE_ASSET_SYNCED_ID_CACHE
+} from '../../src/lib/miden-chain/native-asset-cache-keys';
+import type { SyncData } from '../../src/lib/shared/types';
 
 /**
  * Home names no network any more: the pill above its balance card (which used to be a ribbon across
@@ -15,7 +21,12 @@ import { expect, test } from '../fixtures/extension';
  * popup's size, reporting the tab as the popup view so the app keeps it and lays out as the popup.
  */
 
-async function openPopup(extensionContext: BrowserContext, extensionId: string, locale: string): Promise<Page> {
+async function openPopup(
+  extensionContext: BrowserContext,
+  extensionId: string,
+  locale: string,
+  snapshot?: SyncData
+): Promise<Page> {
   const page = await extensionContext.newPage();
   // The extension fixture launches with no viewport (Playwright's 1280x720), and test.use({ viewport })
   // does not reach it.
@@ -31,6 +42,30 @@ async function openPopup(extensionContext: BrowserContext, extensionId: string, 
     // src/i18n.ts reads the saved 'locale' before the language detector.
     await page.addInitScript(value => localStorage.setItem('locale', value), locale);
   }
+  if (snapshot) {
+    await page.addInitScript(syncData => {
+      const storage = chrome.storage.local;
+      storage.get = new Proxy(storage.get, {
+        apply: (target, receiver, args) => {
+          if (args[0] !== 'miden_sync_data' || typeof args[1] !== 'function') {
+            return Reflect.apply(target, receiver, args);
+          }
+          // Keep the persisted vault steady while a separate service-worker refresh could replace it.
+          setTimeout(() => args[1]({ miden_sync_data: syncData }), 250);
+          return undefined;
+        }
+      });
+      requestAnimationFrame(function sample() {
+        const label = document.querySelector('[data-testid="balance-card-label"]');
+        if (label?.getBoundingClientRect().height) {
+          const amount = document.querySelector('[data-testid="balance-card-currency"]')?.previousElementSibling;
+          document.documentElement.dataset.firstBalance = amount?.textContent ?? '(skeleton)';
+        } else {
+          requestAnimationFrame(sample);
+        }
+      });
+    }, snapshot);
+  }
   await page.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: 'domcontentloaded' });
   const card = page.getByTestId('balance-card-label');
   const unlock = page.getByTestId('unlock-password');
@@ -45,6 +80,40 @@ async function openPopup(extensionContext: BrowserContext, extensionId: string, 
 
 test.describe('Home network naming', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension UI only runs in Chromium');
+
+  test('reopens Home with the last synced balance in the first card frame', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    test.setTimeout(330_000);
+    await importWallet(extensionContext, extensionId);
+    const worker = extensionContext.serviceWorkers()[0] ?? (await extensionContext.waitForEvent('serviceworker'));
+    const readSnapshot = () =>
+      worker.evaluate(async () => (await chrome.storage.local.get('miden_sync_data')).miden_sync_data as SyncData);
+    await expect
+      .poll(async () => (await readSnapshot())?.balanceSnapshot?.accountNonce, { timeout: 30_000 })
+      .toBeDefined();
+    const snapshot = await readSnapshot();
+    const scope = `${snapshot.balanceSnapshot?.rpcUrl}|${snapshot.balanceSnapshot?.effectiveNetwork}`;
+    const syncedKey = `${NATIVE_ASSET_SYNCED_ID_CACHE}:${scope}`;
+    // The mock chain uses its own native faucet. Declare its cached display metadata as USDCx
+    // so the real fixed-quote path is exercised without relying on a live token list or feed.
+    await expect
+      .poll(() => worker.evaluate(async key => (await chrome.storage.local.get(key))[key], syncedKey))
+      .toEqual(expect.any(String));
+    const faucetId: string = await worker.evaluate(async key => (await chrome.storage.local.get(key))[key], syncedKey);
+    const metadata = { symbol: 'USDCX', name: 'USDCx', decimals: 6 };
+    await worker.evaluate(values => chrome.storage.local.set(values), {
+      [`${NATIVE_ASSET_ID_CACHE}:${scope}`]: faucetId,
+      [`${NATIVE_ASSET_META_CACHE}:${scope}`]: { ...metadata, faucetId }
+    });
+    const page = await openPopup(extensionContext, extensionId, 'en', {
+      ...snapshot,
+      vaultAssets: [{ faucetId, amountBaseUnits: '7250000', metadata }]
+    });
+    await expect(page.getByTestId('balance-card-currency')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-first-balance', '7.25');
+  });
 
   for (const locale of ['en', 'de'] as const) {
     test(`shows no network pill or banner above the balance card in a 360x600 popup (${locale})`, async ({
