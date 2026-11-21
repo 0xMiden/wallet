@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Allow one manual recovery of the held nightly NEAR proceeds after verifying the expired return was never submitted. Preserve the retired authorization and prevent fresh funding in that run.
+
 - [FIX][all] A NEAR Intents deposit that got no funds before its quote deadline reads Expired in Activity, not Pending or Failed, with a grey icon, not the red of a failure.
 - [ADD][mobile] The NEAR Intents deposit page shows installed Trust Wallet, MetaMask, Rainbow, and Phantom apps for supported source assets, with payment links that include the address and exact amount. Phantom is hidden when Trust Wallet is installed. Reown's keychain group follows the Xcode signing prefix and bundle ID.
 - [CHANGE][all] NEAR Intents (1Click) moves from Swap to a "Near Intents" tab on Receive: pick an origin chain and token (Ethereum, Solana, Bitcoin, NEAR), get a 1Click deposit address with a QR code, and pay from any wallet with no wallet connection; the pairs come from the new `nearIntents` section of the wallet-config document, and Swap is the DEX flow only.

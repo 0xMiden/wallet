@@ -101,6 +101,27 @@ function fixture() {
   state.forwardQuote = { ...quote, quoteHash: hashOneClickQuote(status.quoteResponse) };
   return { state, status };
 }
+it('fails closed before restoring or persisting when an explicit NEAR replacement lacks provenance', async () => {
+  jest.clearAllMocks();
+  try {
+    Object.assign(process.env, {
+      E2E_NETWORK: 'mainnet',
+      GITHUB_RUN_ID: '44930000000',
+      GITHUB_RUN_ATTEMPT: '1',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_REF: 'refs/heads/main',
+      MAINNET_NEAR_REPLACEMENT_APPROVED: 'true',
+      MAINNET_NEAR_REPLACEMENT_PROVENANCE: 'false'
+    });
+    mockState.mockReturnValue(fixture().state);
+    await expect(recover()).rejects.toThrow('NEAR replacement requires verified original authority');
+    expect(mockRestore).not.toHaveBeenCalled();
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+  } finally {
+    process.env = { ...env };
+  }
+});
 describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s', sourceRunId => {
   beforeEach(() => {
     jest.clearAllMocks();
