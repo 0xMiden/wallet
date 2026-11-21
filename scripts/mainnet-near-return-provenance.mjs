@@ -1,4 +1,20 @@
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+
+export function verifyNearReturnCheckpointBytes(original, retained) {
+  const digest = bytes => Buffer.isBuffer(bytes) && bytes.length <= 65_536
+    ? createHash('sha256').update(bytes).digest('hex')
+    : undefined;
+  if (!matchesRetainedNearReturn({
+    runId: 44871541172,
+    artifactId: 14694460888,
+    archiveDigest: 'sha256:55e22c8a7fb31e77b345848714fdd7264a8bc2d68f4a863ed73884846f18f738',
+    originalDigest: digest(original),
+    checkpointDigest: digest(retained)
+  }) || !hasUnchangedNearReturnAuthority(JSON.parse(original), JSON.parse(retained))) {
+    throw new Error('Unexpected NEAR return checkpoint bytes');
+  }
+}
 
 export function hasUnchangedNearReturnAuthority(original, retained) {
   if (original?.phase !== 'reverse-authorized' || retained?.phase !== 'recovery-required' ||
