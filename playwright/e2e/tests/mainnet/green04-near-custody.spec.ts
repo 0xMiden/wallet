@@ -10,7 +10,7 @@ import { loadMainnetNearCheckpoint } from '../../helpers/mainnet-near-checkpoint
 import { captureMainnetOneClickReviewQuote, connectMainnetOneClickWallet, selectMainnetOneClickAssets } from '../../helpers/mainnet-one-click-ui';
 import { WcCounterparty } from '../../ios/helpers/wc-counterparty';
 import { ONE_CLICK_EVM_CHAIN_IDS } from '../../../../src/lib/one-click/client';
-import { createPublicClient, erc20Abi, getAddress, http } from 'viem';
+import { createPublicClient, erc20Abi, getAddress, http, isHex } from 'viem';
 import { arbitrum } from 'viem/chains';
 import { createMainnetNearEvmBroadcast } from '../../helpers/mainnet-near-evm';
 import { assertOneClickFundingDeadline } from '../../../../src/lib/one-click/deadline';
@@ -107,7 +107,7 @@ test('observe a fresh NEAR return request without signing or broadcasting', asyn
       recipient: state.account, deadline, slippageTolerance: 100 }, quote);
     stage = 'direct-read-only-sender';
     const transfer = buildEvmOneClickTransaction(originAsset, deposit, amount.toString(), account);
-    assert.ok(transfer.to && transfer.data);
+    assert.ok(transfer.to && isHex(transfer.data));
     await assert.rejects(sender.send({ to: getAddress(transfer.to), data: transfer.data, value: BigInt(transfer.value ?? '0') }, AbortSignal.timeout(60_000)),
       { message: 'Diagnostic stopped at signer boundary' });
     assert.ok(exactRequestHeld);
