@@ -126,7 +126,7 @@ describe('mainnet nightly workflow', () => {
   it('forwards every pre-build step outcome to the report without changing step gating', () => {
     const parsed = YAML.parse(text) as { jobs: Record<string, { steps: Record<string, unknown>[] }> };
     for (const job of ['mainnet-nightly', 'mainnet-agglayer']) {
-      const steps = parsed.jobs[job].steps;
+      const steps = parsed.jobs[job]?.steps ?? [];
       const init = steps.findIndex(step => step.id === 'wallet-report-init');
       const build = steps.findIndex(step => step.id === 'wallet-build');
       const assemble = steps.find(step => step.id === 'wallet-report-assemble') as { env: Record<string, string> };
@@ -135,7 +135,7 @@ describe('mainnet nightly workflow', () => {
       const ids = pre.map(step => step.id);
       expect(ids.every(id => typeof id === 'string' && id !== '')).toBe(true);
       expect(new Set(ids).size).toBe(ids.length);
-      const forwarded = assemble.env.REPORT_SETUP_OUTCOMES;
+      const forwarded = assemble.env.REPORT_SETUP_OUTCOMES ?? '';
       expect(Array.from(forwarded.matchAll(/steps\.([\w-]+)\.outcome/g), match => match[1])).toEqual(ids);
       expect(forwarded.replace(/\$\{\{ steps\.[\w-]+\.outcome \}\}/g, '').trim()).toBe('');
       // Unchanged semantics: a failed setup step still stops the job and is never tolerated.
