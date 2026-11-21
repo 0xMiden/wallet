@@ -14,6 +14,8 @@ test('observe the Epoch return entry surface without connecting or signing', asy
   let custodyMatches = false;
   let commandBridge = false;
   let legacyConnect = false;
+  let compactConnect = false;
+  let compactLayer = false;
   try {
     await restoreMainnetLoopGuardian(walletB, process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
     assert.equal(await walletB.getAccountAddress(), state.account);
@@ -28,8 +30,14 @@ test('observe the Epoch return entry surface without connecting or signing', asy
     await command.or(legacy).first().waitFor({ state: 'visible', timeout: 40_000 });
     commandBridge = await command.isVisible();
     legacyConnect = await legacy.isVisible();
-    assert.notEqual(commandBridge, legacyConnect);
+    assert.ok(commandBridge && !legacyConnect);
+    stage = 'compact-surface';
+    await walletB.page.goto(`chrome-extension://${walletB.extensionId}/sidepanel.html#/bridge/deposit`, { waitUntil: 'domcontentloaded' });
+    await legacy.waitFor({ state: 'visible', timeout: 40_000 });
+    compactConnect = await legacy.isVisible();
+    compactLayer = await walletB.page.locator('[data-page-layer="/bridge/deposit"]').isVisible();
+    assert.ok(compactConnect && compactLayer && !(await command.isVisible()));
   } finally {
-    writeFileSync('test-results/epoch-surface-result.json', JSON.stringify({ stage, custodyMatches, commandBridge, legacyConnect }), { mode: 0o600 });
+    writeFileSync('test-results/epoch-surface-result.json', JSON.stringify({ stage, custodyMatches, commandBridge, legacyConnect, compactConnect, compactLayer }), { mode: 0o600 });
   }
 });

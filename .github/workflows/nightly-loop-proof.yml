@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 2
+          fetch-depth: 3
       - name: Verify exact settlement archive
         shell: bash
         env:
@@ -26,7 +26,7 @@ jobs:
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=c6d476ef891894b79f57ece64158d0c43e2355bb
-          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git rev-parse HEAD^^)" = "$base"
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44959645259:completed
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/epoch-command-surface.spec.ts)"
           umask 077
@@ -67,6 +67,6 @@ jobs:
           rc=0
           E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-audit-private" xvfb-run -a yarn playwright test epoch-command-surface.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/epoch-audit-private.log" 2>&1 || rc=$?
           if test -f test-results/epoch-surface-result.json; then
-            jq -c '{stage,custodyMatches,commandBridge,legacyConnect}' test-results/epoch-surface-result.json
+            jq -c '{stage,custodyMatches,commandBridge,legacyConnect,compactConnect,compactLayer}' test-results/epoch-surface-result.json
           fi
           exit "$rc"
