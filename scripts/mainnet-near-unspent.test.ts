@@ -12,6 +12,8 @@ const mockStatus = jest.fn<Promise<OneClickStatusResponse>, []>();
 const mockWrite = jest.fn();
 const mockGrant = jest.fn();
 const mockSubmit = jest.fn();
+const mockQueueBlocker = jest.fn();
+const mockOutputCandidates = jest.fn();
 const mockClient = {
   getChainId: jest.fn(),
   getBalance: jest.fn(),
@@ -47,10 +49,15 @@ jest.mock('../playwright/e2e/helpers/mainnet-send-authorization', () => ({
 jest.mock('../playwright/e2e/helpers/mainnet-consume-authorization', () => ({}));
 jest.mock('../playwright/e2e/helpers/mainnet-one-click-ui', () => ({}));
 jest.mock('../playwright/e2e/helpers/mainnet-miden-request', () => ({}));
-jest.mock('../playwright/e2e/helpers/history', () => ({}));
+jest.mock('../playwright/e2e/helpers/history', () => ({
+  plantQueueBlocker: (...args: unknown[]) => mockQueueBlocker(...args)
+}));
+jest.mock('../playwright/e2e/helpers/mainnet-miden-indexer', () => ({
+  readMainnetMidenOutputCandidates: (...args: unknown[]) => mockOutputCandidates(...args)
+}));
 jest.mock('../playwright/e2e/helpers/swap', () => ({}));
 jest.mock('../playwright/e2e/ios/helpers/wc-counterparty', () => ({}));
-import { runMainnetNearStage } from '../playwright/e2e/helpers/mainnet-near-runtime';
+import { claimMainnetNearNote, runMainnetNearStage } from '../playwright/e2e/helpers/mainnet-near-runtime';
 
 const env = { ...process.env };
 const wallet = { getAccountAddress: jest.fn(), extensionId: 'a'.repeat(32), page: {} };
@@ -101,6 +108,34 @@ function fixture() {
   state.forwardQuote = { ...quote, quoteHash: hashOneClickQuote(status.quoteResponse) };
   return { state, status };
 }
+it('does not block the transaction queue before discovering the exact NEAR claim note', async () => {
+  jest.clearAllMocks();
+  const { state } = fixture();
+  mockQueueBlocker.mockResolvedValue('blocker');
+  mockOutputCandidates.mockResolvedValue({ noteIds: [] });
+  const syncFailed = new Error('note discovery did not complete');
+  const scopedWallet = {
+    ...wallet,
+    getAccountAddress: async () => state.account,
+    triggerSync: async () => {
+      throw syncFailed;
+    }
+  };
+  await expect(
+    Reflect.apply(claimMainnetNearNote, undefined, [
+      scopedWallet,
+      state,
+      `0x${'a'.repeat(64)}`,
+      'refund',
+      'test-gate',
+      new AbortController().signal
+    ])
+  ).rejects.toBe(syncFailed);
+  expect(mockOutputCandidates).toHaveBeenCalledTimes(1);
+  expect(mockQueueBlocker).not.toHaveBeenCalled();
+  expect(mockSave).not.toHaveBeenCalled();
+});
+
 it('fails closed before restoring or persisting when an explicit NEAR replacement lacks provenance', async () => {
   jest.clearAllMocks();
   try {
