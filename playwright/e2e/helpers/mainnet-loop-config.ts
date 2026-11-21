@@ -150,7 +150,8 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
     }
     if (Object.keys(tokens).length > 0) chains[blockchain] = { name: label, addressKind: 'evm', tokens };
   }
-  if (!Object.keys(chains).length) throw new Error('No published stablecoin route with supported all-in fee accounting');
+  if (!Object.keys(chains).length)
+    throw new Error('No published stablecoin route with supported all-in fee accounting');
   const previous = record(document.nearIntents) ? document.nearIntents : {};
   const serviceUrl = previous.serviceUrl ?? 'https://1click.chaindefuser.com';
   if (typeof serviceUrl !== 'string') throw new Error('Invalid real 1Click service');

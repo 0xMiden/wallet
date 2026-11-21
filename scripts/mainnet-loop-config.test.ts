@@ -22,7 +22,10 @@ const document = () => ({
   swap: { etaUrl: 'https://solver.example' },
   'bridge-providers': { epoch: { allocatorUrl: 'https://mainnet-api.epochprotocol.xyz' } },
   supportedEvmChains: {
-    arbitrum: { chainId: 42161, bridges: { epoch: { depositEnabled: true, withdrawalEnabled: true, tokens: { USDC: { contractAddress: usdc } } } } }
+    arbitrum: {
+      chainId: 42161,
+      bridges: { epoch: { depositEnabled: true, withdrawalEnabled: true, tokens: { USDC: { contractAddress: usdc } } } }
+    }
   }
 });
 const tokens = () => ({ tokens: [{ network: 'mainnet', symbol: 'USDCX', faucetId: native, decimals: 6 }] });
@@ -100,17 +103,35 @@ describe('nightly-only mainnet NEAR configuration', () => {
         ...document().supportedEvmChains,
         arbitrum: {
           chainId: 42161,
-          bridges: { epoch: { depositEnabled: true, withdrawalEnabled: true, tokens: { USDC: { contractAddress: usdc }, USDT: { contractAddress: usdt } } } }
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { USDC: { contractAddress: usdc }, USDT: { contractAddress: usdt } }
+            }
+          }
         },
         ethereum: {
           chainId: 1,
-          bridges: { epoch: { depositEnabled: true, withdrawalEnabled: true, tokens: { USDC: { contractAddress: `0x${'a'.repeat(40)}` } } } }
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { USDC: { contractAddress: `0x${'a'.repeat(40)}` } }
+            }
+          }
         }
       }
     };
     const live = [
       ...catalog(),
-      { assetId: `nep141:arb-${usdt}.omft.near`, blockchain: 'arb', symbol: 'USDT0', decimals: 6, contractAddress: usdt },
+      {
+        assetId: `nep141:arb-${usdt}.omft.near`,
+        blockchain: 'arb',
+        symbol: 'USDT0',
+        decimals: 6,
+        contractAddress: usdt
+      },
       {
         assetId: `nep141:eth-0x${'a'.repeat(40)}.omft.near`,
         blockchain: 'eth',
