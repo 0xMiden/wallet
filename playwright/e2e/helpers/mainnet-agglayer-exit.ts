@@ -1,4 +1,4 @@
-import { decodeEventLog, type Hex } from 'viem';
+import { decodeEventLog, isHex, type Hex } from 'viem';
 
 import { AGGLAYER_BRIDGE_ABI } from '../../../src/lib/agglayer/constant';
 import {
@@ -163,6 +163,18 @@ export function exitStep(
   if (!isAgglayerDepositReady(exit)) return { kind: 'wait' };
   const since = readySince ?? now;
   return now - since >= graceMs ? { kind: 'claim', readySince: since } : { kind: 'wait', readySince: since };
+}
+
+/** Throws on a claim hash the indexer filed that is not hex, after `observeFailure` records the failed finality. */
+export function rejectUnreadableClaimHash(
+  hash: string,
+  depositCnt: number,
+  observeFailure: (reason: string) => void
+): asserts hash is Hex {
+  if (isHex(hash)) return;
+  const reason = `exit ${depositCnt} has a claim hash that is not hex`;
+  observeFailure(reason);
+  throw new Error(reason);
 }
 
 export interface ClaimReceipt {

@@ -6,6 +6,7 @@
 - [ADD][mobile] The NEAR Intents deposit page shows installed Trust Wallet, MetaMask, Rainbow, and Phantom apps for supported source assets, with payment links that include the address and exact amount. Phantom is hidden when Trust Wallet is installed. Reown's keychain group follows the Xcode signing prefix and bundle ID.
 - [CHANGE][all] NEAR Intents (1Click) moves from Swap to a "Near Intents" tab on Receive: pick an origin chain and token (Ethereum, Solana, Bitcoin, NEAR), get a 1Click deposit address with a QR code, and pay from any wallet with no wallet connection; the pairs come from the new `nearIntents` section of the wallet-config document, and Swap is the DEX flow only.
 - [FIX][ci] The nightly NEAR loop reads the nearIntents config and drives the Receive deposit-address flow, and its owned config overlay writes that section instead of swap.oneClick.
+- [CHANGE][ci] Emit a sanitized mainnet nightly report for the Wallet E2E dashboard with test and recovery evidence.
 - [FIX][ci] Report the last NEAR return stage reached when the mainnet nightly fails, without uploading private worker logs.
 
 - [FIX][ci] Verify the original NEAR deposit fee against Guardian history when a restored nightly wallet lacks the local send record.
