@@ -29,6 +29,18 @@ const rejected: [NearIntentsAddressKind, string, string][] = [
   ['solana', '0x52908400098527886E0F7030069857D2E4169EE7', 'an EVM address'],
   ['bitcoin', 'BC1QAR0SRRR7XFKVY5L643LYDNW9RE59GTZZWF5MDQ', 'upper case bech32'],
   ['bitcoin', 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdb', 'a character outside bech32'],
+  ['bitcoin', 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdp', 'a bech32 address with a wrong checksum'],
+  [
+    'bitcoin',
+    'bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3296',
+    'a bech32m address with a wrong checksum'
+  ],
+  ['bitcoin', '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNb', 'a legacy address with a wrong checksum'],
+  [
+    'bitcoin',
+    'bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7k7grplx',
+    'a version 1 program longer than 40 bytes'
+  ],
   ['bitcoin', 'bc1qar0sr', 'too short'],
   ['bitcoin', 'tb1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq', 'a testnet address'],
   ['bitcoin', '2A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa', 'a legacy address that does not start with 1 or 3'],
