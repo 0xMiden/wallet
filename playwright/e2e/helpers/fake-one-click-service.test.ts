@@ -110,6 +110,8 @@ describe('fake 1Click deposit addresses', () => {
     expect(isValidNearIntentsAddress(kind, first)).toBe(true);
     expect(fakeDepositAddress(blockchain, 1)).toBe(first);
     expect(fakeDepositAddress(blockchain, 2)).not.toBe(first);
+    expect(fakeDepositAddress(blockchain, 1)).not.toBe(fakeDepositAddress(blockchain, 257));
+    expect(isValidNearIntentsAddress(kind, fakeDepositAddress(blockchain, 257))).toBe(true);
   });
 });
 

@@ -304,11 +304,23 @@ export class FakeOneClickService {
 }
 
 /**
- * A deposit address in the format of the origin chain, the same for the same sequence number. Solana gets a base58
- * public key, Bitcoin a P2WPKH bech32 address, NEAR an implicit account. Any other chain gets an EVM address.
+ * A deposit address in the format of the origin chain, the same for the same sequence number. The seed's first four
+ * bytes are that sequence as a uint32 and the rest mix those bytes, so a sequence 256 later does not repeat. Solana
+ * gets a base58 public key, Bitcoin a P2WPKH bech32 address, NEAR an implicit account. Any other chain gets an EVM
+ * address.
  */
 export function fakeDepositAddress(blockchain: string | undefined, sequence: number): string {
-  const seed = Uint8Array.from({ length: 32 }, (_, index) => (sequence * 31 + index * 7 + 1) % 256);
+  const byte0 = sequence & 0xff;
+  const byte1 = (sequence >>> 8) & 0xff;
+  const byte2 = (sequence >>> 16) & 0xff;
+  const byte3 = (sequence >>> 24) & 0xff;
+  const sequenceBytes = [byte0, byte1, byte2, byte3];
+  const seed = Uint8Array.from({ length: 32 }, (_, index) => {
+    const prefixed = sequenceBytes[index];
+    return prefixed !== undefined
+      ? prefixed
+      : (byte0 * 31 + byte1 * 17 + byte2 * 13 + byte3 * 7 + index * 7 + 1) & 0xff;
+  });
   switch (blockchain) {
     case 'sol':
       return bs58.encode(seed);
