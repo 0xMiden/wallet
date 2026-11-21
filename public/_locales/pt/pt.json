@@ -1103,6 +1103,8 @@
   "downloadFullSummary": "Baixar resumo completo (bytes)",
   "signArbitraryPayload": "Assinar a carga útil arbitrária?",
   "signBlindCommitment": "Assinar o compromisso “Blind”?",
+  "signMessageTitle": "Solicitação de assinatura de mensagem",
+  "signMessageWarning": "Este site solicitou que você assinasse uma mensagem com $count$ elementos de campo. A carteira não pode mostrar o que a mensagem significa. Só continue se você confiar plenamente neste site.",
   "connectToWebsite": "Acessar o site",
   "deny": "Negar",
   "requestsATransaction": "Solicita uma transação",

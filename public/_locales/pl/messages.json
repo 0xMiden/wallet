@@ -4970,6 +4970,19 @@
     "message": "Czy podpisać zobowiązanie „Blind”?",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "Żądanie podpisu wiadomości",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "Ta strona poprosiła Cię o podpisanie wiadomości zawierającej $count$ elementów pola. Portfel nie jest w stanie wyświetlić znaczenia tej wiadomości. Kontynuuj tylko wtedy, gdy w pełni ufasz tej stronie.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "Połącz się ze stroną internetową",
     "englishSource": "Connect to website"

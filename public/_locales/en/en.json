@@ -1109,6 +1109,8 @@
   "downloadFullSummary": "Download full summary (bytes)",
   "signArbitraryPayload": "Sign the Arbitrary payload?",
   "signBlindCommitment": "Sign the Blind commitment?",
+  "signMessageTitle": "Message signature request",
+  "signMessageWarning": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
   "connectToWebsite": "Connect to website",
   "deny": "Deny",
   "requestsATransaction": "Requests a transaction",

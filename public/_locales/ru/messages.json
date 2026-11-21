@@ -4973,6 +4973,19 @@
     "message": "Подписать обязательство «Blind»?",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "Запрос на подпись сообщения",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "Этот сайт попросил вас подписать сообщение, состоящее из $count$ элементов поля. Кошелек не может показать, что означает это сообщение. Продолжайте только в том случае, если вы полностью доверяете этому сайту.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "Перейти на сайт",
     "englishSource": "Connect to website"

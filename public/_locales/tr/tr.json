@@ -1108,6 +1108,8 @@
   "downloadFullSummary": "Tam özeti indir (bayt)",
   "signArbitraryPayload": "\"Arbitrary\" yükünü imzalamak mı?",
   "signBlindCommitment": "“Blind” taahhütnamesini imzalamak mı?",
+  "signMessageTitle": "Mesaj imza talebi",
+  "signMessageWarning": "Bu site, sizden $count$ alan öğesinden oluşan bir mesajı imzalamanızı istedi. Cüzdan, mesajın ne anlama geldiğini gösteremez. Yalnızca bu siteye tamamen güveniyorsanız devam edin.",
   "connectToWebsite": "Web sitesine bağlan",
   "deny": "Reddet",
   "requestsATransaction": "Bir işlem talebinde bulunur",

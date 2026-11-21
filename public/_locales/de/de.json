@@ -1100,6 +1100,8 @@
   "downloadFullSummary": "Vollständige Zusammenfassung herunterladen (Bytes)",
   "signArbitraryPayload": "Die beliebige Nutzlast signieren?",
   "signBlindCommitment": "Die „Blind“-Verpflichtungserklärung unterzeichnen?",
+  "signMessageTitle": "Anfrage zur Signatur einer Nachricht",
+  "signMessageWarning": "Diese Website hat Sie aufgefordert, eine Nachricht mit $count$ Feldelementen zu unterschreiben. Die Wallet kann nicht anzeigen, was die Nachricht bedeutet. Fahren Sie nur fort, wenn Sie dieser Website voll und ganz vertrauen.",
   "connectToWebsite": "Mit der Website verbinden",
   "deny": "Ablehnen",
   "requestsATransaction": "Fordert eine Transaktion an",

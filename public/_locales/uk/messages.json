@@ -4971,6 +4971,19 @@
     "message": "Підписати зобов’язання «Blind»?",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "Запит на підпис повідомлення",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "Цей сайт попросив вас підписати повідомлення, що містить $count$ елементів поля. Гаманець не може показати, що означає це повідомлення. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "Перейти на веб-сайт",
     "englishSource": "Connect to website"

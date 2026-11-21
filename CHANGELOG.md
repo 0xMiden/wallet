@@ -98,6 +98,7 @@
 - [CHANGE][extension] Redesign the dApp signature windows (sign-in, raw value, arbitrary, blind, transaction summary): the Bread and site tiles up top, a heading with a short explanation (a key for sign-in, a caution for values Bread can't preview), the raw value shown open, the transaction summary with the transaction windows' amount header, and the request's site and network on every window.
 - [CHANGE][extension] Restyle the dApp data-request windows (private notes, assets, consumable notes, private-note import) to open like Connect: the Bread and site tiles with the site up top, what it asks for under it, the payload as a titled card, and the private-note download below it; a failed Confirm shows the Couldn't confirm notice and offers Try again.
 - [CHANGE][all] Tidy the Send review: drop the recipient bubble and amount and fee pills that repeated the card below, show the full recipient address right-aligned in the To row, set the USD value and the pending-transfer note in Nunito at 16px, and lay out Advanced options like the other rows, with the transfer type on the right and the expiration under it.
+- [CHANGE][all] dApp signing: a Guardian account signs only arbitrary signing inputs of at most 256 elements that carry their preimage, and the wallet refuses every other `signBytes` request for it before it can be approved. The approval for a Guardian account lists the elements being signed. Other accounts are unchanged.
 
 ## 1.18.0 (2026-11-17)
 

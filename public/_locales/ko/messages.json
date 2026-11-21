@@ -4969,6 +4969,19 @@
     "message": "‘블라인드’ 서약에 서명하시겠습니까?",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "메시지 서명 요청",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "이 사이트는 $count$개의 필드 요소로 구성된 메시지에 서명하도록 요청했습니다. 지갑에서는 이 메시지의 의미를 확인할 수 없습니다. 이 사이트를 전적으로 신뢰하는 경우에만 계속 진행하십시오.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "웹사이트에 접속하기",
     "englishSource": "Connect to website"

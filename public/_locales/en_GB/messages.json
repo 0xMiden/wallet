@@ -4969,6 +4969,19 @@
     "message": "Sign the Blind commitment?",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "Message signature request",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "Connect to website",
     "englishSource": "Connect to website"

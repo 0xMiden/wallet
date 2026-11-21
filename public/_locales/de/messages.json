@@ -4978,6 +4978,19 @@
     "message": "Die „Blind“-Verpflichtungserklärung unterzeichnen?",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "Anfrage zur Signatur einer Nachricht",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "Diese Website hat Sie aufgefordert, eine Nachricht mit $count$ Feldelementen zu unterschreiben. Die Wallet kann nicht anzeigen, was die Nachricht bedeutet. Fahren Sie nur fort, wenn Sie dieser Website voll und ganz vertrauen.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "Mit der Website verbinden",
     "englishSource": "Connect to website"

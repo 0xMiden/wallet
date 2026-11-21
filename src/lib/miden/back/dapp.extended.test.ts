@@ -16,21 +16,29 @@ import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import PQueue from 'p-queue';
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import * as noteQuarantine from 'lib/miden/note-quarantine';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { WalletStatus } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 // ── Shared mocks ───────────────────────────────────────────────────
 
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
 
 let mockWalletStatus: unknown = 'Ready';
+// The unlocked store's accounts, which the sign gate reads for the account kind. A locked store lists none.
+let mockAccounts: { publicKey: string; type: string }[] = [];
 const mockStoreListeners = new Set<(state: unknown) => void>();
 jest.mock('lib/miden/back/store', () => ({
   store: {
-    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: mockWalletStatus }),
+    getState: () => ({
+      currentAccount: { publicKey: 'miden-account-1' },
+      status: mockWalletStatus,
+      accounts: mockAccounts
+    }),
     // Drives `waitForUnlock`: `unlockWallet()` notifies these the way the real store's updates do.
     updates: {
       watch: (listener: (state: unknown) => void) => {
@@ -316,6 +324,7 @@ beforeEach(() => {
   _resetLockedPromptCooldownsForTest();
   jest.clearAllMocks();
   mockWalletStatus = 'Ready';
+  mockAccounts = [];
   mockStoreListeners.clear();
   mockIsDesktop = false;
   // The consume approval preview is derived from the note the wallet resolves, not
@@ -627,6 +636,45 @@ describe('mobile and desktop sheets wait for the app to unlock (#1414)', () => {
       expect(mockRequestConfirmation).not.toHaveBeenCalled();
     }
   );
+
+  describe('a Guardian account, which a locked store cannot tell from a single-key one at the entry gate', () => {
+    const signRequest = (kind: 'word' | 'signingInputs') =>
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'miden-account-1',
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind
+      } as never);
+    const unlockAsGuardian = () => {
+      mockAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+      unlockWallet();
+    };
+
+    it('refuses a raw word with the sign rule once unlocked, with no sheet', async () => {
+      const call = signRequest('word');
+      const outcome = call.then(
+        () => 'resolved',
+        (err: Error) => err.message
+      );
+      await new Promise(r => setTimeout(r, 0));
+      unlockAsGuardian();
+      await expect(outcome).resolves.toContain(DAPP_SIGN_RULE);
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    });
+
+    it('shows arbitrary signing inputs as a message once unlocked', async () => {
+      const call = signRequest('signingInputs');
+      await new Promise(r => setTimeout(r, 0));
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      unlockAsGuardian();
+      await call.catch(() => undefined);
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      const sheet = mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages?: string[] };
+      const rows = sheet.transactionMessages;
+      expect(rows).toContain('Message, 1, 2, 3');
+    });
+  });
 
   it('answers a reconnect of an existing permission with no sheet once the app is unlocked', async () => {
     const call = dapp.requestPermission('https://miden.xyz', {

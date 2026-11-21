@@ -4975,6 +4975,19 @@
     "message": "¿Firmar el compromiso ciego?",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "Solicitud de firma de mensaje",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "Este sitio web te ha pedido que firmes un mensaje con $count$ elementos de campo. La cartera no puede mostrar qué significa el mensaje. Continúa solo si confías plenamente en este sitio web.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "Conectar a la página web",
     "englishSource": "Connect to website"

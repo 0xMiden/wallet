@@ -1109,6 +1109,8 @@
   "downloadFullSummary": "概要全文をダウンロード（バイト）",
   "signArbitraryPayload": "「任意のペイロード」に署名しますか？",
   "signBlindCommitment": "「ブラインド・コミットメント」に署名しますか？",
+  "signMessageTitle": "メッセージ署名リクエスト",
+  "signMessageWarning": "このサイトは、$count$個のフィールド要素からなるメッセージへの署名を求めました。ウォレットでは、そのメッセージの意味を表示することはできません。このサイトを完全に信頼している場合にのみ、続行してください。",
   "connectToWebsite": "ウェブサイトに接続する",
   "deny": "拒否する",
   "requestsATransaction": "トランザクションを要求する",
