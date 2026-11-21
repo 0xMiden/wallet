@@ -267,6 +267,7 @@ class SyntheticHistory {
   readonly decoded: number[] = [];
   readonly directResults: HistoryResult[] = [];
   readonly checkpointSnapshots: Array<{ operator: string; cursor?: string; completed: boolean; notes: number }> = [];
+  readonly uncompletedQueries = { started: 0, settled: 0, settledMs: 0, maxSettledMs: 0 };
   historyRuns = 0;
   pending = true;
   locked = false;
@@ -323,6 +324,11 @@ class SyntheticHistory {
       allCheckpointsDone: Boolean(this.events.t_all_checkpoints_done),
       historyRuns: this.historyRuns,
       directReturns: this.directResults.length,
+      uncompletedQueriesStarted: this.uncompletedQueries.started,
+      uncompletedQueriesSettled: this.uncompletedQueries.settled,
+      uncompletedQueriesOutstanding: this.uncompletedQueries.started - this.uncompletedQueries.settled,
+      uncompletedQueriesSettledMs: this.uncompletedQueries.settledMs,
+      uncompletedQueriesMaxSettledMs: this.uncompletedQueries.maxSettledMs,
       pending: this.pending,
       cancelling: this.cancelling
     }));
@@ -473,9 +479,42 @@ interface Backend {
 function freshBackend(): Backend {
   let recovery!: typeof import('./guardian-recovery');
   let repo!: typeof import('../repo');
+  const queryCounters = mockHarness.uncompletedQueries;
+  let restoreQuery: () => void = () => undefined;
   jest.isolateModules(() => {
     repo = jest.requireActual<typeof import('../repo')>('../repo');
-    recovery = jest.requireActual<typeof import('./guardian-recovery')>('./guardian-recovery');
+    jest.doMock('lib/miden/transaction/get', () => {
+      const actual = jest.requireActual<typeof import('lib/miden/transaction/get')>('lib/miden/transaction/get');
+      const instrumented = {
+        ...actual,
+        getAllUncompletedTransactions: async () => {
+          // Keep late settlements with this fixture, including across backend resumes.
+          const owner = queryCounters;
+          const startedAt = performance.now();
+          owner.started++;
+          try {
+            return await actual.getAllUncompletedTransactions();
+          } finally {
+            const elapsedMs = performance.now() - startedAt;
+            owner.settled++;
+            owner.settledMs += elapsedMs;
+            owner.maxSettledMs = Math.max(owner.maxSettledMs, elapsedMs);
+          }
+        }
+      };
+      restoreQuery = () => {
+        instrumented.getAllUncompletedTransactions = actual.getAllUncompletedTransactions;
+      };
+      return instrumented;
+    });
+    try {
+      recovery = jest.requireActual<typeof import('./guardian-recovery')>('./guardian-recovery');
+    } catch (error) {
+      restoreQuery();
+      throw error;
+    } finally {
+      jest.dontMock('lib/miden/transaction/get');
+    }
   });
   const seen = new WeakSet<Transaction>();
   const watch = (transaction: Transaction) => {
@@ -502,6 +541,7 @@ function freshBackend(): Backend {
     recovery,
     repo,
     dispose: () => {
+      restoreQuery();
       repo.transactions.hook('creating').unsubscribe(creating);
       repo.transactions.hook('updating').unsubscribe(updating);
       repo.db.close();
