@@ -63,6 +63,7 @@ const STATUS = new Map([
   ['passed', 'passed'],
   ['failed', 'failed'],
   ['timedOut', 'timed_out'],
+  ['timedout', 'timed_out'],
   ['skipped', 'skipped'],
   ['interrupted', 'interrupted']
 ]);
