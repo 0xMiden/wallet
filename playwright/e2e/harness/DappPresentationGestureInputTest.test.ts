@@ -94,7 +94,7 @@ test('DappPresentationGestureInputTest: new finite call grammar and workflow all
 test('DappPresentationGestureInputTest: invocation outcome precedes unchanged assertion; same unchecked failure rethrown', () => {
   const input = between(source, 'boolean observeFirstSwipe =', 'assertEquals("wallet remains foreground after input"');
   assert.match(input, /executed == 0 && Boolean\.TRUE\.equals\(command\.opt\("observeFirstSwipe"\)\)/);
-  assert.match(input, /observeSwipeMilestones\(swipeCheckpoint, swipeOutcome, new AtomicReference<>\(Thread\.currentThread\(\)\)\)/);
+  assert.match(input, /observeSwipeMilestones\(swipeCheckpoint,\s*swipeOutcome,\s*new AtomicReference<>\(Thread\.currentThread\(\)\)\)/);
   assert.match(input, /try \{\s*swipeSucceeded = device\.swipe\(path, steps\);\s*\} catch \(RuntimeException \| Error failure\) \{\s*if \(observeFirstSwipe\) swipeOutcome\.set\(3\);\s*throw failure;\s*\}\s*if \(observeFirstSwipe\) swipeOutcome\.set\(swipeSucceeded \? 1 : 2\);\s*assertTrue\("one continuous UiDevice swipe must inject successfully", swipeSucceeded\);/);
   assert.equal((input.match(/device\.swipe\(/g) ?? []).length, 1);
   assert.doesNotMatch(input, /sendStatus|\.join\(|\.wait\(|Thread\.sleep|catch \(Throwable|failure\./);
