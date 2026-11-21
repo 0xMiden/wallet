@@ -11,7 +11,12 @@ export interface MainnetMidenOutputCandidates {
 // shortcut: pinned official explorer backend, update from its mainnet runtime config if the endpoint changes.
 const INDEXER = 'https://scan-backend-cedar-miden.eu-central-8.gateway.fm/graphql';
 const hash = (value: unknown): value is string => typeof value === 'string' && /^0x[0-9a-f]{64}$/.test(value);
-async function read(query: string, variables: Record<string, string>, fetcher: typeof fetch): Promise<unknown> {
+async function read(
+  query: string,
+  variables: Record<string, string>,
+  fetcher: typeof fetch,
+  allowMissingTransaction = false
+): Promise<unknown> {
   try {
     const response = await fetcher(INDEXER, {
       method: 'POST',
@@ -42,7 +47,28 @@ async function read(query: string, variables: Record<string, string>, fetcher: t
       reader.releaseLock();
     }
     const result: unknown = JSON.parse(body);
-    if (!isRecord(result) || (result.errors !== undefined && (!Array.isArray(result.errors) || result.errors.length)))
+    if (
+      allowMissingTransaction &&
+      isRecord(result) &&
+      result.data === null &&
+      Array.isArray(result.errors) &&
+      result.errors.length === 1
+    ) {
+      const error = result.errors[0];
+      if (
+        isRecord(error) &&
+        error.message === 'transaction not found' &&
+        Array.isArray(error.path) &&
+        error.path.length === 1 &&
+        error.path[0] === 'transaction'
+      )
+        return null;
+    }
+    if (
+      !isRecord(result) ||
+      result.data === null ||
+      (result.errors !== undefined && (!Array.isArray(result.errors) || result.errors.length))
+    )
       throw new Error('Indexer returned lookup errors');
     return result.data;
   } catch {
@@ -140,15 +166,31 @@ export async function readMainnetMidenOwnNoteCreator(
 export async function readMainnetMidenOutputCandidates(
   transactionId: string,
   walletAccountHex: string,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  allowReturnNote = false
 ): Promise<MainnetMidenOutputCandidates> {
   if (!hash(transactionId) || !/^0x[0-9a-f]{30}$/.test(walletAccountHex))
     throw new Error('Invalid maker receipt scope');
   const initial = await read(
     'query($id:DigestString!){transaction(input:{transaction_id:$id}){transaction_id account_bech block_number}}',
     { id: transactionId },
-    fetcher
+    fetcher,
+    allowReturnNote
   );
+  if (allowReturnNote && initial === null) {
+    const lookup = await read(
+      'query($id:DigestString!){note(input:{note_id:$id}){note_id sender block_number}}',
+      { id: transactionId },
+      fetcher
+    );
+    if (!isRecord(lookup) || !isRecord(lookup.note) || lookup.note.note_id !== transactionId)
+      throw new Error('Missing exact provider return note');
+    const location = makerLocation(lookup.note.sender, lookup.note.block_number);
+    if (location.senderHex === walletAccountHex) throw new Error('Maker receipt is self-funded');
+    const found = await makerOutputs(location, fetcher);
+    if (!found.noteIds.includes(transactionId)) throw new Error('Provider return note is missing from its maker block');
+    return { ...found, noteIds: [transactionId] };
+  }
   if (!isRecord(initial) || !isRecord(initial.transaction) || initial.transaction.transaction_id !== transactionId)
     throw new Error('Missing exact maker transaction');
   const location = makerLocation(initial.transaction.account_bech, initial.transaction.block_number);
