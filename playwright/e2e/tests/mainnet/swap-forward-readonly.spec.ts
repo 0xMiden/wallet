@@ -5,7 +5,7 @@ import { test } from '../../fixtures/two-wallets';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { loadMainnetSwapCheckpoint } from '../../helpers/mainnet-swap-checkpoint';
 import { vaultBalanceByFaucetId } from '../../helpers/balance-truth';
-import { cachedSolverRegistry, prepareMainnetSwapReview } from '../../helpers/mainnet-swap-ui';
+import { cachedSolverRegistry, prepareMainnetSwapReview, readLiveSwapLeg } from '../../helpers/mainnet-swap-ui';
 
 test('observe the prior unsigned Swap review without arming or submitting', async ({ walletB }) => {
   test.setTimeout(300_000);
@@ -17,7 +17,8 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
   let failure: string | undefined;
   let surface: object | undefined;
   let quoteAvailability: string | undefined;
-  const emit = (passed: boolean) => writeFileSync('test-results/swap-readonly-result.json', JSON.stringify({ stage, passed, custodyMatches, quoteSucceeded, quoteAvailability, failure, surface }), { mode: 0o600 });
+  let freshBelowHistorical: boolean | undefined;
+  const emit = (passed: boolean) => writeFileSync('test-results/swap-readonly-result.json', JSON.stringify({ stage, passed, custodyMatches, quoteSucceeded, quoteAvailability, failure, surface, freshBelowHistorical }), { mode: 0o600 });
   try {
     await restoreMainnetLoopGuardian(walletB, process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
     assert.equal(await walletB.getAccountAddress(), s.account);
@@ -39,12 +40,16 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
       } catch { return false; }
     }, { timeout: 90_000, intervals: [1_000] }).toBe(true);
     assert.ok(service);
+    // Read a new planning floor for this nonfunded probe; never renew or overwrite the archived authorization.
+    stage = 'fresh-floor';
+    const live = await readLiveSwapLeg(service, s.offer, s.request, BigInt(s.principal));
+    freshBelowHistorical = live.minimumReceive < BigInt(s.forwardMinimum);
     stage = 'review';
-    const review = await prepareMainnetSwapReview(walletB, service, s.offer, s.request, BigInt(s.principal), BigInt(s.forwardMinimum), (_summary, step) => {
+    const review = await prepareMainnetSwapReview(walletB, service, s.offer, s.request, BigInt(s.principal), live.minimumReceive, (_summary, step) => {
       if (step?.key === 'quote_request') quoteSucceeded = step.status === 'passed';
       if (step?.key === 'quote_availability') quoteAvailability = step.errorCode ?? step.status;
     });
-    assert.ok(BigInt(review.minimumReceive) >= BigInt(s.forwardMinimum));
+    assert.ok(BigInt(review.minimumReceive) >= live.minimumReceive);
     stage = 'pre-authorization';
     emit(true);
   } catch (error) {
