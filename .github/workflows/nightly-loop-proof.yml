@@ -1,0 +1,60 @@
+name: NEAR claim observation (no signing)
+on:
+  push:
+    branches: [wiktor/near-claim-readonly-proof]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Verify and restore exact retained checkpoint
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD^)" = 5503a277f9d9dfe8508a77df91d64b2307736257
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44939188754:completed
+          umask 077
+          gh api repos/0xMiden/wallet/actions/artifacts/14721123074/zip > "$RUNNER_TEMP/near.zip"
+          printf '%s  %s\n' 88331e932aacef6fdd3cce510fcc1271c0c055b018a19df580e48148a114115d "$RUNNER_TEMP/near.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$RUNNER_TEMP/near.zip")" = roundtrip.json
+          mkdir -p test-results/near-claim-readonly
+          unzip -p "$RUNNER_TEMP/near.zip" roundtrip.json > test-results/near-claim-readonly/roundtrip.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      - name: Observe existing claim without signing or authorizing
+        shell: bash
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+        run: |
+          umask 077
+          rc=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-claim-private" xvfb-run -a yarn playwright test near-claim-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-claim-private.log" 2>&1 || rc=$?
+          if test -f test-results/near-claim-observation.json; then
+            jq -c '{stage,failed,exportMatches,visible,claimRows,custodyMatches}' test-results/near-claim-observation.json
+          else
+            echo 'The read-only observation did not start.'
+          fi
+          exit "$rc"
