@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { isHex, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { isAgglayerDepositClaimed, type AgglayerDeposit } from '../../../../src/lib/agglayer/status';
@@ -15,6 +15,7 @@ import {
   exitCursor,
   exitStep,
   fetchIndexedDeposits,
+  rejectUnreadableClaimHash,
   tonightsExit,
   type AgglayerNight
 } from '../../helpers/mainnet-agglayer-exit';
@@ -194,8 +195,18 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
   const readClaim = (hash: Hex) => retried(() => readEthereumClaim({ chain, rpcUrl: mainnetRpc(1), hash }));
 
   const finalityTiming = nightlyDuration();
+  const recordFinalityFailure = (reason: string): void => {
+    withdrawal(undefined, {
+      key: 'bridge_finality',
+      origin: 'wallet_assertion',
+      status: 'failed',
+      errorCode: 'bridge_failed',
+      ...finalityTiming()
+    });
+    record({ outcome: reason });
+  };
   const settle = async (claimTxHash: string, exit: AgglayerDeposit, read?: ClaimRead): Promise<void> => {
-    if (!isHex(claimTxHash)) throw new Error(`exit ${exit.deposit_cnt} has a claim hash that is not hex`);
+    rejectUnreadableClaimHash(claimTxHash, exit.deposit_cnt, recordFinalityFailure);
     const claim = read ?? (await readClaim(claimTxHash));
     record({
       claimTx: claimTxHash,
@@ -258,7 +269,7 @@ test('loops ETH from Ethereum to Miden and back over AggLayer', async ({ walletA
     }
     if (step.kind !== 'settled') readySince = step.readySince;
     if (exit && step.kind === 'settled') {
-      if (!isHex(step.claimTxHash)) throw new Error(`exit ${exit.deposit_cnt} has a claim hash that is not hex`);
+      rejectUnreadableClaimHash(step.claimTxHash, exit.deposit_cnt, recordFinalityFailure);
       // The RPC can trail the indexer: a claim receipt it cannot serve yet is read again next lap.
       const read = await readClaim(step.claimTxHash).catch((error: unknown) => {
         lastError = error instanceof Error ? error.message : String(error);

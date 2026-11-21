@@ -169,9 +169,12 @@ export function exitStep(
 export function rejectUnreadableClaimHash(
   hash: string,
   depositCnt: number,
-  _observeFailure: (reason: string) => void
+  observeFailure: (reason: string) => void
 ): asserts hash is Hex {
-  if (!isHex(hash)) throw new Error(`exit ${depositCnt} has a claim hash that is not hex`);
+  if (isHex(hash)) return;
+  const reason = `exit ${depositCnt} has a claim hash that is not hex`;
+  observeFailure(reason);
+  throw new Error(reason);
 }
 
 export interface ClaimReceipt {
