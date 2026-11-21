@@ -150,9 +150,13 @@ describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s',
   it('passes the canonical hex faucet required by the real 1Click client configuration boundary', async () => {
     await expect(recover()).resolves.toBeUndefined();
     expect(mockStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        midenAssets: [{ assetId: mockState().nativeAssetId, faucetId: mockState().native.hex, decimals: 6 }]
-      }),
+      {
+        serviceUrl: mockState().serviceUrl,
+        chains: [],
+        midenAssets: [
+          { id: 'usdcx', assetId: mockState().nativeAssetId, faucetId: mockState().native.hex, decimals: 6 }
+        ]
+      },
       expect.any(String),
       undefined,
       undefined,

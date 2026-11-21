@@ -21,7 +21,11 @@ import { realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-l
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { restoreMainnetLoopGuardian } from './mainnet-loop-wallet';
 import { loadMainnetOneClickSetup } from './mainnet-one-click-config';
-import { createMainnetOneClickEvmSender, readMainnetEvmHolding } from './mainnet-one-click-evm';
+import {
+  buildMainnetEvmTransfer,
+  createMainnetOneClickEvmSender,
+  readMainnetEvmHolding
+} from './mainnet-one-click-evm';
 import { createMainnetOneClickOriginFetcher } from './mainnet-one-click-origin';
 import { fetchMainnetOneClickUsdPrices, mainnetOneClickPriceId } from './mainnet-one-click-prices';
 import {
@@ -34,21 +38,15 @@ import {
 import {
   assertOneClickQuoteBinding,
   fetchOneClickStatus,
-  ONE_CLICK_EVM_CHAIN_IDS,
   OneClickHttpError,
   requestOneClickQuote,
   submitOneClickDeposit
 } from '../../../src/lib/one-click/client';
 import { hashOneClickQuote } from '../../../src/lib/one-click/signature';
 import { assertOneClickFundingDeadline } from '../../../src/lib/one-click/deadline';
-import type { OneClickConfig, OneClickStatusResponse } from '../../../src/lib/one-click/types';
+import type { NearIntentsConfig, OneClickStatusResponse } from '../../../src/lib/one-click/types';
 import { armMainnetSendAuthorization, releaseMainnetSendAuthorization } from './mainnet-send-authorization';
-import {
-  captureMainnetOneClickReviewQuote,
-  confirmMainnetOneClickReview,
-  connectMainnetOneClickWallet,
-  selectMainnetOneClickAssets
-} from './mainnet-one-click-ui';
+import { captureMainnetNearIntentsQuote, readMainnetNearIntentsDeposit } from './mainnet-one-click-ui';
 import {
   assertNeverStartedBuilding,
   plantQueueBlocker,
@@ -75,7 +73,6 @@ import { armMainnetConsumeAuthorization, releaseMainnetConsumeAuthorization } fr
 import { exportPublicInputNote } from './swap';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 import { tokenValueUsdMicro } from './mainnet-one-click-plan';
-import { WcCounterparty } from '../ios/helpers/wc-counterparty';
 
 export const MAINNET_NEAR_STATE_PATH = 'test-results/mainnet-1click-state/roundtrip.json';
 
@@ -332,8 +329,8 @@ export async function runMainnetNearForward(
   if (
     !setup ||
     setup.config.serviceUrl !== state.serviceUrl ||
-    JSON.stringify(setup.config.appFees ?? []) !== JSON.stringify(state.appFees) ||
-    JSON.stringify(setup.config.feePolicy) !== JSON.stringify(state.feePolicy)
+    state.appFees.length > 0 ||
+    state.feePolicy !== undefined
   )
     throw new Error('Native NEAR config differs from the original uploaded authority');
   const native = setup.assets.find(asset => asset.assetId === state.nativeAssetId);
@@ -357,24 +354,21 @@ export async function runMainnetNearForward(
     saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, state);
   };
   const blocker = await plantQueueBlocker(wallet.page);
-  await wallet.navigateTo('/swap');
-  const quote = await captureMainnetOneClickReviewQuote(
-    wallet,
+  // Receive cannot start from Miden, so the wet quote is requested here with the fetcher that carries the
+  // extension origin, and the principal is then paid to its deposit address by the normal Send flow.
+  const quote = await requestOneClickQuote(
+    setup.config,
     {
-      payNetwork: 'miden',
-      payAssetId: native.assetId,
-      receiveNetwork: evm.blockchain,
-      receiveAssetId: evm.assetId,
-      amount: fromBaseUnits(BigInt(state.principal), 6),
-      externalAddress: state.evm.account
-    },
-    {
-      originAsset: native.assetId,
-      destinationAsset: evm.assetId,
-      amount: BigInt(state.principal),
+      originAsset: native,
+      destinationAsset: evm,
+      amount: state.principal,
       refundTo: state.account,
-      recipient: state.evm.account
-    }
+      recipient: state.evm.account,
+      deadline: new Date(Date.now() + 300_000).toISOString(),
+      slippageTolerance: 100
+    },
+    false,
+    createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId)
   );
   const requestDeadline = quote.quoteRequest.deadline;
   if (
@@ -441,6 +435,12 @@ export async function runMainnetNearForward(
     refundFee: quote.quote.refundFee
   };
   await persist();
+  await wallet.prepareSendReview({
+    recipientAddress: quote.quote.depositAddress,
+    amount: fromBaseUnits(BigInt(state.principal), 6),
+    isPrivate: false,
+    tokenSymbol: 'USDCX'
+  });
   const handle = await armMainnetSendAuthorization(wallet.page, {
     accountId: state.accountHex,
     recipientId: canonicalMainnetLoopFaucet(quote.quote.depositAddress),
@@ -448,7 +448,7 @@ export async function runMainnetNearForward(
     amount: state.principal,
     expiresAt: Math.min(Date.parse(deadline), Date.parse(state.pricedAt) + 600_000)
   });
-  await confirmMainnetOneClickReview(wallet.page);
+  await wallet.submitSendReview();
   const queued = await waitForSendRow(wallet.page, {
     recipient: quote.quote.depositAddress,
     amountBaseUnits: BigInt(state.principal),
@@ -506,6 +506,16 @@ export async function runMainnetNearForward(
   state.paidMidenFees = row.feeAmount;
   await persist();
   const fetcher = createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId);
+  // Nothing in the wallet tracks this leg, so the one deposit notification is explicit. A failure is read back
+  // through the status poll below and never resends funds.
+  await submitOneClickDeposit(
+    setup.config,
+    quote.quote.depositAddress,
+    creator.transactionId,
+    undefined,
+    quote,
+    fetcher
+  ).catch(() => undefined);
   let settled: OneClickStatusResponse | undefined;
   await expect
     .poll(
@@ -787,8 +797,8 @@ export async function runMainnetNearReverse(
   if (
     !setup ||
     setup.config.serviceUrl !== state.serviceUrl ||
-    JSON.stringify(setup.config.appFees ?? []) !== JSON.stringify(state.appFees) ||
-    JSON.stringify(setup.config.feePolicy) !== JSON.stringify(state.feePolicy)
+    state.appFees.length > 0 ||
+    state.feePolicy !== undefined
   )
     throw new Error('Original native NEAR config changed');
   const native = setup.assets.find(asset => asset.assetId === state.nativeAssetId);
@@ -821,45 +831,33 @@ export async function runMainnetNearReverse(
   const stopped = new AbortController();
   const activeSignal = AbortSignal.any([signal, stopped.signal]);
   let sender: ReturnType<typeof createMainnetOneClickEvmSender> | undefined;
-  const counterparty = new WcCounterparty({
-    privateKey: key,
-    rpcUrl: mainnetRpc(state.evm.chainId),
-    chainId: state.evm.chainId,
-    sessionChainIds: Object.values(ONE_CLICK_EVM_CHAIN_IDS),
-    send: async (transaction, sessionSignal) => {
-      sessionSignal.addEventListener('abort', () => stopped.abort(), { once: true });
-      if (sessionSignal.aborted) stopped.abort();
-      try {
-        if (!sender) throw new Error('Missing original reverse quote');
-        return await sender.send(transaction, activeSignal);
-      } catch {
-        throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry');
-      }
-    }
-  });
   try {
-    await wallet.navigateTo('/swap');
-    const route = {
-      payNetwork: evm.blockchain,
-      payAssetId: evm.assetId,
-      receiveNetwork: 'miden',
-      receiveAssetId: native.assetId,
-      amount: fromBaseUnits(amount, 6)
-    };
-    await selectMainnetOneClickAssets(wallet.page, route);
-    await connectMainnetOneClickWallet(wallet, counterparty);
-    const quote = await captureMainnetOneClickReviewQuote(
+    await wallet.navigateTo('/receive');
+    // The wallet requests the wet quote when its deposit-address button is clicked, so the quote window and the
+    // deposit address start there; nothing is sent from the wallet itself.
+    const quote = await captureMainnetNearIntentsQuote(
       wallet,
-      route,
+      {
+        chainId: evm.blockchain,
+        originAssetId: evm.assetId,
+        amount: fromBaseUnits(amount, 6),
+        refundAddress: state.evm.account
+      },
       {
         originAsset: evm.assetId,
         destinationAsset: native.assetId,
         amount,
         refundTo: state.evm.account,
         recipient: state.account
-      },
-      true
+      }
     );
+    const deposit = await readMainnetNearIntentsDeposit(wallet.page);
+    if (
+      deposit.hasMemo ||
+      deposit.address.toLowerCase() !== quote.quote.depositAddress?.toLowerCase() ||
+      !deposit.rowId
+    )
+      throw new Error('The Receive deposit page differs from the original native NEAR return quote');
     const requestDeadline = quote.quoteRequest.deadline;
     if (
       !requestDeadline ||
@@ -970,11 +968,18 @@ export async function runMainnetNearReverse(
       })
     });
     sender.bind(request, quote);
-    await confirmMainnetOneClickReview(wallet.page);
-    await expect(wallet.page.getByTestId('one-click-deposit-instructions')).toContainText(
-      'This route is saved in Activity',
-      { timeout: 180_000 }
-    );
+    // The deposit address is paid from the nightly's own EVM key: exactly one ERC20 transfer of the quoted amount.
+    try {
+      await sender.send(buildMainnetEvmTransfer(evm, quote.quote.depositAddress, quote.quote.amountIn), activeSignal);
+    } catch {
+      throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry');
+    }
+    // The page's own status is evidence only: the transfer is already broadcast, so a slow row never fails the leg.
+    await expect(wallet.page.getByTestId('near-intents-deposit-status'))
+      .toHaveAttribute('data-phase', /^(pending-deposit|known-deposit-tx|processing|arriving|delivered)$/, {
+        timeout: 180_000
+      })
+      .catch(() => undefined);
     if (sender.broadcastCount !== 1 || !state.transactions?.[0]?.feeWei)
       throw new Error('Original native NEAR transfer is not actually receipted');
     const fetcher = createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId);
@@ -1007,7 +1012,6 @@ export async function runMainnetNearReverse(
     await claimMainnetNearNote(wallet, state, hash, 'return', gatePath, activeSignal);
   } finally {
     stopped.abort();
-    await counterparty.stop();
   }
 }
 
@@ -1071,9 +1075,8 @@ export async function verifyUnstartedNearForward(
   const status = await fetchOneClickStatus(
     {
       serviceUrl: state.serviceUrl,
-      appFees: state.appFees,
-      feePolicy: state.feePolicy,
-      midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }]
+      chains: [],
+      midenAssets: [{ id: 'usdcx', assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }]
     },
     quote.depositAddress,
     undefined,
@@ -1101,11 +1104,10 @@ async function originalMainnetNearStatus(
 ): Promise<OneClickStatusResponse> {
   const authority = leg === 'forward' ? state.forwardQuote : state.reverseQuote;
   if (!authority) throw new Error('Missing original native NEAR provider authority');
-  const config: OneClickConfig = {
+  const config: NearIntentsConfig = {
     serviceUrl: state.serviceUrl,
-    appFees: state.appFees,
-    feePolicy: state.feePolicy,
-    midenAssets: [{ assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }]
+    chains: [],
+    midenAssets: [{ id: 'usdcx', assetId: state.nativeAssetId, faucetId: state.native.hex, decimals: 6 }]
   };
   const fetcher = createMainnetOneClickOriginFetcher(state.serviceUrl, wallet.extensionId);
   const checked = (status: OneClickStatusResponse) => {
