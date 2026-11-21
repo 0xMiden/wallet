@@ -1108,6 +1108,8 @@
   "downloadFullSummary": "Pobierz pełne streszczenie (bajtów)",
   "signArbitraryPayload": "Czy podpisać dowolny ładunek?",
   "signBlindCommitment": "Czy podpisać zobowiązanie „Blind”?",
+  "signMessageTitle": "Żądanie podpisu wiadomości",
+  "signMessageWarning": "Ta strona poprosiła Cię o podpisanie wiadomości zawierającej $count$ elementów pola. Portfel nie jest w stanie wyświetlić znaczenia tej wiadomości. Kontynuuj tylko wtedy, gdy w pełni ufasz tej stronie.",
   "connectToWebsite": "Połącz się ze stroną internetową",
   "deny": "Odrzuć",
   "requestsATransaction": "Wysyła żądanie transakcji",

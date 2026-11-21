@@ -4969,6 +4969,19 @@
     "message": "签署《盲人承诺书》？",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "消息签名请求",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "本网站要求您签署一条包含 $count$ 个字段元素的消息。钱包无法显示该消息的具体含义。仅当您完全信任本网站时，才可继续操作。",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "连接到网站",
     "englishSource": "Connect to website"

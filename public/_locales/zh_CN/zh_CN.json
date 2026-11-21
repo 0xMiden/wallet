@@ -1109,6 +1109,8 @@
   "downloadFullSummary": "下载完整摘要（字节）",
   "signArbitraryPayload": "对“任意有效载荷”进行签名吗？",
   "signBlindCommitment": "签署《盲人承诺书》？",
+  "signMessageTitle": "消息签名请求",
+  "signMessageWarning": "本网站要求您签署一条包含 $count$ 个字段元素的消息。钱包无法显示该消息的具体含义。仅当您完全信任本网站时，才可继续操作。",
   "connectToWebsite": "连接到网站",
   "deny": "拒绝",
   "requestsATransaction": "请求一笔交易",

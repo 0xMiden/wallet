@@ -1103,6 +1103,8 @@
   "downloadFullSummary": "Descargar resumen completo (bytes)",
   "signArbitraryPayload": "¿Firmar la carga útil arbitraria?",
   "signBlindCommitment": "¿Firmar el compromiso ciego?",
+  "signMessageTitle": "Solicitud de firma de mensaje",
+  "signMessageWarning": "Este sitio web te ha pedido que firmes un mensaje con $count$ elementos de campo. La cartera no puede mostrar qué significa el mensaje. Continúa solo si confías plenamente en este sitio web.",
   "connectToWebsite": "Conectar a la página web",
   "deny": "Rechazar",
   "requestsATransaction": "Solicita una transacción",

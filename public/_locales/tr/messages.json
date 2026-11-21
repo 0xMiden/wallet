@@ -4970,6 +4970,19 @@
     "message": "“Blind” taahhütnamesini imzalamak mı?",
     "englishSource": "Sign the Blind commitment?"
   },
+  "signMessageTitle": {
+    "message": "Mesaj imza talebi",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "Bu site, sizden $count$ alan öğesinden oluşan bir mesajı imzalamanızı istedi. Cüzdan, mesajın ne anlama geldiğini gösteremez. Yalnızca bu siteye tamamen güveniyorsanız devam edin.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "connectToWebsite": {
     "message": "Web sitesine bağlan",
     "englishSource": "Connect to website"
