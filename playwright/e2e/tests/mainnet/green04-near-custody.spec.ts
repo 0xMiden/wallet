@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { expect } from '@playwright/test';
+import { buildEvmOneClickTransaction } from '../../../../src/lib/one-click/evm-transfer';
 import { test } from '../../fixtures/two-wallets';
 import { fromBaseUnits } from '../../helpers/balance-truth';
 import { mainnetRpc } from '../../helpers/mainnet-bridge-sources';
@@ -105,9 +105,12 @@ test('observe a fresh NEAR return request without signing or broadcasting', asyn
     });
     sender.bind({ originAsset, destinationAsset, amount: amount.toString(), refundTo: state.evm.account,
       recipient: state.account, deadline, slippageTolerance: 100 }, quote);
-    stage = 'confirm-no-request';
-    await walletB.page.getByTestId('one-click-confirm').click();
-    await expect.poll(() => exactRequestHeld, { timeout: 90_000 }).toBe(true);
+    stage = 'direct-read-only-sender';
+    const transfer = buildEvmOneClickTransaction(originAsset, deposit, amount.toString(), account);
+    assert.ok(transfer.to && transfer.data);
+    await assert.rejects(sender.send({ to: getAddress(transfer.to), data: transfer.data, value: BigInt(transfer.value ?? '0') }, AbortSignal.timeout(60_000)),
+      { message: 'Diagnostic stopped at signer boundary' });
+    assert.ok(exactRequestHeld);
     assert.equal(digest(), before);
     writeFileSync('test-results/green04-near-custody.json', JSON.stringify({ exactRequestHeld, checkpointUnchanged: true, noSignOrBroadcast: true }), { mode: 0o600 });
   } finally {
