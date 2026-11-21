@@ -10,7 +10,9 @@ import { loadMainnetNearCheckpoint } from '../../helpers/mainnet-near-checkpoint
 import { captureMainnetOneClickReviewQuote, connectMainnetOneClickWallet, selectMainnetOneClickAssets } from '../../helpers/mainnet-one-click-ui';
 import { WcCounterparty } from '../../ios/helpers/wc-counterparty';
 import { ONE_CLICK_EVM_CHAIN_IDS } from '../../../../src/lib/one-click/client';
-import { buildEvmOneClickTransaction } from '../../../../src/lib/one-click/evm-transfer';
+import { getAddress } from 'viem';
+import { loadMainnetOneClickSetup } from '../../helpers/mainnet-one-click-config';
+import { createMainnetOneClickEvmSender, readMainnetEvmHolding } from '../../helpers/mainnet-one-click-evm';
 import { hashOneClickQuote } from '../../../../src/lib/one-click/signature';
 
 const path = 'test-results/near/roundtrip.json';
@@ -32,15 +34,14 @@ test('observe a fresh NEAR return request without signing or broadcasting', asyn
   assert.equal(await walletB.getAccountAddress(), state.account);
   const key = `0x${(process.env.E2E_MAINNET_EVM_KEY ?? '').trim().replace(/^0x/, '')}` as const;
   assert.match(key, /^0x[0-9a-fA-F]{64}$/);
-  let expected: ReturnType<typeof buildEvmOneClickTransaction> | undefined;
+  let sender: ReturnType<typeof createMainnetOneClickEvmSender> | undefined;
   let exactRequestHeld = false;
   const counterparty = new WcCounterparty({ privateKey: key, chainId: state.evm.chainId,
     rpcUrl: mainnetRpc(state.evm.chainId), sessionChainIds: Object.values(ONE_CLICK_EVM_CHAIN_IDS),
-    send: async tx => {
-      stage = 'request-mismatch';
-      exactRequestHeld = !!expected && tx.to.toLowerCase() === expected.to?.toLowerCase() &&
-        tx.data.toLowerCase() === expected.data?.toLowerCase() && tx.value === BigInt(expected.value ?? '0');
-      throw new Error('Read-only diagnostic: signing and broadcast disabled');
+    send: async (tx, signal) => {
+      stage = 'sender-preflight';
+      assert.ok(sender);
+      return sender.send(tx, signal);
     }
   });
   assert.equal(counterparty.address.toLowerCase(), state.evm.account.toLowerCase());
@@ -60,7 +61,23 @@ test('observe a fresh NEAR return request without signing or broadcasting', asyn
     const deposit = quote.quote.depositAddress;
     assert.ok(deposit && deposit.toLowerCase() !== state.reverseQuote.depositAddress.toLowerCase());
     assert.notEqual(hashOneClickQuote(quote), state.reverseQuote.quoteHash);
-    expected = buildEvmOneClickTransaction({ assetId: state.evmAssetId, symbol: 'USDC', decimals: 6, blockchain: 'arb', chainId: state.evm.chainId, contractAddress: state.evm.token }, deposit, amount.toString(), state.evm.account);
+    stage = 'sender-bind';
+    const setup = await loadMainnetOneClickSetup(fetch, fetch, walletB.extensionId);
+    assert.ok(setup);
+    const originAsset = setup.assets.find(asset => asset.assetId === state.evmAssetId);
+    const destinationAsset = setup.assets.find(asset => asset.assetId === state.nativeAssetId);
+    const deadline = quote.quoteRequest.deadline;
+    assert.ok(originAsset && destinationAsset && deadline);
+    const account = getAddress(state.evm.account);
+    const holding = await readMainnetEvmHolding(originAsset, account);
+    sender = createMainnetOneClickEvmSender({ holding, account, config: setup.config,
+      gasBudgetWei: BigInt(state.evmFeeBudget), broadcast: async () => {
+        exactRequestHeld = true;
+        throw new Error('Diagnostic refuses signing and broadcast');
+      }
+    });
+    sender.bind({ originAsset, destinationAsset, amount: amount.toString(), refundTo: state.evm.account,
+      recipient: state.account, deadline, slippageTolerance: 100 }, quote);
     stage = 'confirm-no-request';
     await walletB.page.getByTestId('one-click-confirm').click();
     await expect.poll(() => exactRequestHeld, { timeout: 90_000 }).toBe(true);
