@@ -21,6 +21,14 @@ export type Status =
   | 'burnDiscarded'
   // A confirmed burn Circle has not paid out after 2 hours
   | 'payoutDelayed'
+  | 'stoppedBeforeSource'
+  // An Epoch deposit in The Compact that has no allocation, and the same deposit after it went back to its sender
+  | 'depositLocked'
+  | 'depositWithdrawn'
+  | 'awaitingReturn'
+  | 'readyToClaim'
+  | 'returningFunds'
+  | 'fundsReturned'
   | 'failed'
   | 'cancelled'
   | 'unconfirmed'
@@ -85,6 +93,13 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },
   burnDiscarded: { labelKey: 'usdcxBurnDiscarded', tone: 'negative' },
   payoutDelayed: { labelKey: 'usdcxPayoutDelayed', tone: 'pending' },
+  stoppedBeforeSource: { labelKey: 'bridgeStoppedBeforeSending', tone: 'neutral' },
+  depositLocked: { labelKey: 'epochDepositLocked', tone: 'negative' },
+  depositWithdrawn: { labelKey: 'epochDepositWithdrawn', tone: 'neutral' },
+  awaitingReturn: { labelKey: 'epochAwaitingReturn', tone: 'neutral' },
+  readyToClaim: { labelKey: 'epochReadyToClaim', tone: 'neutral' },
+  returningFunds: { labelKey: 'epochReturningFunds', tone: 'neutral' },
+  fundsReturned: { labelKey: 'epochFundsReturned', tone: 'neutral' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },

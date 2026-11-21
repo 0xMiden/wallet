@@ -2,7 +2,9 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { isMobile } from 'lib/platform';
+import { backgroundLockDelay } from 'lib/lock-up';
+import { isDesktop, isMobile } from 'lib/platform';
+import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
 import {
   getThemeSetting,
   isAutoConsumeEnabled,
@@ -24,13 +26,16 @@ import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 // `t` is never `init()`-ed in the unit env; echo the key back so rendered copy
 // is assertable by key.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: { minutes?: string }) => (opts?.minutes ? `${key}:${opts.minutes}` : key)
+  })
 }));
 
 // `lib/platform` gates the mobile-only haptic toggle via `isMobile()`. Mock it
 // as a jest.fn() so each test steers the branch it exercises.
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  isDesktop: jest.fn(() => false)
 }));
 
 // `lib/settings/helpers` is the localStorage-backed settings layer. Mock every
@@ -109,6 +114,7 @@ jest.mock('./SettingToggle', () => ({
 }));
 
 const mockIsMobile = isMobile as jest.Mock;
+const mockIsDesktop = isDesktop as jest.Mock;
 const mockGetThemeSetting = getThemeSetting as jest.Mock;
 const mockIsAutoConsumeEnabled = isAutoConsumeEnabled as jest.Mock;
 const mockIsDelegateProofEnabled = isDelegateProofEnabled as jest.Mock;
@@ -133,6 +139,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCrashReportingActive = false;
   mockIsMobile.mockReturnValue(false);
+  mockIsDesktop.mockReturnValue(false);
+  localStorage.clear();
   mockGetThemeSetting.mockReturnValue('system');
   mockIsAutoConsumeEnabled.mockReturnValue(true);
   mockIsDelegateProofEnabled.mockReturnValue(true);
@@ -143,6 +151,40 @@ beforeEach(() => {
 });
 
 describe('GeneralSettings', () => {
+  it('shows the auto-lock choice on mobile with 10 minutes selected', () => {
+    mockIsMobile.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    expect(screen.getByTestId(GeneralSettingsSelectors.AutoLockSelector)).toBeInTheDocument();
+    expect(screen.getByText('autoLockDescription')).toBeInTheDocument();
+    for (const minutes of ['1', '5', '10', '30']) {
+      expect(screen.getByText(`autoLockMinutes:${minutes}`)).toBeInTheDocument();
+    }
+    expect(screen.getByText('autoLockMinutes:10').closest('[role="radio"]')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('stores the chosen delay', () => {
+    mockIsMobile.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    fireEvent.click(screen.getByText('autoLockMinutes:1'));
+
+    expect(backgroundLockDelay.get()).toBe('1');
+  });
+
+  it('shows the auto-lock choice on desktop', () => {
+    mockIsDesktop.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    expect(screen.getByTestId(GeneralSettingsSelectors.AutoLockSelector)).toBeInTheDocument();
+  });
+
+  it('hides it on the extension', () => {
+    render(<GeneralSettings />);
+
+    expect(screen.queryByTestId(GeneralSettingsSelectors.AutoLockSelector)).not.toBeInTheDocument();
+  });
+
   it('renders the theme selector with the three theme options and system selected by default', () => {
     render(<GeneralSettings />);
 
@@ -196,16 +238,38 @@ describe('GeneralSettings', () => {
     expect(screen.queryByTestId(GeneralSettingsSelectors.HapticFeedbackToggle)).not.toBeInTheDocument();
   });
 
-  it('renders through SubPageLayout: theme and haptics in one group, each described switch in its own', () => {
+  it('shows the hide-dust switch on by default and saves each change', () => {
+    localStorage.removeItem(HIDE_DUST_TOKENS_STORAGE_KEY);
+    render(<GeneralSettings />);
+
+    const hideDust = screen.getByTestId(GeneralSettingsSelectors.HideDustToggle);
+    expect(hideDust).toBeChecked();
+    expect(screen.getByText('hideDustTokensDescription').closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.HideDustToggle}-row`)
+    );
+
+    fireEvent.click(hideDust);
+    expect(localStorage.getItem(HIDE_DUST_TOKENS_STORAGE_KEY)).toBe('off');
+    expect(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle)).not.toBeChecked();
+
+    fireEvent.click(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle));
+    expect(localStorage.getItem(HIDE_DUST_TOKENS_STORAGE_KEY)).toBe('on');
+    expect(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle)).toBeChecked();
+  });
+
+  it('renders through SubPageLayout: theme and haptics in one group, each described control in its own', () => {
     mockIsMobile.mockReturnValue(true);
     render(<GeneralSettings />);
 
     const page = screen.getByTestId('general-settings');
     const body = page.querySelector('[data-slot="body"]')!;
     expect(body).toHaveClass('px-4', 'gap-5');
-    // Four since the telemetry consent joined: theme+haptics share one, then delegate,
+    // Six on the apps: theme+haptics share one, then auto-lock, hide dust, delegate,
     // auto-consume and telemetry each get their own described section.
-    expect(body.querySelectorAll(':scope > section')).toHaveLength(4);
+    expect(body.querySelectorAll(':scope > section')).toHaveLength(6);
+    expect(screen.getByText('autoLockDescription').closest('section')).not.toBe(
+      screen.getByText('hideDustTokensDescription').closest('section')
+    );
 
     // The theme is a ListRow with the picker trailing, sharing a group with the haptic switch.
     const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
@@ -223,6 +287,7 @@ describe('GeneralSettings', () => {
     );
     // Every group on the page is plain, the telemetry consent's included.
     for (const id of [
+      GeneralSettingsSelectors.HideDustToggle,
       GeneralSettingsSelectors.DelegateToggle,
       GeneralSettingsSelectors.AutoConsumeToggle,
       GeneralSettingsSelectors.TelemetryToggle

@@ -250,9 +250,8 @@ it('uses the UI producer submission lists in crash scrubbing', () => {
         errorChain: jest.fn(() => []),
         snapshotCrashDiagnostics: jest.fn(() => ({}))
       }));
-      const { reportTransactionFailure: report } = jest.requireActual<typeof import('./transaction-failure')>(
-        './transaction-failure'
-      );
+      const { reportTransactionFailure: report } =
+        jest.requireActual<typeof import('./transaction-failure')>('./transaction-failure');
       report({ type: 'send' });
       const captureCrash = jest.requireMock<typeof import('./crash')>('./crash').captureCrash;
       closedNames = jest.mocked(captureCrash).mock.calls[0]?.[2]?.closedNames;
@@ -339,6 +338,17 @@ it('does not forward unknown assertion codes, error text, or poisoned metadata',
   expect(text).not.toContain('99887766554433221100');
   expect(text).toContain('kernel_assertion_outside_shipped_sources');
   expect(text).toContain('tx_other');
+});
+
+// A post-submit step failed on a transaction the network accepted, and the row was recorded completed (PR #2183).
+it('reports a landed outcome at warning, under its own name', async () => {
+  reportTransactionFailure({ type: 'consume', stage: 'guardian-synced', outcome: 'landed' });
+  await settle();
+  const [error, , options] = jest.mocked(captureCrash).mock.calls[0]!;
+  expect((error as Error).message).toMatch(
+    /^Transaction landed: tx_receive; stage confirming; confirming step guardian_synced;/
+  );
+  expect(options?.level).toBe('warning');
 });
 
 it('distinguishes an unknown outcome from a final failure', async () => {
@@ -2224,6 +2234,7 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ['queue hidden', () => QUEUE_HIDDEN_BUCKETS, () => policyText('Hidden time while a queued row waited')],
   ['submit crossing', () => SUBMIT_CROSSINGS, () => policyText("The attempt's submit crossing")],
   ['submit record', () => [...SUBMIT_RECORDS, 'unavailable'], () => policyText('The startup check')],
+  ['outcome', () => FAILURE_OUTCOMES, () => policyParagraph('Handled transaction failures are also reported')],
   ...Object.entries(IDENTITY_TEXT).map(
     ([identity, text]): PolicyRow => [`reported identity ${identity}`, () => [identity], text]
   )

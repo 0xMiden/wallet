@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "パスキーによるロック解除",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "パスキーによるロック解除",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "このウォレットのロックを解除するには、お使いのデバイスのパスキープロバイダーを使用してください。ウォレットのパスワードは引き続き使用可能です。",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "このウォレットでは、パスキーによるロック解除が有効になっています。",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "このブラウザ、オペレーティングシステム、またはウォレットでは、パスキーによるロック解除は利用できません。引き続きウォレットのパスワードを使用できます。",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "パスキーによるロック解除を有効にする",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "パスキーの置き換え",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "パスキーによるロック解除を削除",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "ここでパスキーのロック解除を解除しても、プロバイダーに保存されているパスキーが失効したり削除されたりすることはありません。不要になった場合は、プロバイダーの設定からも削除してください。",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "ご利用のプロバイダーによると、このパスキーはバックアップまたは同期が可能とのことです。他のデバイスでの利用可否は、ご利用のプロバイダーによって異なります。",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "プロバイダーから、このパスキーはバックアップできないとの報告があります。",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "ウォレットのサイドパネルを開き、パスキーによるロック解除を有効化、変更、または無効化してください。",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "サイドパネルを開くことができませんでした。ウォレットのツールバーから開き、もう一度お試しください。",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "パスキーのリクエストはキャンセルされたか、利用できませんでした。引き続きウォレットのパスワードを使用できます。",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "パスキーによるロック解除を有効にできませんでした。ウォレットのパスワードを確認し、この機能をサポートしているプロバイダーをご利用ください。",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "パスキーによるロック解除を解除できませんでした。もう一度お試しください。ウォレットのパスワードは引き続き有効です。",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "このパスキーではロックを解除できませんでした。ウォレットのパスワードを使用し、パスキーの設定を確認してください。",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "シードフレーズをバックアップしてください",
     "englishSource": "Back up your recovery phrase"
@@ -826,6 +894,14 @@
   "epochCollateralNoteMismatch": {
     "message": "担保noteには、審査済みのトークン、審査済みの金額、および設定済みのアロケーターを使用する必要があります。何も送信されていません。戻って、もう一度試してください。",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
+  },
+  "bridgeReviewChanged": {
+    "message": "ブリッジの用語が変更されました。続行する前に「アクティビティ」を確認してください。",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "送信前に停止",
+    "englishSource": "Stopped before sending"
   },
   "earnTotalEarnedRewards": {
     "message": "獲得総額",
@@ -2523,6 +2599,14 @@
     "message": "有効期限",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "推定",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "校正済みの有効期限が変更されました。送信する前に再度確認してください。",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "それまでに受け取られなかった場合、$amount$ は保留中の送金として戻り、あなたが受け取ります。資金が失われることはありません。",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3087,8 +3171,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "リカバリーフレーズを使用すると、鍵が復元され、Guardianのバックアップがあればアカウントも復元されます。このフレーズは安全に保管してください。",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "あなたのフレーズとGuardianのバックアップによって、アカウントが復元されます。フレーズは安全に保管してください。",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "お客様の資金は、常にお客様自身のものです",
@@ -3107,8 +3191,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Guardiansに関する詳細",
-    "englishSource": "More about Guardians"
+    "message": "Guardianの詳細はこちら",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "$name$ へ進む",
@@ -3223,6 +3307,14 @@
     "message": "ウォレットのバックアップを取る",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "リカバリーフレーズは非表示",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "秘密鍵は非公開",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "表示",
     "englishSource": "Show"
@@ -3299,6 +3391,245 @@
     "message": "財布を開く",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "ウォレット",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "ウォレット操作の検索",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "ウォレットの操作",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "取引",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "ブリッジ",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "方向",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "ブリッジアウト",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Midenネットワーク",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "ネットワークの変更",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "プロバイダー",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "エポック",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "出典：",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "To",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "資産、ネットワーク、プロバイダー",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ から $destination$ へ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "外部アカウント",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Midenアカウント",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "受領予定",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "ソースの合計金額",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "プロバイダー手数料",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "ソースネットワークを切り替える",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epochでは、インストール済みのプロバイダーを使用して固定のソース金額を提示することはできません。ブリッジを行うには、別のプロバイダーを選択してください。",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "現在のウォレットネットワークでは、ブリッジルートは利用できません。",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "続行するには、受取残高の制限額に余裕があり、この入金が可能である必要があります。",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "この送金は「アクティビティ」に記録されています。ウォレットの承認や決済がまだ保留中の可能性があります。再度実行しないでください。",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "送金状況を確認する",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "全画面表示",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "新しいタブでウォレットを開きます。",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "全画面表示できませんでした。もう一度お試しください。",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "ポートフォリオ",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "割り当て",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "価格付けされたウォレット資産",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "あなたのウォレットは空です。",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "表示すべき価格付き資産はありません。",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "最近のアクション",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "表示する最近のアクションはありません",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "ウォレットの残高",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "現在の価格での保有資産における24時間の市場価格変動：$change$米ドル（$percentage$％）",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "残高を非表示にする",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "残高を表示する",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "非表示",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "残高利用不可",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "価格不明",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "部分的な評価 — 一部の資産には検証済みの米ドル価格が設定されていない",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "ウォレットの履歴",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "履歴の範囲",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "まだ観察例が不十分です",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "一部の間隔や評価範囲が欠落しています",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandHistoryObservationsOnly": {
+    "message": "記録された観察事項のみ",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "「Earn」への新規入金は一時停止されています。既存のポジションの確認および引き出しは引き続き可能です。",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
+  "commandInspectHistory": {
+    "message": "観測された履歴を検査する",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "本デバイスに関する注意事項のみ。空白は埋めない。",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "はじめに",
     "englishSource": "Get started"
@@ -3364,12 +3695,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8文字、1つの数字",
-    "englishSource": "8 characters, 1 number"
+    "message": "12文字以上",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "8文字以上で、数字を1つ以上含めること",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "12文字以上を使用してください。数字、記号、大文字と小文字を混ぜることで、セキュリティが強化されます。",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "この12語を書き留めて、安全な場所に保管してください。",
@@ -4026,6 +4357,10 @@
     "message": "自分の住所宛てには送れません",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "新しい受取人",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4061,6 +4396,10 @@
   "proposalEffectRefused": {
     "message": "ウォレットは、この取引があなたが承認した分のみを移動させるものであることを確認できなかったため、署名する前にこの取引を停止しました。資金の移動は一切行われませんでした。",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "ウォレットがネットワーク手数料を読み取れなかったため、この取引に署名しませんでした。何も送信されていません。しばらくしてから再度お試しください。",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "金額は残高より少なければなりません",
@@ -4385,6 +4724,18 @@
     "message": "このGuardianのバックアップが見つかりませんでした。URLを確認するか、別のGuardianを選択してください。",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "アカウントは復元できませんでした。guardianが返したアカウントデータが、あなたのリカバリーフレーズと一致しなかったためです。何も復元されていません。",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "アカウントは復元できませんでした。guardianが保持するアカウントのコピーは、まだMidenネットワークと一致していません。何も復元されていません。数分後に再度お試しください。",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Midenネットワークに接続できず、アカウントを確認できませんでした。リカバリーフレーズに問題はありません。接続状態を確認し、もう一度お試しください。",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "このguardianは別のMidenネットワーク上で稼働しているため、こちらのアカウントを復旧することはできません。",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4456,6 +4807,10 @@
   "unknown": {
     "message": "不明",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "これには、まだ受け取り請求していないnotesが含まれます",
+    "englishSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "notesの入力データが消費されました",
@@ -5525,6 +5880,10 @@
     "message": "トークン情報",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "構成",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "説明",
     "englishSource": "Description"
@@ -5823,6 +6182,10 @@
     "message": "アドレスを送る",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "このアドレスをコピーできませんでした。以下から選択して手動でコピーしてください。",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "別のネットワークからの情報",
     "englishSource": "From another network"
@@ -5847,6 +6210,10 @@
         "content": "$1"
       }
     }
+  },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "MetaMaskのスマートトランザクションでは、このトランザクションを送信できませんでした。MetaMaskの設定でスマートトランザクションをオフにして、もう一度お試しください。",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
   },
   "connectedWallet": {
     "message": "コネクテッド・ウォレット",
@@ -6352,17 +6719,30 @@
     "message": "このdAppはカスタムトランザクションを要求しています。ウォレットはその詳細をデコードできませんでした。その動作内容を正確に把握している場合のみ、続行してください。",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "このウォレットではこの取引をシミュレートできないため、その動作を表示することはできません。したがって、この取引を承認することはできません。",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "生データ",
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "不透明な署名要求",
-    "englishSource": "Opaque signature request"
+    "message": "Breadではこれをプレビューできません",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "この署名では、お客様の口座からの取引を承認することはできません。",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
-    "message": "このサイトでは、生の値への署名を求められています。ウォレットでは、何が承認されるのかを確認できません。このサイトを完全に信頼している場合のみ、続行してください。",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$から、生の値への署名を求められました。Breadでは承認内容が確認できないため、このサイトを完全に信頼している場合のみ、操作を続けてください。",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",
@@ -7334,6 +7714,10 @@
     "message": "受取先",
     "englishSource": "Receive at"
   },
+  "receiveNoPendingTransfers": {
+    "message": "確認すべき着金はありません",
+    "englishSource": "No incoming transfers to review"
+  },
   "earnTitle": {
     "message": "あなたの収益",
     "englishSource": "Your Earnings"
@@ -7448,6 +7832,14 @@
   "tokenHiddenNotice": {
     "message": "ホームから非表示。ウォレット内に残っており、その送金は引き続き受け取ることができます。",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "ダストトークンを非表示にする",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "資産リストから、0.001ドル未満の価値を持つトークンを非表示にします。ネイティブトークンは常に表示されたままになります。",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "隠された資産",
@@ -8998,5 +9390,470 @@
   "arcadePostingPolicy": {
     "message": "賭け金、払い戻し、返金はゲームごとに定められています。取引を承認する前に、そのゲームのルールを確認してください。",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "自動ロック",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "これほど長い間バックグラウンド状態が続くと、ウォレットがロックされます。",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$分",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "返却待ち",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "請求の準備完了",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "資金の返還",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "返還された資金",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "お客様の資金はMidenに残っています。ブロック$block$以降に、それらを引き出すことができます。",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "資金を引き出して、ウォレットに戻してください。",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "お客様の資金は、ウォレットに返還されています。",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "お客様の資金はウォレットに戻りました。",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "資金が送金先に送金されました。",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "このnoteは使用されましたが、支払いは確認されていません。送金先とMidenの残高を確認してください。",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "資金の状況を確認できません。もう一度お試しください。",
+    "englishSource": "Unable to check the funds status. Try again."
+  },
+  "epochDepositLocked": {
+    "message": "ロックされた預金",
+    "englishSource": "Deposit locked"
+  },
+  "epochDepositWithdrawn": {
+    "message": "預金の引き出し",
+    "englishSource": "Deposit withdrawn"
+  },
+  "epochDepositLockedTitle": {
+    "message": "お客様の預金は安全です",
+    "englishSource": "Your deposit is safe"
+  },
+  "epochDepositLockedBody": {
+    "message": "$amount$の入金は$network$上のThe Compactに反映されていますが、Epochがブリッジを開始しませんでした。ブリッジを再試行するか、$address$へ入金を引き出してください。",
+    "englishSource": "Your $amount$ deposit is in The Compact on $network$, but Epoch did not start the bridge. Retry the bridge, or withdraw the deposit back to $address$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      },
+      "address": {
+        "content": "$3"
+      }
+    }
+  },
+  "epochDepositConnectSponsor": {
+    "message": "この預金を回復するには、EVMウォレット$address$を接続してください。",
+    "englishSource": "Connect the EVM wallet $address$ to recover this deposit.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWrongWallet": {
+    "message": "この入金は、接続されたウォレットによるものではありません。$address$を接続して、資金を回復してください。",
+    "englishSource": "The connected wallet did not make this deposit. Connect $address$ to recover it.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositRetry": {
+    "message": "ブリッジの再試行",
+    "englishSource": "Retry bridge"
+  },
+  "epochDepositRetrying": {
+    "message": "再試行中…",
+    "englishSource": "Retrying…"
+  },
+  "epochDepositWithdraw": {
+    "message": "出金・預入",
+    "englishSource": "Withdraw deposit"
+  },
+  "epochDepositWithdrawing": {
+    "message": "引き出し…",
+    "englishSource": "Withdrawing…"
+  },
+  "epochDepositWithdrawStarted": {
+    "message": "$time$に引き出しが可能になります。",
+    "englishSource": "Withdrawal available in $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWithdrawStartedUnknown": {
+    "message": "出金依頼が行われました。依頼から約1時間後に利用可能になります。",
+    "englishSource": "Withdrawal requested. It becomes available about one hour after the request."
+  },
+  "epochDepositWithdrawReady": {
+    "message": "出金が可能です。",
+    "englishSource": "The withdrawal is available."
+  },
+  "epochDepositWithdrawnBody": {
+    "message": "入金は$address$に戻りました。",
+    "englishSource": "The deposit went back to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotRecoverable": {
+    "message": "この預入分は、このウォレットからは回収できません。",
+    "englishSource": "This deposit cannot be recovered from this wallet."
+  },
+  "epochDepositErrorWrongChain": {
+    "message": "EVMウォレットを$network$に切り替えて、もう一度試してください。",
+    "englishSource": "Switch your EVM wallet to $network$ and try again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotStarted": {
+    "message": "まず出金を開始してください。",
+    "englishSource": "Start the withdrawal first."
+  },
+  "epochDepositErrorNotDue": {
+    "message": "出金機能はまだ利用できません。",
+    "englishSource": "The withdrawal is not available yet."
+  },
+  "epochDepositErrorMissing": {
+    "message": "本契約は、この預金をもはや保有していません。",
+    "englishSource": "The Compact no longer holds this deposit."
+  },
+  "epochDepositErrorLockMismatch": {
+    "message": "Epochはこの預け入れに対して異なるロックを返しました。代わりに、その預け入れを引き出してください。",
+    "englishSource": "Epoch returned a different lock for this deposit. Withdraw the deposit instead."
+  },
+  "recoverLockedFunds": {
+    "message": "ロックされたブリッジ資金の回復",
+    "englishSource": "Recover locked bridge funds"
+  },
+  "recoverFundsOpenLock": {
+    "message": "このロックは「設定」で管理してください",
+    "englishSource": "Manage this lock in Settings"
+  },
+  "recoverFundsDescription": {
+    "message": "Fastブリッジインでは、Epochがブリッジを開始しない場合、預け入れ残高がThe Compactに残ることがあります。このページでは、このウォレットからブリッジインした各EVMウォレットおよび接続されたウォレットについて、The Compactを確認します。",
+    "englishSource": "A Fast bridge-in can leave its deposit in The Compact when Epoch does not start the bridge. This page checks The Compact for each EVM wallet that bridged in from this wallet, and for the connected wallet."
+  },
+  "recoverFundsConnectedWallet": {
+    "message": "接続済みウォレット",
+    "englishSource": "Connected wallet"
+  },
+  "recoverFundsNothingLocked": {
+    "message": "このウォレットでは、何もロックされることはありません。",
+    "englishSource": "Nothing is locked for this wallet."
+  },
+  "recoverFundsCouldNotCheck": {
+    "message": "$network$上の$tokens$を確認できませんでした。後ほど再度お試しください。",
+    "englishSource": "Could not check $tokens$ on $network$. Try again later.",
+    "placeholders": {
+      "tokens": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "recoverFundsConnectAnother": {
+    "message": "別のウォレットを接続する",
+    "englishSource": "Connect another wallet"
+  },
+  "recoverFundsNoAddressesTitle": {
+    "message": "確認すべきウォレットはありません",
+    "englishSource": "No wallets to check"
+  },
+  "recoverFundsNoAddressesBody": {
+    "message": "入金を行ったEVMウォレットを接続し、ロックされている資金がないか確認してください。",
+    "englishSource": "Connect the EVM wallet that made the deposit to check it for locked funds."
+  },
+  "recoverFundsLockTitle": {
+    "message": "ロックされた資金",
+    "englishSource": "Locked funds"
+  },
+  "recoverFundsLockInvalidTitle": {
+    "message": "このリンクは無効です",
+    "englishSource": "This link is not valid"
+  },
+  "recoverFundsLockInvalidBody": {
+    "message": "「ロックされたブリッジ資金の復旧」から、ロックを再度解除してください。",
+    "englishSource": "Open the lock again from Recover locked bridge funds."
+  },
+  "recoverFundsLockEmpty": {
+    "message": "ここでは何もロックされていません",
+    "englishSource": "Nothing is locked here"
+  },
+  "recoverFundsChecking": {
+    "message": "確認中…",
+    "englishSource": "Checking…"
+  },
+  "recoverFundsCouldNotCheckShort": {
+    "message": "確認できませんでした",
+    "englishSource": "Could not check"
+  },
+  "recoverFundsWallet": {
+    "message": "ウォレット",
+    "englishSource": "Wallet"
+  },
+  "recoverFundsLocked": {
+    "message": "ロック済み",
+    "englishSource": "Locked"
+  },
+  "recoverFundsWithdrawal": {
+    "message": "出金",
+    "englishSource": "Withdrawal"
+  },
+  "recoverFundsWithdrawOff": {
+    "message": "要求されていない",
+    "englishSource": "Not requested"
+  },
+  "recoverFundsCancelWithdrawal": {
+    "message": "出金を無効にする",
+    "englishSource": "Disable withdrawal"
+  },
+  "recoverFundsCancelling": {
+    "message": "無効化…",
+    "englishSource": "Disabling…"
+  },
+  "recoverFundsWithdrawBlocksBridge": {
+    "message": "強制引き出しは、$address$からの$token$の新たなFastブリッジインをブロックします。資金を回収した後、再度ブリッジを行うには、引き出し機能を無効にしてください。",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Fast Bridgeへのアクセスを確認",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "このトークンおよびウォレットの出金状況を確認しています。",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "出金状況を確認できませんでした。Fast Bridge を利用する前に、もう一度お試しください。",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "$network$上の$token$に対して強制引き出しが有効になっています。資金を回収した後、再度ブリッジを行うには、引き出し機能を無効にしてください。",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "出金を無効にする",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "無効化…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "これにより、このロックの強制引き出しが無効になります。すでに復元された資金はウォレットに残ります。新しい復元リクエストを行うと、新たな待機期間が開始されます。この取引にはネットワーク手数料が必要です。",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "接続済みのEVMウォレットを開き、$network$上で取引を承認してください。ここで確認が完了するまでお待ちください。",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "代わりに「Circle」を使用してください",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "代わりに「Slow bridge」を使用してください",
+    "englishSource": "Use Slow bridge instead"
+  },
+  "connectFactsTitle": {
+    "message": "このサイトでは、",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "残高と取引履歴を確認する",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "許可なく個人データを読み取る",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "$scopes$へのアクセス権が付与されます",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "個人データを閲覧する前に確認してください",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "取引リクエストを送信する",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "これらを一つひとつ承認してください",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "決して独自に資金を移動させてはならない",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "資金が移動するのは、あなたが承認した場合のみです",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "リクエストは依然として残っていますので、再試行できます。",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "接続できませんでした",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "異なるネットワーク",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "リクエスト元：",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "トークンfaucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "ブロックの呼び出し",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "受信",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "faucetからのNote",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "あなた",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "お支払いください",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "受け取り",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "アカウントから",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "アカウントに反映されます",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "カスタム取引",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "取引概要",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "リクエストは依然として残っていますので、再試行してください。",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "確認できませんでした",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "未確認",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureTitle": {
+    "message": "これは単にログインするだけです",
+    "englishSource": "This only signs you in"
   }
 }

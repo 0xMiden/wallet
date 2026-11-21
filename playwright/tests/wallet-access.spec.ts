@@ -51,7 +51,7 @@ async function openEarn(extensionContext: BrowserContext, extensionId: string, p
   await target.setViewportSize({ width: 900, height: 700 });
   const url = `chrome-extension://${extensionId}/fullpage.html#/earn`;
   await target.goto(url, { waitUntil: 'domcontentloaded' });
-  const earn = target.getByTestId('earn-page');
+  const earn = target.getByTestId('command-earn');
   const unlock = target.getByTestId('unlock-password');
   await earn.or(unlock).first().waitFor({ timeout: 30_000 });
   if (await unlock.isVisible().catch(() => false)) {
@@ -71,9 +71,7 @@ for (const state of ['loading', 'restricted', 'unavailable', 'allowed'] satisfie
     await page.setViewportSize({ width: 900, height: 700 });
     await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
     await accessAssertions[state](page);
-    await expect
-      .poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 15_000 })
-      .toBe(true);
+    await expect.poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 15_000 }).toBe(true);
     const eligibilityOrigin = await getEligibilityFixtureOrigin();
     expect(eligibilityOrigin).toEqual({ observed: true, origin: null });
     await info.attach('eligibility-origin', {
@@ -100,16 +98,17 @@ test('renders the wallet while the lookup is pending and enables features when i
   await setEligibilityFixtureState('loading');
   await page.reload({ waitUntil: 'domcontentloaded' });
   const heldSince = Date.now();
-  const earn = page.getByTestId('earn-page');
+  const earn = page.getByTestId('command-earn');
   const swap = page.getByTestId('swap-flow');
   await expect(page.getByTestId('wallet-access-gate')).toHaveCount(0);
   await expect(earn.getByTestId('earn-unavailable-notice')).toHaveAttribute('data-reason', 'pending', {
     timeout: 6_000
   });
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`, { waitUntil: 'domcontentloaded' });
-  await expect(swap.getByTestId('swap-unavailable-notice')).toHaveAttribute('data-reason', 'pending', {
-    timeout: 2_000
-  });
+  const pendingSwapNotice = swap.getByTestId('swap-unavailable-notice');
+  await expect(pendingSwapNotice).toHaveAttribute('data-reason', 'pending', { timeout: 2_000 });
+  await expect(pendingSwapNotice).toContainText('Temporarily unavailable');
+  await expect(pendingSwapNotice).toContainText('This external service is currently down. Please try again later.');
   await attachScreenshot(page, info, 'wallet-access-pending-swap');
   expect(Date.now() - heldSince).toBeLessThan(9_000);
 
@@ -137,7 +136,7 @@ test('wallet opens with Earn and Swap unavailable when the lookup fails', async 
   await openEarn(extensionContext, extensionId, page);
 
   await expect(page.getByTestId('wallet-access-gate')).toHaveCount(0);
-  const earnNotice = page.getByTestId('earn-page').getByTestId('earn-unavailable-notice');
+  const earnNotice = page.getByTestId('command-earn').getByTestId('earn-unavailable-notice');
   await expect(earnNotice).toHaveAttribute('data-reason', 'service-down', { timeout: 30_000 });
   await expect(earnNotice).toContainText('Temporarily unavailable');
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/swap`, { waitUntil: 'domcontentloaded' });
@@ -146,7 +145,18 @@ test('wallet opens with Earn and Swap unavailable when the lookup fails', async 
     'service-down',
     { timeout: 30_000 }
   );
+  const swapNotice = page.getByTestId('swap-flow').getByTestId('swap-unavailable-notice');
+  await expect(swapNotice).toContainText('Temporarily unavailable');
+  await expect(swapNotice).toContainText('This external service is currently down. Please try again later.');
   await expect(page.getByTestId('wallet-access-gate')).toHaveCount(0);
-  await attachScreenshot(page, info, 'wallet-access-service-down-swap');
+  for (const theme of ['light', 'dark'] as const) {
+    await page.evaluate(value => localStorage.setItem('theme_setting', value), theme);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /dark/ : /^(?!.*\bdark\b)/);
+    await expect(swapNotice).toHaveAttribute('data-reason', 'service-down', { timeout: 30_000 });
+    await expect(swapNotice).toContainText('Temporarily unavailable');
+    await expect(swapNotice).toContainText('This external service is currently down. Please try again later.');
+    await attachScreenshot(page, info, `wallet-access-service-down-swap-${theme}`);
+  }
   await info.attach('console', { body: consoleMessages.join('\n'), contentType: 'text/plain' });
 });

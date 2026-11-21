@@ -303,7 +303,7 @@ describe('React page server', () => {
       react: versionOf(reactRoots.react),
       reactDom: versionOf(reactRoots['react-dom']),
       adapterReact: versionOf(reactRoots['@miden-sdk/miden-wallet-adapter-react'])
-    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.17.0' });
+    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.18.0' });
     expect(reactRoots.zustand).toBe(
       path.dirname(
         createRequire(path.join(reactRoots['@miden-sdk/react'], 'package.json')).resolve('zustand/package.json')

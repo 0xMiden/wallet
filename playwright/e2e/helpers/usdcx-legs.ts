@@ -1,5 +1,7 @@
 import { expect, type Page, type TestInfo } from '@playwright/test';
-import { formatUnits, isHash, type Address, type Hash, type Hex } from 'viem';
+import { isHash, type Address, type Hash, type Hex } from 'viem';
+
+import { formatAmountDisplay, type AmountRounding } from '../../../src/lib/i18n/amount-display';
 
 import {
   arcHost,
@@ -411,7 +413,7 @@ async function burnStuckReport(last: BridgedSendRow | undefined, rpcUrl: string,
 }
 
 /** The fee and sponsorship a burn's own outputs carry; they must name the row's burn note and fee exactly. */
-async function decodeBurnTerms(
+export async function decodeBurnTerms(
   resultBytes: string,
   row: BridgedSendRow,
   burnNoteId: Hash,
@@ -420,6 +422,7 @@ async function decodeBurnTerms(
   liveSponsorship: bigint
 ): Promise<{ fee: bigint; sponsorship: bigint }> {
   const outputs = await burnOutputs({ resultBytesBase64: resultBytes, burnNoteId, faucetBech32: ids.nativeBare });
+  const totalFee = outputs.fee.amount + outputs.sponsorship.amount;
   const mismatches = [
     outputs.burn.noteId.toLowerCase() === burnNoteId.toLowerCase()
       ? null
@@ -428,9 +431,9 @@ async function decodeBurnTerms(
     outputs.sponsorship.amount === liveSponsorship
       ? null
       : `sponsorship ${outputs.sponsorship.amount}, live fee_schedule ${liveSponsorship}`,
-    row.feeAmount === outputs.fee.amount.toString()
+    row.feeAmount === totalFee.toString()
       ? null
-      : `fee note ${outputs.fee.amount}, row feeAmount ${row.feeAmount ?? 'unset'}`,
+      : `verification ${outputs.fee.amount} + sponsorship ${outputs.sponsorship.amount} = ${totalFee}, row feeAmount ${row.feeAmount ?? 'unset'}`,
     row.feeFaucetId === ids.native ? null : `fee paid in ${row.feeFaucetId ?? 'nothing'}, not ${ids.native}`
   ].filter((text): text is string => text !== null);
   if (mismatches.length > 0) throw new Error(`burn ${row.id} outputs disagree: ${mismatches.join('; ')}`);
@@ -813,13 +816,14 @@ export async function assertBurnDetails(
   await expect(page.getByText(chain.networkName, { exact: true }).first()).toBeVisible();
   if (!paid) return;
   // BridgeClaimSection's own formatting of both amounts.
-  const usdc = (units: bigint) => enText('usdcxPayoutAmount', { amount: formatUnits(units, USDCX_DECIMALS) });
+  const usdc = (units: bigint, rounding: AmountRounding) =>
+    enText('usdcxPayoutAmount', { amount: formatAmountDisplay(units, { decimals: USDCX_DECIMALS, rounding }) });
   await expect(detailRowValue(page, enText('usdcxPayoutReceived')), 'the amount Circle paid').toHaveText(
-    usdc(paid.value)
+    usdc(paid.value, 'down')
   );
   // BridgeClaimSection draws no fee row for a burn Circle kept nothing of.
   await expect(detailRowValue(page, enText('usdcxCircleFee')), 'the rest of the burn, which Circle kept').toHaveText(
-    paid.fee > 0n ? [usdc(paid.fee)] : []
+    paid.fee > 0n ? [usdc(paid.fee, 'up')] : []
   );
 }
 

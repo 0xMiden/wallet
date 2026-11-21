@@ -259,7 +259,7 @@ test('the coverage step launches and stops the sampler before running coverage',
     'trap stop_sampler EXIT',
     "trap 'exit 130' INT",
     "trap 'exit 143' TERM",
-    'yarn test:coverage --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json'
+    'yarn test:coverage --maxWorkers=2 --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json'
   ].join('\n'));
 });
 

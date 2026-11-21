@@ -223,7 +223,8 @@ describe('the approval sheet over the wallet webview', () => {
     const start = jest.fn(() => new Promise<never>(() => undefined));
     await Promise.all([
       expect(answerSheet(hostFor(), start, { decision: 'approve' }, contextFor())).rejects.toBeInstanceOf(HarnessFault),
-      jest.advanceTimersByTimeAsync(11_000)
+      // Past the 30 s close budget an earlier sheet gets before the next one is refused.
+      jest.advanceTimersByTimeAsync(31_000)
     ]);
     expect(start).not.toHaveBeenCalled();
   });
@@ -364,11 +365,57 @@ describe('the approval sheet over the wallet webview', () => {
 });
 
 describe('a request that must open no sheet', () => {
+  it.each([
+    { phase: 'request', requestMs: 400, afterSyncMs: 0 },
+    { phase: 'final sync', requestMs: 0, afterSyncMs: 400 }
+  ])(
+    'keeps a three-block refusal failed with $phase delay and records phase observations',
+    async ({ requestMs, afterSyncMs }) => {
+      jest.useFakeTimers({ now: 0 });
+      const ctx = contextFor();
+      const send = jest
+        .fn()
+        .mockResolvedValueOnce({ height: 10 })
+        .mockImplementationOnce(async () => {
+          if (afterSyncMs) await new Promise(resolve => setTimeout(resolve, afterSyncMs));
+          return { height: 13 };
+        });
+      const result = expect(
+        expectNoSheet(
+          hostFor(send),
+          async () => {
+            if (requestMs) await new Promise(resolve => setTimeout(resolve, requestMs));
+            return declined;
+          },
+          ctx,
+          { refusal: true }
+        )
+      ).rejects.toThrow('blocks the dApp saw while a refusal before enqueue was pending');
+      await Promise.all([result, jest.advanceTimersByTimeAsync(1_000)]);
+
+      expect(ctx.evidence).toMatchObject({
+        dappError: declined.error,
+        refusalTiming: { beforeHeight: 10, afterHeight: 13, beforeSyncMs: 0, requestMs, afterSyncMs }
+      });
+      expect(send).toHaveBeenCalledTimes(2);
+    }
+  );
+
   it('passes a refusal answered within one block with no sheet', async () => {
     const ctx = contextFor();
     const send = jest.fn().mockResolvedValueOnce({ height: 10 }).mockResolvedValueOnce({ height: 11 });
     await expect(expectNoSheet(hostFor(send), async () => declined, ctx, { refusal: true })).resolves.toEqual(declined);
-    expect(ctx.evidence).toEqual({ popupOpened: false, dappError: declined.error });
+    expect(ctx.evidence).toEqual({
+      popupOpened: false,
+      dappError: declined.error,
+      refusalTiming: {
+        beforeHeight: 10,
+        afterHeight: 11,
+        beforeSyncMs: expect.any(Number),
+        requestMs: expect.any(Number),
+        afterSyncMs: expect.any(Number)
+      }
+    });
     expect(send).toHaveBeenCalledTimes(2);
   });
 
@@ -408,7 +455,17 @@ describe('a request that must open no sheet', () => {
     await expect(expectNoSheet(hostFor(send), start, ctx, { refusal: true })).rejects.toThrow(
       'an approval sheet opened for a request that must not prompt'
     );
-    expect(ctx.evidence).toEqual({ popupOpened: true, dappError: declined.error });
+    expect(ctx.evidence).toEqual({
+      popupOpened: true,
+      dappError: declined.error,
+      refusalTiming: {
+        beforeHeight: 10,
+        afterHeight: 10,
+        beforeSyncMs: expect.any(Number),
+        requestMs: expect.any(Number),
+        afterSyncMs: expect.any(Number)
+      }
+    });
   }, 10_000);
 });
 

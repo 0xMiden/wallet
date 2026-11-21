@@ -16,6 +16,12 @@ export interface OneClickAppFee {
   fee: number;
 }
 
+export interface OneClickFeePolicy {
+  kind: 'partner' | 'public';
+  platformRecipient: string;
+  minimumPlatformFeeBps: number;
+}
+
 /** The address format of an origin chain. The wallet uses it to check a refund address. */
 export type NearIntentsAddressKind = 'evm' | 'solana' | 'bitcoin' | 'near';
 

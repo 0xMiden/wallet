@@ -8,6 +8,7 @@ import { useAppEnv } from 'app/env';
 import { ExploreSelectors } from 'app/pages/Explore.selectors';
 import { Button, ButtonVariant } from 'components/Button';
 import { StatusBadge } from 'components/ui/StatusBadge';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { isMobile } from 'lib/platform';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { Link } from 'lib/woozie';
@@ -19,12 +20,14 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
+  hasOwnBridgeBadge,
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
   isFaucetRequest,
   isReceiveEntry
 } from './transactionUtils';
+import { useEpochReturnState } from './useEpochReturnState';
 
 type HistoryItemProps = {
   entry: IHistoryEntry;
@@ -115,16 +118,15 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
           `leading-none`, which would cut off descenders. */}
       {entry.amount !== undefined && (
         <div className="flex shrink-0 max-w-1/2 flex-col items-end">
-          <span
+          <TokenAmount
+            amount={entry.amount.toString()}
+            prefix={isReceive ? '+' : '-'}
+            rounding={isReceive ? 'down' : 'up'}
             className={classNames(
               'max-w-full truncate font-heading text-sm font-medium leading-tight',
               isReceive ? 'text-positive-tint-ink' : 'text-negative-tint-ink'
             )}
-          >
-            {/* eslint-disable-next-line i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
-            {isReceive ? '+' : '-'}
-            {entry.amount.toString()}
-          </span>
+          />
           {entry.token && (
             <span className="max-w-full truncate font-heading text-sm text-ink opacity-64 font-medium leading-tight">
               {entry.token}
@@ -166,8 +168,9 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   lastEntry
 }) => {
   const { t } = useTranslation();
+  const epochReturn = useEpochReturnState(entry, entry.address, entry.restoredFromBackup === true);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
-  const { inLabel, outLabel, outAmount, providerLabel, network } =
+  const { inLabel, outLabel, outAmount, providerLabel, network, status } =
     entry.txType === 'bridged-send' ? bridgeRowDisplay(bridgeConfig, entry) : bridgeInRowDisplay(bridgeConfig, entry);
 
   return (
@@ -202,7 +205,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
             {outAmount} {outLabel}
           </span>
         )}
-        <StatusBadge status={bridgeBadgeStatusOf(entry)} />
+        <StatusBadge status={epochReturn.status ?? (hasOwnBridgeBadge(entry) ? bridgeBadgeStatusOf(entry) : status)} />
       </div>
     </div>
   );
@@ -245,9 +248,13 @@ const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' 
       <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {/* eslint-disable i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
         {showAmount && (
-          <span className="max-w-full truncate text-sm font-medium leading-tight text-positive-tint-ink">
-            +{entry.amount?.toString()} {entry.token}
-          </span>
+          <TokenAmount
+            amount={entry.amount?.toString()}
+            symbol={entry.token}
+            prefix="+"
+            rounding="down"
+            className="max-w-full truncate text-sm font-medium leading-tight text-positive-tint-ink"
+          />
         )}
         {/* eslint-enable i18next/no-literal-string */}
         <StatusBadge status={phase} />

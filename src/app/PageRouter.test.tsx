@@ -29,6 +29,7 @@ import React from 'react';
 
 import { act, cleanup, render, screen } from '@testing-library/react';
 
+import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import * as Woozie from 'lib/woozie';
 
 import { ONBOARDING_FINISH_BUDGET_MS, markOnboardingFinishing } from './onboarding-finish';
@@ -43,7 +44,9 @@ const mockLocation: { pathname: string; trigger: string | null } = {
   pathname: '/',
   trigger: null
 };
-const mockEnv = { popup: false, fullPage: false, sidePanel: false };
+const mockEnv = { popup: false, fullPage: false, sidePanel: false, confirmWindow: false };
+var mockExtension = { value: false };
+const mockAccount = { publicKey: 'account-a' };
 const mockMiden = { ready: false, locked: false, hydrated: false };
 const mockSwapEnabled = { value: true };
 // Whether the user has already answered the telemetry consent prompt. Read by
@@ -54,10 +57,16 @@ const mockSettingsProps = jest.fn();
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
 // createMap/resolve/SKIP behave exactly as in production, and stub the four
 // symbols <PageRouter/> uses that need to be driven or silenced.
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+
 jest.mock('lib/woozie', () => ({
   __esModule: true,
   Router: jest.requireActual('lib/woozie/router'),
   useLocation: () => mockLocation,
+  listen: () => () => {},
+  createLocationState: () => ({ historyPosition: 0, href: mockLocation.pathname }),
+  navigate: jest.fn(),
+  goBack: jest.fn(),
   HistoryAction: { Push: 'PUSH', Pop: 'POP', Replace: 'REPLACE' },
   resetHistoryPosition: jest.fn(),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />
@@ -90,7 +99,23 @@ jest.mock('app/env', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockAccount,
   useMidenContext: () => mockMiden
+}));
+jest.mock('lib/miden/front/claimable-notes', () => ({
+  useClaimableNotes: () => ({ data: undefined, isLoading: false })
+}));
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: () => mockExtension?.value ?? false
+}));
+jest.mock('lib/store', () => ({
+  useWalletStore: (select: (state: { currentAccount: { publicKey: string } }) => unknown) =>
+    select({ currentAccount: mockAccount })
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveRpcUrl: () => 'https://rpc.test'
 }));
 
 // App-lifecycle telemetry (`open` / `return`) is a leaf concern here and has its
@@ -104,7 +129,9 @@ jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
 // The loading spinner shown during MV3 cold-start (before hydration), or while the finishing mark holds a new wallet.
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
-  default: () => <div data-testid="root-suspense-fallback" />
+  default: ({ 'data-testid': testId }: { 'data-testid'?: string }) => (
+    <div data-testid={testId === 'wallet-pages-parked' ? testId : 'root-suspense-fallback'} />
+  )
 }));
 
 // Layouts render their children so the wrapped page stays assertable.
@@ -130,6 +157,29 @@ jest.mock('components/MainnetCountdownBanner', () => ({
   MainnetCountdownBanner: () => <div data-testid="mainnet-countdown-banner" />
 }));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+jest.mock('screens/command/CommandPortfolio', () => ({
+  CommandPortfolio: ({ prompts, recentActions }: { prompts: React.ReactNode; recentActions: React.ReactNode }) => (
+    <div data-testid="command-portfolio">
+      {prompts}
+      {recentActions}
+    </div>
+  )
+}));
+jest.mock('screens/command/CommandRecentActions', () => ({
+  CommandRecentActions: ({ scope }: { scope: { accountId: string } }) => (
+    <div data-testid="command-recent-actions" data-account-id={scope.accountId} />
+  )
+}));
+jest.mock('screens/command/CommandOperation', () => ({
+  CommandOperation: ({ children }: { children: React.ReactNode }) => <>{children}</>
+}));
+jest.mock('screens/command/bridge/CommandBridge', () => ({
+  CommandBridge: () => <div data-testid="command-bridge" />
+}));
+jest.mock('screens/command/CommandHomePrompts', () => ({
+  CommandHomePrompts: () => <div data-testid="command-notices" />
+}));
+jest.mock('app/pages/Earn', () => ({ __esModule: true, default: () => <div data-testid="earn-page" /> }));
 jest.mock('app/pages/Me', () => ({ __esModule: true, default: () => <div data-testid="me" /> }));
 jest.mock('app/pages/MyBadges', () => ({ __esModule: true, default: () => <div data-testid="my-badges" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
@@ -186,6 +236,16 @@ jest.mock('screens/earn-flow/EarnPositionDetail', () => ({
   __esModule: true,
   default: ({ positionId }: { positionId?: string }) => (
     <div data-testid="earn-position-detail" data-position-id={positionId} />
+  )
+}));
+jest.mock('screens/earn-flow/EarnWithdrawStatus', () => ({
+  __esModule: true,
+  default: ({ txId }: { txId?: string }) => <div data-testid="earn-withdraw-status" data-tx-id={txId} />
+}));
+jest.mock('screens/earn-flow/EarnWithdrawReview', () => ({
+  __esModule: true,
+  default: ({ positionId }: { positionId?: string }) => (
+    <div data-testid="earn-withdraw-review" data-position-id={positionId} />
   )
 }));
 jest.mock('screens/earn-flow/EarnPositions', () => ({
@@ -253,6 +313,12 @@ jest.mock('./pages/ActivityGroup', () => ({
 jest.mock('screens/contacts/ContactDetailPage', () => ({
   ContactDetailPage: ({ address }: { address: string }) => <div data-testid="contact-detail" data-address={address} />
 }));
+jest.mock('./pages/RecoverLockedFundsLock', () => ({
+  __esModule: true,
+  default: ({ chainId, lockId }: { chainId?: string; lockId?: string }) => (
+    <div data-testid="recover-funds-lock" data-chain-id={chainId} data-lock-id={lockId} />
+  )
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -264,6 +330,7 @@ type Ctx = {
   popup?: boolean;
   fullPage?: boolean;
   sidePanel?: boolean;
+  confirmWindow?: boolean;
 };
 
 function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null) {
@@ -272,11 +339,144 @@ function renderAt(pathname: string, ctx: Ctx = {}, trigger: string | null = null
   mockEnv.popup = ctx.popup ?? false;
   mockEnv.fullPage = ctx.fullPage ?? false;
   mockEnv.sidePanel = ctx.sidePanel ?? false;
+  mockEnv.confirmWindow = ctx.confirmWindow ?? false;
   mockMiden.ready = ctx.ready ?? false;
   mockMiden.locked = ctx.locked ?? false;
   mockMiden.hydrated = ctx.hydrated ?? false;
   return render(<PageRouter />);
 }
+
+describe('Command routing', () => {
+  it('mounts the real Command dashboard slot without a hidden Explore page', () => {
+    mockExtension.value = true;
+    renderAt('/', { ...ready, fullPage: true });
+    expect(screen.getByTestId('command-portfolio')).toBeInTheDocument();
+    expect(screen.getByTestId('command-recent-actions')).toHaveAttribute('data-account-id', 'account-a');
+    expect(screen.getByTestId('command-notices')).toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+  afterEach(() => act(() => backgroundLockPending.set(false)));
+
+  it('renders one shell and just the active controller for an extension FullPage', () => {
+    mockExtension.value = true;
+    renderAt('/send', { ...ready, fullPage: true });
+    expect(screen.getByTestId('command-shell')).toBeInTheDocument();
+    expect(screen.getByTestId('send-flow')).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('swap-flow')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['/receive', 'receive'],
+    ['/swap', 'swap-flow'],
+    ['/send/review', 'review-transaction'],
+    ['/earn', 'earn-page'],
+    ['/earn/positions', 'earn-positions'],
+    ['/earn/vaults/v1/deposit', 'earn-deposit-amount'],
+    ['/earn/positions/p1/withdraw/review', 'earn-withdraw-review'],
+    ['/bridge/deposit', 'command-bridge']
+  ])('renders only the active %s controller in the Command workbench', (path, id) => {
+    mockExtension.value = true;
+    renderAt(path, { ...ready, fullPage: true });
+    expect(screen.getByTestId(id)).toBeInTheDocument();
+    expect(screen.getByTestId('command-workbench')).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+  });
+
+  it.each(['/send/review', '/generating-transaction/tx1', '/earn/withdraw-status/tx2', '/history-details/tx3'])(
+    'keeps registered deep link %s in the Command workbench',
+    path => {
+      mockExtension.value = true;
+      renderAt(path, { ...ready, fullPage: true });
+      expect(screen.getByTestId('command-shell')).toBeInTheDocument();
+      expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+    }
+  );
+
+  it.each([
+    ['locked', { ready: true, hydrated: true, fullPage: true, locked: true }],
+    ['unhydrated', { ready: true, hydrated: false, fullPage: true }],
+    ['not ready', { ready: false, hydrated: true, fullPage: true }],
+    ['popup', { ready: true, hydrated: true, popup: true }],
+    ['native', { ready: true, hydrated: true, fullPage: true }],
+    ['confirmation', { ready: true, hydrated: true, fullPage: true, confirmWindow: true }]
+  ])('does not mount Command when %s', (_case, ctx) => {
+    mockExtension.value = _case !== 'native';
+    renderAt('/bridge/deposit', ctx);
+    expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('command-bridge')).not.toBeInTheDocument();
+    expect(Boolean(screen.queryByTestId('bridge-deposit'))).toBe(ctx.ready && ctx.hydrated && !('locked' in ctx));
+  });
+
+  it('defers Command until the onboarding finishing hold releases', () => {
+    mockExtension.value = true;
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/send', { ...ready, fullPage: true });
+      expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
+      expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+    }
+    expect(screen.getByTestId('command-shell')).toBeInTheDocument();
+  });
+
+  it('unmounts the shell on background lock then mounts a fresh shell after unlock', () => {
+    mockExtension.value = true;
+    const view = renderAt('/send', { ...ready, fullPage: true });
+    const shell = screen.getByTestId('command-shell');
+    act(() => backgroundLockPending.set(true));
+    expect(shell).not.toBeInTheDocument();
+    act(() => backgroundLockPending.set(false));
+    view.rerender(<PageRouter />);
+    expect(screen.getByTestId('command-shell')).not.toBe(shell);
+  });
+
+  it('removes Command immediately when background lock is pending', () => {
+    mockExtension.value = true;
+    act(() => backgroundLockPending.set(true));
+    renderAt('/send', { ...ready, fullPage: true });
+    expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
+  });
+
+  it('routes the recovery list to the original Settings page even in an eligible fullscreen tab', () => {
+    mockExtension.value = true;
+    renderAt('/settings/recover-funds', { ...ready, fullPage: true });
+    expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', 'recover-funds');
+    expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
+  });
+
+  it('keeps the recovery list behind unlock in a fullscreen tab', () => {
+    mockExtension.value = true;
+    renderAt('/settings/recover-funds', { ...ready, fullPage: true, locked: true });
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
+  });
+
+  it.each(['/settings/general', '/me', '/browser', '/activity/group/swap'])('leaves %s in legacy', path => {
+    mockExtension.value = true;
+    renderAt(path, { ...ready, fullPage: true });
+    expect(screen.queryByTestId('command-shell')).not.toBeInTheDocument();
+  });
+});
+
+describe('background lock cover', () => {
+  afterEach(() => act(() => backgroundLockPending.set(false)));
+
+  it('parks the wallet pages while a background lock is pending', () => {
+    act(() => backgroundLockPending.set(true));
+    renderAt('/', ready);
+    expect(screen.getByTestId('wallet-pages-parked')).toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+
+  it('does not cover a wallet that is not ready', () => {
+    act(() => backgroundLockPending.set(true));
+    renderAt('/', { ready: false, locked: false, hydrated: true });
+    expect(screen.queryByTestId('wallet-pages-parked')).not.toBeInTheDocument();
+  });
+});
 
 // A fully booted wallet: unlocked, ready, and hydrated → resolveRootView `app`,
 // which is the only ctx that lets a specific `/`-or-deeper route resolve.
@@ -295,7 +495,9 @@ beforeEach(() => {
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
   mockSwapEnabled.value = true;
+  mockExtension.value = false;
   mockTelemetryChoice.made = false;
+  act(() => backgroundLockPending.set(false));
 });
 
 describe('app/PageRouter — no network banner', () => {
@@ -660,6 +862,22 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
     expect(el).toHaveAttribute('data-read-only', 'true');
     expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
+  });
+
+  // Three segments: the generic `/settings/:tabSlug?` route cannot match it, so it has its own route.
+  it('/settings/recover-funds/:chainId/:lockId renders one lock inside a sliding FullScreenPage', () => {
+    renderAt('/settings/recover-funds/11155111/42', ready);
+    const el = screen.getByTestId('recover-funds-lock');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(el).toHaveAttribute('data-chain-id', '11155111');
+    expect(el).toHaveAttribute('data-lock-id', '42');
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
+    cleanup();
+
+    // The list itself is the `recover-funds` settings tab.
+    renderAt('/settings/recover-funds', ready);
+    expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', 'recover-funds');
   });
 
   it('/browser renders Browser inside TabLayout', () => {

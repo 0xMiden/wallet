@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo, useState } from 'react';
+import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 
 import { markReloadToRecover } from 'app/reload-to-recover';
 import { NoteToastProvider } from 'components/NoteToastProvider';
@@ -6,8 +6,10 @@ import { BadgeIssuanceManager } from 'lib/badges/BadgeIssuanceManager';
 import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
+import { BackgroundLockManager } from 'lib/lock-up/BackgroundLockManager';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { prunePortfolioObservations } from 'lib/miden/portfolio-observations';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
@@ -18,6 +20,8 @@ import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
+import { WalletStatus } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, TokensMetadataProvider } from './assets';
@@ -192,6 +196,30 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
  */
 const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   const { ready } = useMidenContext();
+  const status = useWalletStore(state => state.status);
+  const accounts = useWalletStore(state => state.accounts);
+  const lastPrunedAccounts = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Setup clears the startup mirror without necessarily remounting this page.
+    if (ready && status === WalletStatus.Ready && isExtension()) mirrorBackgroundSettings();
+  }, [ready, status]);
+
+  useEffect(() => {
+    if (!ready || status !== WalletStatus.Ready) {
+      lastPrunedAccounts.current = null;
+      return;
+    }
+    const accountIds = accounts.map(account => account.publicKey).sort();
+    const listKey = JSON.stringify(accountIds);
+    if (lastPrunedAccounts.current === listKey) return;
+    lastPrunedAccounts.current = listKey;
+    void prunePortfolioObservations(accountIds).catch(() => {
+      if (lastPrunedAccounts.current === listKey) lastPrunedAccounts.current = null;
+      // History is local, best-effort data; failure must not hold wallet readiness or financial actions.
+      console.warn('[portfolio] account history cleanup failed');
+    });
+  }, [ready, status, accounts]);
 
   // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
   useSyncTrigger();
@@ -216,6 +244,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
                 the extension, where the service worker's `setupTransactionProcessor`
                 already does this. */}
             <OrphanedTransactionRecovery />
+            <BackgroundLockManager />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

@@ -9,13 +9,12 @@ import { NetworkChip } from 'components/NetworkChip';
 import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
 import { TokenUsdValue } from 'components/TokenUsdValue';
-import { AnimatedNumber } from 'components/ui';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
-import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -24,13 +23,13 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
-import { balanceFormatterFor, formatBalance } from './amount-format';
 import { AmountShortcuts } from './AmountShortcuts';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
 
 export interface SendAmountProps {
+  embedded?: boolean;
   /** The token with its spendable balance (the native token's fee reserve already taken off). */
   token?: UIToken;
   amount: string;
@@ -50,6 +49,7 @@ export interface SendAmountProps {
   network?: SendNetworkId;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
+  tokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Opens Receive, offered when the account has no MIDEN for the fee. */
   onReceive: () => void;
   onBack: () => void;
@@ -62,6 +62,7 @@ export interface SendAmountProps {
  * made of: the token (with its available balance and Max) and where it goes.
  */
 export const SendAmount: React.FC<SendAmountProps> = ({
+  embedded,
   token,
   amount,
   isValidAmount,
@@ -75,6 +76,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   network,
   onAmountChange,
   onSelectToken,
+  tokenAnchorRef,
   onReceive,
   onBack,
   onConfirm
@@ -94,10 +96,6 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // an unknown-scale token can't be sent (see SelectAmount).
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount;
-  // Built once per render, not per frame; harmless when `token` is undefined since it is only
-  // read from the `{token && ...}` branch below.
-  const formatAvailableBalance = balanceFormatterFor(token?.balance ?? 0);
-
   // The missing-fee shortfall is about the account, not the typed number, so it
   // gets a notice with a way out instead of turning the amount red. An empty
   // field isn't an invalid amount yet.
@@ -111,6 +109,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
 
   return (
     <SendStepLayout
+      embedded={embedded}
       title={t('enterAmount')}
       onBack={onBack}
       footer={
@@ -151,7 +150,6 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           balance={token.balance}
           decimals={token.decimals}
           scaleIsKnown={scaleIsKnown}
-          maxAmount={formatBalance(balanceLowerBound(token.balance, token.decimals))}
           onAmountChange={value => {
             setShortcutSelection(selection => selection + 1);
             onAmountChange(value);
@@ -165,7 +163,9 @@ export const SendAmount: React.FC<SendAmountProps> = ({
       <Card surface="outline" padding="none" className="mt-8">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
+            ref={tokenAnchorRef}
             type="button"
+            aria-haspopup={tokenAnchorRef ? 'dialog' : undefined}
             data-testid="send-token-selector"
             onClick={() => {
               hapticLight();
@@ -187,10 +187,13 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 <span className="text-sm text-text-muted" data-testid="send-amount-available">
                   {/* Keyed by token: a different token lands its balance, not a count from the last one. */}
                   {scaleIsKnown ? (
-                    <AnimatedNumber
+                    <TokenAmount
                       key={token.id}
-                      value={token.balance}
-                      format={value => `${t('available')} ${formatAvailableBalance(value)}`}
+                      amount={token.balance}
+                      prefix={`${t('available')} `}
+                      minimumFractionDigits={4}
+                      rounding="down"
+                      animated
                     />
                   ) : (
                     t('unknownTokenScale')
@@ -209,22 +212,24 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           </button>
         </div>
 
-        <div className="mx-4 border-t border-rule-default" />
+        {!embedded && <div className="mx-4 border-t border-rule-default" />}
 
-        <div className="flex items-center gap-3 px-4 py-3">
-          <span className="text-sm text-text-muted">{t('to')}</span>
-          <span
-            data-testid="send-amount-recipient"
-            className="min-w-0 flex-1 truncate font-heading text-base font-bold text-ink"
-          >
-            {recipientName ?? truncateAddress(recipientAddress)}
-          </span>
-          {bridgeNetwork ? (
-            <NetworkChip kind="ethereum" network={bridgeNetwork.id} label={bridgeNetwork.name} />
-          ) : (
-            <NetworkChip kind="miden" label={t('miden')} />
-          )}
-        </div>
+        {!embedded && (
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="text-sm text-text-muted">{t('to')}</span>
+            <span
+              data-testid="send-amount-recipient"
+              className="min-w-0 flex-1 truncate font-heading text-base font-bold text-ink"
+            >
+              {recipientName ?? truncateAddress(recipientAddress)}
+            </span>
+            {bridgeNetwork ? (
+              <NetworkChip kind="ethereum" network={bridgeNetwork.id} label={bridgeNetwork.name} />
+            ) : (
+              <NetworkChip kind="miden" label={t('miden')} />
+            )}
+          </div>
+        )}
       </Card>
 
       {tokenHeld && (

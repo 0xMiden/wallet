@@ -2198,6 +2198,7 @@ describe('bridge prompts', () => {
     const exitAt = (cnt: number) => ({
       network_id: 86,
       dest_net: 0,
+      dest_addr: '0xdest',
       tx_hash: `0x${cnt.toString(16).padStart(64, '0')}`,
       deposit_cnt: cnt,
       ready_for_claim: true,
@@ -2427,7 +2428,14 @@ describe('bridge prompts', () => {
   it('re-pins a ready row the address page found at another deposit, and the warning stops', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const status: typeof import('lib/agglayer/status') = jest.requireActual('lib/agglayer/status');
-    const mine = { network_id: 86, dest_net: 0, tx_hash: '0xexit', deposit_cnt: 16, ready_for_claim: true };
+    const mine = {
+      network_id: 86,
+      dest_net: 0,
+      dest_addr: '0xdest',
+      tx_hash: '0xexit',
+      deposit_cnt: 16,
+      ready_for_claim: true
+    };
     const sibling = { ...mine, tx_hash: '0xsibling', deposit_cnt: 5 };
     const fetchBefore = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
     Object.defineProperty(globalThis, 'fetch', {

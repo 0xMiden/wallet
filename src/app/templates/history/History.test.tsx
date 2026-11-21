@@ -30,8 +30,8 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 // Imported AFTER the mocks are registered.
 
 import { groupActivityEntries } from './activityGroups';
-import History from './History';
-import { HistoryEntryType } from './IHistoryEntry';
+import History, { patchLoadedActivityStatus } from './History';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 
@@ -3158,6 +3158,72 @@ describe('History USDCx entry plumbing', () => {
       bridgeInPhase: 'received'
     });
   });
+
+  it('projects only a local original pre-source stop into the Activity list, not a restored copy', async () => {
+    const stopped = {
+      version: 1,
+      owner: 'wallet',
+      operationId: 'original',
+      revision: 'claim',
+      review: {},
+      sourceAttempt: { phase: 'stopped-before-source' }
+    };
+    const approval = {
+      chainId: 11155111,
+      account: `0x${'1'.repeat(40)}`,
+      token: `0x${'2'.repeat(40)}`,
+      spender: `0x${'3'.repeat(40)}`,
+      amount: '1000000',
+      hash: `0x${'4'.repeat(64)}`
+    };
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'ORIGINAL-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 3000,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      },
+      {
+        id: 'RESTORED-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 2000,
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      },
+      {
+        id: 'APPROVED-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 1000,
+        extraInputs: {
+          provider: 'agglayer',
+          phase: 'submitting',
+          bridgeOperation: { ...stopped, approvals: [approval] }
+        }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+    const entries = mockHistoryViewProps.entries;
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-ORIGINAL-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(true);
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-RESTORED-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(false);
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-APPROVED-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(false);
+  });
 });
 
 // A batch claim's secondary assets are rendered on the row, so they have to
@@ -4562,5 +4628,40 @@ describe('History on the real SWR cache', () => {
       await act(() => new Promise(resolve => setTimeout(resolve, 0)));
       expect(shownSince(from, 'completed-attempt')).toBe(false);
     });
+  });
+});
+
+describe('patchLoadedActivityStatus', () => {
+  it('keeps the loaded rows when a refresh reads an unchanged bridge row with output notes', () => {
+    const row = {
+      id: 'bridge-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Failed,
+      type: 'bridged-send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'FAILED',
+      outputNoteIds: ['n1'],
+      extraInputs: { provider: 'epoch', epochStatus: 'failed', reclaimHeight: 1200 }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-bridge-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.outputNoteIds).toEqual(['n1']);
+    // IndexedDB hands back a fresh copy of the same row on every read.
+    const refreshed = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, outputNoteIds: ['n1'] }]])
+    );
+    expect(refreshed).toBe(loaded);
   });
 });

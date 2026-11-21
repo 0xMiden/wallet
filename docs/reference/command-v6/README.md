@@ -1,0 +1,5 @@
+# Command V6 approved reference (historical)
+
+Byte-for-byte source and approved visual references from `/Users/celrisen/tasks/wallet-dashboard/studies/command/` and `/Users/celrisen/tasks/wallet-dashboard/qa/` (14 November 2026). Check `SHA256SUMS` for each file's exact SHA-256 digest; verify with `shasum -a 256 -c SHA256SUMS` from this directory. The two images are existing 1800×1125 dashboard and Send-review captures, not new product qualification.
+
+This is **not a standalone runnable demo** and is not production wallet code. The HTML contains historical `/files/` references to fonts, icons, generated sidebar demo, styles and scripts that are intentionally not included. The inline financial simulator and `bridge-demo-v6.js` remain unmodified solely for visual and interaction provenance; they must not be imported into the wallet. Companion state/authentication, generated sidebar JavaScript, fonts and SVGs are omitted. Production data, signing and transactions use the wallet's existing guarded implementations.

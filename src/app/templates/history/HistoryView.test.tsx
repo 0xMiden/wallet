@@ -212,7 +212,7 @@ jest.mock('./transactionUtils', () => ({
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
   bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
+  hasOwnBridgeBadge: jest.requireActual('./transactionUtils').hasOwnBridgeBadge,
   // Smart Withdraw rows: mirror the real predicate so the earn branch of
   // `buildRowProps` is exercised with realistic values.
   isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),

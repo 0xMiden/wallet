@@ -6,6 +6,7 @@ import { customRequestAccountAuthCode, customRequestAuthDiagnostics } from './cu
 import { accountRefToSdk, feeAwareRequestBuilder, randomFeeSalt } from './helpers';
 import { assertWasmHoldCurrent, type WasmLockHold } from './miden-client';
 import { enrichOwnOutputRequest } from './own-output-request';
+import { rethrowTrapOrKill } from './sdk-error-code';
 
 /** Resolve a dApp request's missing Guardian auth while holding the wallet's client lock. */
 export async function prepareCustomRequestBytes(
@@ -36,7 +37,8 @@ export async function prepareCustomRequestBytes(
     if (observe) {
       try {
         diagnostics.accountAuthCode = await customRequestAccountAuthCode(client, accountRefToSdk(account).toString());
-      } catch {
+      } catch (error) {
+        rethrowTrapOrKill(error);
         diagnostics.accountAuthCode = 'unavailable';
       }
       assertWasmHoldCurrent(hold, 'after custom request diagnostics');

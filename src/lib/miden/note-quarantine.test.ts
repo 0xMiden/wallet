@@ -1,7 +1,14 @@
 /**
  * Behavior tests for the simulation-note quarantine (lib/miden/note-quarantine.ts).
  */
-import { getQuarantinedNoteIds, importedNoteIds, quarantineNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
+import {
+  abandonQuarantineAttempt,
+  beginQuarantineAttempt,
+  getQuarantinedNoteIds,
+  importedNoteIds,
+  quarantineNoteIds,
+  releaseNoteIds
+} from 'lib/miden/note-quarantine';
 
 const STORE: Record<string, any> = {};
 
@@ -191,6 +198,84 @@ describe('quarantineNoteIds', () => {
 });
 
 describe('releaseNoteIds', () => {
+  it('serializes a quarantine with a release so a stale write cannot restore a released id', async () => {
+    STORE[QUARANTINE_KEY] = [entry('a')];
+    let unblockFirstWrite!: () => void;
+    let signalFirstWrite!: () => void;
+    const firstWriteStarted = new Promise<void>(resolve => {
+      signalFirstWrite = resolve;
+    });
+    const firstWriteGate = new Promise<void>(resolve => {
+      unblockFirstWrite = resolve;
+    });
+    mockPutToStorage.mockImplementationOnce(async (key: string, value: any) => {
+      signalFirstWrite();
+      await firstWriteGate;
+      STORE[key] = value;
+    });
+
+    const quarantine = quarantineNoteIds(['b']);
+    await firstWriteStarted;
+    const release = releaseNoteIds(['a']);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    unblockFirstWrite();
+    await Promise.all([quarantine, release]);
+
+    expect((STORE[QUARANTINE_KEY] as { id: string }[]).map(({ id }) => id)).toEqual(['b']);
+  });
+
+  it('keeps a declined note quarantined when another id is released', async () => {
+    await quarantineNoteIds(['declined', 'a']);
+    await releaseNoteIds(['a']);
+    expect((STORE[QUARANTINE_KEY] as { id: string }[]).map(({ id }) => id)).toEqual(['declined']);
+  });
+
+  it('writes nothing for an attempt abandoned before the call', async () => {
+    STORE[QUARANTINE_KEY] = [entry('kept')];
+    const attempt = beginQuarantineAttempt();
+    await abandonQuarantineAttempt(attempt);
+    await quarantineNoteIds(['late'], attempt);
+    expect(mockPutToStorage).not.toHaveBeenCalled();
+    expect(STORE[QUARANTINE_KEY]).toEqual([entry('kept')]);
+  });
+
+  it('does not finish a quarantine write that is still reading once its attempt is abandoned', async () => {
+    STORE[QUARANTINE_KEY] = [entry('a')];
+    let unblockRead!: () => void;
+    let signalRead!: () => void;
+    const readStarted = new Promise<void>(resolve => {
+      signalRead = resolve;
+    });
+    const readGate = new Promise<void>(resolve => {
+      unblockRead = resolve;
+    });
+    mockFetchFromStorage.mockImplementationOnce(async (key: string) => {
+      signalRead();
+      await readGate;
+      return key in STORE ? STORE[key] : null;
+    });
+
+    const attempt = beginQuarantineAttempt();
+    const quarantine = quarantineNoteIds(['b'], attempt);
+    try {
+      await readStarted;
+      let settled = false;
+      const abandon = abandonQuarantineAttempt(attempt).then(() => {
+        settled = true;
+      });
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      expect(settled).toBe(false);
+      unblockRead();
+      await Promise.all([quarantine, abandon]);
+      expect(settled).toBe(true);
+      expect(mockPutToStorage).not.toHaveBeenCalled();
+      expect(STORE[QUARANTINE_KEY]).toEqual([entry('a')]);
+    } finally {
+      unblockRead();
+      await quarantine;
+    }
+  });
+
   it('removes ids from the quarantine set', async () => {
     STORE[QUARANTINE_KEY] = [entry('n1'), entry('n2'), entry('n3')];
     await releaseNoteIds(['n2']);

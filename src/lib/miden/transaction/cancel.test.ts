@@ -75,7 +75,7 @@ jest.mock('../back/background-notification', () => ({
 }));
 jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
-jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => true) }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: jest.fn(() => true) }));
 jest.mock('lib/mobile/background-time', () => ({
   ...jest.requireActual('lib/mobile/background-time'),
   hiddenSecondsSince: jest.fn(() => 0)

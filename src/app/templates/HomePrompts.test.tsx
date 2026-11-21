@@ -3812,6 +3812,34 @@ describe('HomePrompts', () => {
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
   });
 
+  it('keeps the pending-notes notice but hides its monetary body in Command privacy mode', async () => {
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const notes: PendingNoteValue[] = [
+      {
+        id: 'pending-price',
+        amount: '125000000',
+        faucetId: TEST_TOKEN_IETH.faucetId,
+        metadata: { symbol: TEST_TOKEN_IETH.symbol, name: 'Ether', decimals: TEST_TOKEN_IETH.decimals }
+      }
+    ];
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={{ ETH: { price: 2, change24h: 0, percentageChange24h: 0 } }}
+        maskMonetaryValues
+      />
+    );
+    await act(async () => {});
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('commandMaskedBalance');
+    expect(screen.queryByText('$2.50')).not.toBeInTheDocument();
+  });
+
   it('revalues stable pending notes on verified price asset changes and removes an unavailable total', async () => {
     _setSwapTokensForTest(undefined);
     mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
@@ -3897,6 +3925,54 @@ describe('HomePrompts', () => {
 
     expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
     expect(screen.queryByTestId('prompt-card-value')).not.toBeInTheDocument();
+  });
+
+  it('hides Command pending-note count, value and action while the declined-note preference is unreadable', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    mockHiddenNotes.loaded = false;
+    mockHiddenNotes.failed = true;
+    const content = (
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
+        tokenPrices={tokenPrices}
+        requireReadableHiddenNotes
+      />
+    );
+    const view = render(content);
+    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+    expect(screen.queryByText('pendingNotesPromptBodyReview:2')).not.toBeInTheDocument();
+    expect(screen.queryByText('$4.50')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'pendingNotesPromptTitle' })).not.toBeInTheDocument();
+
+    mockHiddenNotes.loaded = true;
+    mockHiddenNotes.failed = false;
+    mockHiddenNotes.ids = new Set(['note-1']);
+    view.rerender(React.cloneElement(content));
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    expect(screen.getByText('pendingNotesPromptBodyReview:1')).toBeInTheDocument();
+    expect(screen.queryByText('$4.50')).not.toBeInTheDocument();
+  });
+
+  it('keeps the existing Compact pending-note fallback when the hidden-note preference is unreadable', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    mockHiddenNotes.loaded = false;
+    mockHiddenNotes.failed = true;
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    expect(screen.getByText('pendingNotesPromptBodyReview:2')).toBeInTheDocument();
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
   });
 
   it('leaves a declined transfer out of the count and out of the total, until it is restored', () => {

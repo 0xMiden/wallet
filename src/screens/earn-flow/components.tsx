@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
+import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { NetworkChipKind, NetworkLogo } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
@@ -12,10 +13,11 @@ import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
+import { UsdAmount } from 'components/ui/TokenAmount';
 import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
 
-import { EARN_PLACEHOLDER, usdFigureFormatter } from './earn-mapping';
+import { EARN_PLACEHOLDER } from './earn-mapping';
 import { EarnSummary } from './types';
 
 /** What the earn flow names a vault or a position by: the protocol as the title, and the asset and
@@ -131,6 +133,10 @@ export const EarnVaultClosedNotice: FC<{ canOpen?: boolean; depositsEnabled?: bo
 export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
   const { t } = useTranslation();
   const assetFaucetId = useEarnAssetFaucetId();
+  const command = useFlowPresentation() === 'command';
+  useRegisterCommandFlowBack(goBack);
+
+  if (command) return null;
 
   // No subject (loading, failed or unknown): the header names the route rather than a placeholder
   // vault, so the page keeps its h1.
@@ -256,13 +262,7 @@ export const EarnSummaryPanel: FC<{
       labelId={titleId}
       // Set wholly in Nunito: the APY pill and the metric figures read `--font-sans` like body text.
       className={cn('face-heading', className)}
-      value={
-        <AnimatedNumber
-          value={summary.totalRewardsUsd}
-          format={usdFigureFormatter(summary.totalRewardsUsd)}
-          placeholder={EARN_PLACEHOLDER}
-        />
-      }
+      value={<UsdAmount amount={summary.totalRewardsUsd} placeholder={EARN_PLACEHOLDER} animated />}
       label={t('earnTotalEarnedRewards')}
       meta={
         <Pill
@@ -284,22 +284,12 @@ export const EarnSummaryPanel: FC<{
         <div className="mt-4 grid grid-cols-2 items-stretch gap-3">
           <MetricCard
             label={t('earnTotalDeposited')}
-            value={
-              <AnimatedNumber
-                value={summary.totalDepositedUsd}
-                format={usdFigureFormatter(summary.totalDepositedUsd)}
-                placeholder={EARN_PLACEHOLDER}
-              />
-            }
+            value={<UsdAmount amount={summary.totalDepositedUsd} placeholder={EARN_PLACEHOLDER} animated />}
           />
           <MetricCard
             label={t('earnEstimatedRewards')}
             value={
-              <AnimatedNumber
-                value={summary.estimatedRewardsUsd}
-                format={usdFigureFormatter(summary.estimatedRewardsUsd, { signed: true })}
-                placeholder={EARN_PLACEHOLDER}
-              />
+              <UsdAmount amount={summary.estimatedRewardsUsd} placeholder={EARN_PLACEHOLDER} prefix="+$" animated />
             }
           />
         </div>

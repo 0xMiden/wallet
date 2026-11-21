@@ -4,9 +4,10 @@
 
 /* #503 — native-app feel: UI chrome (labels, buttons, badges, nav) is not
    text-selectable. Content meant to be copyable opts back in — real inputs, and
-   anything tagged `.select-text` (addresses, seed reveal, error/tx detail
-   strings already use it). Only `user-select` is touched, so the paste/lookup
-   callout on inputs is unaffected.
+   anything tagged `.select-text` (addresses, error/tx detail strings already
+   use it). Recovery phrases stay unselectable: they are copied only through
+   `useClipboardCopy(text, { secret: true })`. Only `user-select` is touched, so
+   the paste/lookup callout on inputs is unaffected.
    NOTE: these rules are intentionally UNLAYERED (declared before
    `@import 'tailwindcss'` below), so they win over Tailwind's layered
    utilities. A bare Tailwind `select-all`/`select-text` class would LOSE to
@@ -900,6 +901,8 @@ body[data-home-band]::before {
     /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
      * Prefixed so a copied shadcn primitive can never redefine them. */
     --ds-page: #ffffff;
+    --ds-launcher-fill: #e77537;
+    --ds-launcher-ink: #191919;
     /* The scrim behind a sheet or an overlay. One value in both themes: the sheet sits on its own
      * surface, so what the scrim has to do is dim the page behind it, and that job does not change
      * with the theme. Plain black at 55% — no blur, no gloss. */
@@ -1028,6 +1031,8 @@ body[data-home-band]::before {
     --card-purple: #beacd2;
 
     --ds-page: #191919;
+    --ds-launcher-fill: #e77537;
+    --ds-launcher-ink: #191919;
     --ds-fill: #262422;
     --ds-fill-pressed: #33302d;
     --ds-action-bar: #1e1e1e;

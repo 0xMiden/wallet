@@ -3,9 +3,14 @@ import { getProcedureRoot } from '@openzeppelin/miden-multisig-client';
 
 import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
 
+import { rethrowTrapOrKill } from './sdk-error-code';
+
 type AuthDiagnostics = Pick<TransactionFailureDiagnostics, 'authLayout' | 'commitmentMatch'>;
 
-/** Derive closed categories locally; never return authentication values or their hashes. */
+/**
+ * Derive closed categories locally; never return authentication values or their hashes. A trap or a kill is not a
+ * failed read: these run inside a hold, and the lock retires only a trap that reaches it.
+ */
 export function customRequestAuthDiagnostics(
   request: TransactionRequest,
   observe?: (state: 'present' | 'absent' | 'read_failed') => void
@@ -23,14 +28,21 @@ export function customRequestAuthDiagnostics(
     // fee.rs commits [INFO, SALT]; MultisigAuthArgs commits [BLOCK, SALT, INFO].
     const input = authLayout === 'fee' ? [...values.slice(4), ...values.slice(0, 4)] : values;
     const digest = Poseidon2.hashElements(new FeltArray(input));
+    // The digest lives in the instance a trap aborted, so a trapped read does not free it: a failing free would
+    // replace the trap the lock retires.
+    let trapped = false;
     try {
       const commitment = auth.toU64s();
       const matches = digest.toU64s().every((value, index) => value === commitment[index]);
       return { authLayout, commitmentMatch: matches ? authLayout : 'neither' };
+    } catch (error) {
+      trapped = error instanceof WebAssembly.RuntimeError;
+      throw error;
     } finally {
-      digest.free?.();
+      if (!trapped) digest.free?.();
     }
-  } catch {
+  } catch (error) {
+    rethrowTrapOrKill(error);
     observe?.('read_failed');
     return { authLayout, commitmentMatch: 'unavailable' };
   }
@@ -47,7 +59,8 @@ export async function customRequestAccountAuthCode(
     const code = stored.code();
     // hasProcedure consumes its Word in the WASM bindings; transfer a fresh owner.
     return code.hasProcedure(Word.fromHex(getProcedureRoot('auth_tx'))) ? 'current_guardian' : 'unrecognized';
-  } catch {
+  } catch (error) {
+    rethrowTrapOrKill(error);
     return 'unavailable';
   }
 }

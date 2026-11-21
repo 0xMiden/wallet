@@ -8,7 +8,13 @@ import {
   type VaultReading
 } from './balance-truth';
 import type { DappAxis } from './dapp-axis';
-import { CellDeadlineExceeded, deadlineIn, InfrastructureFault, type CellContext } from './dapp-cells';
+import {
+  CellDeadlineExceeded,
+  deadlineIn,
+  InfrastructureFault,
+  withFailureEvidence,
+  type CellContext
+} from './dapp-cells';
 import {
   canonicalAddress,
   isForeignConsume,
@@ -17,6 +23,7 @@ import {
   syncedSince,
   type NonCurrentRead
 } from './dapp-gates';
+import pinned from './dapp-pinned.json';
 import {
   describeTransactionRow,
   readTransactionRow,
@@ -499,6 +506,21 @@ export const refusal = (name: string, message: string | RegExp, causeName?: stri
   })
 });
 
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The message of the refusal a custom request gets when the wallet cannot simulate it. The approval needs a
+ * simulation that succeeds, so the wallet refuses such a request before any prompt (`CustomTransactionNotSimulatedError`
+ * in dapp.ts). Only the start is pinned: the reason after it is the dry run's own failure text.
+ */
+export const NOT_SIMULATED_REFUSAL = new RegExp(
+  `^NOT_GRANTED: ${escapeRegExp(pinned.notSimulatedRefusal.text)} ${escapeRegExp(pinned.notSimulatedRefusal.reasonPrefix)}`
+);
+
+/** True when a not-simulated refusal names `error` as its reason. The reason is the dry run's failure text. */
+export const notSimulatedFor = (message: string, error: string): boolean =>
+  new RegExp(`${NOT_SIMULATED_REFUSAL.source}.*${escapeRegExp(error)}`).test(message);
+
 export async function expectNoNewRows(side: WriteSide, baseline: Baseline): Promise<void> {
   const added = (await readTransactionRows(side.wallet.page)).filter(
     row => !baseline.rowIds.includes(row.id) && !isForeignConsume(row, side.journeySenders())
@@ -577,31 +599,48 @@ export async function expectFailedAfterEnqueue(
 }
 
 /**
- * Spec section 5, "Previews". Soft: a declared view is recorded and the cell goes on to approve, so one run can report
- * a preview bug and the failure that follows it. `amount: null` is a request that moves nothing but the fee (X8c);
- * `storageChanged`, when set, is the value the "Storage changed" row must show, and any verified view must show the row.
+ * Spec section 5, "Previews". The user approves only the simulated view: the popup shows a spinner until it has the
+ * view, never a declared view, and keeps Approve disabled without it. So a popup that shows `tx-simulation-failed`
+ * instead fails the cell, because nothing can approve it. `amount: null` is a request that moves nothing but the fee
+ * (X8c); `storageChanged`, when set, is the value the "Storage changed" row must show, and any verified view must show
+ * the row.
  */
 export async function expectVerifiedPreview(
   popup: Page,
-  expected: { amount: RegExp | null; outputNotes: number; storageChanged?: boolean; timeoutMs?: number },
+  expected: {
+    amount: RegExp | null;
+    heldNotesSpent?: number;
+    outputNotes: number;
+    storageChanged?: boolean;
+    timeoutMs?: number;
+  },
   ctx: CellContext
 ): Promise<void> {
   const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
   const failed = popup.getByTestId('tx-simulation-failed');
-  // The declared view renders first while the simulation runs; wait for an outcome, not for the first paint.
+  // A spinner shows while the sheet asks for the simulated view; wait for an outcome, not for the first paint.
   await expect(verified.or(failed)).toBeVisible({ timeout: expected.timeoutMs ?? 60_000 });
   if ((await verified.count()) === 0) {
-    ctx.softFail('preview-verified', `declared view, simulation failed shown: ${await failed.isVisible()}`, {
-      previewSimulationFailed: await failed.isVisible()
-    });
-    return;
+    const previewSimulationFailed = await failed.isVisible();
+    ctx.evidence.previewSimulationFailed = previewSimulationFailed;
+    throw withFailureEvidence(
+      new Error(
+        `no simulated view, so the approval stays blocked; simulation failed shown: ${previewSimulationFailed}`
+      ),
+      { previewSimulationFailed }
+    );
   }
-  // The heading renders with the view, before any row's token metadata resolves, so its absence is not a race.
+  // The heading appears once a row's token metadata resolves (or the view names a fee); the count retries until then.
   const moves = expected.amount === null ? 0 : 1;
   await expect(verified.getByText('Asset changes', { exact: true })).toHaveCount(moves);
   const rows = verified.locator('[data-verified="true"]');
   await expect(expected.amount === null ? rows : rows.filter({ hasText: expected.amount })).toHaveCount(moves);
   await expect(popup.getByTestId('tx-output-notes-created')).toHaveText(String(expected.outputNotes));
+  // Already-held notes the request spends: none unless the cell names a count, so no held-note line by default.
+  const held = expected.heldNotesSpent ?? 0;
+  const heldLine = verified.locator('[data-testid="tx-held-notes-spent"]');
+  const heldShown = held === 0 ? heldLine : heldLine.filter({ hasText: new RegExp(`^${held}$`) });
+  await expect(heldShown).toHaveCount(held === 0 ? 0 : 1);
   const storage = popup.getByTestId('tx-storage-changed');
   const changed = expected.storageChanged;
   await expect(storage).toHaveAttribute('data-changed', changed === undefined ? /^(true|false)$/ : String(changed));

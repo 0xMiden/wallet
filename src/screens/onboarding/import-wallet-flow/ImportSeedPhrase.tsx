@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { validateMnemonic } from '@miden/hd-key';
@@ -10,6 +11,7 @@ import { TextAction } from 'components/ui/TextAction';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { isMobile } from 'lib/platform';
+import { handleSecretCopyEvent, selectedFieldText } from 'lib/ui/secret-clipboard';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
@@ -109,6 +111,24 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
 
   const wordRefs = useRef<(TextFieldElement | null)[]>([]);
 
+  const setWord = (index: number, value: string) => {
+    const newSeedPhrase = [...seedPhrase];
+    newSeedPhrase[index] = cleanWord(value);
+    setPasteTooLong(false);
+    setSeedPhrase(newSeedPhrase);
+  };
+
+  // A copied seed word is key material, so it goes through the secret clipboard. That cancels the cut,
+  // and with it the browser's own delete, so the selection is removed here and the caret kept at its start.
+  const onWordCut = (event: React.ClipboardEvent<TextFieldElement>, index: number) => {
+    const field = event.currentTarget;
+    const start = field.selectionStart ?? 0;
+    const end = field.selectionEnd ?? 0;
+    handleSecretCopyEvent(event.nativeEvent, selectedFieldText(field));
+    flushSync(() => setWord(index, field.value.slice(0, start) + field.value.slice(end)));
+    field.setSelectionRange(start, start);
+  };
+
   // With an enterKeyHint set, Android Chromium sends Next and Done as an Enter keydown, with the
   // word still composing, instead of moving focus. So isComposing cannot gate this, and keyCode
   // 229 (an Enter that only commits an IME composition) is the one to skip. Done blurs only on
@@ -162,12 +182,9 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
               // Key material, like the private-key fields beside it, and too narrow in two columns.
               clearable={false}
               onPaste={onInputPaste}
-              onChange={event => {
-                const newSeedPhrase = [...seedPhrase];
-                newSeedPhrase[index] = cleanWord(event.target.value);
-                setPasteTooLong(false);
-                setSeedPhrase(newSeedPhrase);
-              }}
+              onCopy={event => handleSecretCopyEvent(event.nativeEvent, selectedFieldText(event.currentTarget))}
+              onCut={event => onWordCut(event, index)}
+              onChange={event => setWord(index, event.target.value)}
             />
           ))}
         </div>

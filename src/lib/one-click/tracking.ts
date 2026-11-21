@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 
 import { liveQuery } from 'dexie';
 
-import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
   ITransactionStatus,
   BridgedReceiveTransaction,
@@ -12,8 +11,6 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 
@@ -362,13 +359,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
           // claim took it). The success of the provider is final, so the row closes and the note reads stop.
           phase = 'delivered';
         } else if (faucetId && amount !== undefined) {
-          const notes = await withWasmClientLock(
-            async hold =>
-              midenClientProxy.getConsumableNotes(tracking.accountId, step =>
-                assertWasmHoldCurrent(hold, 'inside the 1Click delivery note read', step)
-              ),
-            { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'one-click-delivery' }
-          );
+          // A committed note is ready to claim, not yet received; only a completed local consume closes the row.
           const consumed = await Repo.transactions.where('type').equals('consume').toArray();
           const noteIds = destinationNoteIds ?? [];
           const arrived =
@@ -378,7 +369,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
                   faucetId,
                   amount,
                   noteIds,
-                  consumableNotes: notes,
+                  consumableNotes: [],
                   transactions: consumed
                 })
               : hasOneClickDeliveryArrivedByAmount({
@@ -386,7 +377,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
                   faucetId,
                   amount,
                   since: transaction.initiatedAt,
-                  consumableNotes: notes,
+                  consumableNotes: [],
                   transactions: consumed
                 });
           if (arrived) phase = 'delivered';

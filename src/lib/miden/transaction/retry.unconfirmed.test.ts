@@ -10,7 +10,7 @@ import {
   TRANSACTION_LANDING_PENDING_RETRY_ERROR
 } from './constants';
 import { ClaimFeeRefusedError } from './initiate';
-import { NodeReads } from './reconcile-reads';
+import { NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { acknowledgementOf, requeueFailedTransaction, RETRY_REFUSAL_COPY, RetryOptions } from './retry';
 import { isGuardianHoldRetryError } from './retry-refusal';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -458,15 +458,19 @@ describe('the safe marker (#1081)', () => {
     expect((await read())?.neverCommittedAt).toBe(NOW - 5);
   });
 
-  it.each<['execute' | 'swap', CopyKey]>([
+  it.each<['execute' | 'swap' | 'bridged-send', CopyKey]>([
     ['execute', 'executeLiveProven'],
-    ['swap', 'swapLiveProven']
+    ['swap', 'swapLiveProven'],
+    ['bridged-send', 'sendLiveProven']
   ])(
     'a proven %s still meets the liveness refusal through a recent end, with the proven copy (PN-1)',
     async (type, copy) => {
       await Repo.transactions.put(
         unconfirmedSend({
           type,
+          ...(type === 'bridged-send'
+            ? { extraInputs: { provider: 'agglayer' }, requestBytes: new Uint8Array([1]) }
+            : {}),
           status: ITransactionStatus.Failed,
           neverCommittedAt: NOW - 5,
           submitEvidence: [entry({ verdict: 'never-committed', endedBy: 'out-of-band', endedAt: NOW - 1 })]
@@ -478,7 +482,7 @@ describe('the safe marker (#1081)', () => {
     }
   );
 
-  it('a proven Agglayer row whose pipeline may still run requeues with no refusal at all', async () => {
+  it('a proven Agglayer row whose pipeline may still run meets the liveness refusal, which no acknowledgement passes', async () => {
     await Repo.transactions.put(
       unconfirmedSend({
         type: 'bridged-send',
@@ -490,8 +494,14 @@ describe('the safe marker (#1081)', () => {
         submitEvidence: [entry({ verdict: 'never-committed', endedBy: 'kill', endedAt: NOW - 1 })]
       })
     );
-    await requeueFailedTransaction('tx-1');
-    expect((await read())?.status).toBe(ITransactionStatus.Queued);
+    const error = await refusal();
+    expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.sendLiveProven);
+    expect(acknowledgementOf(error)).toBeNull();
+    expect(await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })).toHaveProperty(
+      'message',
+      RETRY_REFUSAL_COPY.sendLiveProven
+    );
+    expect((await read())?.status).toBe(ITransactionStatus.Failed);
   });
 });
 
@@ -533,6 +543,40 @@ describe('an unproven execute is acknowledgeable (#1081)', () => {
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
     expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+  });
+
+  describe('the account that created its attempt note (#2147)', () => {
+    /** NOTE on chain as `creator` created it: a read naming another sender gets no answer, as the real read's. */
+    const heldBy = (creator: string) => {
+      const noteInclusions = jest.fn(
+        async (
+          ...[, , sender]: Parameters<NodeReads['noteInclusions']>
+        ): Promise<ReadonlyMap<string, number> | undefined> =>
+          sender === undefined || sender === creator ? new Map([[NOTE, 140]]) : undefined
+      );
+      mockNode.current = { ...node({ blockNum: 150, commitment: OTHER }), noteInclusions };
+      return noteInclusions;
+    };
+
+    it('a note the node holds only as another account`s meets the acknowledgeable refusal, never a completion', async () => {
+      const noteInclusions = heldBy('mtst1other');
+      await Repo.transactions.put(execute());
+      const error = await refusal();
+      expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.executeChecking);
+      expect(acknowledgementOf(error)).toEqual({ attemptId: 'a1' });
+      const row = await read();
+      expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+      expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+      expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, 'mtst1acct_s']]);
+    });
+
+    it('a note its own account created completes it on the first Retry', async () => {
+      const noteInclusions = heldBy('mtst1acct_s');
+      await Repo.transactions.put(execute());
+      expect(await refusal()).toBeUndefined();
+      expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, transactionId: hex(2) });
+      expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, 'mtst1acct_s']]);
+    });
   });
 
   it('one whose entry lists a nullifier requeues as today', async () => {
@@ -682,14 +726,13 @@ describe('the requeue write and evidence that moves under Retry (#1081)', () => 
   });
 
   it('two changes end the call with the being-checked refusal and queue nothing', async () => {
-    // An Agglayer row needs no acknowledgement, so both judgings reach the write (a plain send's second, unacknowledged
-    // judging refuses before it).
+    // An execute whose entry lists a nullifier needs no acknowledgement, so both judgings reach the write (a send's
+    // second, unacknowledged judging refuses before it).
     await Repo.transactions.put(
       unconfirmedSend({
-        type: 'bridged-send',
-        extraInputs: { provider: 'agglayer' },
+        type: 'execute',
         requestBytes: new Uint8Array([1]),
-        submitEvidence: [{ attemptId: 'a1', capturedAt: NOW - 60, source: 'error-text' }]
+        submitEvidence: [{ attemptId: 'a1', capturedAt: NOW - 60, source: 'error-text', nullifiers: [hex(30)] }]
       })
     );
     let n = 0;

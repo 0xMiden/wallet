@@ -1,10 +1,17 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk';
 
-import { formatAmount } from 'lib/shared/format';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import type { ITransaction } from 'lib/miden/db/types';
+import {
+  partitionApprovedUsdcxSponsorship,
+  usdcxSponsorshipApprovalOf,
+  type SponsorshipNote
+} from 'lib/usdcx/sponsorship';
 
-import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes } from './fee-notes';
+import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes, splitLandedOutputNotes } from './fee-notes';
 import type { FeePaid } from './fee-notes';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes };
@@ -19,9 +26,10 @@ export type { UserOutputNote, FeePaid } from './fee-notes';
  * magnitude. The vault delta is not usable either: the SDK exposes the post-state
  * absolutely, not as a difference.
  *
- * Absorbs a missing or throwing accessor: this runs while recording a transaction the
- * user has already sent, and losing the whole row to it would be worse than losing the
- * fee figure.
+ * A fee-check trap is answered by {@link splitLandedOutputNotes}, while a read after the split still drops the
+ * figure. This runs while recording a transaction the user has already sent, and losing the whole row to that later
+ * read would be worse than losing the fee figure. Either way a trap retires the realm client first, once per
+ * `landing`, the wallet row id (`sdk/landed-trap-retirement.ts`).
  *
  * An EVICTION is the one exception and propagates. Every accessor here borrows from the
  * WASM client's RefCell, so once the watchdog has handed the mutex to a successor these
@@ -29,28 +37,52 @@ export type { UserOutputNote, FeePaid } from './fee-notes';
  * plausible `undefined` and let the caller run its NEXT WASM read on the same evicted
  * client -- the double borrow the poison contract exists to prevent.
  */
-export function feePaidFromResult(result: TransactionResult): FeePaid | undefined {
+export function feePaidFromResult(
+  result: TransactionResult,
+  landing: string,
+  transaction?: ITransaction
+): FeePaid | undefined {
   try {
-    const { feeNote } = splitExecutedOutputNotes(result.executedTransaction());
-    if (!feeNote) {
-      return undefined;
-    }
-    const assets = feeNote.assets()?.fungibleAssets() ?? [];
-    const first = assets[0];
-    if (!first) {
-      return undefined;
-    }
+    const { feeNote, userNotes, verificationFeeKnown } = splitLandedOutputNotes(result, landing);
+    const budgetedBurn =
+      transaction?.extraInputs?.provider === 'usdcx' &&
+      transaction.extraInputs.usdcxBurn?.networkFeeBudget !== undefined
+        ? transaction
+        : undefined;
+    // A verified companion is not a known TOTAL if the ordinary fee split was ambiguous or trapped.
+    if (budgetedBurn && !verificationFeeKnown) return undefined;
+    const first = feeNote?.assets()?.fungibleAssets()[0];
     // BECH32, like every other faucet id the wallet stores -- `String(AccountId)`
     // gives canonical hex, and the two are different encodings of the same account.
     // `assetsMetadata` is keyed by bech32 and `resolveDisplayMetadata` compares the
     // native faucet id by string equality, so a hex id missed both, resolved to the
     // unknown-token placeholder (`scaleIsUnknown: true`) and made `hasKnownScale`
     // false -- which meant the receipt's fee row was never rendered at all.
-    return { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) };
+    const paid = first
+      ? { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) }
+      : undefined;
+    if (!budgetedBurn) return paid;
+    const approval = usdcxSponsorshipApprovalOf(budgetedBurn);
+    if (!approval) throw new Error('The completed burn has no approved fee context');
+    const notes = userNotes.map((note): SponsorshipNote => {
+      const id = note.id().toString();
+      const assets = note.assets();
+      if (!assets) return { id, amounts: [], nfts: [], opaque: true };
+      return {
+        id,
+        amounts: assets.fungibleAssets().map(asset => ({
+          amount: BigInt(asset.amount()),
+          faucetId: getBech32AddressFromAccountId(asset.faucetId())
+        })),
+        nfts: assets.nonFungibleAssets()
+      };
+    });
+    return partitionApprovedUsdcxSponsorship(notes, paid, approval).fee;
   } catch (err) {
     if (isWasmClientPoisonedError(err)) {
       throw err;
     }
+    retireLandedTrap(err, landing, result);
     return undefined;
   }
 }
@@ -62,14 +94,18 @@ export function feePaidFromResult(result: TransactionResult): FeePaid | undefine
  * paid: these spread into a partial update that `Object.assign`s over the stored
  * row, so writing explicit undefineds would erase whatever is already there.
  */
-export function feeFieldsFromResult(result: TransactionResult | undefined): {
+export function feeFieldsFromResult(
+  result: TransactionResult | undefined,
+  landing: string,
+  transaction?: ITransaction
+): {
   feeAmount?: bigint;
   feeFaucetId?: string;
 } {
   if (!result) {
     return {};
   }
-  const paid = feePaidFromResult(result);
+  const paid = feePaidFromResult(result, landing, transaction);
   return paid ? { feeAmount: paid.amount, feeFaucetId: paid.faucetId } : {};
 }
 
@@ -88,5 +124,5 @@ export function feeTextFromTransaction(
   if (transaction.feeAmount === undefined) {
     return undefined;
   }
-  return `${formatAmount(transaction.feeAmount, decimals)} ${symbol}`;
+  return `${formatAmountDisplay(transaction.feeAmount, { decimals: decimals, rounding: 'up' })} ${symbol}`;
 }

@@ -211,6 +211,13 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
+// A checked write decides the chain fee before it runs.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: jest.fn(async () => 0),
+  refreshVerificationBaseFee: jest.fn(async () => 0)
+}));
+
 jest.mock('lib/miden/swap/fee-context', () => ({
   readSwapFeeContext: jest.fn(async () => ({
     scope: 'testnet|rpc',
@@ -380,7 +387,7 @@ describe('completeSendTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('marks failed when extractFullNote returns undefined for private note', async () => {
+  it('rejects when extractFullNote returns undefined for a private note and writes no Failed row', async () => {
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     // Need to make the helpers mock return 'private' for this test
@@ -388,9 +395,11 @@ describe('completeSendTransaction', () => {
     const orig = helpers.toNoteTypeString;
     helpers.toNoteTypeString = () => 'private';
     try {
-      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.displayMessage).toContain('unavailable');
+      await expect(completeSendTransaction(tx, makeResult({ hasOutputNote: false }))).rejects.toThrow(
+        'Missing full note for private send'
+      );
+      expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(txStore[0]!.displayMessage).not.toBe('Send failed: note unavailable');
     } finally {
       helpers.toNoteTypeString = orig;
     }
@@ -653,20 +662,20 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('records undelivered when the full note is unavailable for a landed private send', async () => {
-    // Failed, but the transaction LANDED — so a private note exists on chain that
-    // was never relayed. "Failed" and "undelivered" are different claims and only
-    // the second says value is sitting somewhere unreachable.
+  it('rejects when the full note is unavailable for a private send and writes no Failed row', async () => {
+    // The landed arm records the stamp. This direct call throws and writes nothing, so the row stays
+    // unfailed and never shows "Send failed: note unavailable".
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
     const orig = helpers.toNoteTypeString;
     helpers.toNoteTypeString = () => 'private';
     try {
-      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.noteDelivery).toBe('undelivered');
-      expect(txStore[0]!.transactionId).toBeTruthy();
+      await expect(completeSendTransaction(tx, makeResult({ hasOutputNote: false }))).rejects.toThrow(
+        'Missing full note for private send'
+      );
+      expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(txStore[0]!.displayMessage).not.toBe('Send failed: note unavailable');
     } finally {
       helpers.toNoteTypeString = orig;
     }
@@ -693,19 +702,10 @@ describe('completeSendTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('catches update status error gracefully (console.error logged)', async () => {
-    const spy = jest.spyOn(console, 'error').mockImplementation();
+  it('lets a failed Completed write leave the tail, so the landed arm records the row', async () => {
     const tx = makeSendTx();
-    // Don't push to txStore — updateTransactionStatus will throw 'No transaction found'
-    try {
-      await completeSendTransaction(tx, makeResult());
-    } catch {
-      // May or may not throw depending on the error path
-    }
-    // `toBeDefined` on a spy is always true: it held whether the failure was
-    // logged or the path was never reached at all.
-    expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
+    // Not in txStore, so updateTransactionStatus throws 'No transaction found'
+    await expect(completeSendTransaction(tx, makeResult())).rejects.toThrow('No transaction found');
   });
 });
 
@@ -1749,6 +1749,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([51, 52, 53]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1776,6 +1778,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([54, 55, 56]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         claimStatus: 'not-applicable',
@@ -1828,6 +1832,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([57, 58, 59]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1875,6 +1881,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([61, 62, 63]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1918,6 +1926,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([9]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', claimStatus: 'pending' }
     });
 
@@ -1946,7 +1955,12 @@ describe('generateTransactionsLoop error paths', () => {
       },
       'Swapped'
     ],
-    ['execute', { type: 'execute', requestBytes: new Uint8Array([8]) }, 'Executed']
+    // No private-note count is known, so the execute may owe one.
+    [
+      'execute',
+      { type: 'execute', requestBytes: new Uint8Array([8]) },
+      'Executed - the private note could not be delivered'
+    ]
   ])(
     'labels a landed %s as its completion handler would on the apply-after-submit error (#1233)',
     async (_label, fields, label) => {
@@ -2365,6 +2379,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([1]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 25 }
     });
     await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -2478,7 +2493,8 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'guardian-acc',
       secondaryAccountId: 'allocator',
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' },
-      requestBytes: earnBytes
+      requestBytes: earnBytes,
+      approvedOutputNoteIds: ['note:recorded']
     });
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -2513,6 +2529,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([64, 65, 66]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { ...extraInputs }
     });
 

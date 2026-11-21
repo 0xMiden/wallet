@@ -32,6 +32,7 @@ import {
   fontColorForType,
   formatDate,
   formatMoneyAmount,
+  hasOwnBridgeBadge,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
@@ -713,6 +714,24 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
   });
 
+  it('reads Stopped before sending for a proven original pre-source stop, not a pending or failed delivery', () => {
+    const stopped = Object.assign(deposit({ bridgeInPhase: 'submitting' }), { bridgeInStoppedBeforeSource: true });
+    expect(bridgeBadgeStatusOf(stopped)).toBe('stoppedBeforeSource');
+    expect(hasOwnBridgeBadge(stopped)).toBe(true);
+  });
+
+  it('does not turn a restored, unresolved, or failed receive into a proven pre-source stop', () => {
+    const cases: Partial<IHistoryEntry>[] = [
+      { restoredFromBackup: true, bridgeInPhase: 'submitting' },
+      { bridgeInPhase: 'delivering' },
+      { bridgeInPhase: 'failed' }
+    ];
+    for (const overrides of cases) {
+      const entry = Object.assign(deposit(overrides), { bridgeInStoppedBeforeSource: true });
+      expect(bridgeBadgeStatusOf(entry)).toBe(overrides.bridgeInPhase === 'failed' ? 'failed' : 'pending');
+    }
+  });
+
   it('reads Failed for a failed deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
   });
@@ -760,6 +779,48 @@ describe('bridgeBadgeStatusOf for a NEAR Intents deposit', () => {
 
   it('keeps Failed for a failed or refunded deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ phase: 'refunded' }, { bridgeInPhase: 'failed' }), pastGrace)).toBe('failed');
+  });
+});
+
+describe('bridgeBadgeStatusOf for an Epoch deposit locked in The Compact (#2120)', () => {
+  const lock = {
+    sponsorAddress: '0x00000000000000000000000000000000000000aa',
+    chainId: 11155111,
+    lockId: '42',
+    tokenAddress: '0x0000000000000000000000000000000000000002',
+    isNative: false,
+    amount: '1000000',
+    taskTypeString: 'task',
+    intentData: {},
+    lockedAt: 1
+  };
+  const locked = (overrides: Partial<IHistoryEntry>) =>
+    bridgeEntry({
+      txType: 'bridged-receive',
+      bridgeInProvider: 'epoch',
+      bridgeInPhase: 'failed',
+      bridgeInLockedDeposit: lock,
+      ...overrides
+    });
+
+  it('reads Deposit locked, and Deposit withdrawn once the deposit went back', () => {
+    expect(hasOwnBridgeBadge(locked({}))).toBe(true);
+    expect(bridgeBadgeStatusOf(locked({}))).toBe('depositLocked');
+    expect(bridgeBadgeStatusOf(locked({ bridgeInLockedDeposit: { ...lock, withdrawnAt: 2 } }))).toBe(
+      'depositWithdrawn'
+    );
+  });
+
+  it('reads the normal bridge status after a retry registered the deposit again', () => {
+    const retried = locked({ bridgeInPhase: 'delivering', bridgeInLockedDeposit: { ...lock, reallocatedAt: 2 } });
+    expect(hasOwnBridgeBadge(retried)).toBe(false);
+    expect(bridgeBadgeStatusOf(retried)).toBe('pending');
+  });
+
+  it('reads plain Failed for a restored row', () => {
+    const restored = locked({ restoredFromBackup: true });
+    expect(hasOwnBridgeBadge(restored)).toBe(false);
+    expect(bridgeBadgeStatusOf(restored)).toBe('failed');
   });
 });
 

@@ -6,11 +6,11 @@ import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
 import { TokenLogo } from 'components/TokenLogo';
-import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem, AssetListItemSkeleton } from 'components/ui/AssetListItem';
 import { Notice } from 'components/ui/Notice';
+import { Popover } from 'components/ui/Popover';
 import { SearchInput } from 'components/ui/SearchInput';
-import { adaptiveFormatterFor } from 'lib/i18n/numbers';
+import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
@@ -30,6 +30,7 @@ export interface SelectTokenDrawerProps {
   open: boolean;
   usdcxOnly?: boolean;
   destinationChainId?: number;
+  anchorRef?: React.RefObject<HTMLButtonElement>;
   onOpenChange: (open: boolean) => void;
   onSelect: (token: UIToken) => void;
 }
@@ -48,7 +49,8 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
   onOpenChange,
   onSelect,
   usdcxOnly = false,
-  destinationChainId
+  destinationChainId,
+  anchorRef
 }) => {
   const { t } = useTranslation();
   const { publicKey } = useAccount();
@@ -97,83 +99,107 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
     [onSelect, onOpenChange]
   );
 
-  // SendManager's back handler closes this sheet, so the sheet does not register its own.
+  const picker = (
+    <div className={anchorRef ? 'flex min-h-0 flex-col p-3' : 'flex h-120 min-h-0 flex-col px-4 pb-4'}>
+      <SearchInput
+        value={searchQuery}
+        onChange={setSearchQuery}
+        placeholder={t('searchForTokens')}
+        data-testid="send-token-search"
+        className="shrink-0"
+      />
+      {usdcxOnly && <p className="shrink-0 pt-3 text-caption text-muted">{t('sendUsdcxOnlyDestination')}</p>}
+      {holdsPendingToken && (
+        <Notice
+          tone="warning"
+          icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+          className="mt-3 shrink-0"
+          data-testid="send-picker-held-notice"
+        >
+          {t('sendTokenAvailabilityChecking')}
+        </Notice>
+      )}
+      <div className={anchorRef ? 'pt-2' : 'no-scrollbar min-h-0 overflow-y-auto pt-5'}>
+        <div className="flex flex-col divide-y divide-rule-default">
+          {balancesLoading ? (
+            <AssetListItemSkeleton data-testid="send-token-skeleton" />
+          ) : (
+            filteredBalances.map(b => {
+              const scaleIsKnown = hasKnownScale(b.metadata);
+              const priceSymbol = priceSymbolFor(b.tokenId, b.metadata.symbol);
+              const fiatValue = listedFiatValue(tokenPrices, priceSymbol, b.balance, scaleIsKnown);
+              const priceStatus = !scaleIsKnown
+                ? t('assetValueUnknownScale')
+                : fiatValue === undefined
+                  ? priceSymbol
+                    ? pricesStatus === 'loading'
+                      ? t('loading')
+                      : t('unavailable')
+                    : t('assetPriceUnsupported')
+                  : undefined;
+              const name = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.name || b.metadata.symbol);
+              const unit = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol);
+              return (
+                <AssetListItem
+                  key={b.tokenId}
+                  disabled={usdcxOnly && !isUsdcxWithdrawalAvailable(b.tokenId)}
+                  icon={<TokenLogo faucetId={b.tokenId} />}
+                  name={name}
+                  amount={
+                    scaleIsKnown ? (
+                      <TokenAmount
+                        amount={b.balance}
+                        symbol={unit}
+                        animated
+                        rounding="down"
+                        trimTrailingZeros={false}
+                        minimumFractionDigits={2}
+                      />
+                    ) : (
+                      unit
+                    )
+                  }
+                  price={
+                    fiatValue === undefined ? undefined : <UsdAmount amount={fiatValue} animated grouping={false} />
+                  }
+                  priceStatus={priceStatus}
+                  data-testid={`send-token-${b.metadata.symbol}`}
+                  data-token-id={b.tokenId}
+                  onClick={() => onSelectToken(uiTokenFromBalance(b, tokenPrices))}
+                />
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  if (anchorRef)
+    return (
+      <Popover
+        open={open}
+        anchorRef={anchorRef}
+        align="start"
+        aria-label={t('selectAToken')}
+        screenKey="token"
+        onClose={() => {
+          setSearchQuery('');
+          onOpenChange(false);
+        }}
+      >
+        {picker}
+      </Popover>
+    );
+
+  // SendManager handles the compact sheet's back gesture.
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="token" closeOnBack={false}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>
         </DrawerHeader>
-        <div className="flex h-120 min-h-0 flex-col px-4 pb-4">
-          <SearchInput
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder={t('searchForTokens')}
-            data-testid="send-token-search"
-            className="shrink-0"
-          />
-          {usdcxOnly && <p className="shrink-0 pt-3 text-caption text-muted">{t('sendUsdcxOnlyDestination')}</p>}
-          {holdsPendingToken && (
-            <Notice
-              tone="warning"
-              icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
-              className="mt-3 shrink-0"
-              data-testid="send-picker-held-notice"
-            >
-              {t('sendTokenAvailabilityChecking')}
-            </Notice>
-          )}
-          <div className="no-scrollbar min-h-0 overflow-y-auto pt-5">
-            <div className="flex flex-col divide-y divide-rule-default">
-              {balancesLoading ? (
-                <AssetListItemSkeleton data-testid="send-token-skeleton" />
-              ) : (
-                filteredBalances.map(b => {
-                  const scaleIsKnown = hasKnownScale(b.metadata);
-                  const priceSymbol = priceSymbolFor(b.tokenId, b.metadata.symbol);
-                  const fiatValue = listedFiatValue(tokenPrices, priceSymbol, b.balance, scaleIsKnown);
-                  const formatQuantity = adaptiveFormatterFor(b.balance);
-                  const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
-                  const priceStatus = !scaleIsKnown
-                    ? t('assetValueUnknownScale')
-                    : fiatValue === undefined
-                      ? priceSymbol
-                        ? pricesStatus === 'loading'
-                          ? t('loading')
-                          : t('unavailable')
-                        : t('assetPriceUnsupported')
-                      : undefined;
-                  const name = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.name || b.metadata.symbol);
-                  const unit = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol);
-                  return (
-                    <AssetListItem
-                      key={b.tokenId}
-                      disabled={usdcxOnly && !isUsdcxWithdrawalAvailable(b.tokenId)}
-                      icon={<TokenLogo faucetId={b.tokenId} />}
-                      name={name}
-                      amount={
-                        scaleIsKnown ? (
-                          <AnimatedNumber value={b.balance} format={value => `${formatQuantity(value)} ${unit}`} />
-                        ) : (
-                          unit
-                        )
-                      }
-                      price={
-                        fiatValue === undefined ? undefined : (
-                          <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
-                        )
-                      }
-                      priceStatus={priceStatus}
-                      data-testid={`send-token-${b.metadata.symbol}`}
-                      data-token-id={b.tokenId}
-                      onClick={() => onSelectToken(uiTokenFromBalance(b, tokenPrices))}
-                    />
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
+        {picker}
       </DrawerContent>
     </Drawer>
   );

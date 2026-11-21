@@ -87,6 +87,7 @@ const authorization = {
 
 const args = () => ({
   amount: 250n,
+  minimumOutputBaseUnits: 250n,
   faucetId: 'mtst1faucet',
   destinationAddress: '0x1111111111111111111111111111111111111111' as const,
   senderPublicKey: 'mtst1sender',
@@ -168,13 +169,78 @@ describe('the Epoch quote amount', () => {
   });
 
   it('returns the exact quote for the Review to format', async () => {
-    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '10.655599', symbol: 'USDC' });
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({
+      amount: '10.655599',
+      symbol: 'USDC',
+      validity: { kind: 'provider' }
+    });
   });
 
   it('reads a zero quote as 0, not a padded 0.00', async () => {
     mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '0' } });
 
-    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '0', symbol: 'USDC' });
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({
+      amount: '0',
+      symbol: 'USDC',
+      validity: { kind: 'provider' }
+    });
+  });
+});
+
+describe('the reviewed Epoch output minimum', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetEvmUsdc.mockReturnValue(mockUsdc);
+    mockGetEpochReadOnlySdk.mockResolvedValue({});
+    mockGetCurrentMidenBlock.mockResolvedValue(1000);
+    mockGetCrossChainQuote.mockImplementation(async (_sdk, params) => ({
+      quoteResult: { tokenOut: '250' },
+      intentData: { minTokenOut: params.minTokenOut }
+    }));
+    mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
+      await options.createMidenP2IDENote('hex:mtst1faucet', '250', '0xallocator', 5_000, [1n]);
+      return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
+    });
+  });
+
+  it('binds the exact reviewed output into the quote and the actual prefetched mandate', async () => {
+    await bridgeEpochSend(args());
+    expect(mockGetCrossChainQuote).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ minTokenOut: '250' }),
+      expect.any(String)
+    );
+    expect(mockBuildCrossChainIntent).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        minTokenOut: '250',
+        preFetchedQuote: expect.objectContaining({ intentData: { minTokenOut: '250' } })
+      })
+    );
+  });
+  it.each([0n, -1n])('rejects a nonpositive reviewed minimum before external preparation: %s', async minimum => {
+    await expect(bridgeEpochSend({ ...args(), minimumOutputBaseUnits: minimum })).rejects.toThrow();
+    expect(mockGetEpochReadOnlySdk).not.toHaveBeenCalled();
+    expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
+  });
+  it('refuses an omitted reviewed minimum at the runtime boundary', async () => {
+    const { minimumOutputBaseUnits: _minimum, ...missing } = args();
+    await expect(Reflect.apply(bridgeEpochSend, undefined, [missing])).rejects.toThrow();
+    expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
+  });
+  it.each(['249', '0', '-1', 'not-an-amount', '0.0002499', undefined])(
+    'never creates collateral for a worse or invalid fresh quote: %s',
+    async tokenOut => {
+      mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut } });
+      await expect(bridgeEpochSend(args())).rejects.toThrow();
+      expect(mockBuildCrossChainIntent).not.toHaveBeenCalled();
+      expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
+    }
+  );
+  it('retains support for exact human-decimal provider outputs without rounding them up', async () => {
+    mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '0.000250' } });
+    await expect(bridgeEpochSend(args())).resolves.toEqual({ txId: 'tx-1' });
   });
 });
 
@@ -206,7 +272,11 @@ describe('the configured output token', () => {
     });
     mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '1500000000000000000' } });
 
-    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '1.5', symbol: 'USDC.e' });
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({
+      amount: '1.5',
+      symbol: 'USDC.e',
+      validity: { kind: 'provider' }
+    });
     await bridgeEpochSend(args());
 
     expect(mockGetCrossChainQuote).toHaveBeenCalledWith(

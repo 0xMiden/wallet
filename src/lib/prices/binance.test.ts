@@ -177,6 +177,42 @@ it('returns no history when market resolution or chart loading fails', async () 
   warn.mockRestore();
 });
 
+it('reports the interval a YTD request sent when the clock crosses day 90 while it is pending', async () => {
+  jest.useFakeTimers().setSystemTime(new Date('2026-03-31T12:00:00'));
+  try {
+    http.get.mockImplementationOnce(async () => {
+      jest.setSystemTime(new Date('2026-04-01T12:00:00'));
+      return { data: [[1, 0, 0, 0, '0.95']] };
+    });
+    expect(await engine.fetchKlineSeries('USDT', 'YTD')).toEqual({
+      points: [{ time: 1, value: 0.95 }],
+      stepMs: 21_600_000
+    });
+    expect(http.get).toHaveBeenCalledWith(
+      expect.stringContaining('/uiKlines'),
+      expect.objectContaining({ params: expect.objectContaining({ interval: '6h' }) })
+    );
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it('gives the 1M series a 6h step and keeps fetchKlineData to points', async () => {
+  http.get.mockResolvedValue({ data: [[1, 0, 0, 0, '0.95']] });
+  expect(await engine.fetchKlineSeries('USDT', '1M')).toEqual({
+    points: [{ time: 1, value: 0.95 }],
+    stepMs: 21_600_000
+  });
+  expect(await engine.fetchKlineData('USDT', '1M')).toEqual([{ time: 1, value: 0.95 }]);
+});
+
+it('gives an empty series with no step when the history request fails', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  http.get.mockRejectedValueOnce(new Error('offline'));
+  expect(await engine.fetchKlineSeries('USDT', '1D')).toEqual({ points: [], stepMs: Number.NaN });
+  warn.mockRestore();
+});
+
 it('keeps the fixed USDCX rate and waits for unresolved market assets', () => {
   expect(engine.quotedPrice({}, 'USDCX')?.price).toBe(1);
   expect(engine.pricesLoaded({}, ['USDCX'])).toBe(true);

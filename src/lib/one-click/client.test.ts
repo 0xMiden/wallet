@@ -130,6 +130,88 @@ async function callSubmitBoundary(
 }
 
 describe('1Click client', () => {
+  it.each(['status', 'submit'])(
+    'accepts omitted nested correlation metadata for %s while verifying the unchanged signed quote',
+    async boundary => {
+      const { correlationId: _originalTrace, ...signedReceipt } = pinnedWetQuote;
+      fetchMock.mockResolvedValue(
+        Response.json({
+          ...statusResponse(pinnedWetQuote),
+          correlationId: 'new-status-request-trace',
+          quoteResponse: signedReceipt
+        })
+      );
+      const result =
+        boundary === 'status'
+          ? await fetchOneClickStatus(fixtureConfig(), wetDepositAddress, undefined, pinnedWetQuote)
+          : await submitOneClickDeposit(
+              fixtureConfig(),
+              wetDepositAddress,
+              submitTransactionHash,
+              undefined,
+              pinnedWetQuote
+            );
+      expect(result.quoteResponse.correlationId).toBe('new-status-request-trace');
+      expect(result.quoteResponse.signature).toBe(pinnedWetQuote.signature);
+      expect(hashOneClickQuote(result.quoteResponse)).toBe(hashOneClickQuote(pinnedWetQuote));
+      expect(verifyOneClickQuoteSignature(result.quoteResponse)).toBe(true);
+    }
+  );
+  it.each([null, 42, '', 'a'.repeat(257)])(
+    'does not overwrite malformed nested tracing metadata %j',
+    async correlationId => {
+      fetchMock.mockResolvedValue(
+        Response.json({ ...statusResponse(pinnedWetQuote), quoteResponse: { ...pinnedWetQuote, correlationId } })
+      );
+      await expect(fetchOneClickStatus(fixtureConfig(), wetDepositAddress, undefined, pinnedWetQuote)).rejects.toThrow(
+        'correlationId'
+      );
+    }
+  );
+  it.each(['timestamp', 'amountOut'])(
+    'still rejects altered signed %s when nested correlation metadata is absent',
+    async field => {
+      const { correlationId: _originalTrace, ...signedReceipt } = pinnedWetQuote;
+      const altered =
+        field === 'timestamp'
+          ? { ...signedReceipt, timestamp: '2026-10-22T11:16:07.170Z' }
+          : { ...signedReceipt, quote: { ...signedReceipt.quote, amountOut: '2' } };
+      fetchMock.mockResolvedValue(
+        Response.json({
+          ...statusResponse(pinnedWetQuote),
+          correlationId: 'new-status-request-trace',
+          quoteResponse: altered
+        })
+      );
+      await expect(
+        fetchOneClickStatus(fixtureConfig(), wetDepositAddress, undefined, pinnedWetQuote)
+      ).rejects.toThrow();
+    }
+  );
+  it.each(['status', 'submit'])(
+    'uses the caller-scoped transport for %s without changing the verified quote',
+    async boundary => {
+      const quote = pinnedWetQuote;
+      const scopedFetch = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json(statusResponse(quote))
+      );
+      fetchMock.mockRejectedValue(new Error('The default transport is not authorized for this caller'));
+      const result =
+        boundary === 'status'
+          ? fetchOneClickStatus(fixtureConfig(), wetDepositAddress, undefined, quote, scopedFetch)
+          : submitOneClickDeposit(
+              fixtureConfig(),
+              wetDepositAddress,
+              submitTransactionHash,
+              undefined,
+              quote,
+              scopedFetch
+            );
+      await expect(result).resolves.toMatchObject({ status: 'PROCESSING', quoteResponse: quote });
+      expect(scopedFetch.mock.calls.length).toBe(1);
+      expect(fetchMock.mock.calls.length).toBe(0);
+    }
+  );
   beforeEach(() => {
     globalThis.fetch = fetchMock;
   });

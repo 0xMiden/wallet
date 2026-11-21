@@ -1,9 +1,12 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import Dexie from 'dexie';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import type { Erc20Holding } from 'lib/agglayer/token-holdings';
+import { readCompactLockState } from 'lib/epoch/bridge-in-lock-scan';
+import { cancelLockWithdrawal } from 'lib/epoch/bridge-in-recovery';
 import {
   publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG,
@@ -14,6 +17,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -22,8 +26,35 @@ import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure'
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
+import { legacyBridgeReceiveFixture } from './bridge-receive-test-fixture';
 import type { DepositToken } from './deposit-token';
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
+
+let restoreTrackingLookup: () => void = () => undefined;
+beforeEach(() => {
+  const get = Repo.transactions.get.bind(Repo.transactions);
+  const lookup = jest.spyOn(Repo.transactions, 'get').mockImplementation(key => {
+    const args = jest.mocked(initiateBridgedReceiveTransaction).mock.calls.at(-1)?.[0];
+    if (typeof key === 'string' && key === 'bridge-tx' && args)
+      return Dexie.Promise.resolve(legacyBridgeReceiveFixture(args, key));
+    return get(key);
+  });
+  restoreTrackingLookup = () => lookup.mockRestore();
+});
+afterEach(() => restoreTrackingLookup());
+jest.mock('lib/epoch/bridge-in-lock-scan', () => ({
+  compactLockId: () => 42n,
+  readCompactLockConfig: jest.fn().mockResolvedValue({
+    allocator: '0x0000000000000000000000000000000000000003',
+    resetPeriod: 2,
+    scope: 0
+  }),
+  readCompactLockState: jest.fn().mockResolvedValue({ withdrawal: { status: 'Disabled' } })
+}));
+jest.mock('lib/epoch/bridge-in-recovery', () => ({
+  LockedDepositError: class extends Error {},
+  cancelLockWithdrawal: jest.fn().mockResolvedValue(undefined)
+}));
 
 let mockBalanceEncodingFailure = false;
 jest.mock('viem', () => {
@@ -877,6 +908,66 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     Object.assign(epochState, idleEpoch);
     mockBridgeSnapshot = undefined;
     mockWebProviderConnected = true;
+  });
+
+  it('disables withdrawal from the Fast route before it permits a new bridge deposit', async () => {
+    quoteFast();
+    jest.mocked(readCompactLockState).mockResolvedValueOnce({ balance: 0n, withdrawal: { status: 'Enabled' } });
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount-padded'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    const disable = await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' });
+    const quoteCalls = epochState.quoteEVMToMiden.mock.calls.length;
+
+    expect(screen.queryByTestId('confirm-route')).not.toBeInTheDocument();
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    fireEvent.click(disable);
+    await screen.findByTestId('confirm-route');
+
+    expect(cancelLockWithdrawal).toHaveBeenCalledWith({
+      chainId: 11155111,
+      lockId: '42',
+      sponsorAddress: EVM_ADDRESS
+    });
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quoteCalls + 1);
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    await screen.findByTestId('confirm-deposit');
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+  });
+
+  it('checks again on Review if withdrawal became active after route selection', async () => {
+    quoteFast();
+    jest
+      .mocked(readCompactLockState)
+      .mockResolvedValueOnce({ withdrawal: { status: 'Disabled' } })
+      .mockResolvedValueOnce({ withdrawal: { status: 'Pending' } });
+    renderScreen();
+    await reachFastReview(false);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' }));
+    await screen.findByTestId('confirm-deposit');
+    expect(cancelLockWithdrawal).toHaveBeenCalledWith({
+      chainId: 11155111,
+      lockId: '42',
+      sponsorAddress: EVM_ADDRESS
+    });
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+  });
+
+  it('offers the Slow route without cancelling an active withdrawal', async () => {
+    quoteFast();
+    jest.mocked(readCompactLockState).mockResolvedValueOnce({ withdrawal: { status: 'Enabled' } });
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount-padded'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    fireEvent.click(await screen.findByTestId('bridge-withdrawal-alternative'));
+
+    await screen.findByTestId('confirm-route');
+    expect(cancelLockWithdrawal).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('bridge-withdrawal-disable')).not.toBeInTheDocument();
   });
 
   it('routes the deposit submission through the reporter', async () => {

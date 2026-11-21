@@ -651,11 +651,11 @@ export class IosWalletPage implements WalletPage {
     }
     await this.pollEval<UsdcxReviewView | null>(
       'the burn review rows',
-      usdcxReviewJs(enText('network'), enText('networkFee')),
+      usdcxReviewJs(enText('network'), enText('networkFeeMax')),
       view =>
         view !== null &&
         view.network === chain.networkName &&
-        view.networkFee === sponsorshipFee &&
+        view.networkFee?.endsWith(sponsorshipFee) === true &&
         view.fee === payout.fee &&
         view.notice === notice,
       15_000

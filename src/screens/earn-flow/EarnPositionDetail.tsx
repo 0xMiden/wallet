@@ -7,8 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { UsdAmount } from 'components/ui/TokenAmount';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -20,9 +19,10 @@ import {
   MetricCard,
   useEarnAssetFaucetId
 } from './components';
-import { formatApy, placeholderPosition, usdFigureFormatter } from './earn-mapping';
+import { formatApy, placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnLoading } from './EarnLoading';
+import { EarnPageLayout } from './EarnPageLayout';
 import { ChartDotProps, EarnPosition } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -40,7 +40,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   return (
     // The shared pushed-page frame, so this page's header, section rhythm and pinned actions are
     // the vault page's.
-    <SubPageLayout
+    <EarnPageLayout
       data-testid="earn-position-detail-page"
       // Until the position is found the header names the route, never a placeholder position.
       title={found ? earnSubjectTitle(found) : t('earnPositionsTitle')}
@@ -102,7 +102,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
           <PositionDetails position={position} />
         </>
       )}
-    </SubPageLayout>
+    </EarnPageLayout>
   );
 };
 
@@ -129,7 +129,9 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
             content={({ active, payload }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
-              return <ChartValueTooltip value={`$${toAdaptiveFixed(point.value)}`} label={point.label} />;
+              return (
+                <ChartValueTooltip value={<UsdAmount amount={point.value} grouping={false} />} label={point.label} />
+              );
             }}
           />
           <Area
@@ -182,13 +184,7 @@ const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
     <div className="grid grid-cols-3 gap-2">
       <MetricCard
         label={t('earnMetricDeposited')}
-        value={
-          <AnimatedNumber
-            value={position.depositsUsd}
-            format={usdFigureFormatter(position.depositsUsd)}
-            placeholder={position.depositedAmount}
-          />
-        }
+        value={<UsdAmount amount={position.depositsUsd} placeholder={position.depositedAmount} animated />}
       />
       <MetricCard label={t('earnMetricTotalEarned')} value={position.rewards} valueClassName="text-positive-tint-ink" />
       <MetricCard

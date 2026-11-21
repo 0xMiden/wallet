@@ -92,19 +92,24 @@ describe('beginBalanceSnapshot', () => {
 
   it('labels a plain Mainnet read with its network and the account nonce', () => {
     const finish = beginBalanceSnapshot();
-    expect(finish(account)).toEqual({ network: 'mainnet', accountNonce: '7' });
-    expect(beginBalanceSnapshot()(null)).toEqual({ network: 'mainnet', accountNonce: undefined });
+    expect(finish(account)).toMatchObject({
+      network: 'mainnet',
+      accountNonce: '7',
+      rpcUrl: mockRpc,
+      capturedAt: expect.any(Number)
+    });
+    expect(beginBalanceSnapshot()(null)).toMatchObject({ network: 'mainnet', accountNonce: undefined });
   });
 
   it('labels a read under an active endpoint override', () => {
     mockOverride = { rpcUrl: 'https://private.example' };
-    expect(beginBalanceSnapshot()(account)).toEqual({ network: 'override', accountNonce: '7' });
+    expect(beginBalanceSnapshot()(account)).toMatchObject({ network: 'override', accountNonce: '7' });
   });
 
   it('labels an endpoint-free Mainnet choice as Mainnet and accepts its balance snapshot', () => {
     mockOverride = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
     const snapshot = beginBalanceSnapshot()(account);
-    expect(snapshot).toEqual({ network: 'override', selectedNetwork: 'mainnet', accountNonce: '7' });
+    expect(snapshot).toMatchObject({ network: 'override', selectedNetwork: 'mainnet', accountNonce: '7' });
     const displayed = rows({ balance: 0 });
     tagBalanceSnapshot(displayed, snapshot);
     expect(isBalanceReflected(requirement, { 'account-a': displayed })).toBe(true);
@@ -114,7 +119,7 @@ describe('beginBalanceSnapshot', () => {
     mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
     mockOverride = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.TESTNET);
     const snapshot = beginBalanceSnapshot()(account);
-    expect(snapshot).toEqual({ network: 'override', selectedNetwork: 'testnet', accountNonce: '7' });
+    expect(snapshot).toMatchObject({ network: 'override', selectedNetwork: 'testnet', accountNonce: '7' });
     const displayed = rows();
     tagBalanceSnapshot(displayed, snapshot);
     expect(isBalanceReflected(requirement, { 'account-a': displayed })).toBe(false);
@@ -125,7 +130,7 @@ describe('beginBalanceSnapshot', () => {
     const finish = beginBalanceSnapshot();
     mockOverride = { ...mockOverride, rpcUrl: mockRpc };
     const snapshot = finish(account);
-    expect(snapshot).toEqual({ network: 'override', accountNonce: '7' });
+    expect(snapshot).toMatchObject({ network: 'override', accountNonce: '7' });
     const displayed = rows();
     tagBalanceSnapshot(displayed, snapshot);
     expect(isBalanceReflected(requirement, { 'account-a': displayed })).toBe(false);
@@ -134,10 +139,10 @@ describe('beginBalanceSnapshot', () => {
   it('labels a read whose endpoint changed while it ran', () => {
     const rpcChanged = beginBalanceSnapshot();
     mockRpc = 'https://rpc.other.example';
-    expect(rpcChanged(account)).toEqual({ network: 'changed', accountNonce: '7' });
+    expect(rpcChanged(account)).toMatchObject({ network: 'changed', accountNonce: '7' });
     const overridden = beginBalanceSnapshot();
     mockOverride = { rpcUrl: mockRpc };
-    expect(overridden(account)).toEqual({ network: 'changed', accountNonce: '7' });
+    expect(overridden(account)).toMatchObject({ network: 'changed', accountNonce: '7' });
   });
 });
 
