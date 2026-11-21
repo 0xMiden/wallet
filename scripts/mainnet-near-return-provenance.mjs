@@ -1,3 +1,12 @@
+// This scheduled run retained the original grant, changing only phase and updatedAt.
+export function matchesRetainedNearReturn(evidence) {
+  return evidence?.runId === 44871541172 &&
+    evidence.artifactId === 14694460888 &&
+    evidence.archiveDigest === 'sha256:55e22c8a7fb31e77b345848714fdd7264a8bc2d68f4a863ed73884846f18f738' &&
+    evidence.checkpointDigest === 'd3f5e34cfe19c980f173972e8e28763e4a59bd6040cfee84df5acf307f615fda' &&
+    evidence.originalDigest === 'fe8dcc6aaae3df3c6c5a9d8a32b465a3d200ca981510eef346ebff237b685d28';
+}
+
 // Identifies a historical CI result only; does not establish on-chain absence or authorize spending.
 export function matchesExpiredNearReturnProvenance({ run, jobs, artifacts } = {}) {
   const id = 44844609625;
