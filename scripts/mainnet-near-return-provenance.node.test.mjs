@@ -38,6 +38,16 @@ test('scheduled retention must have failed closed without reaching signing or fr
   assert.equal(matches(jobs([...steps, steps[0]])), false);
 });
 
+test('rejects changed retired quote identity even under a fresh deadline', () => {
+  const match = provenance.isDistinctNearReplacementQuote ?? (() => false);
+  const old = { quoteHash: 'old', depositAddress: '0x' + 'a'.repeat(40), deadline: '2026-11-21T00:43:00Z' };
+  const next = { quoteHash: 'new', depositAddress: '0x' + 'b'.repeat(40), deadline: '2026-11-21T05:43:00Z' };
+  assert.equal(match(old, next), true);
+  assert.equal(match(old, { ...next, quoteHash: old.quoteHash }), false);
+  assert.equal(match(old, { ...next, depositAddress: '0x' + 'A'.repeat(40) }), false);
+  assert.equal(match(old, { ...next, deadline: old.deadline }), false);
+});
+
 test('binds the scheduled retention to the exact current and original checkpoint bytes', () => {
   const match = provenance.matchesRetainedNearReturn ?? (() => false);
   const evidence = {
