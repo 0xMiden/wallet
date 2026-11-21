@@ -48,8 +48,11 @@ test('observe a fresh NEAR return request without signing or broadcasting', asyn
     stage = 'connect';
     const amount = BigInt(state.forwardReceived);
     const route = { payNetwork: 'arb', payAssetId: state.evmAssetId, receiveNetwork: 'miden', receiveAssetId: state.nativeAssetId, amount: fromBaseUnits(amount, 6) };
+    stage = 'navigate-swap';
     await walletB.navigateTo('/swap');
+    stage = 'select-return-route';
     await selectMainnetOneClickAssets(walletB.page, route);
+    stage = 'connect-walletconnect';
     await connectMainnetOneClickWallet(walletB, counterparty);
     stage = 'fresh-review';
     const quote = await captureMainnetOneClickReviewQuote(walletB, route, { originAsset: state.evmAssetId,
