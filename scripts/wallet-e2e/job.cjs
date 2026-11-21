@@ -191,6 +191,7 @@ function coverageFor(selection, expected, dispositions, blocked) {
   const states = expected.map(id => dispositions.get(id));
   if (states.includes('failed')) return { selection: 'selected', status: 'failed', reason: null };
   if (states.includes('timed_out')) return { selection: 'selected', status: 'timed_out', reason: null };
+  if (states.includes('interrupted')) return { selection: 'selected', status: 'interrupted', reason: null };
   if (states.every(state => state === 'passed')) {
     return { selection: 'selected', status: 'passed', reason: null };
   }
