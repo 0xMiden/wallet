@@ -405,6 +405,14 @@ it('reports a selected interrupted invocation as interrupted swap coverage', asy
   await replayAnnotations('swap-forward', 'interrupted', [], 'interrupted');
   const report = await assembled();
   expect(report.coverage.swap.status).toBe('interrupted');
+  expect(report.coverage.bridge.status).toBe('unknown');
+});
+
+it('reports a selected interrupted bridge invocation as interrupted bridge coverage', async () => {
+  await replayAnnotations('epoch-forward', 'interrupted', [], 'interrupted');
+  const report = await assembled();
+  expect(report.coverage.bridge.status).toBe('interrupted');
+  expect(report.coverage.swap.status).toBe('unknown');
 });
 
 it.each([
