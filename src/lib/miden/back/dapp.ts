@@ -767,8 +767,9 @@ export async function requestSign(
 /**
  * The message a Guardian account may sign for `req` (`DAPP_SIGN_RULE`), `undefined` for a single-key account, and a
  * refusal (`InvalidParams`) for a Guardian request the rule does not allow. The account kind is read from the unlocked
- * store. While the wallet is locked it is unreadable, so this returns `undefined`; the vault refuses at sign time, and
- * the mobile and desktop sheet asks again once unlocked.
+ * store. While the wallet is locked it is unreadable, so this returns `undefined` and the caller asks again once
+ * unlocked: the extension when its popup asks for the payload, the mobile and desktop sheet after the unlock wait. The
+ * vault refuses at sign time all the same.
  */
 async function guardianMessageElements(accountId: string, req: MidenDAppSignRequest): Promise<bigint[] | undefined> {
   // A locked store lists no accounts, so the account reads as absent.
@@ -890,18 +891,25 @@ const generatePromisifySign = async (
 
   await requestConfirm({
     id,
-    payload: {
-      type: 'sign',
-      origin,
-      networkRpc,
-      appMeta: dApp.appMeta,
-      sourcePublicKey: req.sourcePublicKey,
-      payload: req.payload,
-      kind: req.kind,
-      preview: null,
-      ...(guardianMessage && { messageElements: guardianMessage.map(String) }),
-      ...(signing && { signingEffects: toSimulatedEffectsWire(signing.view, signing.noteFlow) })
+    // Built when the popup first asks, which a locked wallet's popup does only once unlocked: a locked store lists no
+    // accounts, so the account kind is read here, and a forbidden Guardian request is refused before any approval.
+    payload: async () => {
+      const message = guardianMessage ?? (await guardianMessageElements(dApp.accountId, req));
+      return {
+        type: 'sign',
+        origin,
+        networkRpc,
+        appMeta: dApp.appMeta,
+        sourcePublicKey: req.sourcePublicKey,
+        payload: req.payload,
+        kind: req.kind,
+        preview: null,
+        ...(message
+          ? { messageElements: message.map(String) }
+          : signing && { signingEffects: toSimulatedEffectsWire(signing.view, signing.noteFlow) })
+      };
     },
+    onPayloadError: reject,
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
     },

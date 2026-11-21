@@ -7,7 +7,7 @@
  */
 export const DAPP_SIGN_RULE =
   'This wallet signs only arbitrary signing inputs that carry their preimage. It refuses a raw word, a blind ' +
-  'commitment, a transaction summary, a preimage of 24 elements (the length of a transaction summary), and a ' +
+  'commitment, a transaction summary, a preimage of 24 elements (the length of a transaction summary), a ' +
   'preimage with the layout of a Guardian lookup, and a preimage of more than 256 elements.';
 
 /**
