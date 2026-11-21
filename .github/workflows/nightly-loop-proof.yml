@@ -1,0 +1,72 @@
+name: Mainnet Epoch bridge surface (read only)
+on:
+  push:
+    branches: [wiktor/epoch-command-surface-proof]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Verify exact settlement archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          base=c6d476ef891894b79f57ece64158d0c43e2355bb
+          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44959645259:completed
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/epoch-command-surface.spec.ts)"
+          umask 077
+          gh api repos/0xMiden/wallet/actions/artifacts/14729327569/zip > "$RUNNER_TEMP/epoch.zip"
+          printf '%s  %s\n' b7b6a8ee97af02091a0674d98b54b806ee7daf6887137b6e3316bb43bd16a81f "$RUNNER_TEMP/epoch.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$RUNNER_TEMP/epoch.zip")" = roundtrip.json
+          mkdir -p test-results/epoch-readonly
+          unzip -p "$RUNNER_TEMP/epoch.zip" roundtrip.json > test-results/epoch-readonly/roundtrip.json
+          printf '%s  %s\n' 4ca9586780b39bb12866b1c0854fb92445bd1d210cf14359a3cdef1d70037ce8 test-results/epoch-readonly/roundtrip.json | sha256sum --check --status
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start owned provider loop config
+        shell: bash
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Owned provider overlay did not become ready.' >&2; exit 1
+      - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      - name: Observe Epoch Bridge surface and custody without connecting
+        shell: bash
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+        run: |
+          umask 077
+          rc=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-audit-private" xvfb-run -a yarn playwright test epoch-command-surface.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/epoch-audit-private.log" 2>&1 || rc=$?
+          if test -f test-results/epoch-surface-result.json; then
+            jq -c '{stage,custodyMatches,commandBridge,legacyConnect}' test-results/epoch-surface-result.json
+          fi
+          exit "$rc"
