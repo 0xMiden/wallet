@@ -55,8 +55,9 @@ function registerMainnetLoop(): void {
   jest.doMock('@playwright/test', () => ({ expect: jest.fn() }));
   jest.doMock('../fixtures/two-wallets', () => ({ test: mockPlaywrightTest, expect: jest.fn() }));
   jest.doMock('./mainnet-one-click-ui', () => ({
-    confirmMainnetOneClickReview: jest.fn(),
-    selectMainnetOneClickAssets: jest.fn()
+    captureMainnetNearIntentsQuote: jest.fn(),
+    readMainnetNearIntentsDeposit: jest.fn(),
+    selectMainnetNearIntentsDeposit: jest.fn()
   }));
   jest.doMock('../ios/helpers/wc-counterparty', () => ({ WcCounterparty: jest.fn() }));
   jest.doMock('./test-dapp', () => ({ setAutoConsume: jest.fn().mockResolvedValue(undefined) }));
