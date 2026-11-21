@@ -126,7 +126,9 @@ const run = (info?: Info) => {
   return callback({ walletB: wallet }, info);
 };
 const reported = (info: Info) =>
-  info.annotations.map(row => JSON.parse(row.description ?? '{}').operation as { recoveryEffect: string; outcome: string });
+  info.annotations.map(
+    row => JSON.parse(row.description ?? '{}').operation as { recoveryEffect: string; outcome: string }
+  );
 it.each(['forward', 'reverse'])(
   'dispatches an unused same-run Epoch %s only after the complete recovery barrier',
   async mode => {
