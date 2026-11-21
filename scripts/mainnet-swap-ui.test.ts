@@ -8,8 +8,35 @@ import {
   submitSwapOnce,
   resumeSwapAutoAcceptInPage,
   runPreparedSwap,
-  cachedSolverRegistry
+  cachedSolverRegistry,
+  prepareMainnetSwapReview
 } from '../playwright/e2e/helpers/mainnet-swap-ui';
+
+it('selects both tokens on the Command composer without using a second compact selector', async () => {
+  const boundary = new Error('reached amount entry');
+  const clicked: string[] = [];
+  const locator = (path: string): any => ({
+    first: () => locator(`${path}.first`),
+    nth: (i: number) => locator(`${path}.${i}`),
+    getByTestId: (id: string) => locator(`${path}/${id}`),
+    isVisible: async () => path === 'command-swap-composer',
+    waitFor: async () => {},
+    click: async () => { clicked.push(path); },
+    fill: async () => { throw boundary; }
+  });
+  const wallet = {
+    extensionId: 'wallet',
+    page: { goto: jest.fn(), getByTestId: locator, waitForResponse: () => Promise.resolve() }
+  };
+  const asset = { symbol: 'USDCX', decimals: 6, hex: 'a' };
+  await expect(Reflect.apply(prepareMainnetSwapReview, undefined, [
+    wallet, 'https://solver.example', asset, { ...asset, symbol: 'USDT', hex: 'b' }, 1_010_000n, 1_000_000n
+  ])).rejects.toBe(boundary);
+  expect(clicked).toEqual([
+    'command-swap-composer/send-token-selector', 'swap-token-USDCX',
+    'command-swap-composer/command-swap-receive/command-swap-receive-token', 'swap-token-USDT'
+  ]);
+});
 
 const price = () => ({
   offeredFaucet: 'a',
