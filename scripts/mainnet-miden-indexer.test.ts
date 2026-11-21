@@ -40,6 +40,26 @@ it('returns only candidates from the exact non-self maker transaction and its un
   const request = JSON.parse(fetcher.mock.calls[1]?.[1].body);
   expect(request.variables).toEqual({ account: sender, height: '828100' });
 });
+it('binds a NEAR return note to its unique maker without admitting sibling notes', async () => {
+  const evidence = reply();
+  evidence.data.notes.edges.push({ node: { note_id: `0x${'c'.repeat(64)}`, sender, block_number: '828100' } });
+  fetcher
+    .mockReset()
+    .mockResolvedValueOnce(json({ data: null, errors: [{ message: 'transaction not found', path: ['transaction'] }] }))
+    .mockResolvedValueOnce(json({ data: { note: evidence.data.notes.edges[0]!.node } }))
+    .mockResolvedValueOnce(json(evidence));
+  await expect(readMainnetMidenOutputCandidates(noteId, self, fetcher, true)).resolves.toMatchObject({
+    transactionId: txId,
+    noteIds: [noteId]
+  });
+});
+it('does not interpret an indexer failure as a missing transaction', async () => {
+  fetcher
+    .mockReset()
+    .mockResolvedValueOnce(json({ data: null, errors: [{ message: 'database unavailable', path: ['transaction'] }] }));
+  await expect(readMainnetMidenOutputCandidates(noteId, self, fetcher, true)).rejects.toThrow();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
 it('rejects self-funded provider transaction metadata before scanning notes', async () => {
   await expect(readMainnetMidenOutputCandidates(txId, senderHex, fetcher)).rejects.toThrow();
   expect(fetcher).toHaveBeenCalledTimes(1);

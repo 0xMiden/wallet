@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Recognize the exact provider-reported Miden note on NEAR nightly returns without changing refund verification.
+
 - [FIX][ci] Allow one manual recovery of the held nightly NEAR proceeds after verifying the expired return was never submitted. Preserve the retired authorization and prevent fresh funding in that run.
 
 - [FIX][all] A NEAR Intents deposit that got no funds before its quote deadline reads Expired in Activity, not Pending or Failed, with a grey icon, not the red of a failure.
