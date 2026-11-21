@@ -25,6 +25,13 @@ export const TRANSACTION_SUMMARY_ELEMENT_COUNT = 24;
 export const MAX_SIGN_PREIMAGE_ELEMENTS = 256;
 
 /**
+ * The longest base64 payload the wallet decodes, so that a dApp cannot make it decode and deserialize an unbounded
+ * request before the element cap applies. A preimage of `MAX_SIGN_PREIMAGE_ELEMENTS` elements serializes to about 2 KB,
+ * or 2744 base64 characters, so this leaves room for the encoding around it.
+ */
+export const MAX_SIGN_PAYLOAD_CHARS = 4096;
+
+/**
  * The number of field elements in a Guardian lookup-auth message: the four domain-tag elements, the timestamp and
  * the four elements of the key commitment (`lookupAuthDigest` in `@openzeppelin/miden-multisig-client`).
  */

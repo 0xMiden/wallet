@@ -93,6 +93,7 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import { protocolTags, signableArbitraryElements } from './dapp-sign-inputs';
 import {
   GUARDIAN_LOOKUP_ELEMENT_COUNT,
+  MAX_SIGN_PAYLOAD_CHARS,
   MAX_SIGN_PREIMAGE_ELEMENTS,
   TRANSACTION_SUMMARY_ELEMENT_COUNT
 } from './dapp-sign-rule';
@@ -144,6 +145,7 @@ describe('signableArbitraryElements on the real SDK', () => {
   it('accepts a preimage of the element cap and refuses one element more', () => {
     const atCap = sequence(MAX_SIGN_PREIMAGE_ELEMENTS, 1n);
     const overCap = sequence(MAX_SIGN_PREIMAGE_ELEMENTS + 1, 1n);
+    expect(arbitraryPayload(atCap).length).toBeLessThanOrEqual(MAX_SIGN_PAYLOAD_CHARS);
     expect(signableArbitraryElements('signingInputs', arbitraryPayload(atCap))).toEqual(atCap);
     expect(signableArbitraryElements('signingInputs', arbitraryPayload(overCap))).toBeUndefined();
   });

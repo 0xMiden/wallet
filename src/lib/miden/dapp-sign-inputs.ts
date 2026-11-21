@@ -7,6 +7,7 @@ import {
   domainTagPreimage,
   GUARDIAN_LOOKUP_DOMAIN_STRING,
   isProtocolMessageLayout,
+  MAX_SIGN_PAYLOAD_CHARS,
   MAX_SIGN_PREIMAGE_ELEMENTS,
   type ProtocolTags
 } from './dapp-sign-rule';
@@ -40,15 +41,15 @@ export function protocolTags(): ProtocolTags {
 
 /**
  * The preimage of a dApp signature request, when the wallet may sign the request (`DAPP_SIGN_RULE`), for every account
- * type. Returns `undefined` when the wallet refuses the request: the kind is not `signingInputs`, the payload does not
- * deserialize, the variant is not `Arbitrary`, the preimage is longer than `MAX_SIGN_PREIMAGE_ELEMENTS`, or it has a
- * protocol message layout (`isProtocolMessageLayout`). If the wallet cannot derive the protocol tags, it refuses the
- * request.
+ * type. Returns `undefined` when the wallet refuses the request: the kind is not `signingInputs`, the payload is
+ * longer than `MAX_SIGN_PAYLOAD_CHARS` or does not deserialize, the variant is not `Arbitrary`, the preimage is longer
+ * than `MAX_SIGN_PREIMAGE_ELEMENTS`, or it has a protocol message layout (`isProtocolMessageLayout`). If the wallet
+ * cannot derive the protocol tags, it refuses the request.
  *
  * `payload` is the base64 of the serialized `SigningInputs`. Call this only after the SDK's WASM module is loaded.
  */
 export function signableArbitraryElements(kind: SignKind, payload: string): bigint[] | undefined {
-  if (kind !== 'signingInputs') return undefined;
+  if (kind !== 'signingInputs' || payload.length > MAX_SIGN_PAYLOAD_CHARS) return undefined;
   let tags: ProtocolTags;
   let inputs: SigningInputs;
   try {

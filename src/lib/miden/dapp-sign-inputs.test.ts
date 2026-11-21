@@ -25,6 +25,7 @@ import {
   domainTagPreimage,
   GUARDIAN_LOOKUP_DOMAIN_STRING,
   isProtocolMessageLayout,
+  MAX_SIGN_PAYLOAD_CHARS,
   MAX_SIGN_PREIMAGE_ELEMENTS,
   TRANSACTION_SUMMARY_ELEMENT_COUNT
 } from './dapp-sign-rule';
@@ -105,6 +106,13 @@ describe('signableArbitraryElements', () => {
     mockDeserialize.mockReturnValue(signingInputs(1, values).inputs);
 
     expect(signableArbitraryElements('signingInputs', PAYLOAD)).toEqual(values);
+  });
+
+  it('refuses a payload longer than the character cap without decoding it', () => {
+    mockDeserialize.mockReturnValue(signingInputs(1, [7n]).inputs);
+
+    expect(signableArbitraryElements('signingInputs', 'A'.repeat(MAX_SIGN_PAYLOAD_CHARS + 1))).toBeUndefined();
+    expect(mockDeserialize).not.toHaveBeenCalled();
   });
 
   it('refuses the word kind without reading the payload', () => {
