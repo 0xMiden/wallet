@@ -10,6 +10,7 @@ import type { FullConfig, Suite, TestCase, TestResult } from '@playwright/test/r
 import {
   commonSwapQuoteRefusal,
   readLiveSwapLeg,
+  recordTerminalRouteRefusal,
   swapQuoteRefusal,
   validateSwapEta
 } from '../playwright/e2e/helpers/mainnet-swap-ui';
@@ -259,11 +260,15 @@ it('reports a consistent terminal route-search refusal before starting fresh swa
 
   env.E2E_WALLET_REPORT_INVOCATION = 'swap-prepare';
   const annotations: TestInfo['annotations'] = [];
-  observeNightly({ annotations, timeout: 30_000 } as TestInfo, {
+  const observe = observeNightly({ annotations, timeout: 30_000 } as TestInfo, {
     key: 'swap-forward',
     kind: 'setup',
     provider: 'solver'
-  })(undefined, { key: 'quote_availability', origin: 'wallet_assertion', status: 'failed', ...agreed });
+  });
+  recordTerminalRouteRefusal(observe, 3, refusals);
+  expect(annotations).toHaveLength(0);
+  recordTerminalRouteRefusal(observe, 2, refusals);
+  expect(annotations).toHaveLength(1);
   await replayAnnotations('swap-prepare', 'failed', annotations);
   const report = await assembled({ REPORT_INVOCATION_SWAP_FORWARD: 'skipped' }, 'quote-route-selection-stale');
   expect(evidence(report.invocations[0]!)).toMatchObject({
@@ -273,6 +278,13 @@ it('reports a consistent terminal route-search refusal before starting fresh swa
     stages: [{ key: 'quote_availability', status: 'failed', error: { code: 'quote_price_stale' } }]
   });
   expect(report.coverage.freshSwapsStarted.value).toBe(0);
+});
+
+it('records the terminal route-search refusal from the production no-candidate branch', () => {
+  const spec = readFileSync(join(__dirname, '../playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts'), 'utf8');
+  const branch = spec.indexOf("recordTerminalRouteRefusal(observeSwap('forward'), attempts, refusals)");
+  expect(branch).toBeGreaterThan(0);
+  expect(branch).toBeLessThan(spec.indexOf('No funded two-way mainnet swap fits both'));
 });
 
 it('keeps contradictory and mixed quote declines from explaining route selection', () => {
@@ -345,7 +357,7 @@ it('uses actual Epoch forward and return observations even with an unchanged pre
     'bridge_completion_asserted'
   ]);
   expect(report.coverage.freshSwapsStarted.value).toBe(0);
-  expect(readFileSync(join(directory, 'epoch-summary.json'), 'utf8')).toContain('"status":"prepared"');
+  expect(JSON.stringify(report)).not.toContain('private_checkpoint_sentinel');
 });
 
 it('preserves partial claim and refunded input on final failure despite a completed recovery checkpoint', async () => {
@@ -372,6 +384,7 @@ it('preserves partial claim and refunded input on final failure despite a comple
   expect(reverse!.tests[0]?.status).toBe('failed');
   expect(evidence(reverse!).outcome).toBe('partially_filled_and_refunded');
   expect(evidence(reverse!).stages.map(value => [value.key, value.status])).toContainEqual(['claim', 'passed']);
+  expect(JSON.stringify(report)).not.toContain('private_checkpoint_sentinel');
 });
 
 it.each([

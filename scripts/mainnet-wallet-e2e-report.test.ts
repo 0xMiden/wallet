@@ -380,16 +380,8 @@ describe('nightly workflow report wiring', () => {
           path: '${{runner.temp}}/wallet-e2e/' + key + '/wallet-e2e-report-v1.json'
         }
       });
-      for (const financialStep of ['success', 'failure']) {
-        // Mirror Actions' documented treatment of a simulated failed upload step outcome.
-        const outcomes = [
-          { conclusion: financialStep },
-          {
-            conclusion: upload?.['continue-on-error'] === true ? 'success' : 'failure'
-          }
-        ];
-        const jobConclusion = outcomes.some(step => step.conclusion === 'failure') ? 'failure' : 'success';
-        expect(jobConclusion).toBe(financialStep);
+      for (const name of ['Initialize Wallet E2E report', 'Capture Wallet E2E build identity']) {
+        expect(steps.find(step => step.name === name)?.['continue-on-error']).toBe(true);
       }
     }
   });

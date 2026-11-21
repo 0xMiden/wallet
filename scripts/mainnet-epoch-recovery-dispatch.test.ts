@@ -20,7 +20,8 @@ const head = jest.fn();
 const account = jest.fn();
 const wallet = { getAccountAddress: account };
 let previous: ReturnType<typeof epochCheckpointFixture> | undefined;
-let callback: ((fixtures: { walletB: typeof wallet }) => Promise<void>) | undefined;
+type Info = { annotations: { type: string; description?: string }[]; timeout: number };
+let callback: ((fixtures: { walletB: typeof wallet }, info?: Info) => Promise<void>) | undefined;
 const test = Object.assign(
   jest.fn((_name: string, body: typeof callback) => {
     callback = body;
@@ -41,7 +42,8 @@ const keys = [
   'E2E_MAINNET_EVM_KEY',
   'MAINNET_EPOCH_FORWARD_ATTEMPTED',
   'MAINNET_EPOCH_PREAUTH_UNSPENT',
-  'MAINNET_LOOP_RECOVERY_CLEARED'
+  'MAINNET_LOOP_RECOVERY_CLEARED',
+  'E2E_WALLET_REPORT_INVOCATION'
 ];
 const modules = [
   '../playwright/e2e/fixtures/two-wallets',
@@ -72,6 +74,7 @@ beforeEach(() => {
   delete process.env.MAINNET_EPOCH_FORWARD_ATTEMPTED;
   delete process.env.MAINNET_EPOCH_PREAUTH_UNSPENT;
   delete process.env.MAINNET_LOOP_RECOVERY_CLEARED;
+  delete process.env.E2E_WALLET_REPORT_INVOCATION;
   previous = {
     ...epochCheckpointFixture(),
     phase: 'recovery-required',
@@ -118,10 +121,12 @@ afterEach(() => {
   for (const module of modules) jest.dontMock(module);
   jest.resetModules();
 });
-const run = () => {
+const run = (info?: Info) => {
   if (!callback) throw new Error('Epoch staged callback was not registered');
-  return callback({ walletB: wallet });
+  return callback({ walletB: wallet }, info);
 };
+const reported = (info: Info) =>
+  info.annotations.map(row => JSON.parse(row.description ?? '{}').operation as { recoveryEffect: string; outcome: string });
 it.each(['forward', 'reverse'])(
   'dispatches an unused same-run Epoch %s only after the complete recovery barrier',
   async mode => {
@@ -319,6 +324,42 @@ it('does not restore a funded actor for a terminal checkpoint', async () => {
   expect(restore).not.toHaveBeenCalled();
   expect(refund).not.toHaveBeenCalled();
   expect(returned).not.toHaveBeenCalled();
+});
+it('reports no work for a terminal checkpoint', async () => {
+  process.env.E2E_WALLET_REPORT_INVOCATION = 'epoch-recover';
+  previous!.phase = 'cancelled';
+  const info: Info = { annotations: [], timeout: 30_000 };
+  await run(info);
+  expect(reported(info)).toMatchObject([{ recoveryEffect: 'no_work', outcome: 'unknown' }]);
+});
+it('reports a settled collateral refund as a prior-authorized return with a refunded outcome', async () => {
+  process.env.E2E_WALLET_REPORT_INVOCATION = 'epoch-recover';
+  refund.mockImplementation(async () => {
+    Object.assign(previous!, { phase: 'cancelled' });
+  });
+  const info: Info = { annotations: [], timeout: 30_000 };
+  await run(info);
+  expect(reported(info)).toMatchObject([{ recoveryEffect: 'prior_authorized_return', outcome: 'refunded' }]);
+});
+it('reports a settled original return as a prior-authorized return with a completed bridge', async () => {
+  process.env.E2E_WALLET_REPORT_INVOCATION = 'epoch-recover';
+  Object.assign(previous!, {
+    forwardReceived: '1001000',
+    forwardEvmTxHash: hash,
+    reverseNonce: '10',
+    returnAmount: '1000501',
+    evmNonceBefore: 0,
+    reverseAuthority: epochReverseAuthorityFixture(),
+    transactions: [{ kind: 'deposit', nonce: 0, hash }]
+  });
+  returned.mockImplementation(async () => {
+    Object.assign(previous!, { phase: 'complete' });
+  });
+  const info: Info = { annotations: [], timeout: 30_000 };
+  await run(info);
+  expect(reported(info)).toMatchObject([
+    { recoveryEffect: 'prior_authorized_return', outcome: 'bridge_completion_asserted' }
+  ]);
 });
 it('does not restore a funded actor when there is no previous authorization', async () => {
   previous = undefined;

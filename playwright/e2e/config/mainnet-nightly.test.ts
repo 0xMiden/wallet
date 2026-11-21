@@ -115,6 +115,9 @@ describe('mainnet nightly workflow', () => {
         'Assemble Wallet E2E report',
         'Upload Wallet E2E report'
       ]);
+      for (const step of steps.filter(step => step.includes('continue-on-error'))) {
+        expect(step).toMatch(/^ {8}continue-on-error: true$/m);
+      }
     }
   });
 });
