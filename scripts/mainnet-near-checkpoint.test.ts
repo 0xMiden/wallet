@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  assertMainnetNearNoLegacyFees,
   parseMainnetNearCheckpoint,
   loadMainnetNearCheckpoint,
   saveMainnetNearCheckpoint,
@@ -220,6 +221,15 @@ it('parses both a legacy partner-policy checkpoint and a new checkpoint with no 
   const fresh = parseMainnetNearCheckpoint(nativeNearNoFeeFixture());
   expect(fresh.appFees).toEqual([]);
   expect(fresh.feePolicy).toBeUndefined();
+});
+it('refuses a fresh-quote leg on a legacy fee checkpoint and allows one with no fee fields', () => {
+  expect(() => assertMainnetNearNoLegacyFees(parseMainnetNearCheckpoint(fixture()), 'legacy fees')).toThrow(
+    'legacy fees'
+  );
+  const feeOnly = nativeNearNoFeeFixture();
+  feeOnly.appFees = [{ recipient: 'fee.near', fee: 10 }];
+  expect(() => assertMainnetNearNoLegacyFees(feeOnly, 'legacy fees')).toThrow('legacy fees');
+  expect(() => assertMainnetNearNoLegacyFees(parseMainnetNearCheckpoint(nativeNearNoFeeFixture()), 'x')).not.toThrow();
 });
 it.each(invalid)('refuses %s instead of creating spending authority', (_name, change) => {
   const state = fixture();

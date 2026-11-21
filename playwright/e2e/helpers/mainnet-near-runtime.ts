@@ -10,6 +10,7 @@ import {
   walletDiscoveredNativeFaucetId
 } from './balance-truth';
 import {
+  assertMainnetNearNoLegacyFees,
   loadMainnetNearCheckpoint,
   parseMainnetNearCheckpoint,
   saveMainnetNearCheckpoint,
@@ -326,13 +327,9 @@ export async function runMainnetNearForward(
   )
     throw new Error('Original native NEAR forward authority is stale, used or belongs to another actor');
   const setup = await loadMainnetOneClickSetup(fetch, fetch, wallet.extensionId);
-  if (
-    !setup ||
-    setup.config.serviceUrl !== state.serviceUrl ||
-    state.appFees.length > 0 ||
-    state.feePolicy !== undefined
-  )
+  if (!setup || setup.config.serviceUrl !== state.serviceUrl)
     throw new Error('Native NEAR config differs from the original uploaded authority');
+  assertMainnetNearNoLegacyFees(state, 'Native NEAR config differs from the original uploaded authority');
   const native = setup.assets.find(asset => asset.assetId === state.nativeAssetId);
   const evm = setup.assets.find(asset => asset.assetId === state.evmAssetId);
   if (
@@ -794,13 +791,8 @@ export async function runMainnetNearReverse(
   )
     throw new Error('Native NEAR return requires the same existing funded EVM key');
   const setup = await loadMainnetOneClickSetup(fetch, fetch, wallet.extensionId);
-  if (
-    !setup ||
-    setup.config.serviceUrl !== state.serviceUrl ||
-    state.appFees.length > 0 ||
-    state.feePolicy !== undefined
-  )
-    throw new Error('Original native NEAR config changed');
+  if (!setup || setup.config.serviceUrl !== state.serviceUrl) throw new Error('Original native NEAR config changed');
+  assertMainnetNearNoLegacyFees(state, 'Original native NEAR config changed');
   const native = setup.assets.find(asset => asset.assetId === state.nativeAssetId);
   const evm = setup.assets.find(asset => asset.assetId === state.evmAssetId);
   const verifiedNative = setup.config.midenAssets.find(
