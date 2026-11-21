@@ -1,0 +1,72 @@
+name: Mainnet Swap forward review (read only)
+on:
+  push:
+    branches: [wiktor/nightly-command-swap-browser-proof]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Verify exact settlement archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          base=c5aaa57d117c996c66f5f7989a2174fd4848577b
+          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44952299224:completed
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/swap-forward-readonly.spec.ts)"
+          umask 077
+          gh api repos/0xMiden/wallet/actions/artifacts/14725973510/zip > "$RUNNER_TEMP/swap.zip"
+          printf '%s  %s\n' c0c68499a220be015ea900edeea6cbc7f894befc838b74d08f43d6ccb7d52eff "$RUNNER_TEMP/swap.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$RUNNER_TEMP/swap.zip")" = roundtrip.json
+          mkdir -p test-results/swap-readonly
+          unzip -p "$RUNNER_TEMP/swap.zip" roundtrip.json > test-results/swap-readonly/roundtrip.json
+          printf '%s  %s\n' 051f5f4e8da6732fb92c886b06c3a8eea845acf86e7424b205889b096f6df9ee test-results/swap-readonly/roundtrip.json | sha256sum --check --status
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start owned provider loop config
+        shell: bash
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Owned provider overlay did not become ready.' >&2; exit 1
+      - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      - name: Observe Swap review without arming or submitting
+        shell: bash
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+        run: |
+          umask 077
+          rc=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-audit-private" xvfb-run -a yarn playwright test swap-forward-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/swap-audit-private.log" 2>&1 || rc=$?
+          if test -f test-results/swap-readonly-result.json; then
+            jq -c '{stage,passed,custodyMatches,quoteSucceeded,failure,surface}' test-results/swap-readonly-result.json
+          fi
+          exit "$rc"
