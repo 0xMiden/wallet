@@ -1,7 +1,7 @@
 name: NEAR provenance unit proof
 on:
   push:
-    branches: [wiktor/near-retention-bytes-red, wiktor/near-retention-bytes-green]
+    branches: [wiktor/near-provider-absence-red, wiktor/near-provider-absence-green]
 permissions:
   contents: read
 jobs:

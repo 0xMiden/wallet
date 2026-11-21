@@ -19,6 +19,18 @@ const candidate = {
 };
 const check = provenance.matchesExpiredNearReturnProvenance;
 
+test('requires a pending retired quote with no provider settlement or deposit evidence', () => {
+  const matches = provenance.hasNoNearReturnProviderActivity ?? (() => false);
+  const swapDetails = { intentHashes: [], nearTxHashes: [], originChainTxHashes: [], destinationChainTxHashes: [] };
+  assert.equal(matches({ status: 'PENDING_DEPOSIT', swapDetails }), true);
+  assert.equal(matches({ status: 'INCOMPLETE_DEPOSIT', swapDetails }), false);
+  for (const key of Object.keys(swapDetails)) {
+    assert.equal(matches({ status: 'PENDING_DEPOSIT', swapDetails: { ...swapDetails, [key]: ['observed'] } }), false);
+  }
+  assert.equal(matches({ status: 'PENDING_DEPOSIT', swapDetails: { ...swapDetails, depositedAmount: '1' } }), false);
+  assert.equal(matches({ status: 'PENDING_DEPOSIT' }), false);
+});
+
 test('checks historical bytes rather than trusting reported checkpoint digests', () => {
   const verify = provenance.verifyNearReturnCheckpointBytes ?? (() => false);
   assert.throws(() => verify(Buffer.from('{}'), Buffer.from('{}')), /checkpoint bytes/);
