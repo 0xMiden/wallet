@@ -207,7 +207,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
         destinationAsset: output,
         faucetId
       });
-      navigate(`/receive/near-intents/${encodeURIComponent(rowId)}`);
+      if (mountedRef.current) navigate(`/receive/near-intents/${encodeURIComponent(rowId)}`);
     } catch (error) {
       console.warn('[NearIntents] the deposit address request failed', error);
       if (mountedRef.current) setSubmitFailed(true);

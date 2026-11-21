@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import type {
   NearIntentsCatalog,
   NearIntentsConfig,
@@ -9,8 +10,6 @@ import type {
   OneClickQuoteRequest,
   OneClickQuoteResponse
 } from 'lib/one-click/types';
-
-import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 
 import { NearIntentsForm } from './NearIntentsForm';
 import { previewRefundAddress } from './preview-refund';
@@ -36,6 +35,7 @@ jest.mock('components/TokenLogo', () => ({
 }));
 
 const mockRequestQuote = jest.fn<Promise<OneClickQuoteResponse>, [NearIntentsConfig, OneClickQuoteRequest, boolean]>();
+const { OneClickHttpError } = jest.requireActual<typeof import('lib/one-click/client')>('lib/one-click/client');
 jest.mock('lib/one-click/client', () => ({
   requestOneClickQuote: (config: NearIntentsConfig, request: OneClickQuoteRequest, dry: boolean) =>
     mockRequestQuote(config, request, dry)
@@ -213,9 +213,7 @@ describe('NearIntentsForm', () => {
   });
 
   it('names a missing-liquidity refusal and shows the general text for any other quote failure', async () => {
-    mockRequestQuote.mockRejectedValue(
-      Object.assign(new Error('1Click request failed (400)'), { code: 'no_liquidity' })
-    );
+    mockRequestQuote.mockRejectedValue(new OneClickHttpError(400, 'no_liquidity'));
     renderForm();
     typeAmount('46');
     await flushQuote();
@@ -314,6 +312,41 @@ describe('NearIntentsForm', () => {
       })
     );
     expect(mockNavigate).toHaveBeenCalledWith('/receive/near-intents/row-1');
+  });
+
+  it('saves the row and does not open the deposit page when the form unmounts before the quote resolves', async () => {
+    const view = renderForm();
+    typeAmount('46');
+    typeRefund(REFUND);
+    await flushQuote();
+
+    let wetRequest: OneClickQuoteRequest | undefined;
+    let resolveWet: ((quote: OneClickQuoteResponse) => void) | undefined;
+    mockRequestQuote.mockImplementation((_config, request, dry) => {
+      if (dry) return Promise.resolve(quoteFor(request, dry));
+      wetRequest = request;
+      return new Promise(resolve => {
+        resolveWet = resolve;
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('near-intents-get-deposit-address'));
+    });
+    view.unmount();
+
+    const request = wetRequest;
+    const resolveQuote = resolveWet;
+    if (!request || !resolveQuote) throw new Error('the deposit quote never started');
+    await act(async () => {
+      resolveQuote(quoteFor(request, false));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockPersist).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('shows an inline error and stays on the form when the deposit quote fails', async () => {
