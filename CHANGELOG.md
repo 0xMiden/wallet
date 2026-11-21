@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [CHANGE][ci] Emit a sanitized mainnet nightly report for the Wallet E2E dashboard with test and recovery evidence.
 - [FIX][ci] Report the last NEAR return stage reached when the mainnet nightly fails, without uploading private worker logs.
 
 - [FIX][ci] Verify the original NEAR deposit fee against Guardian history when a restored nightly wallet lacks the local send record.

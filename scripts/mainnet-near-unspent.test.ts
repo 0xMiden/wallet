@@ -225,3 +225,54 @@ describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s',
     noFunding();
   });
 });
+describe('native NEAR recovery reporting', () => {
+  const info = () => ({ annotations: [] as { type: string; description?: string }[], timeout: 30_000 });
+  const reported = (value: ReturnType<typeof info>) =>
+    value.annotations.map(row => JSON.parse(row.description ?? '{}').operation as { recoveryEffect: string });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.E2E_NETWORK = 'mainnet';
+    process.env.GITHUB_RUN_ID = '43930000000';
+    process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'true';
+    process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR = 'existing-original-secret';
+    process.env.E2E_WALLET_REPORT_INVOCATION = 'near-recover';
+    delete process.env.MAINNET_NEAR_PREAUTH_UNSPENT;
+    const { state } = fixture();
+    state.phase = 'recovery-required';
+    Reflect.set(state, 'sendAuthority', { noteId: `0x${'1'.repeat(64)}` });
+    mockState.mockReturnValue(state);
+    jest.mocked(wallet.getAccountAddress).mockResolvedValue(state.account);
+  });
+  afterEach(() => {
+    process.env = { ...env };
+  });
+  const run = (value: ReturnType<typeof info>, recoverNear: jest.Mock) =>
+    Reflect.apply(runMainnetNearStage, undefined, [wallet, 'recover', value, recoverNear]);
+  it.each([
+    ['cancelled', 'refunded'],
+    ['complete', 'bridge_completion_asserted']
+  ])('reports a settled %s recovery as a prior-authorized return', async (phase, outcome) => {
+    const value = info();
+    const recoverNear = jest.fn(async () => {
+      mockState().phase = phase as MainnetNearCheckpoint['phase'];
+    });
+    await expect(run(value, recoverNear)).resolves.toBeUndefined();
+    expect(recoverNear).toHaveBeenCalledTimes(1);
+    expect(reported(value)).toMatchObject([{ recoveryEffect: 'prior_authorized_return', outcome }]);
+  });
+  it('reports no work for a terminal checkpoint without calling recovery', async () => {
+    mockState().phase = 'complete';
+    const value = info();
+    const recoverNear = jest.fn();
+    await expect(run(value, recoverNear)).resolves.toBeUndefined();
+    expect(recoverNear).not.toHaveBeenCalled();
+    expect(reported(value)).toMatchObject([{ recoveryEffect: 'no_work' }]);
+  });
+  it('reports nothing when recovery fails', async () => {
+    const value = info();
+    const recoverNear = jest.fn().mockRejectedValue(new Error('unresolved'));
+    await expect(run(value, recoverNear)).rejects.toThrow('Original native NEAR recovery blocked');
+    expect(reported(value)).toEqual([]);
+  });
+});
