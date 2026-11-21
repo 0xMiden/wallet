@@ -5,8 +5,8 @@ import type { BridgeOperationSnapshot } from 'lib/bridge/operation';
 import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type {
+  NearIntentsConfig,
   OneClickAsset,
-  OneClickConfig,
   OneClickProviderStatus,
   OneClickQuoteRequest,
   OneClickQuoteResponse,
@@ -200,14 +200,17 @@ export type IOneClickPhase =
   | 'delivered'
   | 'refunded'
   | 'incomplete-deposit'
-  | 'failed';
+  | 'failed'
+  // Nobody paid the deposit address before the funding deadline (plus a grace time). Terminal.
+  | 'expired';
 
 export interface IOneClickTrackingData {
+  /** `evm-to-miden` is every deposit into Miden, from any origin chain. The name stays for rows already stored. */
   direction: IOneClickDirection;
   request: OneClickQuoteRequest;
   quote: OneClickQuoteResponse;
   fundingDeadline?: string;
-  config: OneClickConfig;
+  config: NearIntentsConfig;
   network: string;
   accountId: string;
   accountAddress: string;
@@ -223,7 +226,6 @@ export interface IOneClickTrackingData {
   providerStatus?: OneClickProviderStatus;
   statusResponse?: OneClickStatusResponse;
   providerSubmitted?: boolean;
-  evmSubmission?: 'not-started' | 'attempted' | 'known';
   updatedAt?: number;
   error?: string;
 }

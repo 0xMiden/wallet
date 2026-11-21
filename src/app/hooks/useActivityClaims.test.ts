@@ -213,10 +213,15 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
 // This registry has only the native ETH faucet. The SDK mock returns each ID unchanged.
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () => ({}),
-  initBridgeConfig: async () => ({})
-}));
+jest.mock('lib/remote-config/runtime', () => {
+  // useSyncExternalStore needs a stable snapshot, so one object serves every read.
+  const snapshot = {};
+  return {
+    getBridgeConfigSnapshot: () => snapshot,
+    initBridgeConfig: async () => ({}),
+    subscribeBridgeConfig: () => () => undefined
+  };
+});
 jest.mock('lib/remote-config/values', () => ({
   selectAgglayerDeliveryFaucets: () => [
     jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')

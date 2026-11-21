@@ -94,43 +94,21 @@ describe('OneClick quote signature', () => {
       deadline: '2026-10-22T12:15:00.000Z',
       slippageTolerance: 100
     };
-    expect(() =>
-      assertOneClickQuoteBinding(request, response, true, {
-        serviceUrl: 'https://proxy.example',
-        midenAssets: [],
-        evmAssets: [
-          {
-            assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
-            blockchain: 'eth',
-            chainId: 1,
-            contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-            decimals: 6,
-            symbol: 'USDC'
-          }
-        ],
-        appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
-      })
-    ).not.toThrow();
+    const config = {
+      serviceUrl: 'https://proxy.example',
+      midenAssets: [],
+      chains: [],
+      appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
+    };
+    // The pinned production quote is a chain-to-chain route. It passes the signature, field and fee checks and
+    // stops only at the pair check, because NEAR Intents accepts only a configured pair into Miden.
+    expect(() => assertOneClickQuoteBinding(request, response, true, config)).toThrow('configured NEAR Intents pair');
     expect(() =>
       assertOneClickQuoteBinding(
         { ...request, recipient: '0x3333333333333333333333333333333333333333' },
         response,
         true,
-        {
-          serviceUrl: 'https://proxy.example',
-          midenAssets: [],
-          evmAssets: [
-            {
-              assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
-              blockchain: 'eth',
-              chainId: 1,
-              contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-              decimals: 6,
-              symbol: 'USDC'
-            }
-          ],
-          appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
-        }
+        config
       )
     ).toThrow('requested route');
   });
@@ -143,7 +121,7 @@ describe('OneClick quote signature', () => {
     expect(verifyOneClickQuoteSignature(response, `ed25519:${bs58.encode(publicKey)}`)).toBe(true);
   });
 
-  it('binds the unchanged wet fixture before the signed request cutoff even when provider expiry is later', () => {
+  it('checks the unchanged wet fixture up to the pair check before the signed request cutoff', () => {
     const response = parseOneClickQuoteResponse(wetFixture);
     const request: OneClickQuoteRequest = {
       amount: '1000000',
@@ -171,16 +149,7 @@ describe('OneClick quote signature', () => {
     const config = {
       serviceUrl: 'https://proxy.example',
       midenAssets: [],
-      evmAssets: [
-        {
-          assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near',
-          blockchain: 'eth',
-          chainId: 1,
-          contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-          decimals: 6,
-          symbol: 'USDC'
-        }
-      ],
+      chains: [],
       appFees: [{ recipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd', fee: 20 }]
     };
     const requestPayload = JSON.stringify(response.quoteRequest);
@@ -190,7 +159,10 @@ describe('OneClick quote signature', () => {
 
     jest.useFakeTimers().setSystemTime(new Date('2026-10-22T11:15:08.000Z'));
     try {
-      expect(() => assertOneClickQuoteBinding(request, response, false, config)).not.toThrow();
+      // Every check before the pair check passes: the chain-to-chain fixture is not a NEAR Intents pair.
+      expect(() => assertOneClickQuoteBinding(request, response, false, config)).toThrow(
+        'configured NEAR Intents pair'
+      );
       expect(JSON.stringify(response.quoteRequest)).toBe(requestPayload);
       expect(JSON.stringify(response.quote)).toBe(quotePayload);
       expect(hashOneClickQuote(response)).toBe(signedHash);
