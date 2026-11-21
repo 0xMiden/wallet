@@ -34,6 +34,10 @@ on:
         description: Explicit one-time replacement of an expired unsubmitted return; preserves its old authority and requires recovery-only.
         type: boolean
         default: false
+      replace_unsubmitted_near_return:
+        description: One-time recovery of the original held NEAR proceeds; requires loops_only and excludes fresh payments.
+        type: boolean
+        default: false
       loss_budget_usd_micros:
         description: Remaining allowance for fresh loops after prior recovery costs, in micro-USD (maximum 2000000).
         type: string
@@ -65,6 +69,7 @@ jobs:
       MAINNET_SWAP_RECOVERY_RETURN_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return && 'true' || 'false' }}
       MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.replace_unsubmitted_swap_return && 'true' || 'false' }}
       MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: ${{ github.event_name == 'schedule' && '2000000' || inputs.loss_budget_usd_micros }}
+      MAINNET_NEAR_REPLACEMENT_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.replace_unsubmitted_near_return && 'true' || 'false' }}
       MAINNET_LOOP_BRIDGES_ONLY: ${{ inputs.bridges_only && 'true' || 'false' }}
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
@@ -83,6 +88,13 @@ jobs:
           budget="${MAINNET_LOOP_LOSS_BUDGET_USD_MICROS-2000000}"
           if ! [[ "$budget" =~ ^[1-9][0-9]{0,6}$ ]] || [ "$budget" -gt 2000000 ]; then
             echo 'Invalid remaining loss/fee allowance; no wallet restoration authorized.' >&2; exit 1
+          fi
+          if [ "$MAINNET_NEAR_REPLACEMENT_APPROVED" = true ] && {
+            [ "$GITHUB_REF" != refs/heads/main ] || [ "$LOOPS_ONLY" != true ] ||
+            [ "$SWAPS_ONLY" = true ] || [ "$BRIDGES_ONLY" = true ] || [ "$budget" != 1712349 ] ||
+            [ "$MAINNET_SWAP_RECOVERY_RETURN_APPROVED" = true ] || [ "$MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED" = true ];
+          }; then
+            echo 'NEAR replacement requires main, loops_only and the exact remaining budget.' >&2; exit 1
           fi
           if [ "$SWAPS_ONLY" = true ] && [ "$BRIDGES_ONLY" = true ]; then
             echo 'Choose swaps_only or bridges_only, not both.' >&2; exit 1
@@ -199,6 +211,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs attempts near
+      - name: Verify exact NEAR replacement provenance
+        if: inputs.replace_unsubmitted_near_return
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEAR_FRONTIER: ${{ steps.near-prior.outputs.run_id }}
+        run: |
+          test "$NEAR_FRONTIER" = 44871541172
+          sha256sum --check --status <<'SHA'
+          2c72efc48b1151f7c7f7320a115ac9f6bdd290f7fb7d5450730a42b0611ce461  test-results/mainnet-swap-state/roundtrip.json
+          3478eb7eb398302b997ebbb0c0d1674b79f44b0db3b05c811519c778fa07893e  test-results/mainnet-epoch-state/roundtrip.json
+          SHA
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          download() {
+            gh api "repos/0xMiden/wallet/actions/artifacts/$1/zip" > "$work/$1.zip"
+            printf '%s  %s\n' "$2" "$work/$1.zip" | sha256sum --check --status
+            test "$(unzip -Z1 "$work/$1.zip")" = roundtrip.json
+            unzip -p "$work/$1.zip" roundtrip.json > "$work/$1.json"
+          }
+          historical=6a8cf4b067cd5809cf39800521158e666ec747de39d673f6615a0470299117f7
+          download 14681848612 "$historical"
+          download 14681873349 "$historical"
+          download 14694460888 55e22c8a7fb31e77b345848714fdd7264a8bc2d68f4a863ed73884846f18f738
+          cmp -s "$work/14681848612.json" "$work/14681873349.json"
+          cmp -s "$work/14694460888.json" test-results/mainnet-1click-state/roundtrip.json
+          node scripts/verify-mainnet-near-replacement.mjs "$work/14681848612.json"
+          echo 'MAINNET_NEAR_REPLACEMENT_PROVENANCE=true' >> "$GITHUB_ENV"
       - name: Install miden-client-cli
         id: setup-install-miden-client-cli
         uses: ./.github/actions/install-miden-client-cli
@@ -533,6 +574,7 @@ jobs:
           const reports = ['test-results/mainnet-epoch-recovery.json', 'test-results/mainnet-near-recovery.json'].map(path => JSON.parse(readFileSync(path, 'utf8')));
           if (reports.some(report => typeof report.recoveryOnly !== 'boolean')) throw new Error('Missing actual provider recovery disposition');
           const recovered = process.env.SWAP_RECOVERY_ONLY === 'true' || reports.some(report => report.recoveryOnly);
+          if (!recovered && process.env.MAINNET_NEAR_REPLACEMENT_APPROVED === 'true') throw new Error('NEAR replacement cannot fund fresh loops');
           appendFileSync(process.env.GITHUB_OUTPUT, `recovery_only=${recovered}\nrecovery_cleared=${!recovered}\n`);
           if (!recovered) appendFileSync(process.env.GITHUB_ENV, 'MAINNET_LOOP_RECOVERY_CLEARED=true\n');
           NODE

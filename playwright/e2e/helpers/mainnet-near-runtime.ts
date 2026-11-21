@@ -17,6 +17,7 @@ import {
   saveMainnetNearCheckpoint,
   type MainnetNearCheckpoint
 } from './mainnet-near-checkpoint';
+import { verifyRetiredNearReturnAbsence } from './mainnet-near-return-absence';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 import { realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
@@ -100,6 +101,10 @@ export async function runMainnetNearStage(
   )
     throw new Error('Native NEAR requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH);
+  if (process.env.MAINNET_NEAR_REPLACEMENT_APPROVED === 'true') {
+    if (mode !== 'recover' || !previous || !nearReplacementRunId(previous))
+      throw new Error('NEAR replacement requires verified original authority');
+  }
   const chainId = previous?.evm?.chainId;
   const chain = chainId === 1 ? 'Ethereum' : chainId === 42161 ? 'Arbitrum' : undefined;
   const observe = observeNightly(info, {
@@ -839,6 +844,38 @@ export async function claimMainnetNearNote(
   await finishMainnetNearReturn(wallet, state, kind);
 }
 
+function nearReplacementRunId(state: MainnetNearCheckpoint): string | undefined {
+  const { GITHUB_RUN_ID: runId, GITHUB_REF, GITHUB_EVENT_NAME, GITHUB_RUN_ATTEMPT } = process.env;
+  return process.env.MAINNET_NEAR_REPLACEMENT_APPROVED === 'true' &&
+    process.env.MAINNET_NEAR_REPLACEMENT_PROVENANCE === 'true' &&
+    process.env.MAINNET_LOOP_LOSS_BUDGET_USD_MICROS === '1712349' &&
+    GITHUB_REF === 'refs/heads/main' &&
+    GITHUB_EVENT_NAME === 'workflow_dispatch' &&
+    GITHUB_RUN_ATTEMPT === '1' &&
+    runId &&
+    /^[1-9]\d{0,19}$/.test(runId) &&
+    BigInt(runId) > 44871541172n &&
+    state.sourceRunId === '44318071333' &&
+    state.authorizationRunId === state.sourceRunId &&
+    state.lossBudgetUsdMicros === '1712349' &&
+    state.phase === 'recovery-required' &&
+    state.forwardReceived === '9975787' &&
+    state.returnAmount === state.forwardReceived &&
+    state.reverseQuote &&
+    state.evmNonceBefore !== undefined &&
+    state.returnValuation &&
+    !state.retiredReturn &&
+    !state.transactions?.length &&
+    !state.consumeAuthority &&
+    !state.returnNoteId &&
+    !state.returnProviderTxId &&
+    !state.returnMidenTxId &&
+    !state.reverseReceived &&
+    !state.refunded
+    ? runId
+    : undefined;
+}
+
 export async function runMainnetNearReverse(
   wallet: GuardianAwareWalletPage,
   state: MainnetNearCheckpoint,
@@ -846,17 +883,28 @@ export async function runMainnetNearReverse(
   signal: AbortSignal
 ): Promise<void> {
   parseMainnetNearCheckpoint(state);
+  const replacementRunId = nearReplacementRunId(state);
   if (
-    state.phase !== 'forward-settled' ||
+    (!replacementRunId &&
+      (state.phase !== 'forward-settled' || state.reverseQuote || state.evmNonceBefore !== undefined)) ||
     !state.forwardReceived ||
-    state.reverseQuote ||
-    state.evmNonceBefore !== undefined ||
+    state.retiredReturn ||
     state.transactions?.length ||
     state.consumeAuthority ||
     signal.aborted ||
     (await wallet.getAccountAddress()) !== state.account
   )
     throw new Error('Original native NEAR reverse authority is used or unresolved; never refresh it');
+  const retired: MainnetNearCheckpoint['retiredReturn'] = replacementRunId
+    ? {
+        runId: '44844609625',
+        replacementRunId,
+        quote: state.reverseQuote!,
+        nonce: state.evmNonceBefore!,
+        valuation: state.returnValuation!
+      }
+    : undefined;
+  if (retired) await verifyRetiredNearReturnAbsence(state, wallet.extensionId, signal);
   const rawKey = (process.env.E2E_MAINNET_EVM_KEY?.trim() ?? '').replace(/^0x/, '');
   const key = `0x${rawKey}`;
   if (
@@ -982,9 +1030,9 @@ export async function runMainnetNearReverse(
       client.getTransactionCount({ address: account, blockTag: 'latest' }),
       client.getTransactionCount({ address: account, blockTag: 'pending' })
     ]);
-    if (latest !== pending || activeSignal.aborted)
+    if (latest !== pending || (retired && latest !== retired.nonce) || activeSignal.aborted)
       throw new Error('Original native NEAR EVM actor has unresolved pending activity');
-    state.reverseQuote = {
+    const reverseQuote = {
       quoteHash: hashOneClickQuote(quote),
       correlationId: quote.correlationId,
       depositAddress: quote.quote.depositAddress,
@@ -993,17 +1041,23 @@ export async function runMainnetNearReverse(
       minimumOutput: quote.quote.minAmountOut,
       refundFee: quote.quote.refundFee
     };
-    state.returnAmount = amount.toString();
-    state.evmNonceBefore = latest;
-    state.returnValuation = {
-      pricedAt: prices.fetchedAt,
-      nativeUsdMicros: nativePrice.toString(),
-      tokenUsdMicros: tokenPrice.toString(),
-      gasUsdMicros: gasPrice.toString()
-    };
-    state.phase = 'reverse-authorized';
-    state.updatedAt = new Date().toISOString();
-    saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, state);
+    const authorized = parseMainnetNearCheckpoint({
+      ...state,
+      ...(retired ? { retiredReturn: retired } : {}),
+      reverseQuote,
+      returnAmount: amount.toString(),
+      evmNonceBefore: latest,
+      returnValuation: {
+        pricedAt: prices.fetchedAt,
+        nativeUsdMicros: nativePrice.toString(),
+        tokenUsdMicros: tokenPrice.toString(),
+        gasUsdMicros: gasPrice.toString()
+      },
+      phase: 'reverse-authorized',
+      updatedAt: new Date().toISOString()
+    });
+    saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, authorized);
+    Object.assign(state, authorized);
     const originalAuthority = JSON.stringify(state);
     await awaitMainnetLoopAuthorization(MAINNET_NEAR_STATE_PATH, gatePath, activeSignal);
     if (JSON.stringify(state) !== originalAuthority || hashOneClickQuote(quote) !== state.reverseQuote?.quoteHash)
@@ -1221,6 +1275,11 @@ export async function recoverMainnetNear(
     (await wallet.getAccountAddress()) !== state.account
   )
     throw new Error('Original native NEAR recovery lacks exact source authority or the existing Guardian');
+  if (process.env.MAINNET_NEAR_REPLACEMENT_APPROVED === 'true') {
+    if (!nearReplacementRunId(state)) throw new Error('NEAR replacement requires verified original authority');
+    await runMainnetNearReverse(wallet, state, `${gatePath}.reverse`, signal);
+    return;
+  }
   if (state.consumeAuthority && !state.returnMidenTxId)
     throw new Error('Original native NEAR claim has an unknown outcome; never retry');
   const persist = async () => {
