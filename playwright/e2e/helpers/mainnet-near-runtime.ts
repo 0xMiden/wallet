@@ -823,6 +823,8 @@ export async function runMainnetNearReverse(
   const stopped = new AbortController();
   const activeSignal = AbortSignal.any([signal, stopped.signal]);
   let sender: ReturnType<typeof createMainnetOneClickEvmSender> | undefined;
+  let returnStage = 'review';
+  let senderRejected = false;
   try {
     await wallet.navigateTo('/receive');
     // The wallet requests the wet quote when its deposit-address button is clicked, so the quote window and the
@@ -959,11 +961,14 @@ export async function runMainnetNearReverse(
         }
       })
     });
+    returnStage = 'sender-bind';
     sender.bind(request, quote);
     // The deposit address is paid from the nightly's own EVM key: exactly one ERC20 transfer of the quoted amount.
+    returnStage = 'sender-entered';
     try {
       await sender.send(buildMainnetEvmTransfer(evm, quote.quote.depositAddress, quote.quote.amountIn), activeSignal);
     } catch {
+      senderRejected = true;
       throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry');
     }
     // The page's own status is evidence only: the transfer is already broadcast, so a slow row never fails the leg.
@@ -1002,6 +1007,15 @@ export async function runMainnetNearReverse(
     if (hashes?.length !== 1 || !hash || !isHash(hash))
       throw new Error('Missing unique actual native NEAR return transaction');
     await claimMainnetNearNote(wallet, state, hash, 'return', gatePath, activeSignal);
+  } catch (error) {
+    try {
+      writeFileSync('test-results/mainnet-near-return-failure.json', JSON.stringify({ returnStage, senderRejected }), {
+        mode: 0o600
+      });
+    } catch {
+      // Diagnostic output must not replace the original failure.
+    }
+    throw error;
   } finally {
     stopped.abort();
   }
