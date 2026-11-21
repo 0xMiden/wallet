@@ -101,6 +101,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
   const maxNetworkFee = useNetworkFeeEstimate();
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
   const account = useAccount();
+  const reclaimAccountSelected = !!entry.address && account.publicKey === entry.address;
 
   const isAgglayer = entry.bridgeProvider === 'agglayer';
   const isEpoch = entry.bridgeProvider === 'epoch';
@@ -343,7 +344,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
   }, [canShowReclaim, nodeReturnStatus]);
 
   const handleReclaim = useCallback(async () => {
-    if (!reclaimNoteId) return;
+    if (!reclaimNoteId || !reclaimAccountSelected) return;
     hapticMedium();
     setReclaimError(null);
     setReclaimErrorId(null);
@@ -354,7 +355,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
       // earlier failed reclaim puts the note behind auto-consume's exponential
       // backoff, so the tap queues nothing and navigates to the old failed receipt.
       const txId = await initiateConsumeTransactionFromId(
-        account.publicKey,
+        entry.address,
         reclaimNoteId,
         isDelegateProofEnabled(),
         true,
@@ -374,7 +375,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
       }
       setReclaiming(false);
     }
-  }, [reclaimNoteId, account.publicKey, t]);
+  }, [reclaimNoteId, reclaimAccountSelected, entry.address, t]);
 
   return (
     <div className="mt-6 mb-4">
@@ -520,14 +521,14 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
           )}
           {(nodeReturnStatus ? nodeReturnStatus === 'readyToClaim' : reclaimReached) ? (
             <>
-              {maxNetworkFee && (
+              {reclaimAccountSelected && maxNetworkFee && (
                 // Reclaiming consumes the recallable note -- a real transaction with a
                 // real fee, submitted on this tap with no review step in between.
                 <div className="text-center text-xs text-ink">
                   {t('networkFeeMax')} · {maxNetworkFee}
                 </div>
               )}
-              <Button size="sm" onClick={handleReclaim} disabled={reclaiming}>
+              <Button size="sm" onClick={handleReclaim} disabled={reclaiming || !reclaimAccountSelected}>
                 {reclaiming ? t('reclaiming') : t('reclaimFunds')}
               </Button>
             </>

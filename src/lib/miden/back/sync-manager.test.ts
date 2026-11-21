@@ -469,7 +469,13 @@ describe('doSync', () => {
         miden_cached_consumable_notes: expect.any(Array),
         miden_sync_data: expect.objectContaining({
           accountPublicKey: 'pk-1',
-          balanceSnapshot: { network: 'testnet', accountNonce: '5' }
+          balanceSnapshot: expect.objectContaining({
+            network: 'testnet',
+            accountNonce: '5',
+            effectiveNetwork: 'testnet',
+            rpcUrl: expect.any(String),
+            capturedAt: expect.any(Number)
+          })
         })
       })
     );

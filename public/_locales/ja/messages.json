@@ -895,6 +895,14 @@
     "message": "担保noteには、審査済みのトークン、審査済みの金額、および設定済みのアロケーターを使用する必要があります。何も送信されていません。戻って、もう一度試してください。",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "ブリッジの用語が変更されました。続行する前に「アクティビティ」を確認してください。",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "送信前に停止",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "獲得総額",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "有効期限",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "推定",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "校正済みの有効期限が変更されました。送信する前に再度確認してください。",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "それまでに受け取られなかった場合、$amount$ は保留中の送金として戻り、あなたが受け取ります。資金が失われることはありません。",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3155,8 +3171,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "リカバリーフレーズを使用すると、鍵が復元され、Guardianのバックアップがあればアカウントも復元されます。このフレーズは安全に保管してください。",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "あなたのフレーズとGuardianのバックアップによって、アカウントが復元されます。フレーズは安全に保管してください。",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "お客様の資金は、常にお客様自身のものです",
@@ -3175,8 +3191,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Guardiansに関する詳細",
-    "englishSource": "More about Guardians"
+    "message": "Guardianの詳細はこちら",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "$name$ へ進む",
@@ -3374,6 +3390,245 @@
   "openWallet": {
     "message": "財布を開く",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "ウォレット",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "ウォレット操作の検索",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "ウォレットの操作",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "取引",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "ブリッジ",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "方向",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "ブリッジアウト",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Midenネットワーク",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "ネットワークの変更",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "プロバイダー",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "エポック",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "出典：",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "To",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "資産、ネットワーク、プロバイダー",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ から $destination$ へ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "外部アカウント",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Midenアカウント",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "受領予定",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "ソースの合計金額",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "プロバイダー手数料",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "ソースネットワークを切り替える",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epochでは、インストール済みのプロバイダーを使用して固定のソース金額を提示することはできません。ブリッジを行うには、別のプロバイダーを選択してください。",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "現在のウォレットネットワークでは、ブリッジルートは利用できません。",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "続行するには、受取残高の制限額に余裕があり、この入金が可能である必要があります。",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "この送金は「アクティビティ」に記録されています。ウォレットの承認や決済がまだ保留中の可能性があります。再度実行しないでください。",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "送金状況を確認する",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "全画面表示",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "新しいタブでウォレットを開きます。",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "全画面表示できませんでした。もう一度お試しください。",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "ポートフォリオ",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "割り当て",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "価格付けされたウォレット資産",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "あなたのウォレットは空です。",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "表示すべき価格付き資産はありません。",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "最近のアクション",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "表示する最近のアクションはありません",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "ウォレットの残高",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "現在の価格での保有資産における24時間の市場価格変動：$change$米ドル（$percentage$％）",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "残高を非表示にする",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "残高を表示する",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "非表示",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "残高利用不可",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "価格不明",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "部分的な評価 — 一部の資産には検証済みの米ドル価格が設定されていない",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "ウォレットの履歴",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "履歴の範囲",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "まだ観察例が不十分です",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "一部の間隔や評価範囲が欠落しています",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandHistoryObservationsOnly": {
+    "message": "記録された観察事項のみ",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "「Earn」への新規入金は一時停止されています。既存のポジションの確認および引き出しは引き続き可能です。",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
+  "commandInspectHistory": {
+    "message": "観測された履歴を検査する",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "本デバイスに関する注意事項のみ。空白は埋めない。",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "はじめに",
@@ -5923,6 +6178,10 @@
     "message": "アドレスを送る",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "このアドレスをコピーできませんでした。以下から選択して手動でコピーしてください。",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "別のネットワークからの情報",
     "englishSource": "From another network"
@@ -6465,16 +6724,21 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "不透明な署名要求",
-    "englishSource": "Opaque signature request"
+    "message": "Breadではこれをプレビューできません",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureNotATransaction": {
     "message": "この署名では、お客様の口座からの取引を承認することはできません。",
     "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
-    "message": "このサイトでは、生の値への署名を求められています。ウォレットでは、何が承認されるのかを確認できません。このサイトを完全に信頼している場合のみ、続行してください。",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$から、生の値への署名を求められました。Breadでは承認内容が確認できないため、このサイトを完全に信頼している場合のみ、操作を続けてください。",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",
@@ -7445,6 +7709,10 @@
   "receiveAt": {
     "message": "受取先",
     "englishSource": "Receive at"
+  },
+  "receiveNoPendingTransfers": {
+    "message": "確認すべき着金はありません",
+    "englishSource": "No incoming transfers to review"
   },
   "earnTitle": {
     "message": "あなたの収益",
@@ -9120,5 +9388,131 @@
   "bridgeWithdrawalUseSlow": {
     "message": "代わりに「Slow bridge」を使用してください",
     "englishSource": "Use Slow bridge instead"
+  },
+  "connectFactsTitle": {
+    "message": "このサイトでは、",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "残高と取引履歴を確認する",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "許可なく個人データを読み取る",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "$scopes$へのアクセス権が付与されます",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "個人データを閲覧する前に確認してください",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "取引リクエストを送信する",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "これらを一つひとつ承認してください",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "決して独自に資金を移動させてはならない",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "資金が移動するのは、あなたが承認した場合のみです",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "リクエストは依然として残っていますので、再試行できます。",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "接続できませんでした",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "異なるネットワーク",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "リクエスト元：",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "トークンfaucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "ブロックの呼び出し",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "受信",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "faucetからのNote",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "あなた",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "お支払いください",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "受け取り",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "アカウントから",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "アカウントに反映されます",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "カスタム取引",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "取引概要",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "リクエストは依然として残っていますので、再試行してください。",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "確認できませんでした",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "未確認",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureTitle": {
+    "message": "これは単にログインするだけです",
+    "englishSource": "This only signs you in"
   }
 }

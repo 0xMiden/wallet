@@ -7,6 +7,9 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { v4 as uuid } from 'uuid';
 
+import { configKey } from 'lib/bridge/core/routes';
+import { assertBridgeOperationCurrent, bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
+import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import { getMessage } from 'lib/i18n/core';
 import {
   clearGuardianServiceFor,
@@ -44,6 +47,7 @@ import {
   type ProofPass,
   withFreshProof
 } from 'lib/miden/guardian/proof-freshness';
+import { proposeRebased, withRequestOrder } from 'lib/miden/guardian/rebased-proposal';
 import {
   clearGuardianCandidate,
   getGuardianCandidate,
@@ -142,6 +146,7 @@ import {
   type AttemptContext,
   claimBridgeSubmit,
   completedSwapFields,
+  countNoteDeliveryWrite,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   landedTransactionIdFields,
@@ -159,6 +164,13 @@ import {
   swapOrderExpiresAt,
   updateTransactionStatus
 } from './helper';
+import {
+  forgetLandedCompletion,
+  keptLandingFacts,
+  type LandedCompletion,
+  readLandedCompletion
+} from './landed-completion-reads';
+import { keptLandedTransactionId, readLandedResultFields } from './landed-result-fields';
 import { assertProposalEffectApproved } from './proposal-effect-guard';
 import {
   noteQueueSighting,
@@ -169,10 +181,14 @@ import {
   type QueueAdmissionMember,
   type QueueSighting
 } from './queue-admission-diagnostics';
-import type { CandidateRelease } from './reconcile-unconfirmed';
+import {
+  type CandidateRelease,
+  landedDeliveryTargetValues,
+  landedExecuteDeliveryValues
+} from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
-import { writeCommittedCompleted } from './terminal-write';
-import { attemptMayHaveCrossed, canAwaitVerdict } from './verdict-rules';
+import { readRowWithinTerminalBudget, writeCommittedCompleted } from './terminal-write';
+import { attemptMayHaveCrossed, canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
@@ -203,8 +219,16 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
-import { applyAfterSubmit, isLandedTailError, LandedTailError, landedTailErrorIn } from '../sdk/apply-after-submit';
+import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType, resolveSendReclaimHeight } from '../helpers';
+import {
+  applyAfterSubmit,
+  isLandedTailError,
+  LandedTailError,
+  landedTailErrorIn,
+  recordedSwapOrder,
+  requestOrderOf,
+  submittedSwapOrder
+} from '../sdk/apply-after-submit';
 import {
   accountRefToSdk,
   buildPswapCreateRequest,
@@ -245,6 +269,7 @@ import {
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
   landedOrderFacts,
+  markErrorBeforeSubmit,
   someInCauseChain,
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
@@ -657,7 +682,7 @@ const stageStampFor =
   };
 
 /**
- * The offscreen Guardian leaf's submit gate (#1644), for one attempt. The leaf submits only once this answers yes, and
+ * An offscreen leaf's submit gate (#1644), for one attempt. The leaf submits only once this answers yes, and
  * it answers yes only after the reliable 'submitting' stamp recorded the crossing (a stamp that throws leaves it shut)
  * and while the attempt has not settled, so an attempt it never answered yes for never called submit. `settle` is
  * called first thing when the attempt's outcome is decided; a gate still recording then answers no.
@@ -1186,8 +1211,8 @@ async function requeueWithWake(
 }
 
 /**
- * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. The row
- * owes notes no client store holds, so the delivery sweep leaves it inert (see `landedValueRowFields`).
+ * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. Which notes
+ * it owes, if any, is what its tail recorded or `appliedDeliveryValues` adds (see `landedValueRowFields`).
  */
 const landedRowFields = (tx: ITransaction, error: unknown) => {
   const landed = landedFactsOf(error);
@@ -1196,15 +1221,51 @@ const landedRowFields = (tx: ITransaction, error: unknown) => {
 
 /**
  * What a landed failure says about its transaction: the facts an apply-after-submit error carried, or a tail's id and
- * order, in the form `extractLanded` gives the other source's.
+ * order, in the form `extractLanded` gives the other source's. A tail is `applied`: it runs only on a result its leaf
+ * returned, and every leaf returns one only after its local apply resolved.
  */
 const landedFactsOf = (error: unknown): LandedWithoutResult => {
   const tail = landedTailErrorIn(error);
   if (tail === undefined) return extractLanded(error);
   return {
     ...landedTransactionIdFields({ transactionId: tail.transactionId }),
-    ...landedOrderFacts(tail.orderId, tail.orderNoteId)
+    ...landedOrderFacts(tail.orderId, tail.orderNoteId),
+    applied: true
   };
+};
+
+/**
+ * `facts` as the landing of `attemptId` knows them on `row`, the row as its write finds it: when they name no order, the
+ * one that attempt's 'submitting' stamp recorded, which a single-key swap's leaf read off its request before the
+ * submit. A single-key swap saves no request, so a landing that read nothing off the result (a trap, an offscreen
+ * result that did not serialize) has no other record of its order.
+ */
+const withSubmittedOrder = (
+  row: ITransaction,
+  facts: LandedWithoutResult,
+  attemptId: string | undefined
+): LandedWithoutResult => {
+  if (row.type !== 'swap' || facts.orderId !== undefined || attemptId === undefined) return facts;
+  const order = submittedSwapOrder(row.submitEvidence, entry => entry.attemptId === attemptId);
+  return order === undefined ? facts : { ...facts, ...order };
+};
+
+/**
+ * The order a landing holds on `row`, the row as its write finds it: the one the landed facts read or the landing
+ * attempt's stamp recorded, else, on a row holding no order of a landing yet, the one its saved request recorded beside
+ * the bytes stored with it. None for a row that already holds its own order, which the completion that stamped it read
+ * off the result.
+ */
+const landingOrderOf = (
+  row: ITransaction,
+  orderId: string | undefined,
+  orderNoteId: string | undefined
+): { orderId: string; orderNoteId?: string } | undefined => {
+  if (row.type !== 'swap' || row.status === ITransactionStatus.Completed || row.extraInputs?.orderId != null) {
+    return undefined;
+  }
+  if (orderId !== undefined) return { orderId, orderNoteId };
+  return row.extraInputs?.landedOrder == null ? recordedSwapOrder(row.extraInputs) : undefined;
 };
 
 /**
@@ -1212,28 +1273,27 @@ const landedFactsOf = (error: unknown): LandedWithoutResult => {
  * still names the transaction, and hold a swap's order beside it. Guard-free like `markMayHaveSubmitted`:
  * the cancel that follows is what makes the row terminal, and a Cancel or the reaper that finalizes the
  * row before its Completed write lands still leaves both. Each fact is recorded without the other, since
- * they are separate reads. A failed write is logged, never thrown: the store that just failed the apply
- * can fail this one too, and the cancel is what releases the awaiting caller.
+ * they are separate reads. An order the facts do not name can be the one the landing attempt's stamp
+ * recorded (`withSubmittedOrder`) or the row's saved request recorded (`landingOrderOf`), anchored at this
+ * landing like a read one. A failed write is logged, never thrown: the store that just failed the apply can
+ * fail this one too, and the cancel is what releases the awaiting caller.
  */
-const recordLandedFacts = async (txId: string, error: unknown): Promise<void> => {
-  const { transactionId, orderId, orderNoteId } = landedFactsOf(error);
-  if (transactionId === undefined && orderId === undefined) return;
+const recordLandedFacts = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
+  const facts = landedFactsOf(error);
+  const { transactionId } = facts;
   const landedAt = Math.floor(Date.now() / 1000); // seconds
+  // Facts that name nothing still reach the row: a trap leaves them empty, and the recorded order is on the row.
   try {
     await Repo.transactions.where({ id: txId }).modify(row => {
-      // A row that already holds its own order keeps it: the completion that stamped it read the result.
-      const recordsOrder =
-        orderId !== undefined &&
-        row.type === 'swap' &&
-        row.status !== ITransactionStatus.Completed &&
-        row.extraInputs?.orderId == null;
-      if (transactionId === undefined && !recordsOrder) return false;
+      const { orderId, orderNoteId } = withSubmittedOrder(row, facts, attemptId);
+      const order = landingOrderOf(row, orderId, orderNoteId);
+      if (transactionId === undefined && order === undefined) return false;
       if (transactionId !== undefined) row.transactionId = transactionId;
-      if (recordsOrder) {
+      if (order !== undefined) {
         const landedOrder: ISwapLandedOrder = {
-          orderId,
+          orderId: order.orderId,
           expiresAt: swapOrderExpiresAt(row.extraInputs, landedAt),
-          ...(orderNoteId === undefined ? {} : { noteId: orderNoteId })
+          ...(order.orderNoteId === undefined ? {} : { noteId: order.orderNoteId })
         };
         row.extraInputs = { ...row.extraInputs, landedOrder };
       }
@@ -1250,24 +1310,43 @@ const recordLandedFacts = async (txId: string, error: unknown): Promise<void> =>
  * (PR #2183). A structural row's tail is left as it is once it holds its id. It settles on the node's verdict itself (a
  * discard fails it, a rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers
  * no Retry. Its id read comes before any verdict, so that read's failure leaves the tail as `LandedTailError`
- * (`readTailTransactionId`). A value row's tail reads no id of its own.
+ * (`readTailTransactionId`).
+ *
+ * Each tail first reads, under the generation the wrapper recorded, what its completion reads off the result: the
+ * outgoing guardian's delta push, the commit wait and a Guardian row's sync can replace the client, and the completion
+ * then writes the values read here. A structural row's completion reads only the id, bytes and fee
+ * (`readLandedResultFields`); a value row's reads each field its completion reads, in that completion's own order
+ * (`readLandedCompletion`). Neither read throws, so the switch delta is still pushed, and a Guardian value row still
+ * synced, before a failed read leaves the tail. A value row's failure names the id and swap order its read kept, else
+ * reads the handle late.
  */
 const runLandedTail = async (
-  transaction: Pick<ITransaction, 'id' | 'type'>,
+  transaction: ITransaction,
   result: TransactionResult,
   run: () => Promise<void>
 ): Promise<void> => {
   if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
-    await retiringLandedTraps(transaction.id, result, run);
+    await retiringLandedTraps(transaction.id, result, () => {
+      readLandedResultFields(result, transaction.id);
+      return run();
+    });
     return;
   }
+  let read: LandedCompletion | undefined;
   try {
-    await retiringLandedTraps(transaction.id, result, run);
-  } catch (error) {
-    throw new LandedTailError(error, {
-      transactionId: readLandedTransactionId(transaction.id, result),
-      ...(transaction.type === 'swap' ? landedSwapOrder(transaction.id, result) : {})
+    await retiringLandedTraps(transaction.id, result, () => {
+      read = readLandedCompletion(transaction, result);
+      return run();
     });
+  } catch (error) {
+    const kept = keptLandingFacts(read);
+    throw new LandedTailError(error, {
+      transactionId:
+        kept.transactionId ?? keptLandedTransactionId(result) ?? readLandedTransactionId(transaction.id, result),
+      ...(transaction.type === 'swap' ? (kept.order ?? landedSwapOrder(transaction.id, result)) : {})
+    });
+  } finally {
+    forgetLandedCompletion(result);
   }
 };
 
@@ -1294,26 +1373,107 @@ const reportLandedTail = (row: ITransaction, error: unknown): void => {
 };
 
 /**
+ * The delivery target of a landed row whose local apply completed before its failure (`applied`: a tail that failed,
+ * or a trap serializing the offscreen result): the store holds the notes, so a private send owes the ones the landing
+ * attempt's 'submitting' stamp recorded, as a reconciler landing bound to that transaction would, and an execute the
+ * private ones among them, to its row's recipient. `row` is the row as the write found it and `completed` the row with
+ * its landed fields. None after an apply that failed, which left the notes out of the store.
+ */
+const appliedDeliveryValues = (
+  row: ITransaction,
+  completed: ITransaction,
+  error: unknown,
+  attemptId: string | undefined
+) => {
+  if (landedFactsOf(error).applied !== true || attemptId === undefined) return undefined;
+  const entry = completed.submitEvidence?.find(candidate => candidate.attemptId === attemptId);
+  if (entry?.transactionId === undefined) return undefined;
+  return (
+    landedDeliveryTargetValues(completed, { boundTransactionId: entry.transactionId }) ??
+    landedExecuteDeliveryValues(row, entry)
+  );
+};
+
+/**
+ * Record the private notes an applied execute owes on a row that a Cancel or the reaper finalized while its pipeline
+ * ran on: neither stops the pipeline, so the leaf submitted and applied, and the landed write, which leaves a finalized
+ * row alone, recorded none. Unguarded on terminal status, as a cancelled pipeline's own relay record is
+ * (`recordNoteDelivery`), and bound to the landing attempt's stamp as `appliedDeliveryValues` binds it. It writes only
+ * the owed notes, their recipient and 'undelivered', with the relay schedule cleared, so the sweep pushes them from the
+ * completedAt the finalizing write stamped. That write's status, error, label, completedAt and root stay. Logged,
+ * never thrown, as the landed record is.
+ */
+const recordFinalizedExecuteDelivery = async (
+  txId: string,
+  error: unknown,
+  attemptId: string | undefined
+): Promise<void> => {
+  let wrote = false;
+  try {
+    await Repo.transactions.where({ id: txId }).modify(row => {
+      if (!hasLeftQueue(row)) return false;
+      // Only an execute's values name `relayNoteIds`; a send's target, which Retry records, is not taken here.
+      const owed = appliedDeliveryValues(row, row, error, attemptId);
+      if (owed === undefined || !('relayNoteIds' in owed) || !owed.relayNoteIds?.length) return false;
+      row.relayNoteIds = owed.relayNoteIds;
+      row.relayRecipientId = owed.relayRecipientId;
+      row.noteDelivery = 'undelivered';
+      delete row.relayAttempts;
+      delete row.nextRelayAt;
+      delete row.relayRetriesStopped;
+      wrote = true;
+      return undefined;
+    });
+  } catch (recordError) {
+    console.warn('Could not record the private notes a finalized execute owes', { txId, recordError });
+    return;
+  }
+  if (wrote) countNoteDeliveryWrite();
+};
+
+/**
  * Write a landed row's Completed verdict from the row as stored, retried as a committed rotation's terminal write is:
  * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
  * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
- * recorded and the order the landed record held are kept, and a row another writer finalized is left alone. The
- * failure's own order facts stand in for a landed record that did not commit. Returns the row as read before the
+ * recorded and the order the landed record held are kept, and a row another writer finalized keeps what that write
+ * left, gaining only the private notes an applied execute owes (`recordFinalizedExecuteDelivery`). The failure's own
+ * order facts, else the order the landing attempt's stamp recorded, stand in for a landed record that did not commit,
+ * and an applied send's or execute's delivery target is recorded in the same write. Returns the row as read before the
  * write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
  */
-const writeLandedCompleted = (txId: string, error: unknown): Promise<ITransaction | undefined> =>
-  writeCommittedCompleted(
+const writeLandedCompleted = async (
+  txId: string,
+  error: unknown,
+  attemptId: string | undefined
+): Promise<ITransaction | undefined> => {
+  let delivery: ReturnType<typeof appliedDeliveryValues>;
+  const written = await writeCommittedCompleted(
     txId,
     row => {
       const completedAt = Math.floor(Date.now() / 1000); // seconds
+      const landedFields = landedRowFields(row, error);
+      delivery = appliedDeliveryValues(row, { ...row, ...landedFields }, error, attemptId);
       return {
-        ...landedRowFields(row, error),
+        ...landedFields,
         completedAt,
-        ...(row.type === 'swap' ? completedSwapFields(row, completedAt, landedFactsOf(error)) : {})
+        ...(row.type === 'swap'
+          ? completedSwapFields(row, completedAt, withSubmittedOrder(row, landedFactsOf(error), attemptId))
+          : {}),
+        ...delivery
       };
     },
     'landed'
   );
+  if (written === undefined) {
+    await recordFinalizedExecuteDelivery(txId, error, attemptId);
+    return undefined;
+  }
+  // A recorded target is a delivery write, so an idle sweep looks again; an execute that owes no note records none.
+  if (delivery !== undefined && ('outputNoteIds' in delivery || 'relayNoteIds' in delivery)) {
+    countNoteDeliveryWrite();
+  }
+  return written;
+};
 
 /** What a landed arm's log says failed: the leaf's local apply, or a step of the tail after it. */
 const landedFailureText = (error: unknown): string =>
@@ -1334,11 +1494,14 @@ const readLandedTransactionId = (landing: string, result: TransactionResult): st
 };
 
 /**
- * The executed transaction's id a structural row's tail asks the node about, read before its commit wait. A read that
- * throws leaves the tail before any node verdict: the trap is retired once under the row and the read rejects as
- * `LandedTailError` with no id, which the Guardian catch settles through the structural landed reconcile.
+ * The executed transaction's id a structural row's tail asks the node about, as the tail's first read kept it, else
+ * read again here, before its commit wait. A read that throws leaves the tail before any node verdict: the trap is
+ * retired once under the row and the read rejects as `LandedTailError` with no id, which the Guardian catch settles
+ * through the structural landed reconcile.
  */
 const readTailTransactionId = (transaction: Pick<ITransaction, 'id'>, result: TransactionResult): string => {
+  const kept = keptLandedTransactionId(result);
+  if (kept !== undefined) return kept;
   try {
     return result.executedTransaction().id().toHex();
   } catch (error) {
@@ -1721,11 +1884,13 @@ const settleLandedStructuralRow = async (
  * and a stored structural row stop after the record. A result-awaiting row (an earn deposit, or an Epoch
  * bridged-send) records its collateral note and is failed, so the caller waiting on `resultBytes` stops; one that has
  * already left the queue is not failed again. Every other stored row is Completed. `attemptId` is the attempt the
- * catch picked the row with, which is what the cancel compares.
+ * catch picked the row with, which is what the cancel compares. A store error leaving here would fail the landed row on
+ * the Guardian route and strand it for the reaper on the loop route, so the row is read under the terminal write's
+ * budget, and a row it cannot read stops as a missing one does.
  */
 const settleLandedValueRow = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
-  await recordLandedFacts(txId, error);
-  const tx = await Repo.transactions.where({ id: txId }).first();
+  await recordLandedFacts(txId, error, attemptId);
+  const tx = await readRowWithinTerminalBudget(txId, 'landed');
   if (tx === undefined) return;
   // The Guardian catch settles both landed shapes of a structural row before they reach here
   // (`settleLandedStructuralRow`). A stored structural row has no status write on this path.
@@ -1735,7 +1900,12 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
       `${tx.type} submitted but ${landedFailureText(error)} - marking Failed so the awaiting caller stops waiting:`,
       error
     );
-    await recordBridgeNoteLanded(tx.id);
+    // Logged, not thrown, as the landed record is: the cancel after it is what releases the awaiting caller.
+    try {
+      await recordBridgeNoteLanded(tx.id);
+    } catch (recordError) {
+      console.warn('Could not record the landed bridge note', { txId: tx.id, recordError });
+    }
     if (!hasLeftQueue(tx)) {
       await cancelTransactionAfterPipelineStopped(tx, landedFailureOf(error), attemptId);
     }
@@ -1743,11 +1913,78 @@ const settleLandedValueRow = async (txId: string, error: unknown, attemptId: str
   }
   console.warn(`A submit landed but ${landedFailureText(error)} - marking Completed; sync will reconcile:`, error);
   // From the stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there. A row that
-  // has left the queue is left as it is, including the id stamped above.
-  const written = await writeLandedCompleted(txId, error);
+  // has left the queue keeps what its finalizing write left, the id stamped above included; an applied execute gains
+  // only the private notes it owes.
+  const written = await writeLandedCompleted(txId, error, attemptId);
   if (written) reportLandedTail(written, error);
   if (tx.type === 'consume') await adoptLandedConsume(tx.id);
 };
+
+const isOwnedNativeBridge = (transaction: ITransaction): boolean =>
+  transaction.type === 'bridged-send' && hasBridgeOperation(transaction);
+
+const hasEpochReviewedOutput = (transaction: ITransaction): boolean =>
+  transaction.type === 'bridged-send' &&
+  transaction.extraInputs?.provider === 'epoch' &&
+  Object.prototype.hasOwnProperty.call(transaction.extraInputs, 'epochReviewedOutput');
+
+const isReviewedNativeBridge = (transaction: ITransaction): boolean =>
+  isOwnedNativeBridge(transaction) || hasEpochReviewedOutput(transaction);
+
+async function assertOwnedNativeBridgeSource(transaction: ITransaction, stored?: ITransaction): Promise<void> {
+  if (!isReviewedNativeBridge(transaction)) return;
+  const row = stored ?? (await Repo.transactions.where({ id: transaction.id }).first());
+  if (hasEpochReviewedOutput(transaction)) {
+    assertEpochReviewedOutput(transaction.extraInputs.epochReviewedOutput);
+    assertEpochReviewedOutput(row?.extraInputs.epochReviewedOutput);
+    if (configKey(transaction.extraInputs.epochReviewedOutput) !== configKey(row?.extraInputs.epochReviewedOutput))
+      throw new Error('Epoch reviewed output changed');
+    if (!isOwnedNativeBridge(transaction)) assertCompactEpochScope(transaction.extraInputs.epochReviewedOutput);
+  }
+  if (!isOwnedNativeBridge(transaction)) return;
+  const expected = bridgeOperationOf(transaction);
+  const operation = row && bridgeOperationOf(row);
+  if (
+    !row ||
+    !expected ||
+    !operation ||
+    expected.operationId !== operation.operationId ||
+    expected.revision !== operation.revision
+  )
+    throw new Error('Bridge operation identity changed');
+  assertBridgeOperationCurrent(transaction, expected);
+  assertBridgeOperationCurrent(row, expected);
+  assertBridgeOperationCurrent(row, operation);
+}
+
+async function mayStartOwnedNativeBridge(transaction: ITransaction): Promise<boolean> {
+  if (!isOwnedNativeBridge(transaction)) {
+    if (hasEpochReviewedOutput(transaction)) await assertOwnedNativeBridgeSource(transaction);
+    return true;
+  }
+  const row = await Repo.transactions.where({ id: transaction.id }).first();
+  if (!row) throw new Error('Bridge operation is unavailable');
+  // The existing node verdict, not a generated id or a lease, decides whether an earlier source can be retried.
+  if (
+    (row.status !== ITransactionStatus.Queued && row.status !== ITransactionStatus.GeneratingTransaction) ||
+    (row.neverCommittedAt === undefined &&
+      (row.submitEvidence?.some(isUnresolvedEntry) || (row.mayHaveSubmitted && !row.submitEvidence?.length)))
+  )
+    return false;
+  await assertOwnedNativeBridgeSource(transaction, row);
+  return true;
+}
+
+function ownedBridgeStageStamp(
+  transaction: ITransaction,
+  stamp?: ReturnType<typeof stageStampFor>
+): ReturnType<typeof stageStampFor> {
+  return async (stage, detail) => {
+    await stamp?.(stage, detail);
+    // Replayed offscreen stages are observations; only the awaited native stamp/submit gate may permit a write.
+    if (stage === 'submitting' && detail?.reliable !== false) await assertOwnedNativeBridgeSource(transaction);
+  };
+}
 
 export const generateTransaction = async (
   transaction: Transaction,
@@ -1755,6 +1992,7 @@ export const generateTransaction = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  if (!(await mayStartOwnedNativeBridge(transaction))) return;
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
     const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
@@ -1813,6 +2051,7 @@ const generateTransactionWithProvider = async (
     throw error;
   }
   await rememberPreflightSync(transaction, 'returned').catch(() => undefined);
+  await assertOwnedNativeBridgeSource(transaction);
 
   // Mark transaction as in progress
   // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
@@ -2274,20 +2513,18 @@ const generateTransactionWithProvider = async (
               t.requestBytes = preparedBytes;
             });
           }
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          // A claim's own leaf keeps its fire-and-forget stamp: only a prepared request takes the gate.
+          return runStampedWriteLeaf(transaction.id, attempt, (stamp, submitGate) =>
             preparedBytes
               ? midenClientProxy.newTransaction(
                   transaction.accountId,
                   preparedBytes,
                   transaction.delegateTransaction,
                   signer,
-                  attempt && stageStampFor(transaction.id, attempt)
+                  stamp,
+                  submitGate
                 )
-              : midenClientProxy.consumeNoteId(
-                  transaction as ConsumeTransaction,
-                  signer,
-                  attempt && stageStampFor(transaction.id, attempt)
-                )
+              : midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signer, stamp)
           );
         }
         case 'send': {
@@ -2301,23 +2538,13 @@ const generateTransactionWithProvider = async (
           // matters because the SW build (`vite.background.config.ts`) is the ONE build
           // that defaults the flag ON - a stage callback that rode the inline leaf only
           // would silently lose the timings on Chrome, the primary platform.
-          const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-            midenClientProxy.sendTransaction(
-              transaction as SendTransaction,
-              signer,
-              stageStampFor(transaction.id, attempt)
-            )
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+            midenClientProxy.sendTransaction(transaction as SendTransaction, signer, stamp, submitGate)
           );
         }
         case 'swap': {
-          const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-            midenClientProxy.swapTransaction(
-              transaction as SwapTransaction,
-              signer,
-              stageStampFor(transaction.id, attempt)
-            )
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+            midenClientProxy.swapTransaction(transaction as SwapTransaction, signer, stamp, submitGate)
           );
         }
         case 'bridged-send':
@@ -2334,6 +2561,7 @@ const generateTransactionWithProvider = async (
             transaction.type === 'earn-deposit'
               ? await requireEarnDepositRequestBytes(transaction)
               : requireBridgedSendRecordedRequest(transaction);
+          await assertOwnedNativeBridgeSource(transaction);
           await requireBridgeSubmitClaim(transaction);
           // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
           // returned at the top of `generateTransaction`), and for a basic wallet miden-client
@@ -2345,13 +2573,34 @@ const generateTransactionWithProvider = async (
           // the annotation is idempotent.
           // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
           const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          if (isReviewedNativeBridge(transaction)) {
+            const stamp = ownedBridgeStageStamp(transaction, stageStampFor(transaction.id, attempt));
+            const submitGate = offscreenSubmitGate(stamp);
+            try {
+              return await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+                midenClientProxy.newTransaction(
+                  transaction.accountId,
+                  requestBytes,
+                  transaction.delegateTransaction,
+                  signer,
+                  stamp,
+                  submitGate.gate
+                )
+              );
+            } catch (error) {
+              throw submitGate.opened() ? error : markErrorBeforeSubmit(error);
+            } finally {
+              submitGate.settle();
+            }
+          }
+          return runStampedWriteLeaf(transaction.id, attempt, (stamp, submitGate) =>
             midenClientProxy.newTransaction(
               transaction.accountId,
               requestBytes,
               transaction.delegateTransaction,
               signer,
-              attempt && stageStampFor(transaction.id, attempt)
+              stamp,
+              submitGate
             )
           );
         }
@@ -2392,14 +2641,14 @@ const generateTransactionWithProvider = async (
               t.requestBytes = executeBytes;
             });
           }
-          const attempt = attemptContextOf(transaction);
-          return runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
             midenClientProxy.newTransaction(
               transaction.accountId,
               executeBytes,
               transaction.delegateTransaction,
               signer,
-              stageStampFor(transaction.id, attempt)
+              stamp,
+              submitGate
             )
           );
         }
@@ -2585,10 +2834,8 @@ const consumeServiceFor = async (
  * restart reuses them, which is also what lets the node reject the duplicate note
  * while the first copy is in flight (the reused serial pins the note id); Retry asks
  * before it reuses them. A retry only rebuilds them when the row
- * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. `recallBlocks` is a RELATIVE
- * blocks-until-recall offset, converted to an absolute reclaim height here
- * (`syncHeight + recallBlocks`) - the guardian-path counterpart of the
- * relative→absolute conversion in `MidenClientInterface.sendTransaction`.
+ * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. Like the single-key
+ * builder, Guardian resolves the approved recall term only when building fresh bytes.
  */
 const ensureGuardianRecallableSendRequestBytes = async (
   transaction: ITransaction,
@@ -2596,8 +2843,9 @@ const ensureGuardianRecallableSendRequestBytes = async (
   faucetId: string,
   amount: bigint,
   noteType: NoteType,
-  recallBlocks: number,
-  expirationDelta: number
+  recallBlocks: number | undefined,
+  expirationDelta: number,
+  calendarRecallTarget?: string
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) {
     // Pre-built bytes still need the fee auth. This early return used to hand back a request with
@@ -2669,7 +2917,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       amount,
       noteType,
       expirationDelta,
-      syncHeight + recallBlocks,
+      resolveSendReclaimHeight(syncHeight, recallBlocks, calendarRecallTarget),
       baseBuilder
     );
     // Serialization is its own step: a wasm-bindgen panic arrives as a bare
@@ -2687,36 +2935,6 @@ const ensureGuardianRecallableSendRequestBytes = async (
     t.requestBytes = requestBytes;
   });
   return requestBytes;
-};
-
-/**
- * Proposes a wallet-built guarded request, re-bound to the current sync height (see
- * `MultisigService.createRebasedCustomProposal`), and persists the bytes it was proposed from:
- * signing and execution rebuild from `transaction.requestBytes`, so it must be these.
- *
- * Proposes once. A value-moving type meets Guardian backpressure by requeueing (#312), so only
- * a caller that must wait out a 409 in process (a bridged-send) wraps this in
- * `withGuardianConflictRetry`.
- *
- * `approvalExpirationDelta` is the Guardian expiration of #1081 for the types that carry one: the rebuild drops the
- * request's own delta, so it travels here instead.
- */
-const proposeRebased = async (
-  service: MultisigService,
-  transaction: ITransaction,
-  requestBytes: Uint8Array,
-  proposalType: string,
-  approvalExpirationDelta?: number
-): Promise<Proposal> => {
-  const rebased = await service.createRebasedCustomProposal(requestBytes, proposalType, approvalExpirationDelta);
-  transaction.requestBytes = rebased.requestBytes;
-  // The proposal exists by now: a failure here never means none was made.
-  await withProposalStep('rebased_request_persist', () =>
-    Repo.transactions.where({ id: transaction.id }).modify(t => {
-      t.requestBytes = rebased.requestBytes;
-    })
-  );
-  return rebased.proposal;
 };
 
 /**
@@ -3045,6 +3263,26 @@ const runWriteLeaf = async <T>(
       await recordLeafEnd(txId, attempt);
     }
     throw error;
+  }
+};
+
+/**
+ * Run a single-key write leaf with its attempt's 'submitting' stamp and submit gate (#1081): the stamp is the submit's
+ * precondition on both routes, awaited by the inline leaf and through the gate by the offscreen one, which the proxy
+ * alone tells apart. Without an attempt the leaf stamps nothing and gets no gate.
+ */
+const runStampedWriteLeaf = async <T>(
+  txId: string,
+  attempt: AttemptContext | undefined,
+  leaf: (stamp?: ReturnType<typeof stageStampFor>, submitGate?: SubmitGate) => Promise<T>
+): Promise<T> => {
+  if (attempt === undefined) return runWriteLeaf(txId, undefined, writeLeafRunsOffscreen(), () => leaf());
+  const stamp = stageStampFor(txId, attempt);
+  const submitGate = offscreenSubmitGate(stamp);
+  try {
+    return await runWriteLeaf(txId, attempt, writeLeafRunsOffscreen(), () => leaf(stamp, submitGate.gate));
+  } finally {
+    submitGate.settle();
   }
 };
 
@@ -3957,8 +4195,8 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      const recallBlocks = sendTx.extraInputs?.recallBlocks;
-      if (recallBlocks) {
+      const { recallBlocks, calendarRecallTarget } = sendTx.extraInputs ?? {};
+      if (recallBlocks || calendarRecallTarget !== undefined) {
         // TEMP WORKAROUND (OpenZeppelin/guardian#366): the multisig client's
         // P2ID send proposal has no reclaim support, so the expiration the
         // user picked used to be silently dropped on Guardian accounts -
@@ -3987,7 +4225,8 @@ const generateGuardianTransaction = async (
           // send screens always set it.
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks,
-          GUARDIAN_EXPIRATION_DELTA_BLOCKS
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS,
+          calendarRecallTarget
         );
         proposalResult = await proposeRebased(
           service,
@@ -4237,6 +4476,7 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'bridged-send': {
+      await assertOwnedNativeBridgeSource(transaction);
       const bridgeTx = transaction as BridgedSendTransaction;
       // The recorded request and its one note, before the service load, which can reach the guardian. The note id
       // recorded at initiate stays the one signing is bound to after `proposeRebased` overwrites `requestBytes`.
@@ -4308,7 +4548,7 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
-        const requestBytes = await swapStep('request_build', () =>
+        const built = await swapStep('request_build', () =>
           withProposalStep('swap_request_build', async () => {
             // Resolved BEFORE the lock: the reads drive their own RpcClient through the
             // WASM module and re-entering it under the client lock traps.
@@ -4367,22 +4607,27 @@ const generateGuardianTransaction = async (
               // Built once and rewritten once, in the same scope: each builder call
               // draws a fresh serial number, which IS the order id. See
               // `buildPswapCreateRequest`.
-              return buildPswapCreateRequest(
+              const request = buildPswapCreateRequest(
                 creatorAccount ?? undefined,
                 tr,
                 swapTx.faucetId,
                 BigInt(swapTx.amount),
                 GUARDIAN_EXPIRATION_DELTA_BLOCKS,
                 baseBuilder
-              ).serialize();
+              );
+              // Off the built request, never the reference note, which moved by value into its NoteArray.
+              return { bytes: request.serialize(), order: requestOrderOf(() => request.expectedOutputOwnNotes()) };
             });
           })
         );
+        const { bytes: requestBytes, order } = built;
         transaction.requestBytes = requestBytes;
+        transaction.extraInputs = withRequestOrder(transaction.extraInputs, order);
         await swapStep('request_persist', () =>
           withProposalStep('swap_request_persist', () =>
             Repo.transactions.where({ id: transaction.id }).modify(t => {
               t.requestBytes = requestBytes;
+              t.extraInputs = withRequestOrder(t.extraInputs, order);
             })
           )
         );
@@ -4706,10 +4951,13 @@ const generateGuardianTransaction = async (
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
   // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
-  const stampStage = stageStampFor(
+  const baseStampStage = stageStampFor(
     transaction.id,
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
+  const stampStage = isReviewedNativeBridge(transaction)
+    ? ownedBridgeStageStamp(transaction, baseStampStage)
+    : baseStampStage;
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
     if (stage === 'submitting') inlineSubmittingStageStarted = true;
     await stampStage(stage, detail);
@@ -4753,6 +5001,7 @@ const generateGuardianTransaction = async (
     // worse-attributed route, and it costs a leftover pending delta on a healthy
     // operator (best-effort abandoned below). A silent operator is the case that
     // matters, and the hold's deadline ceiling evicts it at about 30s.
+    await assertOwnedNativeBridgeSource(transaction);
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(
@@ -5111,10 +5360,9 @@ const generateGuardianTransaction = async (
     // else touches the local cache or storage", and this runs before the
     // completion switch below.
     //
-    // Post-completion bookkeeping only: the transaction is already marked Completed
-    // and the on-chain submit succeeded, so a sync failure here must NOT propagate
-    // (it would flip a genuinely-successful transaction to Failed). The next sync
-    // tick reconciles.
+    // The landed row's bookkeeping, before its completion writes it Completed: the on-chain submit succeeded, so a sync
+    // failure here must NOT propagate (it would fail a landed transaction). The next sync tick reconciles. The tail
+    // read what the completion reads before this sync, which can replace the client.
     if (
       transaction.type !== 'replace-hot-key' &&
       transaction.type !== 'update-procedure-threshold' &&

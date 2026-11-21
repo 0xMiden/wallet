@@ -106,7 +106,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
       // than racing the `seedWalletPrompt` write that `register()` performs
       // just after the wallet becomes Ready.
       await walletA.navigateTo('/');
-      await expect(walletA.page.getByTestId('explore-page')).toBeVisible({ timeout: 60_000 });
+      await expect(walletA.page.getByTestId('command-shell')).toBeVisible({ timeout: 60_000 });
 
       // The card a real user taps to reach the phrase. `PromptCard` renders as
       // role=button with the title in its accessible name (components/ui/
@@ -114,7 +114,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
       // wallet. Asserting it here proves the route driven below is the one the
       // product actually points users at.
       await expect(
-        walletA.page.getByTestId('explore-page').getByRole('button', { name: BACKUP_PROMPT_TITLE })
+        walletA.page.getByTestId('command-shell').getByRole('button', { name: BACKUP_PROMPT_TITLE })
       ).toBeVisible({ timeout: 60_000 });
     });
 
@@ -228,7 +228,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
 
       await submit.click();
       // Completing the challenge returns the user to the wallet home.
-      await expect(page.getByTestId('explore-page')).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId('command-shell')).toBeVisible({ timeout: 60_000 });
     });
 
     await steps.step(

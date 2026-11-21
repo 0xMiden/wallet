@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { SwapEta, SwapQuote } from 'lib/miden/swap/quote';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
@@ -167,6 +168,29 @@ const renderComponent = (overrides: Partial<ReviewSwapProps> = {}) => {
 };
 
 describe('ReviewSwap', () => {
+  it('labels the Command receive amount as an estimate without changing the compact review', () => {
+    const props: ReviewSwapProps = {
+      offerToken: OFFER_TOKEN,
+      offerAmount: '1.5',
+      requestToken: REQUEST_TOKEN,
+      requestAmount: '3',
+      requestEdited: false,
+      expirySeconds: '120',
+      slippageBps: 20,
+      autoConsume: true,
+      onExpirySecondsChange: jest.fn(),
+      onSlippageBpsChange: jest.fn(),
+      onAutoConsumeChange: jest.fn(),
+      onGoBack: jest.fn(),
+      onSubmit: jest.fn()
+    };
+    render(
+      <FlowPresentationProvider value="command">
+        <ReviewSwap {...props} />
+      </FlowPresentationProvider>
+    );
+    expect(screen.getByText('swapApproxAmount_3 IETH')).toBeInTheDocument();
+  });
   describe('hero', () => {
     it('renders both You Send / You Receive amounts as Hero values, with the offer/request logos', () => {
       renderComponent();

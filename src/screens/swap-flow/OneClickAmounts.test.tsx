@@ -1,7 +1,9 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { render, screen } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { OneClickAsset } from 'lib/one-click/types';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
@@ -18,6 +20,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/telemetry/use-user-visible-error', () => ({ useUserVisibleError: jest.fn() }));
+jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span aria-hidden="true" /> }));
 
 const midenNetwork: OneClickNetworkOption = { id: 'miden', name: 'Miden', kind: 'miden' };
 const ethereumNetwork: OneClickNetworkOption = { id: 'eth', name: 'Ethereum', kind: 'ethereum' };
@@ -71,6 +74,28 @@ beforeEach(() => {
 });
 
 describe('OneClickAmounts error reporting', () => {
+  it('uses Enter on the source amount to trigger one eligible Command review', async () => {
+    const onContinue = jest.fn();
+    render(
+      <FlowPresentationProvider value="command">
+        <OneClickAmounts {...amountsProps({ onContinue })} />
+      </FlowPresentationProvider>
+    );
+    await userEvent.click(screen.getByTestId('one-click-pay-amount'));
+    await userEvent.keyboard('{Enter}');
+    expect(onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the cross-chain estimate as output rather than a disabled editable input in Command', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <OneClickAmounts {...amountsProps()} />
+      </FlowPresentationProvider>
+    );
+    expect(screen.getByTestId('one-click-receive-output')).toHaveTextContent('0.9');
+    expect(screen.queryByTestId('one-click-receive-amount')).not.toBeInTheDocument();
+    expect(screen.getByTestId('one-click-pay-amount')).toBeInTheDocument();
+  });
   it.each([
     ['recipient', 'Recipient'],
     ['refund', 'Refund account']

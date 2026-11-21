@@ -895,6 +895,14 @@
     "message": "La note de garantía debe utilizar el token revisado, el importe revisado y el asignador configurado. No se ha enviado nada. Vuelve atrás e inténtalo de nuevo.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "Los términos del puente han cambiado. Comprueba la actividad antes de continuar.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "Detenido antes de enviar",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Total ganado",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "Fecha de caducidad",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Estimado",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "La fecha de caducidad revisada ha cambiado. Revísala de nuevo antes de enviarla.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Si no se acepta para entonces, los $amount$ vuelven como una transferencia pendiente que aceptas tú. No se pierde ningún fondo.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3155,8 +3171,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Tu frase de recuperación restaura tus claves y, con la copia de seguridad de tu «Guardian», tu cuenta. Mantén la frase a buen recaudo.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Tu frase y la copia de seguridad de tu «Guardian» restauran tu cuenta. Mantén la frase a buen recaudo.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Tus fondos siguen siendo tuyos",
@@ -3175,8 +3191,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Más información sobre los «Guardians»",
-    "englishSource": "More about Guardians"
+    "message": "Más información sobre el «Guardian»",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Continúa con $name$",
@@ -3374,6 +3390,245 @@
   "openWallet": {
     "message": "Abrir cartera",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "Cartera",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Buscar acciones de la cartera",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Acciones de la cartera",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Transacción",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Puente",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "Dirección",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Cerrar el puente",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Red Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Cambiar de red",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Proveedor",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Época",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "De",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "A",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Activos, redes y proveedores",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ a $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Cuenta externa",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Cuenta Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Recibido estimado",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Importe total de origen",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Comisión del proveedor",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Cambiar la red de origen",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch no puede indicar un importe de origen fijo con el proveedor instalado. Elige otro proveedor para realizar la conexión.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "No hay rutas de puente disponibles para la red de carteras actual.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "El límite de saldo de recepción debe estar disponible y permitir este ingreso antes de continuar.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Esta transferencia se registra en «Actividad». Es posible que la aprobación o la liquidación de la cartera aún estén pendientes. No la inicies de nuevo.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Ver el estado de la transferencia",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "Detalles",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "Abrir a pantalla completa",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Abre tu monedero en una nueva pestaña.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "No se ha podido abrir en pantalla completa. Inténtalo de nuevo.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "Cartera",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "Asignación",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Activos de la cartera con precio",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "Tu monedero está vacío.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "No hay activos valorados que mostrar.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "Acciones recientes",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "No hay acciones recientes que mostrar",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "Saldo de la cartera",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "Variación del precio de mercado en las últimas 24 horas para las posiciones a precio actual: $change$ USD ($percentage$ %)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "Ocultar saldos",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Mostrar saldos",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Oculto",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Saldo no disponible",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Precio no disponible",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Valoración parcial: algunos activos no tienen un precio verificado en USD",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Historial de la cartera observado",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Intervalo de historial",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Aún no hay suficientes observaciones",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Faltan algunos intervalos o la cobertura de valoración",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandHistoryObservationsOnly": {
+    "message": "Solo observaciones registradas",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "Se han suspendido los nuevos depósitos en «Earn». Aún puedes consultar y retirar las posiciones existentes.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
+  "commandInspectHistory": {
+    "message": "Revisar el historial observado",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Observaciones exclusivas sobre este dispositivo. Las lagunas no se rellenan.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "Empezar",
@@ -5929,6 +6184,10 @@
     "message": "Envía tu dirección",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "No se ha podido copiar esta dirección. Selecciónala a continuación para copiarla manualmente.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "Desde otra red",
     "englishSource": "From another network"
@@ -6471,16 +6730,21 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Solicitud para firmar datos sin procesar",
-    "englishSource": "Opaque signature request"
+    "message": "Bread no puede previsualizar esto",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureNotATransaction": {
     "message": "Esta firma no puede autorizar una transacción desde tu cuenta.",
     "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
-    "message": "Esta página web te pide que firmes un valor sin procesar. La cartera no puede mostrar qué autoriza la firma. Continúa solo si confías plenamente en esta página web.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ te ha pedido que firmes un valor sin procesar. Bread no puede mostrar lo que autoriza, así que solo continúa si confías plenamente en este sitio.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Nota",
@@ -7451,6 +7715,10 @@
   "receiveAt": {
     "message": "Recibir en",
     "englishSource": "Receive at"
+  },
+  "receiveNoPendingTransfers": {
+    "message": "No hay transferencias entrantes que revisar",
+    "englishSource": "No incoming transfers to review"
   },
   "earnTitle": {
     "message": "Tus ganancias",
@@ -9128,5 +9396,131 @@
   "bridgeWithdrawalUseSlow": {
     "message": "Utiliza «Slow bridge» en su lugar.",
     "englishSource": "Use Slow bridge instead"
+  },
+  "connectFactsTitle": {
+    "message": "Este sitio web podrá",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Consulta tu saldo y tu historial",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Leer datos privados sin pedir permiso",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "Se concederá acceso a $scopes$",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Pregunta antes de leer datos privados",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Enviarte solicitudes de transacción",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Debes aprobar cada uno de ellos",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Nunca transfieras fondos por tu cuenta",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Los fondos solo salen cuando tú lo apruebas",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "Tu solicitud sigue aquí, así que puedes volver a intentarlo.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "No se ha podido conectar",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Red diferente",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Solicitud de",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet de tokens",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Bloques de recuperación",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Recibir",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note de faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "tú",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Usted paga",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Recibes",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Salida de tu cuenta",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Llega a tu cuenta",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Transacción personalizada",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "Resumen de la transacción",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Tu solicitud sigue aquí, así que puedes volver a intentarlo.",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "No se ha podido confirmar",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "No verificado",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureTitle": {
+    "message": "Esto solo sirve para iniciar sesión",
+    "englishSource": "This only signs you in"
   }
 }

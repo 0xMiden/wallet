@@ -21,7 +21,7 @@ import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
-import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { ClaimableNoteWithMetadata, ScopedClaimableNotesRead } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
@@ -140,9 +140,9 @@ export function __resetActivityClaimsForTest(): void {
   slots.clear();
 }
 
-export function useActivityClaims() {
+export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
   const { t } = useTranslation();
-  const claim = useClaimNotes();
+  const claim = useClaimNotes(sharedRead);
   const { signTransaction } = useMidenContext();
   const nativeFaucetId = useNativeFeeFaucetId();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();

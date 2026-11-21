@@ -13,6 +13,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
 import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { PageHeader } from 'components/PageHeader';
@@ -323,6 +324,7 @@ const HistoryError: FC<React.ComponentProps<'p'> & { errorId: UserErrorId | null
 
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   // This page draws its own header instead of PageLayout's toolbar, so it opts out of the
   // toolbar's fallback too. `/history-details/:transactionId` is a real route, so a reload or a
   // deep link opens it cold, where a bare `goBack()` is inert and the header chevron is the only
@@ -339,11 +341,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const earnCollateral = selectMidenUsdc(bridgeConfig);
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
-  const { row, loaded } = useTransactionRow(transactionId);
+  const { row, loaded, readFailed } = useTransactionRow(transactionId);
   const guardianHoldUntil = useGuardianHoldUntil(row);
   const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
   // Live on its own: the payout claims are other rows, which the swap row's subscription never sees.
-  const paybackState = usePaybackClaimState(row);
+  const paybackState = usePaybackClaimState(readFailed ? undefined : row);
   // Labelled at render, so the page follows a config publish without deriving the row again.
   const entry = useMemo(
     () =>
@@ -357,7 +359,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   );
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
-  const usdcxDestinationTxHash = useUsdcxDestinationTransaction(transaction);
+  const usdcxDestinationTxHash = useUsdcxDestinationTransaction(readFailed ? undefined : transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
   const [deriveErrorId, setDeriveErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
@@ -396,6 +398,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
       return;
     }
+
+    if (readFailed) return;
 
     const tx = row;
     let cancelled = false;
@@ -540,6 +544,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInSourceToken: bridgeReceive?.agglayerDelivery?.originToken ?? consumedBridge?.sourceToken,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
           bridgeInPhase: bridgeReceive?.phase,
+          bridgeInStoppedBeforeSource:
+            !tx.restoredFromBackup &&
+            !tx.recovered &&
+            !bridgeReceive?.evmTxHash &&
+            !bridgeReceive?.intentNonce &&
+            !bridgeReceive?.bridgeOperation?.approvals?.length &&
+            bridgeReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
           bridgeInLockedDeposit: bridgeReceive?.epochLockedDeposit,
           bridgeInCctp: bridgeReceive?.cctp,
           bridgeInOutputAmount: bridgeReceive?.outputAmount,
@@ -596,16 +607,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       cancelled = true;
     };
     // The entry's copy names the hold, which ends with no write to the row.
-  }, [getCachedTokenMetadata, guardianHoldUntil, loaded, row, t, transactionId]);
+  }, [getCachedTokenMetadata, guardianHoldUntil, loaded, readFailed, row, t, transactionId]);
 
-  const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
+  const loadError = readFailed
+    ? t('historyDetailsLoadError')
+    : (deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null));
 
   // Cancel, Retry and the swap-order cancel, with their in-flight flags and error
   // strings. Shared with `SwapDetail`, which renders the swap branch of this same
   // page - see `useTransactionActions`.
-  const actions = useTransactionActions(transactionId, entry, transaction, guardianHoldUntil);
+  const actions = useTransactionActions(
+    transactionId,
+    readFailed ? null : entry,
+    readFailed ? undefined : transaction,
+    guardianHoldUntil
+  );
   const epochReturn = useEpochReturnState(
-    entry,
+    readFailed ? null : entry,
     transaction?.accountId ?? account?.publicKey ?? '',
     transaction?.restoredFromBackup === true
   );
@@ -614,7 +632,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // Swap lineage polling lives at the app root. This screen consumes the latest
   // store value and asks a parked order to refresh when opened.
-  const orderKey = orderId == null ? undefined : String(orderId);
+  const orderKey = readFailed || orderId == null ? undefined : String(orderId);
   const trackingEntry = useSwapOrderTrackingStore(state =>
     orderKey === undefined ? undefined : state.entries[orderKey]
   );
@@ -628,7 +646,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
   // bounded interval and updates the receipt whenever a consume row changes.
-  const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
+  const settlementNotes = useSwapSettlementNotes(
+    !readFailed && transaction?.type === 'swap' ? transaction.id : undefined
+  );
 
   // A closed recovered order reads no entry: one closed outside the poll keeps its last open one (#1487). Every other
   // row, a file-restored order included, reads its entry.
@@ -813,12 +833,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
 
   return (
-    <PageLayout hideToolbar>
-      <PageHeader className="px-4" title={t('transaction')} onBack={handleBack} />
+    <PageLayout embedded={command} hideToolbar>
+      {!command && <PageHeader className="px-4" title={t('transaction')} onBack={handleBack} />}
       {/* Every line of the detail page is Nunito: the body styles that read `--font-sans` (row labels,
           section labels, the ID chips) resolve to the heading face here, and the text that sets no
           face of its own inherits it. */}
-      <div className="flex flex-1 flex-col min-h-0 px-4 pb-[var(--wallet-control-safe-bottom,0px)] face-heading">
+      <div
+        className={cn(
+          'flex flex-1 flex-col min-h-0 px-4 pb-[var(--wallet-control-safe-bottom,0px)] face-heading',
+          command && 'mx-auto w-full min-w-0 max-w-[38rem] px-0'
+        )}
+      >
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
@@ -878,7 +903,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             onRetryPayback={actions.onRetryPayback}
           />
         ) : (
-          <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
+          <div className={cn('flex-1 flex min-w-0 flex-col', !command && 'overflow-y-auto overflow-x-hidden')}>
             {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (

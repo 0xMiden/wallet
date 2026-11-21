@@ -78,6 +78,7 @@ import type {
   ConsumeTransaction,
   ITransactionStage,
   SendTransaction,
+  StageDetail,
   SubmitEvidenceFields,
   SwapTransaction
 } from 'lib/miden/db/types';
@@ -108,10 +109,12 @@ import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'l
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { readChainTip } from 'lib/miden/sdk/pswap-order-note';
 import {
+  ApplyAfterSubmitError,
   extractLanded,
   extractSdkErrorCode,
   hasErrorBeforeSubmit,
   markErrorBeforeSubmit,
+  SubmitCrossingUnrecordedError,
   type LandedTransaction
 } from 'lib/miden/sdk/sdk-error-code';
 import { readSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
@@ -479,7 +482,7 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // stamp it fires afterwards is correctly addressed to a row the SW has already
 // moved past — 'proving' arriving after the row completed would rewind the UI,
 // and 'submitting' would set may-have-submitted on a row already adjudicated.
-// The Guardian leaf's submit gate (#1644). Unlike a stage stamp it is AWAITED, and only an `ok` from the service
+// An offscreen leaf's submit gate (#1644). Unlike a stage stamp it is AWAITED, and only an `ok` from the service
 // worker lets the leaf submit: the worker records the crossing before it answers, so an attempt it never let through
 // provably never called submit, and the candidate a kill left can be abandoned instead of held for the Guardian's grace.
 // A missing op_id, a settled dispatch, a refusal or no answer at all all mean no submit, failed before it like any other
@@ -517,6 +520,23 @@ function postStageEvent(context: DispatchContext, stage: ITransactionStage, evid
   } catch {
     /* a synchronous sendMessage throw must not reach the write — see (2) above */
   }
+}
+
+// A single-key write's stage stamps. Where the service worker gates the op (`gated`: the call's `submitGated`, or the
+// positional flag a gated newTransaction also carries), its 'submitting' stamp is that gate, awaited before the submit (#1081): posted
+// fire-and-forget, a stamp whose one write failed left an attempt that crossed with no record of its notes. A refusal is
+// no prover failure, so it leaves as an unrecorded crossing that nothing re-proves, tagged as before the submit. The
+// await parks inside this op's hold, so the client asks ownership again before it submits.
+function leafStageStamp(
+  context: DispatchContext,
+  gated = context.submitGated
+): (stage: ITransactionStage, detail?: StageDetail) => Promise<void> | void {
+  return (stage, detail) => {
+    if (stage !== 'submitting' || !gated) return postStageEvent(context, stage, detail?.evidence);
+    return passSubmitGate(context, detail?.evidence).catch(error => {
+      throw new SubmitCrossingUnrecordedError(context.op_id, error);
+    });
+  };
 }
 
 // --- Generalized OFFSCREEN_CALL surface (issue #260, slice 1) ---------------
@@ -568,6 +588,8 @@ type DispatchContext = {
    * runtime; this makes it a compile error instead.
    */
   readonly hold: WasmLockHold;
+  /** Whether the service worker registered a submit gate for the op; see `leafStageStamp`. */
+  readonly submitGated: boolean;
   /** Set by `handleCall` when the dispatch settles; see `postStageEvent`. */
   settled: boolean;
 };
@@ -596,6 +618,28 @@ async function stepBeforeSubmit<T>(step: () => Promise<T>): Promise<T> {
     return await step();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
+  }
+}
+
+/**
+ * The bytes of a result its leaf already submitted and applied. A trap here is the client failing past the submit, so
+ * it is retired through the dispatch's own hold and crosses as `ApplyAfterSubmitError` that says only `applied`: the
+ * result's handles borrow the trapped client and are not read again, and the service worker settles the row through
+ * its landed arm instead of failing a write the node holds. The store holds the transaction's notes, so a landed
+ * private send owes the ones its submit stamp recorded. Any other failure keeps its own shape.
+ */
+function serializeLandedResult(context: DispatchContext, result: { serialize(): Uint8Array }): Uint8Array {
+  try {
+    return result.serialize();
+  } catch (error) {
+    if (!(error instanceof WebAssembly.RuntimeError)) throw error;
+    try {
+      retireWasmClientForCaughtTrap(context.hold, error);
+    } catch (retireError) {
+      // The retire costs only itself: replacing the landed verdict would offer a Retry that submits the write again.
+      console.error(`${TAG} retiring a trap past the submit failed; the landed verdict stands`, { error, retireError });
+    }
+    throw new ApplyAfterSubmitError(error, { applied: true });
   }
 }
 
@@ -898,7 +942,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // consume may already be broadcast. Completing beats aborting past
     // a possible submit — refusing to serialize would abandon the applied result
     // of a write the network may have accepted.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   // The remaining non-guardian WRITES moved offscreen (issue #260, slice 5b),
@@ -921,13 +965,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     // drives execute → prove → submit as distinct stages and invokes `onStage` on
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
-    const result = await client.sendTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
-    );
+    const result = await client.sendTransaction(tx, leafStageStamp(context));
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
     // it returns, so the send may be broadcast — completing beats aborting.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   swapTransaction: async (
@@ -957,41 +999,38 @@ const DISPATCH: Record<string, DispatchFn> = {
           }
         }) as unknown as SwapTransaction
     );
-    const result = await client.swapTransaction(
-      tx,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
-      feeContext
-    );
+    const result = await client.swapTransaction(tx, leafStageStamp(context), feeContext);
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
     // applied) by the time it returns, through its staged submit (in this realm, or
     // `submitProven` for a worker proof), so the PSWAP note may already be on the
     // network. Post-submit, completing beats aborting.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
-  // Positional args (accountId, requestBytes, delegateTransaction) mirroring the
-  // SDK signature — `requestBytes` crossed as raw bytes, not JSON. `?? undefined`
-  // maps a JSON-`null` delegate arg (an `undefined` round-tripped through
-  // encodeArg) back to the SDK's optional-boolean shape.
+  // Positional args (accountId, requestBytes, delegateTransaction) mirroring the SDK signature, then the submit-gate
+  // flag the proxy sends with every gated call, beside the envelope's `submitGated`. `requestBytes` crossed as raw
+  // bytes, not JSON. `?? undefined` maps a JSON-`null` delegate arg (an `undefined` round-tripped through encodeArg)
+  // back to the SDK's optional-boolean shape.
   newTransaction: async (
     context,
     client,
     accountId: string,
     requestBytes: Uint8Array,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    submitGateRequired = false
   ) => {
     const result = await client.newTransaction(
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+      leafStageStamp(context, submitGateRequired || context.submitGated)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has
     // submitted and applied — its pre-submit seams live inside
     // `MidenClientInterface`, not here. The request may be broadcast, so the
     // serialize completes rather than aborts.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   // The GUARDIAN write LEAF PIPELINE moved offscreen (issue #260, slice 6a). A
@@ -1204,7 +1243,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
       });
       recordProveTiming('guardianPipeline apply returned');
-      return attempt.txResult.serialize() as Uint8Array;
+      return serializeLandedResult(context, attempt.txResult);
     } catch (error) {
       annotateTransactionExecution(error, execution);
       throw error;
@@ -1627,7 +1666,12 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // knowable (issue #775) — and threaded in as the dispatch's first
       // parameter (#788), so every dispatch can re-check ownership after its
       // parking awaits without opting in.
-      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
+      const context: DispatchContext = {
+        op_id: msg.op_id,
+        hold,
+        submitGated: msg.submitGated === true,
+        settled: false
+      };
       try {
         const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
         return await dispatch(context, client, ...dispatchArgs);

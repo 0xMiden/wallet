@@ -1213,6 +1213,33 @@ describe('the delivery schedule', () => {
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xkept']);
   });
 
+  // The record an applied execute's landing writes from its stamp: the private notes and the recipient, no root.
+  it("records dead an execute's landed note the store cannot relay, and never marks the row relayed", async () => {
+    rows.push(
+      fresh({
+        type: 'execute',
+        outputNoteIds: undefined,
+        noteType: undefined,
+        relayNoteIds: ['0xlost'],
+        relayRecipientId: 'mtst1recipient',
+        noteDelivery: 'undelivered'
+      })
+    );
+    mockRelayById.mockRejectedValue(new Error('No output note found for the given id'));
+
+    await sweepNoteDeliveries();
+    expect(mockRelayById).not.toHaveBeenCalled();
+    clock = rows[0]!.nextRelayAt!;
+    await sweepNoteDeliveries();
+    expect(mockRelayById.mock.calls).toEqual([['0xlost', 'mtst1recipient']]);
+    expect(rows[0]).toMatchObject({ relayDeadNoteIds: ['0xlost'], noteDelivery: 'undelivered' });
+
+    await drive(NOW + 80 * 60 * 60);
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(rows[0]!.noteDelivery).toBe('undelivered');
+    expect(rows[0]!.relayAckedNoteIds).toBeUndefined();
+  });
+
   // The row still owes what the sweep read, though it pushed only part of it: its writes are made as ever.
   it('writes the outcome of a push that covered only the note an acknowledged sibling left owed', async () => {
     rows.push(

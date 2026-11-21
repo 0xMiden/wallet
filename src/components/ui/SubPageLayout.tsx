@@ -1,6 +1,7 @@
 import React, { createContext, useContext } from 'react';
 
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { PageHeader } from 'components/PageHeader';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { cn } from 'lib/ui/util';
@@ -110,9 +111,11 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   ...header
 }) => {
   const inherited = useContext(SubPageHeaderContext);
+  const command = useFlowPresentation() === 'command';
   const title = header.title ?? inherited.title;
   const subtitle = header.subtitle ?? inherited.subtitle;
   const onBack = header.onBack ?? inherited.onBack;
+  useRegisterCommandFlowBack(onBack);
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
   // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
   // like a div one, so a page gains nothing and loses nothing by needing a form.
@@ -124,7 +127,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 
   return (
     <div data-testid={dataTestId} className="flex min-h-0 flex-1 flex-col bg-app-bg">
-      {(title !== undefined || onBack || onClose) && (
+      {!command && (title !== undefined || onBack || onClose) && (
         <PageHeader
           className="px-4"
           title={title}
@@ -155,7 +158,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
         // label, so the stack resets every child to its own height.
         <FlowFooter
           data-slot="footer"
-          navbarCushion={footerNavbarCushion}
+          navbarCushion={command ? false : footerNavbarCushion}
           className={cn('flex gap-2.5 px-4', footerLayout === 'stack' && 'flex-col [&>*]:flex-none')}
         >
           {footer}

@@ -112,21 +112,25 @@ export function installBridgeInTestHooks(): void {
     // The row reads the document's source route and Miden domain. A profile that never stored a document has nothing
     // to hydrate, and initBridgeConfig never waits for the network, so this waits for the first document.
     await ensureBridgeConfig();
-    let advanced: Promise<void> | undefined;
-    const txId = await startBridgeReceiveSubmission(
-      // A USDCx row whatever the caller sends: every other provider's row comes from the deposit screen alone.
-      () => initiateBridgedReceiveTransaction({ ...args, provider: 'usdcx', amount: BigInt(args.amount) }),
-      id => {
-        advanced = updateBridgedReceivePhase(id, 'delivering', {
-          evmTxHash,
-          ...(usdcxRemoteRecipient === undefined ? {} : { usdcxRemoteRecipient }),
-          ...(cctp === undefined ? {} : { cctp })
-        });
-        return advanced;
-      }
-    );
-    await advanced;
-    return txId;
+    return new Promise<string>((resolve, reject) => {
+      void startBridgeReceiveSubmission(
+        // A USDCx row whatever the caller sends: every other provider's row comes from the deposit screen alone.
+        () => initiateBridgedReceiveTransaction({ ...args, provider: 'usdcx', amount: BigInt(args.amount) }),
+        async id => {
+          try {
+            await updateBridgedReceivePhase(id, 'delivering', {
+              evmTxHash,
+              ...(usdcxRemoteRecipient === undefined ? {} : { usdcxRemoteRecipient }),
+              ...(cctp === undefined ? {} : { cctp })
+            });
+            resolve(id);
+          } catch (error) {
+            reject(error);
+            throw error;
+          }
+        }
+      ).catch(reject);
+    });
   };
 
   globalThis.__TEST_SET_AGGLAYER_SENDER__ = (senderAccountId: string) => {

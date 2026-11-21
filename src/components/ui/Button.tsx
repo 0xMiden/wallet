@@ -19,7 +19,11 @@ export enum ButtonVariant {
   /** A destructive action: `fill`, `negative-ink` label. */
   Destructive = 'destructive',
   /** A quiet outlined action, for the few places a filled secondary is too heavy. */
-  Ghost = 'ghost'
+  Ghost = 'ghost',
+  /** The compact wallet's fixed high-contrast fullscreen launch action. */
+  Launcher = 'launcher',
+  /** Icon above its label in the fullscreen Command dock. */
+  CommandShortcut = 'command-shortcut'
 }
 
 /** `lg` is the 48px CTA; `sm` the 36px compact button. */
@@ -61,7 +65,11 @@ const buttonVariants = cva(
         [ButtonVariant.Destructive]:
           'bg-fill text-negative-ink hover:bg-fill-pressed disabled:bg-fill disabled:text-muted',
         [ButtonVariant.Ghost]:
-          'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted'
+          'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted',
+        [ButtonVariant.Launcher]:
+          'bg-launcher-fill bg-linear-to-br from-pure-white/40 via-pure-white/8 to-transparent text-launcher-ink inset-shadow-xs inset-shadow-pure-white/30 shadow-md shadow-pure-black/25 transition-[box-shadow,translate] hover:shadow-lg active:shadow-sm motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none',
+        [ButtonVariant.CommandShortcut]:
+          'min-w-0 flex-1 flex-col gap-1 rounded-xl text-ink hover:bg-fill-pressed motion-reduce:transition-none'
       },
       size: {
         // 48px, not 52: a pinned CTA (often with a secondary under it) was eating the page.
@@ -138,6 +146,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       className={cn(
         buttonVariants({ variant, size }),
         variant === ButtonVariant.Primary && ACCENT_CLASSES[accent].cta,
+        variant === ButtonVariant.Launcher && 'max-w-none',
         isLoading && 'pointer-events-none',
         className
       )}

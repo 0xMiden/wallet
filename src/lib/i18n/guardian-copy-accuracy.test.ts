@@ -1012,3 +1012,20 @@ describe('Meet your Guardian copy survives machine translation', () => {
     }
   );
 });
+
+// The intro's recover step names the recovery phrase; a machine translation that turned "phrase" into
+// "password" (tr "Parola") told users their password restores the account.
+describe('Guardian intro recovery copy names the recovery phrase', () => {
+  const flat = (locale: string): Record<string, string> =>
+    JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, locale, `${locale}.json`), 'utf8'));
+
+  it('says the Turkish recovery phrase, not the password, in both bundles', () => {
+    for (const text of [
+      readMessages('tr')['guardianIntroRecoverBody']?.message ?? '',
+      flat('tr')['guardianIntroRecoverBody'] ?? ''
+    ]) {
+      expect(text).toMatch(/ifade/i);
+      expect(text).not.toMatch(/parola|şifre/i);
+    }
+  });
+});

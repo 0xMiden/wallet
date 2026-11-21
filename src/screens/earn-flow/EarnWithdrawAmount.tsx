@@ -6,12 +6,12 @@ import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { TokenAmountInput } from 'components/TokenAmountInput';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { withdrawalAmountError } from 'lib/epoch/withdraw-amount';
 import { evmQuote } from 'lib/prices/evm';
 import { useWalletStore } from 'lib/store';
 import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { goBack, navigate } from 'lib/woozie';
+import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
 
 import {
   EarnAmountUnit,
@@ -22,24 +22,49 @@ import {
 } from './components';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnLoading } from './EarnLoading';
+import { EarnPageLayout } from './EarnPageLayout';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) => {
   const { t } = useTranslation();
   const assetFaucetId = useEarnAssetFaucetId();
   const prices = useWalletStore(state => state.tokenPrices);
-  const [amount, setAmount] = useState('');
+  const drafts = useOptionalCommandDrafts();
+  const saved = drafts?.readDraft('earn');
+  const [input, setInput] = useState(() => ({
+    positionId,
+    amount: saved?.mode === 'withdraw' && saved.subjectId === positionId ? saved.amount : ''
+  }));
+  const amount = drafts
+    ? saved?.mode === 'withdraw' && saved.subjectId === positionId
+      ? saved.amount
+      : ''
+    : input.positionId === positionId
+      ? input.amount
+      : '';
+  const setAmount = (value: string) => {
+    setInput({ positionId, amount: value });
+    drafts?.writeDraft('earn', { mode: 'withdraw', subjectId: positionId, amount: value });
+  };
   const [fullBalanceSelected, setFullBalanceSelected] = useState(false);
   const { positions, isLoading, isRefreshing, error, errorDiagnostics, refetch } = useEarnPositions();
   const position = positions.find(item => item.id === positionId);
+  const fullBalanceForAmount = fullBalanceSelected && amount === position?.withdrawable;
   const { pending } = earnItemLoadState(position, { isLoading, error });
   const validation = position ? withdrawalAmountError(amount, position.withdrawable, position.decimals) : undefined;
   const canReview = Boolean(position && !position.stale && !validation);
+  const reviewWithdrawal = () => {
+    if (canReview)
+      navigate(
+        `/earn/positions/${encodeURIComponent(positionId)}/withdraw/review?amount=${encodeURIComponent(amount)}`
+      );
+  };
   return (
     <div className="flex h-full flex-col overflow-hidden bg-page">
       <NetworkModeBanner />
-      <SubPageLayout
+      <EarnPageLayout
         data-testid="earn-withdraw-amount-page"
+        showCommandSubject
         title={position ? earnSubjectTitle(position) : t('withdraw')}
         subtitle={position && <EarnSubjectSubtitle subject={position} />}
         headerActions={
@@ -48,19 +73,20 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
           )
         }
         onBack={goBack}
+        formId="earn-withdraw-amount-form"
+        onSubmit={event => {
+          event.preventDefault();
+          reviewWithdrawal();
+        }}
         footer={
           position && (
             <Button
               title={t('review')}
+              type="submit"
+              form="earn-withdraw-amount-form"
               accent="earn"
               className="w-full max-w-none"
               disabled={!canReview}
-              onClick={() => {
-                if (canReview)
-                  navigate(
-                    `/earn/positions/${encodeURIComponent(positionId)}/withdraw/review?amount=${encodeURIComponent(amount)}`
-                  );
-              }}
             />
           )
         }
@@ -83,7 +109,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                 externalAsset
                 quote={evmQuote(prices, Number(position.chainId), position.underlyingAddress)}
                 value={amount}
-                tokenIntentKey={fullBalanceSelected}
+                tokenIntentKey={fullBalanceForAmount}
                 onUserEdit={() => setFullBalanceSelected(false)}
                 onValueChange={value => setAmount(value ?? '')}
                 label={<span className="text-row-title text-muted">{t('earnWithdrawAmount')}</span>}
@@ -102,7 +128,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                     <Button
                       title={t('max')}
                       size="sm"
-                      variant={fullBalanceSelected ? ButtonVariant.Secondary : ButtonVariant.Ghost}
+                      variant={fullBalanceForAmount ? ButtonVariant.Secondary : ButtonVariant.Ghost}
                       accent="earn"
                       disabled={position.stale}
                       onClick={() => {
@@ -115,7 +141,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
                 }
                 helper={
                   <div className="flex flex-col gap-1 text-caption text-muted face-heading">
-                    {fullBalanceSelected && (
+                    {fullBalanceForAmount && (
                       <span className="text-accent-earn-ink">{t('earnWithdrawFullBalanceSelected')}</span>
                     )}
                     <span>
@@ -130,7 +156,7 @@ const EarnWithdrawAmount: React.FC<{ positionId: string }> = ({ positionId }) =>
             </>
           )
         )}
-      </SubPageLayout>
+      </EarnPageLayout>
     </div>
   );
 };
