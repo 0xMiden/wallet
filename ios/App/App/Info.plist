@@ -43,8 +43,6 @@
 	<string>Bread uses Face ID to securely unlock your wallet without entering your password.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Bread uses the camera to scan QR codes for receiving wallet addresses.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Bread connects to a local development service on your network to test deposits.</string>
 	<key>ReownKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>UILaunchStoryboardName</key>

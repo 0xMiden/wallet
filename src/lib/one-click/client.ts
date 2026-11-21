@@ -1,7 +1,13 @@
+import {
+  MAX_NEAR_INTENTS_CHAINS,
+  MAX_NEAR_INTENTS_MIDEN_ASSETS,
+  MAX_NEAR_INTENTS_TOKEN_OUTPUTS,
+  MAX_NEAR_INTENTS_TOKENS_PER_CHAIN,
+  NEAR_INTENTS_ADDRESS_KINDS
+} from 'lib/remote-config/schema';
 import { isRecord } from 'lib/update/guards';
 
 import { assertOneClickDeadline } from './deadline';
-import { developmentOneClickServiceUrl } from './development-service';
 import { isOneClickLocalE2EEnabled } from './e2e-gate';
 import { assertNearIntentsRoute } from './identity';
 import { hashOneClickQuote, verifyOneClickQuoteSignature } from './signature';
@@ -35,10 +41,6 @@ const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
 const ISO_UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/;
 const BLOCKCHAIN = /^[a-z][a-z0-9-]{0,31}$/;
-const ADDRESS_KINDS: ReadonlySet<string> = new Set(['evm', 'solana', 'bitcoin', 'near']);
-const MAX_CHAINS = 32;
-const MAX_TOKENS_PER_CHAIN = 64;
-const MAX_TOKEN_OUTPUTS = 8;
 
 /** A reason that the proxy names for a refused request. The proxy hides every other provider reason. */
 export type OneClickErrorCode = 'no_liquidity';
@@ -77,7 +79,8 @@ function validateChains(
   chains: readonly NearIntentsChainConfig[],
   midenAssets: readonly NearIntentsMidenAssetConfig[]
 ) {
-  if (!Array.isArray(chains) || chains.length > MAX_CHAINS) throw new Error('Invalid 1Click chain configuration');
+  if (!Array.isArray(chains) || chains.length > MAX_NEAR_INTENTS_CHAINS)
+    throw new Error('Invalid 1Click chain configuration');
   const midenIds = new Set<string>();
   for (const asset of midenAssets) {
     if (!isBoundedText(asset.id, 64) || midenIds.has(asset.id)) throw new Error('Invalid 1Click asset configuration');
@@ -93,10 +96,10 @@ function validateChains(
       chain.id === 'miden' ||
       chainIds.has(chain.id) ||
       !isBoundedText(chain.name, 64) ||
-      !ADDRESS_KINDS.has(chain.addressKind) ||
+      !NEAR_INTENTS_ADDRESS_KINDS.includes(chain.addressKind) ||
       !Array.isArray(chain.tokens) ||
       chain.tokens.length < 1 ||
-      chain.tokens.length > MAX_TOKENS_PER_CHAIN
+      chain.tokens.length > MAX_NEAR_INTENTS_TOKENS_PER_CHAIN
     )
       throw new Error('Invalid 1Click chain configuration');
     chainIds.add(chain.id);
@@ -110,7 +113,7 @@ function validateChains(
         (token.contractAddress !== undefined && !isBoundedText(token.contractAddress, 256)) ||
         !Array.isArray(token.miden) ||
         token.miden.length < 1 ||
-        token.miden.length > MAX_TOKEN_OUTPUTS ||
+        token.miden.length > MAX_NEAR_INTENTS_TOKEN_OUTPUTS ||
         new Set(token.miden).size !== token.miden.length ||
         token.miden.some((id: string) => !midenIds.has(id))
       )
@@ -128,22 +131,11 @@ function validateConfig(config: NearIntentsConfig): string {
     isOneClickLocalE2EEnabled() &&
     ['http:', 'https:'].includes(url.protocol) &&
     ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-  const localDevelopmentService =
-    process.env.MODE_ENV === 'development' &&
-    process.env.MIDEN_E2E_TEST !== 'true' &&
-    url.protocol === 'http:' &&
-    (['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.origin === developmentOneClickServiceUrl());
   if (isOneClickLocalE2EEnabled() && !localTestService) throw new Error('Invalid 1Click test service URL');
-  if (
-    (url.protocol !== 'https:' && !localTestService && !localDevelopmentService) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  ) {
+  if ((url.protocol !== 'https:' && !localTestService) || url.username || url.password || url.search || url.hash) {
     throw new Error('Invalid 1Click service URL');
   }
-  if (!Array.isArray(config.midenAssets) || config.midenAssets.length > 64)
+  if (!Array.isArray(config.midenAssets) || config.midenAssets.length > MAX_NEAR_INTENTS_MIDEN_ASSETS)
     throw new Error('Invalid 1Click asset configuration');
   const assetIds = new Set<string>();
   const faucetIds = new Set<string>();
