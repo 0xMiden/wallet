@@ -983,8 +983,7 @@ describe('DappConfirmationModal test ids', () => {
 
 describe('DappConfirmationModal - a login signature', () => {
   const LOGIN_ACCOUNT_ID = 'mtst1azcw08rget79fqp8ymr0zqkv5v4lj3s7_qruqqypuyph';
-  // A row of the `signBytes` sheet, which a login sheet must not show.
-  const MESSAGE_ROW = 'This site asked you to sign a message of 3 field elements.';
+  const OPAQUE_ROW = 'Warning, this site asked you to sign a value the wallet cannot decode.';
   const loginRequest = (overrides: Partial<DAppLoginSignConfirmationRequest> = {}) =>
     buildRequest({
       type: 'loginSign',
@@ -992,7 +991,7 @@ describe('DappConfirmationModal - a login signature', () => {
       appMeta: { name: 'example.org' },
       domain: 'example.org',
       accountId: LOGIN_ACCOUNT_ID,
-      transactionMessages: ['Kind, signingInputs', MESSAGE_ROW],
+      transactionMessages: ['Kind, word', OPAQUE_ROW],
       ...overrides
     });
 
@@ -1007,8 +1006,8 @@ describe('DappConfirmationModal - a login signature', () => {
     expect(screen.getByText('loginSignatureNote:example.org')).toBeInTheDocument();
     expect(screen.getByText(truncateAddress(LOGIN_ACCOUNT_ID))).toBeInTheDocument();
     expect(screen.queryByText(truncateAddress(FULL_ACCOUNT_ID))).not.toBeInTheDocument();
-    expect(screen.queryByText(MESSAGE_ROW)).not.toBeInTheDocument();
-    expect(screen.queryByText('Kind, signingInputs')).not.toBeInTheDocument();
+    expect(screen.queryByText(OPAQUE_ROW)).not.toBeInTheDocument();
+    expect(screen.queryByText('Kind, word')).not.toBeInTheDocument();
   });
 
   // Approve reports the account the sheet shows, not the wallet's selected one.

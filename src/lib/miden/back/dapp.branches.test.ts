@@ -2004,7 +2004,7 @@ describe('requestSign - input validation', () => {
         sourcePublicKey: '',
         sourceAccountId: 'miden-account-1',
         payload: 'aGVsbG8=',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
@@ -2016,7 +2016,7 @@ describe('requestSign - input validation', () => {
         sourcePublicKey: 'miden-account-1',
         sourceAccountId: 'miden-account-1',
         payload: 'aGVsbG8=',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
@@ -2028,7 +2028,7 @@ describe('requestSign - input validation', () => {
         sourcePublicKey: 'miden-account-1',
         sourceAccountId: 'wrong-account',
         payload: 'aGVsbG8=',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
@@ -2775,7 +2775,7 @@ describe('requests for an account that is not the current one (#1419)', () => {
         sourceAccountId: ACCOUNT_A,
         sourcePublicKey: SIGN_KEY,
         payload: 'AAAA',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never),
     privateNotes: () =>
       dapp.requestPrivateNotes(ORIGIN, {

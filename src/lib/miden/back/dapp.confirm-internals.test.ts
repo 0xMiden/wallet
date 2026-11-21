@@ -11,6 +11,8 @@
 import { netOutflowByFaucet } from 'app/confirm/decode';
 import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { getMessage } from 'lib/i18n';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 
@@ -302,7 +304,7 @@ describe('requestConfirm autodecline timeout', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'signingInputs'
+      kind: 'word'
     } as never);
     await jest.advanceTimersByTimeAsync(0);
     // Advance past the 120s autodecline timer
@@ -318,7 +320,7 @@ describe('requestConfirm popup size', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'signingInputs'
+      kind: 'word'
     } as never);
     p.catch(() => {});
     await jest.advanceTimersByTimeAsync(0);
@@ -341,6 +343,210 @@ describe('requestConfirm popup size', () => {
   });
 });
 
+describe('requestSign measures a transaction summary once, before the popup', () => {
+  const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+  const browser = () => (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+  let previous: Record<string, unknown>;
+
+  beforeEach(() => {
+    previous = { SigningInputs: sdk.SigningInputs, SigningInputsType: sdk.SigningInputsType };
+    sdk.SigningInputsType = { TransactionSummary: 0, Arbitrary: 1, Blind: 2 };
+  });
+
+  afterEach(() => {
+    Object.assign(sdk, previous);
+  });
+
+  const summaryConsuming = (inputs: { id: () => unknown; note: () => unknown }[]) => {
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => ({
+            id: () => ({ __faucet: 'a1' }),
+            vault: () => ({
+              removedFungibleAssets: () => [],
+              addedFungibleAssets: () => [],
+              numAssets: () => 0
+            }),
+            storage: () => ({ isEmpty: () => true })
+          }),
+          inputNotes: () => ({ numNotes: () => inputs.length, notes: () => inputs }),
+          outputNotes: () => ({
+            numNotes: () => 1,
+            notes: () => [
+              {
+                id: () => ({ toString: () => 'stub-note-1' }),
+                assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+                metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+              }
+            ]
+          })
+        })
+      })
+    };
+  };
+
+  const sign = () =>
+    dapp.requestSign('https://test.xyz', {
+      type: MidenDAppMessageType.SignRequest,
+      sourcePublicKey: 'a1',
+      sourceAccountId: 'a1',
+      payload: 'c2lnbmluZy1pbnB1dHM=',
+      kind: 'signingInputs'
+    } as never);
+
+  /** The error the request settles with, once it is clear no window opened for it. */
+  const refusedBeforePopup = async () => {
+    const settled = sign().then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    expect(browser().windows.create).not.toHaveBeenCalled();
+    return settled;
+  };
+
+  it('rejects with NotGranted and does not open a window when a consumed note lists no assets', async () => {
+    summaryConsuming([{ id: () => ({ toString: () => 'opaque-note' }), note: () => ({ assets: () => undefined }) }]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.NotGranted}: a held note does not list its assets`)
+    );
+  });
+
+  it('rejects with NotGranted and does not open a window when the fee read does not know the fee', async () => {
+    mockRefreshVerificationBaseFee.mockResolvedValue(null);
+    mockSyncFee.mockReturnValue(null);
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`)
+    );
+  });
+
+  /** The payload the popup this request opened is served, once the request has been auto-declined. */
+  const servedPayload = async () => {
+    const answer = sign();
+    answer.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(browser().windows.create).toHaveBeenCalledTimes(1);
+
+    const id: string = browser()
+      .windows.create.mock.calls.at(-1)?.[0]
+      ?.url.match(/id=([^&]+)/)?.[1];
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const response = await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, { id: 'p' });
+
+    jest.advanceTimersByTime(121_000);
+    await expect(answer).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    return response.payload;
+  };
+
+  // The summary's vault moves nothing; the 1000 leaves only through the held note it consumes, so the raw summary
+  // view shows nothing leaving and only the holdings measure counts it.
+  const heldNote = {
+    id: () => ({ toString: () => 'held-note' }),
+    note: () => ({
+      assets: () => ({
+        fungibleAssets: () => [{ faucetId: () => ({ __faucet: 'faucet-x' }), amount: () => 1000n }],
+        nonFungibleAssets: () => []
+      })
+    })
+  };
+  const heldNoteMeasure = {
+    outputNotesCreated: 1,
+    heldNotesSpent: 1,
+    outgoing: [{ faucetId: 'bech32', amount: '1000' }]
+  };
+
+  it('hands the popup the measured holdings as signingEffects', async () => {
+    summaryConsuming([heldNote]);
+
+    const payload = await servedPayload();
+
+    expect(payload.preview).toBeNull();
+    expect(payload.signingEffects.view).toMatchObject(heldNoteMeasure);
+    expect(payload.signingEffects.noteFlow).toMatchObject({
+      inputCount: 1,
+      outputs: [expect.objectContaining({ id: 'stub-note-1' })]
+    });
+  });
+
+  it('rejects before the popup when reading the note flow traps', async () => {
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    });
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toEqual(
+      new Error(`${MidenDAppErrorType.InvalidParams}: RuntimeError: unreachable`)
+    );
+  });
+
+  const wrappedKill = () => {
+    const poison = new WasmClientPoisonedError('watchdog', new Error('x'));
+    return { poison, wrapped: new Error('wrapped', { cause: poison }) };
+  };
+
+  it('refuses before the popup when decoding the payload hits a kill, wrapped or not', async () => {
+    const { poison, wrapped } = wrappedKill();
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw wrapped;
+      }
+    };
+
+    expect(await refusedBeforePopup()).toBe(poison);
+  });
+
+  it('refuses before the popup when measuring the summary hits a kill', async () => {
+    const { poison, wrapped } = wrappedKill();
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => {
+            throw wrapped;
+          }
+        })
+      })
+    };
+
+    const error = await refusedBeforePopup();
+
+    expect(error).not.toEqual(new Error(`${MidenDAppErrorType.NotGranted}: wrapped`));
+    expect(error).toBe(poison);
+  });
+
+  it('refuses before the popup when the note flow hits a kill', async () => {
+    const { poison, wrapped } = wrappedKill();
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw wrapped;
+    });
+    summaryConsuming([]);
+
+    expect(await refusedBeforePopup()).toBe(poison);
+  });
+
+  it('still hands the popup the measured holdings, without a note flow, when the note flow read fails', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockNoteFlowFromTransaction.mockImplementationOnce(() => {
+      throw new Error('no note details');
+    });
+    summaryConsuming([heldNote]);
+
+    try {
+      const payload = await servedPayload();
+
+      expect(payload.signingEffects.view).toMatchObject(heldNoteMeasure);
+      expect(payload.signingEffects).not.toHaveProperty('noteFlow');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+});
+
 describe('requestConfirm intercom handler - unknown port', () => {
   it('ignores requests from unknown ports', async () => {
     const p = dapp.requestSign('https://test.xyz', {
@@ -348,7 +554,7 @@ describe('requestConfirm intercom handler - unknown port', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'signingInputs'
+      kind: 'word'
     } as never);
     await jest.advanceTimersByTimeAsync(0);
 
@@ -740,7 +946,7 @@ describe('requestConfirm - window already fullscreen', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'signingInputs'
+      kind: 'word'
     } as never);
     await jest.advanceTimersByTimeAsync(0);
     // Windows.update should NOT have been called when state is fullscreen
@@ -759,7 +965,7 @@ describe('requestConfirm - closeWindow error handling', () => {
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'signingInputs'
+      kind: 'word'
     } as never);
     await jest.advanceTimersByTimeAsync(0);
     // Trigger autodecline which calls close → closeWindow
@@ -1099,7 +1305,7 @@ describe('requestConfirm stops its auto-decline on the first payload request and
         sourcePublicKey: 'a1',
         sourceAccountId: 'a1',
         payload: 'aA==',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never)
     );
     await jest.advanceTimersByTimeAsync(0);
@@ -1204,7 +1410,7 @@ describe('the state a request no confirmation handler answered is refused with (
       sourcePublicKey: 'a1',
       sourceAccountId: 'a1',
       payload: 'aA==',
-      kind: 'signingInputs'
+      kind: 'word'
     } as never);
     answer.catch(() => undefined);
     await jest.advanceTimersByTimeAsync(0);
@@ -1345,7 +1551,7 @@ describe('the state a request no confirmation handler answered is refused with (
         sourcePublicKey: 'a1',
         sourceAccountId: 'a1',
         payload: 'aA==',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never);
       answer.catch(() => undefined);
       await jest.advanceTimersByTimeAsync(0);

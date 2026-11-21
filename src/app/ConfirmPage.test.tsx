@@ -1,6 +1,7 @@
 /* eslint-disable no-restricted-globals */
 import React from 'react';
 
+import { Address, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
@@ -15,6 +16,7 @@ import { useLocation } from 'lib/woozie';
 
 import { simulatedBytesToView, type TxAssetView } from './confirm/decode';
 import { noteFlowFromSimulatedBytes, type NoteFlow } from './confirm/note-flow';
+import { toSimulatedEffectsWire } from './confirm/simulated-wire';
 import ConfirmPage from './ConfirmPage';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 
@@ -46,13 +48,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
     ConsumedExternal: 'ConsumedExternal'
   },
-  NoteType: { Private: 0, Public: 1 }
-}));
-
-// The sign rule has its own tests (`lib/miden/dapp-sign-inputs*.test.ts`); here each test sets its verdict.
-const mockSignableArbitraryElements = jest.fn<bigint[] | undefined, [string, string]>();
-jest.mock('lib/miden/dapp-sign-inputs', () => ({
-  signableArbitraryElements: (kind: string, payload: string) => mockSignableArbitraryElements(kind, payload)
+  NoteType: { Private: 0, Public: 1 },
+  SigningInputs: { deserialize: jest.fn() },
+  SigningInputsType: { TransactionSummary: 'TransactionSummary', Arbitrary: 'Arbitrary', Blind: 'Blind' },
+  Word: { deserialize: jest.fn() }
 }));
 
 // `t` echoes the key back so rendered copy is assertable by key. It is a shared
@@ -239,6 +238,9 @@ const mockUseRetryableSWR = useRetryableSWR as jest.Mock;
 const mockUseLocation = useLocation as jest.Mock;
 const mockIsDelegateProofEnabled = isDelegateProofEnabled as jest.Mock;
 const mockGetNetworkId = getNetworkId as jest.Mock;
+const mockWord = Word as unknown as { deserialize: jest.Mock };
+const mockSigningInputs = SigningInputs as unknown as { deserialize: jest.Mock };
+const mockAddress = Address as unknown as { fromAccountId: jest.Mock };
 
 const UPON_REQUEST = 'UPON_REQUEST';
 const AUTO = 'AUTO';
@@ -974,53 +976,93 @@ describe('privateNotes payload', () => {
 });
 
 // ---------------------------------------------------------------------------
-// sign payload (SignatureRequest): the verdict comes from signableArbitraryElements
+// sign payload (word and signing-inputs signatures)
 // ---------------------------------------------------------------------------
 
-describe('sign payload', () => {
-  const signPayload = (kind = 'signingInputs') => ({
+describe('sign payload — Guardian message', () => {
+  it('renders the elements the background accepted, open, with the message headline', () => {
+    setPayload({
+      type: 'sign',
+      ...baseFields(),
+      sourcePublicKey: 'src',
+      payload: b64('signing-inputs'),
+      kind: 'signingInputs',
+      preview: {},
+      messageElements: ['1', '2', '3']
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('confirm-sign-message')).toHaveTextContent('signMessageTitle');
+    expect(screen.getByText('signMessageWarning')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('1, 2, 3');
+    expect(screen.queryByTestId('confirm-sign-opaque')).toBeNull();
+  });
+
+  it('keeps the opaque-signature body for a payload with no message elements (a single-key account)', () => {
+    mockWord.deserialize.mockReturnValue({ toHex: () => '0xdeadbeefcafe' });
+    setPayload({
+      type: 'sign',
+      ...baseFields(),
+      sourcePublicKey: 'src',
+      payload: b64('word-bytes'),
+      kind: 'word',
+      preview: {}
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.queryByTestId('confirm-sign-message')).toBeNull();
+    expect(screen.getByTestId('confirm-sign-opaque')).toBeInTheDocument();
+  });
+});
+
+describe('sign payload — word', () => {
+  const wordPayload = () => ({
     type: 'sign',
     ...baseFields(),
     sourcePublicKey: 'src',
-    payload: b64('signing-bytes'),
-    kind,
+    payload: b64('word-bytes'),
+    kind: 'word',
     preview: {}
   });
 
-  beforeEach(() => {
-    t.mockImplementation((key: string, values?: Record<string, string>) =>
-      values ? `${key}:${Object.values(values).join(',')}` : key
+  it('renders the opaque-signature headline and the deserialized word hex, open and not copyable', () => {
+    mockWord.deserialize.mockReturnValue({ toHex: () => '0xdeadbeefcafe' });
+    setPayload(wordPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-request-origin')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('0xdeadbeefcafe');
+    expect(screen.getByTestId('confirm-sign-opaque')).toHaveTextContent('opaqueSignatureTitle');
+    expect(within(screen.getByTestId('confirm-sign-raw-value').parentElement!).queryByRole('button')).toBeNull();
+    expect(screen.getByTestId('opaque-signature-not-a-transaction')).toHaveTextContent(
+      'opaqueSignatureNotATransaction'
     );
   });
 
-  it('shows an accepted request as a message with its element count and its elements open', () => {
-    mockSignableArbitraryElements.mockReturnValue([4n, 5n, 6n]);
-    setPayload(signPayload());
+  it('logs and shows the invalid-payload copy when deserialization throws', async () => {
+    mockWord.deserialize.mockImplementation(() => {
+      throw new Error('bad word');
+    });
+    setPayload(wordPayload());
     render(<ConfirmPage />);
 
-    expect(mockSignableArbitraryElements).toHaveBeenCalledWith('signingInputs', b64('signing-bytes'));
-    expect(screen.getByTestId('confirm-sign-message')).toHaveTextContent('signMessageTitle');
-    expect(screen.getByText('signMessageWarning:3')).toBeInTheDocument();
-    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('4, 5, 6');
-    expect(screen.getByTestId('confirm-request-origin')).toBeInTheDocument();
-    expect(screen.queryByTestId('confirm-sign-refused')).not.toBeInTheDocument();
-  });
-
-  it.each(['word', 'signingInputs'])('shows the sign rule for a %s request the wallet refuses', kind => {
-    mockSignableArbitraryElements.mockReturnValue(undefined);
-    setPayload(signPayload(kind));
-    render(<ConfirmPage />);
-
-    expect(mockSignableArbitraryElements).toHaveBeenCalledWith(kind, b64('signing-bytes'));
-    expect(screen.getByTestId('confirm-sign-refused')).toHaveTextContent('signRequestRefused');
-    expect(screen.queryByText(/^signMessageWarning/)).not.toBeInTheDocument();
-    expect(screen.queryByTestId('confirm-sign-raw-value')).not.toBeInTheDocument();
+    // Still renders the opaque-signature warning; the raw value is the invalid fallback.
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('invalidPayload');
+    expect(within(screen.getByTestId('confirm-sign-raw-value').parentElement!).queryByRole('button')).toBeNull();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('invalidPayload', 'inline');
   });
 
   it('confirms the signature via confirmDAppSign', async () => {
-    mockSignableArbitraryElements.mockReturnValue([1n]);
+    mockWord.deserialize.mockReturnValue({ toHex: () => '0xabc' });
     ctx.confirmDAppSign.mockResolvedValue(undefined);
-    setPayload(signPayload());
+    setPayload(wordPayload());
     render(<ConfirmPage />);
 
     await act(async () => {
@@ -1028,6 +1070,296 @@ describe('sign payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppSign).toHaveBeenCalledWith('req-1', true));
+  });
+});
+
+describe('sign payload — signingInputs', () => {
+  const siPayload = () => ({
+    type: 'sign',
+    ...baseFields(),
+    sourcePublicKey: 'src',
+    payload: b64('signing-bytes'),
+    kind: 'signingInputs',
+    preview: {}
+  });
+
+  const makeAsset = (id: string, amount: number) => ({
+    faucetId: () => ({ toString: () => id }),
+    amount: () => BigInt(amount)
+  });
+
+  const transactionSummary = ({
+    vaultEmpty = false,
+    storageEmpty = false,
+    removed = [] as any[],
+    added = [] as any[],
+    inputs = [] as any[]
+  }) => {
+    const vault = {
+      isEmpty: () => vaultEmpty,
+      removedFungibleAssets: () => removed,
+      addedFungibleAssets: () => added,
+      numAssets: () => removed.length + added.length
+    };
+    const accountDelta = {
+      id: () => 'acc-id',
+      vault: () => vault,
+      storage: () => ({ isEmpty: () => storageEmpty })
+    };
+    const ts = {
+      accountDelta: () => accountDelta,
+      inputNotes: () => ({ numNotes: () => (inputs.length > 0 ? inputs.length : 2), notes: () => inputs }),
+      // `notes()` as well: summary output notes now go through the fee split, because
+      // `fee::pay_fee` runs in auth BEFORE the summary is built.
+      outputNotes: () => ({
+        numNotes: () => 3,
+        notes: () => [
+          {
+            id: () => ({ toString: () => 'stub-note-1' }),
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          },
+          {
+            id: () => ({ toString: () => 'stub-note-2' }),
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          },
+          {
+            id: () => ({ toString: () => 'stub-note-3' }),
+            assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+            metadata: () => ({ tag: () => ({ asU32: () => 0 }) })
+          }
+        ]
+      })
+    };
+    return { variantType: SigningInputsType.TransactionSummary, transactionSummaryPayload: () => ts };
+  };
+
+  it('shows the parse-failure copy when SigningInputs.deserialize throws', async () => {
+    mockSigningInputs.deserialize.mockImplementation(() => {
+      throw new Error('bad si');
+    });
+    setPayload(siPayload());
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('failedToParseSigningPayload')).toBeInTheDocument();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('failedToParseSigningPayload', 'notice');
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  /** The holdings the background measured, empty unless a case says otherwise. */
+  const measuredView = (fields: Partial<TxAssetView> = {}): TxAssetView => ({
+    account: 'mtst1accbech_wxyz',
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false,
+    heldNotesSpent: 0,
+    viewConsumedNotes: [],
+    createdNotes: [],
+    ...fields
+  });
+
+  const bech32ById = () =>
+    mockAddress.fromAccountId.mockImplementation((id: any) => ({
+      toBech32: () => `bech32:${typeof id === 'string' ? id : id.toString()}`
+    }));
+
+  // The background measures the summary (`signingEffects`); the window lays that measure out and never measures
+  // the summary itself.
+  it('renders a measured TransactionSummary: the account, note counts, storage and the note flow', () => {
+    bech32ById();
+    const view = measuredView({
+      account: 'bech32:acc-id',
+      outgoing: [{ faucetId: 'bech32:rem1', amount: 100n }],
+      incoming: [{ faucetId: 'bech32:add1', amount: 300n }],
+      inputNotesConsumed: 2,
+      outputNotesCreated: 3,
+      storageChanged: true
+    });
+    const noteFlow: NoteFlow = {
+      inputCount: 2,
+      inputs: [],
+      outputs: ['stub-note-1', 'stub-note-2', 'stub-note-3'].map(id => ({
+        id,
+        kind: 'custom' as const,
+        visibility: 'public' as const
+      }))
+    };
+    setPayload({ ...siPayload(), signingEffects: toSimulatedEffectsWire(view, noteFlow) });
+    render(<ConfirmPage />);
+
+    const shown = screen.getByTestId('tx-asset-view');
+    expect(shown).toHaveAttribute('data-mode', 'verified');
+    expect(shown).toHaveAttribute('data-account', 'bech32:acc-id');
+    expect(screen.getByText('confirmSignTransactionSummary')).toBeInTheDocument();
+    expect(screen.getByTestId('tx-output-notes-created')).toHaveTextContent('3');
+    expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'true');
+    // The note flow arrived with the measure, so the "details unavailable" line is not drawn.
+    expect(screen.queryByTestId('tx-note-flow-unavailable')).not.toBeInTheDocument();
+    // A summary signature can authorize a transaction, so it never says it cannot.
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+  });
+
+  /** Every faucet a case reads resolves to TST at scale 0, so a rendered quantity is the measured base units. */
+  const knownScaleMetadata = () =>
+    mockFetchTokenMetadata.mockResolvedValue({ symbol: 'TST', name: 'Test', decimals: 0 });
+
+  it("shows the background's held-note count and outgoing amount without decoding", async () => {
+    knownScaleMetadata();
+    setPayload({
+      ...siPayload(),
+      signingEffects: toSimulatedEffectsWire(
+        measuredView({ outgoing: [{ faucetId: 'bech32:X', amount: 1000n }], inputNotesConsumed: 3, heldNotesSpent: 1 })
+      )
+    });
+    render(<ConfirmPage />);
+
+    // The measured outgoing amount is the window's figure, signed and with its symbol.
+    expect((await screen.findByText('-1000')).parentElement).toHaveTextContent(/^-1000TST$/);
+
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+    expect(screen.queryByText('opaqueSignatureWarning')).not.toBeInTheDocument();
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+    expect(screen.getByText('inputNotesConsumed').parentElement).toHaveTextContent('inputNotesConsumed3');
+    // Held notes are value the summary spends: the row names them, apart from the input-note total.
+    expect(screen.getByTestId('tx-held-notes-spent')).toHaveTextContent(/^1$/);
+    expect(screen.getByText('includesUnclaimedNotes')).toBeInTheDocument();
+  });
+
+  it('shows no held-note row when the measured summary spends no held note', () => {
+    setPayload({
+      ...siPayload(),
+      signingEffects: toSimulatedEffectsWire(measuredView({ inputNotesConsumed: 2, heldNotesSpent: 0 }))
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+    expect(screen.queryByTestId('tx-held-notes-spent')).not.toBeInTheDocument();
+    expect(screen.queryByText('includesUnclaimedNotes')).not.toBeInTheDocument();
+  });
+
+  it('shows the amounts the background measured, not a decode of its own', async () => {
+    knownScaleMetadata();
+    bech32ById();
+    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ removed: [makeAsset('rem1', 100)] }));
+    const { view } = toSimulatedEffectsWire(measuredView());
+    setPayload({
+      ...siPayload(),
+      signingEffects: { view: { ...view, outgoing: [{ faucetId: 'bech32:wire', amount: '7' }] } }
+    });
+    render(<ConfirmPage />);
+
+    // The window lays out the wire's measure; the summary's own asset (rem1) is never decoded into it.
+    expect((await screen.findByText('-7')).parentElement).toHaveTextContent(/^-7TST$/);
+    expect(screen.queryByText('-100')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+  });
+
+  it('renders the opaque-signature warning for measured holdings that do not parse, without decoding', () => {
+    bech32ById();
+    mockSigningInputs.deserialize.mockReturnValue(transactionSummary({ removed: [makeAsset('rem1', 100)] }));
+    const { view } = toSimulatedEffectsWire(measuredView());
+    setPayload({
+      ...siPayload(),
+      signingEffects: { view: { ...view, outgoing: [{ faucetId: 'bech32:wire', amount: 'nope' }] } }
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tx-asset-view')).not.toBeInTheDocument();
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+  });
+
+  it('shows a summary with no background measure as unmeasured even when that summary lists its assets', () => {
+    bech32ById();
+    setPayload(siPayload());
+    const decoded = transactionSummary({
+      removed: [makeAsset('X', 1000)],
+      inputs: [
+        {
+          id: () => ({ toString: () => 'held-note' }),
+          note: () => ({
+            assets: () => ({
+              fungibleAssets: () => [makeAsset('X', 1000)],
+              nonFungibleAssets: () => []
+            })
+          })
+        }
+      ]
+    });
+    const transactionSummaryPayload = jest.fn(decoded.transactionSummaryPayload);
+    mockSigningInputs.deserialize.mockReturnValue({ ...decoded, transactionSummaryPayload });
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.queryByTestId('opaque-signature-not-a-transaction')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tx-asset-view')).not.toBeInTheDocument();
+    expect(transactionSummaryPayload).not.toHaveBeenCalled();
+  });
+
+  it("shows the background's empty holdings without decoding", () => {
+    setPayload({ ...siPayload(), signingEffects: toSimulatedEffectsWire(measuredView()) });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+    expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'false');
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+  });
+
+  it('downloads the signing-inputs bytes as transaction_summary.bin without decoding', async () => {
+    setPayload({ ...siPayload(), signingEffects: toSimulatedEffectsWire(measuredView()) });
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByText('downloadFullSummary')).toBeInTheDocument());
+    expect(mockSigningInputs.deserialize).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('downloadFullSummary'));
+
+    const anchor: HTMLAnchorElement = clickSpy.mock.contexts[0];
+    expect(anchor.download).toBe('transaction_summary.bin');
+    const blob: Blob = createObjSpy.mock.calls[0][0];
+    const downloaded = await new Promise<Buffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) resolve(Buffer.from(reader.result));
+        else reject(new Error('expected the download blob to read as bytes'));
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(blob);
+    });
+    expect(downloaded).toEqual(Buffer.from(b64('signing-bytes'), 'base64'));
+    // The revoke is scheduled on a 0ms timeout after the click.
+    await waitFor(() => expect(revokeObjSpy).toHaveBeenCalled());
+  });
+
+  it('renders an opaque-signature warning and the arbitrary-payload copy for the Arbitrary variant', () => {
+    setPayload(siPayload());
+    mockSigningInputs.deserialize.mockReturnValue({ variantType: SigningInputsType.Arbitrary });
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('signArbitraryPayload');
+    expect(screen.getByTestId('opaque-signature-not-a-transaction')).toBeInTheDocument();
+  });
+
+  it('renders an opaque-signature warning and the blind-commitment copy for the Blind variant', () => {
+    setPayload(siPayload());
+    mockSigningInputs.deserialize.mockReturnValue({ variantType: SigningInputsType.Blind });
+    render(<ConfirmPage />);
+
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('signBlindCommitment');
+    expect(screen.getByTestId('opaque-signature-not-a-transaction')).toBeInTheDocument();
   });
 });
 
@@ -1426,5 +1758,22 @@ describe('ConfirmPage custom transaction', () => {
     );
     // A request that cannot be approved still names the site, so the user knows whose request they decline.
     expect(screen.getByTestId('confirm-request-origin')).toHaveAttribute('title', customPayload().origin);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// opaque-signature hardening — kind:'word' and SigningInputs Arbitrary/Blind: the caution heading, then the
+// raw value shown open (also exercised inline in the 'sign payload' describes above).
+// ---------------------------------------------------------------------------
+
+describe('ConfirmPage opaque signature', () => {
+  it('shows a blind-sign warning for a raw word signature', () => {
+    mockWord.deserialize.mockReturnValue({ toHex: () => '0xabc' });
+    setPayload({ type: 'sign', kind: 'word', payload: b64('w'), ...baseFields() });
+    render(<ConfirmPage />);
+
+    // The Alert mock (top of file) renders its `description`; `t` echoes keys.
+    expect(screen.getByText('opaqueSignatureWarning')).toBeInTheDocument();
+    expect(screen.getByText('opaqueSignatureNotATransaction')).toBeInTheDocument();
   });
 });

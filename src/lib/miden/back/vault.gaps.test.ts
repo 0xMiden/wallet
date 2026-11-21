@@ -413,8 +413,8 @@ describe('Vault instance signData - Guardian account', () => {
       'signingInputs' as const,
       new Uint8Array([0x01, ...Array(257).fill(0x07)])
     ]
-  ])('refuses %s for a single-key account with the sign rule, before it reads a key', async (_case, kind, payload) => {
-    const addr = 'mtst1-plain-refused';
+  ])('signs %s for a single-key account as before: the sign rule is Guardian-only', async (_case, kind, payload) => {
+    const addr = 'mtst1-plain-unrestricted';
     const commitment = 'cafe'.repeat(16);
     const vault = await seedVault('pw', {
       accounts: [{ publicKey: addr, name: 'Plain', isPublic: true, type: WalletType.OnChain } as any],
@@ -424,16 +424,35 @@ describe('Vault instance signData - Guardian account', () => {
     await encryptAndSaveMany([[keys.accAuthSecretKey(commitment), '01020304']], vaultKey);
     mockAuthSecretKeyDeserialize.mockClear();
     mockSignBytesInputs.mockClear();
+    mockSigningInputsDeserialize.mockClear();
     const getWasm = jest.requireMock('@miden-sdk/miden-sdk/lazy').getWasmOrThrow as jest.Mock;
     getWasm.mockClear();
 
-    const refusal = vault.signData(commitment, u8ToB64(payload), kind, addr);
-    await expect(refusal).rejects.toThrow(PublicError);
-    await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
-    expect(mockSignBytesInputs).not.toHaveBeenCalled();
-    expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
-    // Only a signingInputs payload needs the SDK, so a word is refused before the module loads.
-    expect(getWasm).toHaveBeenCalledTimes(kind === 'word' ? 0 : 1);
+    const sig = await vault.signData(commitment, u8ToB64(payload), kind, addr);
+
+    // The domain module and the stored key sign, and the rule's SDK decode never runs.
+    expect(mockSignBytesInputs).toHaveBeenCalledWith(payload, kind);
+    expect(mockAuthSecretKeyDeserialize).toHaveBeenCalledTimes(1);
+    expect(sig.signature).toBe(u8ToB64(new Uint8Array([0xff, 0xaa, 0xbb, 0xcc])));
+    expect(mockSigningInputsDeserialize).not.toHaveBeenCalled();
+    expect(getWasm).not.toHaveBeenCalled();
+  });
+
+  it('applies the sign rule by account kind: a word is refused for a Guardian, signed for a single-key account', async () => {
+    const word = u8ToB64(new Uint8Array(32).fill(0x11));
+    const guardian = await seedGuardianVault();
+    await expect(guardian.signData(HOT_COMMITMENT, word, 'word', GUARDIAN_ADDR)).rejects.toThrow(DAPP_SIGN_RULE);
+
+    const addr = 'mtst1-plain-by-kind';
+    const commitment = 'cafe'.repeat(16);
+    const plain = await seedVault('pw', {
+      accounts: [{ publicKey: addr, name: 'Plain', isPublic: true, type: WalletType.OnChain } as any],
+      currentPk: addr
+    });
+    await encryptAndSaveMany([[keys.accAuthSecretKey(commitment), '01020304']], (plain as any).vaultKey as CryptoKey);
+    await expect(plain.signData(commitment, word, 'word', addr)).resolves.toMatchObject({
+      signature: u8ToB64(new Uint8Array([0xff, 0xaa, 0xbb, 0xcc]))
+    });
   });
 
   it('the hot key signs the word the single-key path signs for arbitrary signing inputs', async () => {

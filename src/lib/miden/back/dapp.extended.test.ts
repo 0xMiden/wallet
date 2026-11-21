@@ -377,7 +377,7 @@ describe('requestSign', () => {
         sourcePublicKey: 'miden-account-1',
         sourceAccountId: 'miden-account-1',
         payload: 'aGVsbG8=',
-        kind: 'signingInputs'
+        kind: 'word'
       })
     ).rejects.toBe(kill);
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
@@ -389,7 +389,7 @@ describe('requestSign', () => {
       dapp.requestSign('https://miden.xyz', {
         type: MidenDAppMessageType.SignRequest,
         payload: 'x',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
@@ -402,7 +402,7 @@ describe('requestSign', () => {
         sourcePublicKey: 'miden-account-1',
         sourceAccountId: 'miden-account-1',
         payload: 'x',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
@@ -414,7 +414,7 @@ describe('requestSign', () => {
         sourcePublicKey: 'miden-account-1',
         sourceAccountId: 'different-account',
         payload: 'x',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never)
     ).rejects.toThrow();
   });
@@ -586,7 +586,7 @@ describe('mobile and desktop sheets wait for the app to unlock (#1414)', () => {
         sourcePublicKey: 'miden-account-1',
         sourceAccountId: 'miden-account-1',
         payload: 'deadbeef',
-        kind: 'signingInputs'
+        kind: 'word'
       } as never),
     importPrivateNote: () =>
       dapp.requestImportPrivateNote('https://miden.xyz', {
@@ -716,7 +716,7 @@ describe("one mobile request's unlock waits and sheet share one 240 s bound (#14
       sourcePublicKey: 'miden-account-1',
       sourceAccountId: 'miden-account-1',
       payload: 'deadbeef',
-      kind: 'signingInputs'
+      kind: 'word'
     } as never);
 
   it.each<[string, () => Promise<unknown>]>([
@@ -799,7 +799,7 @@ describe('non-extension dApp requests settle instead of hanging', () => {
     sourcePublicKey: 'miden-account-1',
     sourceAccountId: 'miden-account-1',
     payload: 'deadbeef',
-    kind: 'signingInputs'
+    kind: 'word'
   } as never;
 
   it('signBytes prompts through the confirmation store and resolves with the signature', async () => {
@@ -906,7 +906,7 @@ describe('non-extension dApp requests settle instead of hanging', () => {
             sourcePublicKey: 'miden-account-1',
             sourceAccountId: 'miden-account-1',
             payload: 'deadbeef',
-            kind: 'signingInputs'
+            kind: 'word'
           } as never,
           'session-9'
         )
@@ -992,7 +992,7 @@ describe('non-extension dApp requests settle instead of hanging', () => {
           sourcePublicKey: 'miden-account-1',
           sourceAccountId: 'miden-account-1',
           payload: 'deadbeef',
-          kind: 'signingInputs'
+          kind: 'word'
         } as never)
         .then(
           () => 'resolved',
