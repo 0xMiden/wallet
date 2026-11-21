@@ -136,6 +136,23 @@ describe('signableArbitraryElements', () => {
     expect(() => signableArbitraryElements('signingInputs', PAYLOAD)).toThrow(trap);
   });
 
+  it('throws the trap from reading an element, whatever a free on the aborted instance throws', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const { inputs, array } = signingInputs(1, [7n]);
+    array.get.mockImplementation(() => {
+      throw trap;
+    });
+    array.free.mockImplementation(() => {
+      throw new Error('free on an aborted instance');
+    });
+    inputs.free.mockImplementation(() => {
+      throw new Error('free on an aborted instance');
+    });
+    mockDeserialize.mockReturnValue(inputs);
+
+    expect(() => signableArbitraryElements('signingInputs', PAYLOAD)).toThrow(trap);
+  });
+
   it('refuses an Arbitrary preimage that starts with the derived lookup tag and frees the inputs', () => {
     const { inputs, array } = signingInputs(1, [...mockTag, 1n, 2n, 3n, 4n, 5n]);
     mockDeserialize.mockReturnValue(inputs);
