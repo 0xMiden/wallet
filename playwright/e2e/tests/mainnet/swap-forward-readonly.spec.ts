@@ -16,7 +16,8 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
   let custodyMatches = false;
   let failure: string | undefined;
   let surface: object | undefined;
-  const emit = (passed: boolean) => writeFileSync('test-results/swap-readonly-result.json', JSON.stringify({ stage, passed, custodyMatches, quoteSucceeded, failure, surface }), { mode: 0o600 });
+  let quoteAvailability: string | undefined;
+  const emit = (passed: boolean) => writeFileSync('test-results/swap-readonly-result.json', JSON.stringify({ stage, passed, custodyMatches, quoteSucceeded, quoteAvailability, failure, surface }), { mode: 0o600 });
   try {
     await restoreMainnetLoopGuardian(walletB, process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR ?? '');
     assert.equal(await walletB.getAccountAddress(), s.account);
@@ -41,6 +42,7 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
     stage = 'review';
     const review = await prepareMainnetSwapReview(walletB, service, s.offer, s.request, BigInt(s.principal), BigInt(s.forwardMinimum), (_summary, step) => {
       if (step?.key === 'quote_request') quoteSucceeded = step.status === 'passed';
+      if (step?.key === 'quote_availability') quoteAvailability = step.errorCode ?? step.status;
     });
     assert.ok(BigInt(review.minimumReceive) >= BigInt(s.forwardMinimum));
     stage = 'pre-authorization';
@@ -54,6 +56,13 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
       ['token-selector', "getByTestId('send-token-selector')"],
       ['amount-input', "getByTestId('send-amount-input')"],
       ['quote-response', 'page.waitForResponse:'],
+      ['quote-terms', 'not fully fillable at the exact authorized terms'],
+      ['quote-shape', 'no requested amount'],
+      ['amount-drift', 'drifted outside its uploaded authorization'],
+      ['receive-projection', 'page.waitForFunction:'],
+      ['review-button', "getByTestId('swap-review-submit')"],
+      ['submit-button', "getByTestId('swap-submit')"],
+      ['auto-consume', "getByTestId('swap-auto-consume')"],
       ['navigation', 'page.goto:']
     ] as const;
     failure = targets.find(([, match]) => message.includes(match))?.[0] ?? 'other';
@@ -64,7 +73,10 @@ test('observe the prior unsigned Swap review without arming or submitting', asyn
         flow: !!document.querySelector('[data-testid="swap-flow"]'),
         pay: !!document.querySelector('[data-testid="swap-pay-side"]'),
         receive: !!document.querySelector('[data-testid="swap-receive-side"]'),
-        selectorCount: Math.min(4, document.querySelectorAll('[data-testid="send-token-selector"]').length)
+        selectorCount: Math.min(4, document.querySelectorAll('[data-testid="send-token-selector"]').length),
+        commandAmount: !!document.querySelector('[data-testid="command-swap-receive-amount"]'),
+        reviewReady: !!document.querySelector('[data-testid="swap-review-submit"]:enabled'),
+        submit: !!document.querySelector('[data-testid="swap-submit"]')
       };
     }).catch(() => undefined);
     emit(false);
