@@ -3,6 +3,8 @@ import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
 import { b64ToU8 } from 'lib/shared/helpers';
 
+import { rethrowTrapOrKill } from './sdk/sdk-error-code';
+
 import {
   domainTagPreimage,
   GUARDIAN_LOOKUP_DOMAIN_STRING,
@@ -46,7 +48,8 @@ export function protocolTags(): ProtocolTags {
  * than `MAX_SIGN_PREIMAGE_ELEMENTS`, or it has a protocol message layout (`isProtocolMessageLayout`). If the wallet
  * cannot derive the protocol tags, it refuses the request.
  *
- * `payload` is the base64 of the serialized `SigningInputs`. Call this only after the SDK's WASM module is loaded.
+ * `payload` is the base64 of the serialized `SigningInputs`. Call this only after the SDK's WASM module is loaded, inside
+ * `withWasmClientLock` where the caller can: a WASM trap is thrown, not read as a refusal.
  */
 export function signableArbitraryElements(kind: SignKind, payload: string): bigint[] | undefined {
   if (kind !== 'signingInputs' || payload.length > MAX_SIGN_PAYLOAD_CHARS) return undefined;
@@ -55,7 +58,9 @@ export function signableArbitraryElements(kind: SignKind, payload: string): bigi
   try {
     tags = protocolTags();
     inputs = SigningInputs.deserialize(b64ToU8(payload));
-  } catch {
+  } catch (error) {
+    // A trap is no verdict on the request: the caller's WASM lock retires the poisoned client only when it sees it.
+    rethrowTrapOrKill(error);
     return undefined;
   }
   try {

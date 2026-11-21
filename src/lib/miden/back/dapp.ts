@@ -752,7 +752,12 @@ export async function requestSign(
   // the user never sees a request that the wallet will not sign. The vault applies the same rule again at sign
   // time. The service worker loads the WASM module only on demand, and only a `signingInputs` payload needs it.
   if (req.kind === 'signingInputs') await getWasmOrThrow();
-  const messageElements = signableArbitraryElements(req.kind, req.payload);
+  const messageElements =
+    req.kind === 'signingInputs'
+      ? await withWasmClientLock(async () => signableArbitraryElements(req.kind, req.payload), {
+          label: 'dapp-sign-rule'
+        })
+      : undefined;
   if (messageElements === undefined) {
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${DAPP_SIGN_RULE}`);
   }

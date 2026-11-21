@@ -127,6 +127,15 @@ describe('signableArbitraryElements', () => {
     expect(signableArbitraryElements('signingInputs', PAYLOAD)).toBeUndefined();
   });
 
+  it('throws a WASM trap from deserialize instead of reading it as a refusal', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockDeserialize.mockImplementation(() => {
+      throw trap;
+    });
+
+    expect(() => signableArbitraryElements('signingInputs', PAYLOAD)).toThrow(trap);
+  });
+
   it('refuses an Arbitrary preimage that starts with the derived lookup tag and frees the inputs', () => {
     const { inputs, array } = signingInputs(1, [...mockTag, 1n, 2n, 3n, 4n, 5n]);
     mockDeserialize.mockReturnValue(inputs);

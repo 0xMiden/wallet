@@ -308,6 +308,18 @@ describe('dApp sign approval on mobile and desktop', () => {
     ]);
   });
 
+  it('rejects with the WASM trap, not the sign rule, when the payload decode traps', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw trap;
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toBe(trap);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
   it('refuses a raw word before it loads the WASM module', async () => {
     const getWasm = sdk.getWasmOrThrow as jest.Mock;
     getWasm.mockClear();
