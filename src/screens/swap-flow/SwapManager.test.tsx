@@ -1049,8 +1049,8 @@ describe('SwapFlow / SwapManager', () => {
     mockRealSwapAmounts = true;
     renderFlow();
 
-    expect(screen.queryByTestId('one-click-pay-network-picker')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('one-click-receive-network-picker')).not.toBeInTheDocument();
+    expect(screen.getByTestId('swap-pay-side')).toBeInTheDocument();
+    expect(screen.getByTestId('swap-receive-side')).toBeInTheDocument();
   });
 
   it('keeps Swap closed when the DEX has no pair to offer', async () => {

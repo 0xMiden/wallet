@@ -54,7 +54,15 @@ describe('mainnet NEAR Intents config rollout gate', () => {
   });
 
   it('ignores the retired swap.oneClick section', () => {
-    const retired = { ...mainnetDocument(true), nearIntents: undefined, swap: { ...testnet.swap, oneClick: {} } };
-    expect(mainnetOneClickConfig(retired)).toBeUndefined();
+    const retiredOneClick = { ...nearIntents, serviceUrl: 'https://retired.example' };
+    const withBoth = { ...mainnetDocument(true), swap: { ...testnet.swap, oneClick: retiredOneClick } };
+    expect(mainnetOneClickConfig(withBoth)?.serviceUrl).toBe('https://one-click.example');
+
+    const retiredOnly = {
+      ...mainnetDocument(true),
+      nearIntents: undefined,
+      swap: { ...testnet.swap, oneClick: retiredOneClick }
+    };
+    expect(mainnetOneClickConfig(retiredOnly)).toBeUndefined();
   });
 });
