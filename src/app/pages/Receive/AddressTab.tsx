@@ -31,6 +31,8 @@ import { truncateAddress } from 'utils/string';
 interface AddressTabProps {
   address: string;
   onBridgeDeposit: () => void;
+  /** The Receive tabs, drawn as the first line of the body. Absent when Receive has one tab. */
+  tabs?: React.ReactNode;
   bridgeAvailability: FeatureAvailability;
   bridgeOffered: boolean;
   presentation?: FlowPresentation;
@@ -149,7 +151,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({
   onBridgeDeposit,
   bridgeAvailability,
   bridgeOffered,
-  presentation = 'compact'
+  presentation = 'compact',
+  tabs
 }) => {
   const { t } = useTranslation();
   const networkKey = getTestNetworkNameKey();
@@ -260,6 +263,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({
 
   const content = (
     <>
+      {tabs !== undefined && presentation !== 'command' && <div className="pb-4">{tabs}</div>}
       {/* Every line of the page is Nunito: the body styles that read `--font-sans` (the tiles'
           captions, the warning) resolve to the heading face here. `contents` adds no box, so the
           pane's layout is untouched. */}

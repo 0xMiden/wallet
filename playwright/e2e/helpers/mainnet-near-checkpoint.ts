@@ -304,6 +304,11 @@ function shape(value: unknown): value is MainnetNearCheckpoint {
     return false;
   return true;
 }
+// The nearIntents quotes carry no partner fee, so a leg that requests a fresh quote cannot continue a state
+// that was priced and status-checked under the retired fee policy. It fails closed before any spend.
+export function assertMainnetNearNoLegacyFees(state: MainnetNearCheckpoint, message: string): void {
+  if (state.appFees.length > 0 || state.feePolicy !== undefined) throw new Error(message);
+}
 export function parseMainnetNearCheckpoint(value: unknown): MainnetNearCheckpoint {
   if (!shape(value)) throw new Error('Invalid or private native NEAR checkpoint');
   const state = value;
