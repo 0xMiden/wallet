@@ -211,7 +211,13 @@ function workflowObservations(env) {
     ['cancelled', 'interrupted']
   ]);
   const stages = [];
-  const build = statuses.get(env.REPORT_BUILD_OUTCOME);
+  // Pre-build steps run without continue-on-error, so a failure skips the build; an unlisted token is ignored.
+  const setupOutcomes = [...(env.REPORT_SETUP_OUTCOMES ?? '').split(/\s+/), env.REPORT_BUILD_OUTCOME];
+  const build = setupOutcomes.includes('failure')
+    ? 'failed'
+    : setupOutcomes.includes('cancelled')
+      ? 'interrupted'
+      : statuses.get(env.REPORT_BUILD_OUTCOME);
   const recoveryOutcomes = [
     env.REPORT_INVOCATION_SWAP_RECOVERY_GRANT,
     env.REPORT_INVOCATION_SWAP_RECOVER,

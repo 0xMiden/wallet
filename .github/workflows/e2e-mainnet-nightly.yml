@@ -113,7 +113,9 @@ jobs:
           REPORT_EXPLICIT_RECOVERY_ONLY: ${{ inputs.authorize_swap_recovery_return || inputs.replace_unsubmitted_swap_return }}
         run: node scripts/wallet-e2e/job.cjs initialize
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        id: setup-rust-toolchain
       - name: Cache miden-client-cli
+        id: setup-cache-miden-client-cli
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/miden-client
@@ -125,12 +127,15 @@ jobs:
         id: inject-guardian
         uses: ./.github/actions/inject-linked-guardian-pr
       - name: Install dependencies
+        id: setup-install-dependencies
         if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
       - name: Install dependencies (linked PRs injected)
+        id: setup-install-dependencies-linked-prs-injected
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
       - name: Build read-only Epoch SDK
+        id: setup-build-read-only-epoch-sdk
         run: |
           yarn esbuild scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
           node -e "const sdk=require('./node_modules/.cache/nightly-epoch-readonly-sdk.cjs'); for (const name of ['createLockTag','getAllocatorId','getTaskData','getIntentQuote','getCompactData','getMidenCollateralConfig','getIntentStatus','resolveServiceConfiguration','resolveCompactAddress']) if (typeof sdk[name] !== 'function') throw new Error('Missing read-only Epoch SDK export: '+name);"
@@ -140,6 +145,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs find
       - name: Restore prior swap checkpoint
+        id: setup-restore-prior-swap-checkpoint
         if: steps.swap-prior.outputs.name != ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -159,6 +165,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs find epoch
       - name: Restore prior Epoch checkpoint
+        id: setup-restore-prior-epoch-checkpoint
         if: steps.epoch-prior.outputs.name != ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -178,6 +185,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs find near
       - name: Restore prior NEAR checkpoint
+        id: setup-restore-prior-near-checkpoint
         if: steps.near-prior.outputs.name != ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -192,10 +200,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs attempts near
       - name: Install miden-client-cli
+        id: setup-install-miden-client-cli
         uses: ./.github/actions/install-miden-client-cli
       - name: Drop apt repositories this repo never installs from
+        id: setup-drop-unused-apt-repos
         uses: ./.github/actions/apt-drop-unused-repos
       - name: Install xvfb
+        id: setup-install-xvfb
         timeout-minutes: 6
         run: |
           if command -v xvfb-run >/dev/null 2>&1; then exit 0; fi
@@ -204,9 +215,11 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
           sudo apt-get install -y xvfb
       - name: Install Playwright browsers
+        id: setup-install-playwright-browsers
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Start wallet eligibility fixture
+        id: setup-start-wallet-eligibility-fixture
         uses: ./.github/actions/start-eligibility-fixture
       - name: Select owned provider overlay
         id: overlay
@@ -222,6 +235,7 @@ jobs:
           appendFileSync(process.env.GITHUB_OUTPUT, `required=${process.env.SWAPS_ONLY !== 'true' || active}\n`);
           NODE
       - name: Start owned provider loop config
+        id: setup-start-owned-provider-loop-config
         if: steps.overlay.outputs.required == 'true'
         run: |
           set -euo pipefail
@@ -875,6 +889,30 @@ jobs:
         continue-on-error: true
         timeout-minutes: 1
         env:
+          REPORT_SETUP_OUTCOMES: >-
+            ${{ steps.setup-rust-toolchain.outcome }}
+            ${{ steps.setup-cache-miden-client-cli.outcome }}
+            ${{ steps.inject-web-sdk.outcome }}
+            ${{ steps.inject-guardian.outcome }}
+            ${{ steps.setup-install-dependencies.outcome }}
+            ${{ steps.setup-install-dependencies-linked-prs-injected.outcome }}
+            ${{ steps.setup-build-read-only-epoch-sdk.outcome }}
+            ${{ steps.swap-prior.outcome }}
+            ${{ steps.setup-restore-prior-swap-checkpoint.outcome }}
+            ${{ steps.swap-attempts.outcome }}
+            ${{ steps.epoch-prior.outcome }}
+            ${{ steps.setup-restore-prior-epoch-checkpoint.outcome }}
+            ${{ steps.epoch-attempts.outcome }}
+            ${{ steps.near-prior.outcome }}
+            ${{ steps.setup-restore-prior-near-checkpoint.outcome }}
+            ${{ steps.near-attempts.outcome }}
+            ${{ steps.setup-install-miden-client-cli.outcome }}
+            ${{ steps.setup-drop-unused-apt-repos.outcome }}
+            ${{ steps.setup-install-xvfb.outcome }}
+            ${{ steps.setup-install-playwright-browsers.outcome }}
+            ${{ steps.setup-start-wallet-eligibility-fixture.outcome }}
+            ${{ steps.overlay.outcome }}
+            ${{ steps.setup-start-owned-provider-loop-config.outcome }}
           REPORT_BUILD_OUTCOME: ${{ steps.wallet-build.outcome }}
           REPORT_RECOVERY_AUTH_OUTCOMES: >-
             ${{ steps.swap-recover-claim-auth.outcome }}
@@ -971,7 +1009,9 @@ jobs:
           REPORT_EXPLICIT_RECOVERY_ONLY: ${{ inputs.authorize_swap_recovery_return || inputs.replace_unsubmitted_swap_return }}
         run: node scripts/wallet-e2e/job.cjs initialize
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        id: setup-rust-toolchain
       - name: Cache miden-client-cli
+        id: setup-cache-miden-client-cli
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/miden-client
@@ -983,16 +1023,21 @@ jobs:
         id: inject-guardian
         uses: ./.github/actions/inject-linked-guardian-pr
       - name: Install dependencies
+        id: setup-install-dependencies
         if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
       - name: Install dependencies (linked PRs injected)
+        id: setup-install-dependencies-linked-prs-injected
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
       - name: Install miden-client-cli
+        id: setup-install-miden-client-cli
         uses: ./.github/actions/install-miden-client-cli
       - name: Drop apt repositories this repo never installs from
+        id: setup-drop-unused-apt-repos
         uses: ./.github/actions/apt-drop-unused-repos
       - name: Install xvfb
+        id: setup-install-xvfb
         timeout-minutes: 6
         run: |
           if command -v xvfb-run >/dev/null 2>&1; then exit 0; fi
@@ -1001,9 +1046,11 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
           sudo apt-get install -y xvfb
       - name: Install Playwright browsers
+        id: setup-install-playwright-browsers
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Start wallet eligibility fixture
+        id: setup-start-wallet-eligibility-fixture
         uses: ./.github/actions/start-eligibility-fixture
       - name: Build the extension for mainnet
         id: wallet-build
@@ -1036,6 +1083,18 @@ jobs:
         continue-on-error: true
         timeout-minutes: 1
         env:
+          REPORT_SETUP_OUTCOMES: >-
+            ${{ steps.setup-rust-toolchain.outcome }}
+            ${{ steps.setup-cache-miden-client-cli.outcome }}
+            ${{ steps.inject-web-sdk.outcome }}
+            ${{ steps.inject-guardian.outcome }}
+            ${{ steps.setup-install-dependencies.outcome }}
+            ${{ steps.setup-install-dependencies-linked-prs-injected.outcome }}
+            ${{ steps.setup-install-miden-client-cli.outcome }}
+            ${{ steps.setup-drop-unused-apt-repos.outcome }}
+            ${{ steps.setup-install-xvfb.outcome }}
+            ${{ steps.setup-install-playwright-browsers.outcome }}
+            ${{ steps.setup-start-wallet-eligibility-fixture.outcome }}
           REPORT_BUILD_OUTCOME: ${{ steps.wallet-build.outcome }}
           REPORT_INVOCATION_AGGLAYER_ROUND_TRIP: ${{ steps.agglayer-run.outcome }}
         run: node scripts/wallet-e2e/job.cjs assemble

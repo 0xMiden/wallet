@@ -227,7 +227,12 @@ describe('wallet report command boundary', () => {
     );
     const assembled = JSON.parse(report());
     expect(assembled.stages).toEqual([
-      expect.objectContaining({ key: 'setup', status, origin: 'workflow', error: code ? expect.objectContaining({ code }) : null })
+      expect.objectContaining({
+        key: 'setup',
+        status,
+        origin: 'workflow',
+        error: code ? expect.objectContaining({ code }) : null
+      })
     ]);
     if (status === 'failed') expect(assembled.coverage.bridge.reason).toBe('blocked_by_setup');
     assertSanitized(report());
