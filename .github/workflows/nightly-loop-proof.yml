@@ -1,7 +1,7 @@
 name: NEAR provenance unit proof
 on:
   push:
-    branches: [wiktor/near-provenance-unit-once]
+    branches: [wiktor/near-provenance-exact-red]
 permissions:
   contents: read
 jobs:

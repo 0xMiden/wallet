@@ -8,13 +8,13 @@ const steps = [
   { name: 'Upload mainnet near native return claim', conclusion: 'skipped' },
   { name: 'Prepare mainnet solver swap', conclusion: 'skipped' }
 ];
-const digest = 'sha256:' + '2'.repeat(64);
+const digest = 'sha256:6a8cf4b067cd5809cf39800521158e666ec747de39d673f6615a0470299117f7';
 const candidate = {
   run: { id: 44844609625, repository: { id: 853430876 }, workflow_id: 391951744,
     head_sha: '71287e0742a62e29a5bc06c4f398eee8978336ab', head_branch: 'main', event: 'workflow_dispatch',
     run_attempt: 1, status: 'completed', conclusion: 'failure' },
   jobs: { jobs: [{ name: 'Chrome mainnet round trip', steps }] },
-  artifacts: { artifacts: ['final', 'reverse-authorized'].map((stage, i) => ({ id: i + 1,
+  artifacts: { artifacts: ['final', 'reverse-authorized'].map((stage, i) => ({ id: [14681873349, 14681848612][i],
     name: `mainnet-1click-${stage}-44844609625`, digest, expired: false })) }
 };
 const check = provenance.matchesExpiredNearReturnProvenance;
@@ -29,6 +29,8 @@ test('rejects mismatched or ambiguous provenance', () => {
     x => x.jobs.jobs[0].steps[2].conclusion = 'success',
     x => x.jobs.jobs[0].steps.push(steps[1]),
     x => x.artifacts.artifacts[1].digest = 'sha256:' + '3'.repeat(64),
+    x => x.artifacts.artifacts.forEach(a => { a.digest = 'sha256:' + '3'.repeat(64); }),
+    x => x.artifacts.artifacts[0].id++,
     x => x.artifacts.artifacts[0].expired = true,
     x => x.artifacts.artifacts.push({ name: 'mainnet-1click-reverse-signed-1-44844609625' })
   ]) {
