@@ -31,6 +31,22 @@ test('requires a pending retired quote with no provider settlement or deposit ev
   assert.equal(matches({ status: 'PENDING_DEPOSIT' }), false);
 });
 
+test('requires the original nonce and holdings in every EVM view after expiry', () => {
+  const verify = provenance.assertNearReturnCustody ?? (() => { throw new Error('Missing custody guard'); });
+  const expected = { nonce: 11, native: 101n, token: 9975787n };
+  const deadline = '2026-11-21T00:43:11.330Z';
+  const custody = { latest: expected, pending: expected, finalized: expected, finalizedTimestamp: 1795221792n };
+  assert.doesNotThrow(() => verify(expected, deadline, custody));
+  for (const view of ['latest', 'pending', 'finalized']) {
+    for (const field of Object.keys(expected)) {
+      const changed = { ...expected, [field]: undefined };
+      assert.throws(() => verify(expected, deadline, { ...custody, [view]: changed }), /custody/);
+    }
+  }
+  assert.throws(() => verify(expected, deadline, { ...custody, finalizedTimestamp: 1795221791n }), /custody/);
+  assert.throws(() => verify(expected, 'unknown', custody), /custody/);
+});
+
 test('checks historical bytes rather than trusting reported checkpoint digests', () => {
   const verify = provenance.verifyNearReturnCheckpointBytes ?? (() => false);
   assert.throws(() => verify(Buffer.from('{}'), Buffer.from('{}')), /checkpoint bytes/);
