@@ -135,9 +135,9 @@ describe('mainnet nightly workflow', () => {
       const ids = pre.map(step => step.id);
       expect(ids.every(id => typeof id === 'string' && id !== '')).toBe(true);
       expect(new Set(ids).size).toBe(ids.length);
-      expect(assemble.env.REPORT_SETUP_OUTCOMES.trim().split(/\s+/)).toEqual(
-        ids.map(id => `\${{ steps.${id}.outcome }}`)
-      );
+      const forwarded = assemble.env.REPORT_SETUP_OUTCOMES;
+      expect(Array.from(forwarded.matchAll(/steps\.([\w-]+)\.outcome/g), match => match[1])).toEqual(ids);
+      expect(forwarded.replace(/\$\{\{ steps\.[\w-]+\.outcome \}\}/g, '').trim()).toBe('');
       // Unchanged semantics: a failed setup step still stops the job and is never tolerated.
       for (const step of pre) {
         expect(step['continue-on-error']).toBeUndefined();
