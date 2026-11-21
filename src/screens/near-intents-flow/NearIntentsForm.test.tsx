@@ -10,6 +10,8 @@ import type {
   OneClickQuoteResponse
 } from 'lib/one-click/types';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
+
 import { NearIntentsForm } from './NearIntentsForm';
 import { previewRefundAddress } from './preview-refund';
 import { PREVIEW_DEBOUNCE_MS } from './useNearIntentsQuote';
@@ -167,6 +169,16 @@ afterEach(() => {
 });
 
 describe('NearIntentsForm', () => {
+  it('keeps the deposit-address button reachable in the Command presentation', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <NearIntentsForm config={config} catalog={catalog} />
+      </FlowPresentationProvider>
+    );
+    expect(screen.getByTestId('near-intents-form')).toBeInTheDocument();
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeInTheDocument();
+  });
+
   it('selects the first chain, its first token and that token’s first output', () => {
     renderForm();
     expect(screen.getByTestId('near-intents-send-token-pill')).toHaveTextContent('USDC');

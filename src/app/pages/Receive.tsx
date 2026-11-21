@@ -128,31 +128,39 @@ const ReceiveManager: React.FC<ReceiveProps> = ({ presentation }) => {
     />
   ) : undefined;
 
+  const nearIntentsView =
+    nearIntentsConfig && activeTab === 'near-intents' ? (
+      <Suspense
+        fallback={
+          <HomeGroupPaneBody top="visual">
+            {tabs}
+            <div className="flex justify-center pt-10">
+              <Spinner />
+            </div>
+          </HomeGroupPaneBody>
+        }
+      >
+        <NearIntentsTab config={nearIntentsConfig} tabs={tabs} />
+      </Suspense>
+    ) : null;
+
   if (command)
-    return (
+    return nearIntentsView ? (
+      <div data-testid="command-receive-near-intents" className="mx-auto flex w-full max-w-md flex-col">
+        {nearIntentsView}
+      </div>
+    ) : (
       <CommandReceive
         address={address}
         onBridgeDeposit={openBridgeDeposit}
         bridgeAvailability={bridgeAvailability}
         bridgeOffered={bridgeOffered}
+        tabs={tabs}
       />
     );
   return (
     <HomeGroupPaneRoot testId="receive-flow">
-      {nearIntentsConfig && activeTab === 'near-intents' ? (
-        <Suspense
-          fallback={
-            <HomeGroupPaneBody top="visual">
-              {tabs}
-              <div className="flex justify-center pt-10">
-                <Spinner />
-              </div>
-            </HomeGroupPaneBody>
-          }
-        >
-          <NearIntentsTab config={nearIntentsConfig} tabs={tabs} />
-        </Suspense>
-      ) : (
+      {nearIntentsView ?? (
         <AddressTab
           address={address}
           onBridgeDeposit={openBridgeDeposit}

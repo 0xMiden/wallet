@@ -8,6 +8,7 @@ import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { NetworkLogo } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
 import { Card } from 'components/ui/Card';
@@ -30,6 +31,7 @@ import type {
 } from 'lib/one-click/types';
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
+import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 
 import { chainLogoNetwork, NearIntentsSelection, resolveSelection } from './chains';
 import { arrivalMinutes, formatQuoteUsd, formatRate } from './format';
@@ -77,6 +79,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
   const { t } = useTranslation();
   const { publicKey } = useAccount();
   const pageActive = usePageActive();
+  const command = useFlowPresentation() === 'command';
 
   const [selection, setSelection] = useState<NearIntentsSelection>({});
   const [amount, setAmount] = useState('');
@@ -230,6 +233,24 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
     }
   }, []);
 
+  const footer = (
+    <div className="flex flex-col gap-2">
+      <Button
+        title={t('nearIntentsGetDepositAddress')}
+        variant={ButtonVariant.Primary}
+        accent="receive"
+        onClick={() => submit()}
+        disabled={!canSubmit}
+        isLoading={submitting}
+        className="w-full max-w-none"
+        data-testid="near-intents-get-deposit-address"
+      />
+      <p className="text-center text-caption text-muted">{t('nearIntentsSendFromAnyWallet')}</p>
+    </div>
+  );
+  // In the Command workbench the pinned CTA lives in the workbench footer, as in the other flows.
+  const pinnedFooter = useCommandWorkbenchSlots(command ? footer : null);
+
   if (!chain || !token || !output) return null;
 
   const chainName = chain.name;
@@ -240,25 +261,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
 
   return (
     <>
-      <HomeGroupPaneBody
-        testId="near-intents-form"
-        top="visual"
-        footer={
-          <div className="flex flex-col gap-2">
-            <Button
-              title={t('nearIntentsGetDepositAddress')}
-              variant={ButtonVariant.Primary}
-              accent="receive"
-              onClick={() => submit()}
-              disabled={!canSubmit}
-              isLoading={submitting}
-              className="w-full max-w-none"
-              data-testid="near-intents-get-deposit-address"
-            />
-            <p className="text-center text-caption text-muted">{t('nearIntentsSendFromAnyWallet')}</p>
-          </div>
-        }
-      >
+      <HomeGroupPaneBody testId="near-intents-form" top="visual" footer={command ? undefined : footer}>
         {tabs}
         <div className="flex flex-col gap-5 pt-4">
           <div className="flex flex-col">
@@ -425,6 +428,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
           )}
         </div>
       </HomeGroupPaneBody>
+      {pinnedFooter}
 
       <SendTokenDrawer
         open={sendDrawerOpen}
