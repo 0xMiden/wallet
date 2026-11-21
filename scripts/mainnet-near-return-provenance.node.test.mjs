@@ -19,6 +19,25 @@ const candidate = {
 };
 const check = provenance.matchesExpiredNearReturnProvenance;
 
+test('scheduled retention must have failed closed without reaching signing or fresh preparation', () => {
+  const matches = provenance.matchesNearRetentionSteps ?? (() => false);
+  const steps = [
+    { name: 'Authorize original NEAR reverse', conclusion: 'failure' },
+    { name: 'Upload mainnet near signed EVM 1', conclusion: 'skipped' },
+    { name: 'Upload mainnet near native return claim', conclusion: 'skipped' },
+    { name: 'Prepare mainnet solver swap', conclusion: 'skipped' }
+  ];
+  const jobs = entries => ({ jobs: [{ name: 'Chrome mainnet round trip', steps: entries }] });
+  assert.equal(matches(jobs(steps)), true);
+  for (const index of [1, 2, 3]) {
+    const changed = structuredClone(steps);
+    changed[index].conclusion = 'success';
+    assert.equal(matches(jobs(changed)), false);
+    assert.equal(matches(jobs(steps.filter((_, i) => i !== index))), false);
+  }
+  assert.equal(matches(jobs([...steps, steps[0]])), false);
+});
+
 test('binds the scheduled retention to the exact current and original checkpoint bytes', () => {
   const match = provenance.matchesRetainedNearReturn ?? (() => false);
   const evidence = {
