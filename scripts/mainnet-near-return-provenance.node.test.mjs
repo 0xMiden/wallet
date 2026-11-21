@@ -30,6 +30,18 @@ test('binds the scheduled retention to the exact current and original checkpoint
   };
   assert.equal(match(evidence), true);
   for (const key of Object.keys(evidence)) assert.equal(match({ ...evidence, [key]: null }), false);
+  assert.equal(match({ ...evidence, runId: 44871541173 }), false);
+  assert.equal(match({ ...evidence, checkpointDigest: evidence.originalDigest }), false);
+});
+
+test('only permits a phase and timestamp change when tracing retained authority', () => {
+  const matches = provenance.hasUnchangedNearReturnAuthority ?? (() => false);
+  const original = { phase: 'reverse-authorized', updatedAt: '2026-11-21T00:38:30.469Z', reverseQuote: { quoteHash: 'original' }, evmNonceBefore: 84 };
+  const retained = { ...original, phase: 'recovery-required', updatedAt: '2026-11-21T05:40:00.000Z' };
+  assert.equal(matches(original, retained), true);
+  assert.equal(matches(original, { ...retained, evmNonceBefore: 85 }), false);
+  assert.equal(matches(original, { ...retained, transactions: [{ hash: 'unexpected' }] }), false);
+  assert.equal(matches(original, { ...retained, updatedAt: original.updatedAt }), false);
 });
 test('binds the failed unsigned return, without granting replacement authority', () => {
   assert.equal(check(candidate), true);
