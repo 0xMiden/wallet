@@ -3,8 +3,6 @@ import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
 import { b64ToU8 } from 'lib/shared/helpers';
 
-import { rethrowTrapOrKill } from './sdk/sdk-error-code';
-
 import {
   domainTagPreimage,
   GUARDIAN_LOOKUP_DOMAIN_STRING,
@@ -13,6 +11,7 @@ import {
   MAX_SIGN_PREIMAGE_ELEMENTS,
   type ProtocolTags
 } from './dapp-sign-rule';
+import { rethrowTrapOrKill } from './sdk/sdk-error-code';
 
 let cachedProtocolTags: ProtocolTags | undefined;
 
