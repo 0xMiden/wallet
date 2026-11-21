@@ -79,7 +79,7 @@ function observe(invocationId: string, status: 'passed' | 'failed', operations: 
 
 async function replayAnnotations(
   invocationId: string,
-  status: 'passed' | 'failed' | 'timedOut',
+  status: 'passed' | 'failed' | 'timedOut' | 'interrupted',
   annotations: TestResult['annotations'],
   runStatus: string = status
 ) {
@@ -399,6 +399,12 @@ it('records a whole-run Playwright timeout as timed_out and keeps the report ava
   expect(row!.playwrightOutcome.value).toBe('timed_out');
   expect(row!.status).toBe('timed_out');
   expect(report.availability).toBe('available');
+});
+
+it('reports a selected interrupted invocation as interrupted swap coverage', async () => {
+  await replayAnnotations('swap-forward', 'interrupted', [], 'interrupted');
+  const report = await assembled();
+  expect(report.coverage.swap.status).toBe('interrupted');
 });
 
 it.each([
