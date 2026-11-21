@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Report the last NEAR return stage reached when the mainnet nightly fails, without uploading private worker logs.
+
 - [FIX][ci] Verify the original NEAR deposit fee against Guardian history when a restored nightly wallet lacks the local send record.
 - [FIX][extension] Restore the selected account’s last synced balance when reopening the wallet, without waiting for another sync.
 
