@@ -8,6 +8,23 @@ export function hasUnchangedNearReturnAuthority(original, retained) {
   return isDeepStrictEqual(before, after);
 }
 
+export function matchesNearRetentionSteps(jobs) {
+  if (!Array.isArray(jobs?.jobs)) return false;
+  const roundTrips = jobs.jobs.filter(job => job?.name === 'Chrome mainnet round trip');
+  if (roundTrips.length !== 1 || !Array.isArray(roundTrips[0].steps)) return false;
+  const steps = roundTrips[0].steps;
+  const results = name => steps.filter(step => step?.name === name).map(step => step.conclusion);
+  const authorization = results('Authorize original NEAR reverse');
+  return authorization.length === 1 && authorization[0] === 'failure' && [
+    'Upload mainnet near signed EVM 1',
+    'Upload mainnet near native return claim',
+    'Prepare mainnet solver swap'
+  ].every(name => {
+    const found = results(name);
+    return found.length > 0 && found.every(result => result === 'skipped');
+  });
+}
+
 // This scheduled run retained the original grant, changing only phase and updatedAt.
 export function matchesRetainedNearReturn(evidence) {
   return evidence?.runId === 44871541172 &&
