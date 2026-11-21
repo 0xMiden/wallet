@@ -37,6 +37,16 @@ export function isDistinctNearReplacementQuote(retired, candidate) {
   );
 }
 
+export function hasNoNearReturnProviderActivity(status) {
+  const details = status?.swapDetails;
+  return status?.status === 'PENDING_DEPOSIT' && Boolean(details) &&
+    ['intentHashes', 'nearTxHashes', 'originChainTxHashes', 'destinationChainTxHashes'].every(
+      key => Array.isArray(details[key]) && details[key].length === 0
+    ) && ['depositedAmount', 'amountIn', 'amountOut', 'refundedAmount'].every(
+      key => details[key] === undefined || details[key] === '0'
+    ) && details.refundReason === undefined;
+}
+
 export function matchesNearRetentionSteps(jobs) {
   if (!Array.isArray(jobs?.jobs)) return false;
   const roundTrips = jobs.jobs.filter(job => job?.name === 'Chrome mainnet round trip');
