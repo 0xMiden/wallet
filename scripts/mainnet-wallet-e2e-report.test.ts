@@ -213,6 +213,33 @@ describe('wallet report command boundary', () => {
     assertSanitized(report());
   });
 
+  it.each([
+    ['a failed pre-build step', 'success failure skipped', 'skipped', 'failed', 'setup_failed'],
+    ['a cancelled pre-build step', 'success cancelled skipped', 'skipped', 'interrupted', null],
+    ['an unexpected outcome string beside a failure', 'success sentinel failure', 'skipped', 'failed', 'setup_failed'],
+    ['all setup steps and the build passing', 'success skipped success', 'success', 'passed', null]
+  ])('records the setup stage for %s', async (_, setup, build, status, code) => {
+    const { env, report } = sandbox();
+    await main(env, ['initialize']);
+    await main(
+      { ...env, REPORT_SETUP_OUTCOMES: setup, REPORT_BUILD_OUTCOME: build, REPORT_INVOCATION_SWAP_FORWARD: 'skipped' },
+      ['assemble']
+    );
+    const assembled = JSON.parse(report());
+    expect(assembled.stages).toEqual([
+      expect.objectContaining({ key: 'setup', status, origin: 'workflow', error: code ? expect.objectContaining({ code }) : null })
+    ]);
+    if (status === 'failed') expect(assembled.coverage.bridge.reason).toBe('blocked_by_setup');
+    assertSanitized(report());
+  });
+
+  it('records no setup stage when no setup step ran or all were skipped', async () => {
+    const { env, report } = sandbox();
+    await main(env, ['initialize']);
+    await main({ ...env, REPORT_SETUP_OUTCOMES: 'skipped skipped', REPORT_BUILD_OUTCOME: 'skipped' }, ['assemble']);
+    expect(JSON.parse(report()).stages).toEqual([]);
+  });
+
   // GitHub Actions steps 49–59 in the two referenced mainnet jobs.
   it.each([
     ['164', 'success', 'failure', 'failed', 'recovery_gate_failed'],

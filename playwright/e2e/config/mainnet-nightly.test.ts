@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import YAML from 'yaml';
+
 import { getEnvironmentConfig } from './environments';
 
 describe('mainnet environment', () => {
@@ -117,6 +119,29 @@ describe('mainnet nightly workflow', () => {
       ]);
       for (const step of steps.filter(step => step.includes('continue-on-error'))) {
         expect(step).toMatch(/^ {8}continue-on-error: true$/m);
+      }
+    }
+  });
+
+  it('forwards every pre-build step outcome to the report without changing step gating', () => {
+    const parsed = YAML.parse(text) as { jobs: Record<string, { steps: Record<string, unknown>[] }> };
+    for (const job of ['mainnet-nightly', 'mainnet-agglayer']) {
+      const steps = parsed.jobs[job].steps;
+      const init = steps.findIndex(step => step.id === 'wallet-report-init');
+      const build = steps.findIndex(step => step.id === 'wallet-build');
+      const assemble = steps.find(step => step.id === 'wallet-report-assemble') as { env: Record<string, string> };
+      const pre = steps.slice(init + 1, build);
+      expect(pre.length).toBeGreaterThan(8);
+      const ids = pre.map(step => step.id);
+      expect(ids.every(id => typeof id === 'string' && id !== '')).toBe(true);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(assemble.env.REPORT_SETUP_OUTCOMES.trim().split(/\s+/)).toEqual(
+        ids.map(id => `\${{ steps.${id}.outcome }}`)
+      );
+      // Unchanged semantics: a failed setup step still stops the job and is never tolerated.
+      for (const step of pre) {
+        expect(step['continue-on-error']).toBeUndefined();
+        expect(String(step.if ?? '')).not.toMatch(/always\(\)|cancelled\(\)|failure\(\)/);
       }
     }
   });
