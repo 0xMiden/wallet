@@ -10,7 +10,10 @@ import { loadMainnetNearCheckpoint } from '../../helpers/mainnet-near-checkpoint
 import { captureMainnetOneClickReviewQuote, connectMainnetOneClickWallet, selectMainnetOneClickAssets } from '../../helpers/mainnet-one-click-ui';
 import { WcCounterparty } from '../../ios/helpers/wc-counterparty';
 import { ONE_CLICK_EVM_CHAIN_IDS } from '../../../../src/lib/one-click/client';
-import { getAddress } from 'viem';
+import { createPublicClient, erc20Abi, getAddress, http } from 'viem';
+import { arbitrum } from 'viem/chains';
+import { createMainnetNearEvmBroadcast } from '../../helpers/mainnet-near-evm';
+import { assertOneClickFundingDeadline } from '../../../../src/lib/one-click/deadline';
 import { loadMainnetOneClickSetup } from '../../helpers/mainnet-one-click-config';
 import { createMainnetOneClickEvmSender, readMainnetEvmHolding } from '../../helpers/mainnet-one-click-evm';
 import { hashOneClickQuote } from '../../../../src/lib/one-click/signature';
@@ -70,10 +73,34 @@ test('observe a fresh NEAR return request without signing or broadcasting', asyn
     assert.ok(originAsset && destinationAsset && deadline);
     const account = getAddress(state.evm.account);
     const holding = await readMainnetEvmHolding(originAsset, account);
-    sender = createMainnetOneClickEvmSender({ holding, account, config: setup.config,
-      gasBudgetWei: BigInt(state.evmFeeBudget), broadcast: async () => {
+    assert.ok(state.returnValuation && quote.quote.refundFee !== undefined);
+    const client = createPublicClient({ chain: arbitrum, transport: http(mainnetRpc(state.evm.chainId), { retryCount: 0 }) });
+    const probe = { ...state, reverseQuote: { ...state.reverseQuote,
+      quoteHash: hashOneClickQuote(quote), depositAddress: deposit,
+      deadline: assertOneClickFundingDeadline(deadline, quote.quote.deadline),
+      amountIn: quote.quote.amountIn, minimumOutput: quote.quote.minAmountOut, refundFee: quote.quote.refundFee
+    }, returnValuation: { ...state.returnValuation, pricedAt: new Date().toISOString() } };
+    const forbidden = async (): Promise<never> => { throw new Error('Diagnostic forbids persistence and broadcast'); };
+    const checkBeforeSign = createMainnetNearEvmBroadcast(probe, {
+      signal: AbortSignal.timeout(120_000),
+      client: {
+        getChainId: () => client.getChainId(),
+        getTransactionCount: input => client.getTransactionCount(input),
+        getBalance: input => client.getBalance(input),
+        readTokenBalance: () => client.readContract({ address: getAddress(state.evm.token), abi: erc20Abi, functionName: 'balanceOf', args: [account] }),
+        sendRawTransaction: forbidden,
+        waitForTransactionReceipt: forbidden
+      },
+      sign: async () => {
         exactRequestHeld = true;
-        throw new Error('Diagnostic refuses signing and broadcast');
+        throw new Error('Diagnostic stopped at signer boundary');
+      },
+      persist: forbidden
+    });
+    sender = createMainnetOneClickEvmSender({ holding, account, config: setup.config,
+      gasBudgetWei: BigInt(state.evmFeeBudget), broadcast: async envelope => {
+        stage = 'pre-sign-live-checks';
+        return checkBeforeSign(envelope);
       }
     });
     sender.bind({ originAsset, destinationAsset, amount: amount.toString(), refundTo: state.evm.account,
