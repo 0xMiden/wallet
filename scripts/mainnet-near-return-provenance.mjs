@@ -22,6 +22,7 @@ export function matchesExpiredNearReturnProvenance({ run, jobs, artifacts } = {}
   if (retained?.length !== 2) return false;
   const final = retained.find(artifact => artifact.name === `mainnet-1click-final-${id}`);
   const grant = retained.find(artifact => artifact.name === `mainnet-1click-reverse-authorized-${id}`);
-  return Boolean(final && grant && final.id !== grant.id && final.expired === false && grant.expired === false &&
-    /^sha256:[0-9a-f]{64}$/.test(final.digest) && final.digest === grant.digest);
+  return Boolean(final?.id === 14681873349 && grant?.id === 14681848612 &&
+    final.expired === false && grant.expired === false &&
+    final.digest === 'sha256:6a8cf4b067cd5809cf39800521158e666ec747de39d673f6615a0470299117f7' && final.digest === grant.digest);
 }
