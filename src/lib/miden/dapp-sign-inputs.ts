@@ -34,11 +34,11 @@ export function protocolTags(): ProtocolTags {
 }
 
 /**
- * The preimage of a dApp signature request, when the wallet may sign the request (`DAPP_SIGN_RULE`), for every account
- * type. Returns `undefined` when the wallet refuses the request: the kind is not `signingInputs`, the payload is
- * longer than `MAX_SIGN_PAYLOAD_CHARS` or does not deserialize, the variant is not `Arbitrary`, the preimage is longer
- * than `MAX_SIGN_PREIMAGE_ELEMENTS`, or it has a protocol message layout (`isProtocolMessageLayout`). If the wallet
- * cannot derive the protocol tags, it refuses the request.
+ * The preimage of a dApp signature request, when the wallet may sign the request (`DAPP_SIGN_RULE`), which only a
+ * Guardian account is held to. Returns `undefined` when the wallet refuses the request: the kind is not
+ * `signingInputs`, the payload is longer than `MAX_SIGN_PAYLOAD_CHARS` or does not deserialize, the variant is not
+ * `Arbitrary`, the preimage is longer than `MAX_SIGN_PREIMAGE_ELEMENTS`, or it has a protocol message layout
+ * (`isProtocolMessageLayout`). If the wallet cannot derive the protocol tags, it refuses the request.
  *
  * `payload` is the base64 of the serialized `SigningInputs`. Call this only after the SDK's WASM module is loaded, and
  * inside `withWasmClientLock` where the caller can: a WASM trap is thrown, not read as a refusal.

@@ -1,7 +1,7 @@
 /**
- * The rule for a dApp signature request (`signBytes`). Every account signs a request only when it obeys this rule,
- * whether it is a Guardian account (its hot key signs) or a single-key account. The dApp receives this text when the
- * wallet refuses a request.
+ * The rule for a dApp signature request (`signBytes`). A Guardian account (its hot key signs) signs a request only when
+ * it obeys this rule. A single-key account is not subject to it. The dApp receives this text when the wallet refuses a
+ * Guardian account's request.
  *
  * This module has no SDK import, so the E2E harness can read it. `dapp-sign-inputs.ts` applies the rule to a payload.
  */

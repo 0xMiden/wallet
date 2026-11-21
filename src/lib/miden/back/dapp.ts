@@ -4,8 +4,11 @@ import {
   NoteFile,
   NoteFilterTypes,
   NoteType,
+  SigningInputs,
+  SigningInputsType,
   TransactionRequest,
-  type NoteQuery
+  type NoteQuery,
+  type TransactionSummary
 } from '@miden-sdk/miden-sdk/lazy';
 import {
   AllowedPrivateData,
@@ -19,8 +22,8 @@ import {
 import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
-import type { AssetAmount, TxAssetView } from 'app/confirm/decode';
-import type { NoteFlow } from 'app/confirm/note-flow';
+import { summaryToView, toHoldingsView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
+import { noteFlowFromTransaction, type NoteFlow } from 'app/confirm/note-flow';
 import { toSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import {
   MidenDAppDisconnectRequest,
@@ -111,6 +114,7 @@ import {
   cacheScope,
   getNativeAssetId,
   getVerificationBaseFee,
+  getVerificationBaseFeeSync,
   isVerificationBaseFeeKnownAbsent,
   refreshVerificationBaseFee
 } from 'lib/miden-chain/native-asset';
@@ -163,7 +167,7 @@ import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
 import { describeNft, toNft, type NftAsset } from '../sdk/nft-asset';
 import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
-import { causeChain, isPipelineKillLink, pipelineKillIn } from '../sdk/sdk-error-code';
+import { causeChain, isPipelineKillLink, pipelineKillIn, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -747,20 +751,9 @@ export async function requestSign(
     throw new Error(`${MidenDAppErrorType.NotGranted}: signing key is not the connected account's key`);
   }
 
-  // Every account, Guardian or single-key, signs only `Arbitrary` signing inputs whose preimage has no protocol
-  // message layout (see `signableArbitraryElements`). Refuse all other requests here, before any prompt, so that
-  // the user never sees a request that the wallet will not sign. The vault applies the same rule again at sign
-  // time. The service worker loads the WASM module only on demand, and only a `signingInputs` payload needs it.
-  if (req.kind === 'signingInputs') await getWasmOrThrow();
-  const messageElements =
-    req.kind === 'signingInputs'
-      ? await withWasmClientLock(async () => signableArbitraryElements(req.kind, req.payload), {
-          label: 'dapp-sign-rule'
-        })
-      : undefined;
-  if (messageElements === undefined) {
-    throw new Error(`${MidenDAppErrorType.InvalidParams}: ${DAPP_SIGN_RULE}`);
-  }
+  // A Guardian account signs only `Arbitrary` signing inputs with no protocol message layout; refused here, before
+  // any prompt. A single-key account is unchanged. The vault applies the same rule again at sign time.
+  const messageElements = await guardianMessageElements(dApp.accountId, req);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -771,17 +764,90 @@ export async function requestSign(
   });
 }
 
+/**
+ * The message a Guardian account may sign for `req` (`DAPP_SIGN_RULE`), `undefined` for a single-key account, and a
+ * refusal (`InvalidParams`) for a Guardian request the rule does not allow. The account kind is read from the unlocked
+ * store. While the wallet is locked it is unreadable, so this returns `undefined`; the vault refuses at sign time, and
+ * the mobile and desktop sheet asks again once unlocked.
+ */
+async function guardianMessageElements(accountId: string, req: MidenDAppSignRequest): Promise<bigint[] | undefined> {
+  // A locked store lists no accounts, so the account reads as absent.
+  const account = store.getState().accounts?.find(acc => sameWalletAccountId(acc.publicKey, accountId));
+  if (account?.type !== WalletType.Guardian) return undefined;
+  // The service worker loads the WASM module only on demand, and only a `signingInputs` payload needs it.
+  if (req.kind === 'signingInputs') await getWasmOrThrow();
+  const elements =
+    req.kind === 'signingInputs'
+      ? await withWasmClientLock(async () => signableArbitraryElements(req.kind, req.payload), {
+          label: 'dapp-sign-rule'
+        })
+      : undefined;
+  if (elements === undefined) throw new Error(`${MidenDAppErrorType.InvalidParams}: ${DAPP_SIGN_RULE}`);
+  return elements;
+}
+
 const generatePromisifySign = async (
   resolve: (value: MidenDAppSignResponse | PromiseLike<MidenDAppSignResponse>) => void,
   reject: (reason?: any) => void,
   origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSignRequest,
-  messageElements: bigint[],
+  guardianMessage: bigint[] | undefined,
   sessionId?: string
 ) => {
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
+
+  // A transaction summary is decoded and measured once, here, and both sheets show that measure. The refresh is the
+  // fresh read, outside the lock, and the refresh's scope and the cache are checked again at the summary decode; an
+  // unknown fee or an unmeasurable summary is refused before either sheet, as on the custom arm. A deserialize
+  // failure, a non-summary variant, and any other kind still prompt with the opaque-signature warning, and a fee read
+  // that throws does not fail them. WASM startup failures keep their original error, and a trap reaches the lock.
+  let signing: { view: TxAssetView; noteFlow?: NoteFlow } | undefined;
+  if (req.kind === 'signingInputs' && !guardianMessage) {
+    await ensureSdkWasmReady();
+    try {
+      const chainFee = await refreshVerificationBaseFee().catch((error: unknown) => {
+        console.warn('Failed to read the chain fee for a signature approval', error);
+        return null;
+      });
+      const feeScope = cacheScope();
+      signing = await withWasmClientLock(async () => {
+        let summary: TransactionSummary | undefined;
+        try {
+          const signingInputs = SigningInputs.deserialize(b64ToU8(req.payload));
+          if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
+            summary = signingInputs.transactionSummaryPayload();
+          }
+        } catch (decodeError) {
+          rethrowTrapOrKill(decodeError);
+          console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', decodeError);
+        }
+        if (!summary) return undefined;
+        // The refresh above is the fresh read. The refresh's scope and the cache are checked again here, at the
+        // summary decode, with no await before the split. Arbitrary, Blind, an undecodable payload and a word sign
+        // never reach this.
+        if (
+          cacheScope() !== feeScope ||
+          ((chainFee === null || getVerificationBaseFeeSync() === null) && !isVerificationBaseFeeKnownAbsent())
+        ) {
+          throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+        }
+        const view = measuredSigningHoldings(summary);
+        let noteFlow: NoteFlow | undefined;
+        try {
+          noteFlow = noteFlowFromTransaction(summary);
+        } catch (noteError) {
+          rethrowTrapOrKill(noteError);
+          console.error('[DApp] Signing summary note details unavailable:', noteError);
+        }
+        return { view, noteFlow };
+      });
+    } catch (e) {
+      reject(dappReadFailure(e));
+      return;
+    }
+  }
 
   // Mobile / desktop: no popup window exists, so prompt through the shared
   // confirmation store instead of falling into requestConfirm's throw.
@@ -793,12 +859,16 @@ const generatePromisifySign = async (
         reject(lockedRefusal());
         return;
       }
+      // A locked wallet could not tell the account kind at the entry gate; it can now.
+      const guardianMessageNow = guardianMessage ?? (await guardianMessageElements(dApp.accountId, req));
       const confirmed = await confirmOnNonExtension(
         'sign',
         origin,
         dApp,
         networkRpc,
-        formatSignPreview(req, messageElements),
+        guardianMessageNow
+          ? formatGuardianSignPreview(req, guardianMessageNow)
+          : await formatSignPreview(req, signing?.view),
         sessionId,
         waits.deadline
       );
@@ -828,7 +898,9 @@ const generatePromisifySign = async (
       sourcePublicKey: req.sourcePublicKey,
       payload: req.payload,
       kind: req.kind,
-      preview: null
+      preview: null,
+      ...(guardianMessage && { messageElements: guardianMessage.map(String) }),
+      ...(signing && { signingEffects: toSimulatedEffectsWire(signing.view, signing.noteFlow) })
     },
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
@@ -3726,7 +3798,8 @@ async function formatConsumeTransactionPreview(
  * Upper bound on what consuming a note will cost, for a sheet with no decoded
  * transaction to read a real fee from.
  *
- * A decoded view carries the charged fee, but a consume preview is built BEFORE the transaction exists, so the only
+ * `formatAssetViewRows` prints `view.fee` because a decoded view already carries the
+ * charged amount. A consume preview is built BEFORE the transaction exists, so the only
  * honest figure is the bound every review screen quotes: the kernel charges
  * `baseFee x (floor(log2(cycles)) + 1)` and the VM caps cycles at 2^29, which makes
  * `FEE_RESERVE_MULTIPLE` a ceiling no transaction can exceed.
@@ -3753,6 +3826,26 @@ async function formatMaxNetworkFee(): Promise<string | null> {
   }
 }
 
+/**
+ * Shown when the wallet cannot tell the user what a signature authorizes. Same
+ * meaning as the extension's `OpaqueSignatureWarning` alert, as a text row: the
+ * mobile modal and the desktop overlay render a plain string list.
+ */
+const OPAQUE_SIGNATURE_WARNING =
+  'Warning, this site asked you to sign a value the wallet cannot decode. Only continue if you fully trust this site.';
+
+/** The wallet signs a domain-separated commitment for these requests, so the signature cannot authorize a transaction. */
+const OPAQUE_SIGNATURE_NOT_A_TRANSACTION = 'Note, this signature cannot authorize a transaction from your account.';
+
+/**
+ * Asset movement of a decoded transaction view, as `Label, value` rows.
+ *
+ * The extension renders the same `TxAssetView` graphically
+ * (`app/confirm/TransactionAssetView`); the mobile modal and the desktop overlay
+ * print `transactionMessages` verbatim, so the same numbers have to reach them
+ * as strings. Amounts go through the faucet's own decimals, like every other
+ * preview row in this file.
+ */
 const nftFaucetLabel = (faucetId: string) => truncateAddress(faucetId, false);
 
 /**
@@ -3762,21 +3855,99 @@ const nftFaucetLabel = (faucetId: string) => truncateAddress(faucetId, false);
 const UNLISTED_ASSETS_WARNING =
   'Warning, this transaction also moves an asset the wallet cannot list, such as an NFT. Only continue if you trust it.';
 
+async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
+  const rows: string[] = [];
+  for (const asset of view.outgoing) {
+    const tokenMetadata = await getTokenMetadata(asset.faucetId);
+    rows.push(
+      `Sending, ${formatAmountSafe(asset.amount, 'send', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))} ${getAssetSymbol(tokenMetadata)}`
+    );
+  }
+  for (const asset of view.incoming) {
+    const tokenMetadata = await getTokenMetadata(asset.faucetId);
+    rows.push(
+      `Receiving, ${formatAmountSafe(asset.amount, 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))} ${getAssetSymbol(tokenMetadata)}`
+    );
+  }
+  for (const nft of view.outgoingNfts) rows.push(`Sending, ${describeNft(nft, nftFaucetLabel)}`);
+  for (const nft of view.incomingNfts) rows.push(`Receiving, ${describeNft(nft, nftFaucetLabel)}`);
+  if (view.unlistedAssets > 0) rows.push(UNLISTED_ASSETS_WARNING);
+  if (rows.length === 0) {
+    rows.push('Assets, no fungible asset moves');
+  }
+  rows.push(`Notes, ${view.inputNotesConsumed} consumed / ${view.outputNotesCreated} created`);
+  // A cost the user pays, and `outgoing` deliberately excludes it on both decode paths - so
+  // if it is not printed here it is not on this sheet at all. Off-extension has no other
+  // surface: these rows ARE the approval prompt.
+  if (view.fee) {
+    const feeMetadata = await getTokenMetadata(view.fee.faucetId);
+    rows.push(
+      `Network fee, ${formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata))} ${getAssetSymbol(feeMetadata)}`
+    );
+  }
+  return rows;
+}
+
+/** Holdings of a transaction summary. A throw here is `NotGranted` before any prompt. */
+function measuredSigningHoldings(summary: TransactionSummary): TxAssetView {
+  try {
+    return toHoldingsView(summaryToView(summary), []);
+  } catch (measureError) {
+    rethrowTrapOrKill(measureError);
+    const reason = measureError instanceof Error ? measureError.message : String(measureError);
+    throw new Error(`${MidenDAppErrorType.NotGranted}: ${reason}`);
+  }
+}
+
 /**
- * What the mobile modal / desktop overlay show for `signBytes`.
- *
- * `requestSign` refuses every request but `Arbitrary` signing inputs whose preimage has no protocol message
- * layout, before the prompt. So a request that reaches the prompt is always a message of field elements. These
- * rows say how many, with the same text as the extension's message alert (`SignatureRequest`), then list them, as the
- * extension does, so the user sees the value being signed.
+ * What the mobile modal / desktop overlay show for a Guardian account's `signBytes`: the kind, the account, how many
+ * elements the message has, then the elements, as the extension's message alert and value do.
  */
-function formatSignPreview(req: MidenDAppSignRequest, messageElements: bigint[]): string[] {
+function formatGuardianSignPreview(req: MidenDAppSignRequest, messageElements: bigint[]): string[] {
   return [
     `Kind, ${req.kind}`,
     `Account, ${truncateAddress(req.sourcePublicKey)}`,
     getMessage('signMessageWarning', { count: messageElements.length }),
     `Message, ${messageElements.join(', ')}`
   ];
+}
+
+/**
+ * What the mobile modal / desktop overlay show for a single-key account's `signBytes`.
+ *
+ * A `signingInputs` payload holding a transaction summary is a full TRANSACTION
+ * authorization, signed as decoded, so approving one can move the whole balance.
+ * The `Arbitrary` / `Blind` variants and `word` are signed under a domain tag
+ * (`signBytesInputs`) and never authorize a transaction. Off-extension `signBytes`
+ * had no approval sheet at all: it fell into `requestConfirm`'s throw and the dApp's
+ * promise never settled (see `confirmOnNonExtension`). These rows are the first
+ * thing mobile and desktop show for it.
+ *
+ * `holdings` is the one measure `generatePromisifySign` made of the summary, after
+ * this realm's fee read: what leaves the account's holdings, crediting no consumed
+ * note. The extension popup renders that same measure (`signingEffects`). Nothing
+ * here decodes; a summary that could not be measured, or whose fee is unknown, was
+ * refused before this sheet. Without a measure the rows carry the explicit
+ * opaque-signature warning: for the `Arbitrary` / `Blind` variants, for the other
+ * `SignKind` (`word`, a raw digest), and for bytes that do not decode at all,
+ * mirroring the extension's `OpaqueSignatureWarning`.
+ *
+ * The summary is ground truth for the signature: it is the very value being
+ * signed, not a dApp-declared description of it.
+ */
+async function formatSignPreview(req: MidenDAppSignRequest, holdings?: TxAssetView): Promise<string[]> {
+  const rows = [`Kind, ${req.kind}`, `Account, ${truncateAddress(req.sourcePublicKey)}`];
+  if (!holdings) {
+    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
+    return rows;
+  }
+
+  rows.push('Signing, a transaction that moves these assets');
+  rows.push(...(await formatAssetViewRows(holdings)));
+  if ((holdings.heldNotesSpent ?? 0) > 0) {
+    rows.push(`Includes notes you have not claimed yet, ${holdings.heldNotesSpent}`);
+  }
+  return rows;
 }
 
 /**

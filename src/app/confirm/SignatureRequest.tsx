@@ -1,23 +1,39 @@
 import React, { FC, useMemo } from 'react';
 
+import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { Button, ButtonVariant } from 'components/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
-import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
 import { MidenDAppPayload } from 'lib/miden/types';
+import { b64ToU8 } from 'lib/shared/helpers';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { truncateAddress } from 'utils/string';
 
+import { TxAssetView } from './decode';
+import { NoteFlow } from './note-flow';
 import { RequestTiles } from './RequestTiles';
-import { FailureNotice, RequestRows, TransactionRequestError } from './TransactionRequest';
+import { fromSimulatedEffectsWire, SimulatedEffectsWire } from './simulated-wire';
+import { quantityOf, useResolvedAssets } from './TransactionAssetView';
+import { TransactionNoteFlow } from './TransactionNoteFlow';
+import {
+  AmountHeader,
+  FailureNotice,
+  HeldNotesRow,
+  RequestRows,
+  SummaryPill,
+  TransactionRequestError
+} from './TransactionRequest';
 
 /**
  * The body of the extension's signature windows (`sign` and `loginSign`): the Bread ··· site
- * tiles, then what is being signed, then the request card (which site, which network).
+ * tiles, then what is being signed, then the request card (which site, which network). The
+ * transaction summary takes the transaction windows' header: the amount, then the summary pill.
  */
 
 type SignaturePayload = Extract<MidenDAppPayload, { type: 'sign' | 'loginSign' }>;
@@ -28,6 +44,11 @@ const RequestCard: FC<{ origin: string; children?: React.ReactNode }> = ({ origi
     <RequestRows origin={origin} />
     {children}
   </DetailCard>
+);
+
+/** A sentence under the tiles: what the window asks, without a box around it. */
+const Lead: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="-mt-2 px-1 text-body-strong font-bold text-muted">{children}</p>
 );
 
 /** The body's heading: a toned glyph in its circle and a title, then the sentence that explains it. */
@@ -64,12 +85,250 @@ const RawValue: FC<{ value: string; errorId?: UserErrorId | null }> = ({ value, 
   );
 };
 
+/** The site's host for the lead sentence; the origin itself if it does not parse. */
+const hostOf = (origin: string) => {
+  try {
+    return new URL(origin).host || origin;
+  } catch {
+    return origin;
+  }
+};
+
 /**
- * A message of field elements, the only signature the wallet signs: an `Arbitrary` signing input whose preimage has
- * no protocol message layout (`signableArbitraryElements`). The wallet cannot say what it means, so the caution is the
- * body's heading and the elements are shown open.
+ * A word, an arbitrary payload or a blind commitment: nothing the wallet can read. The caution is the
+ * body's heading, with a lead under it like the sign-in window's, then the value and the request.
  */
-const MessageSignature: FC<{ origin: string; elements: bigint[] }> = ({ origin, elements }) => {
+const OpaqueSignature: FC<{
+  origin: string;
+  value: string;
+  errorId?: UserErrorId | null;
+  /** An unmeasured transaction summary is still a transaction; this sentence is for every other signature. */
+  showNotATransaction?: boolean;
+}> = ({ origin, value, errorId, showNotATransaction = true }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      <Headline
+        icon={<Icon name={IconName.Exclamation} size="xs" fill="currentColor" />}
+        tone="bg-pending-tint-ink text-page"
+        title={t('opaqueSignatureTitle')}
+        data-testid="confirm-sign-opaque"
+      >
+        {t('opaqueSignatureWarning', { domain: hostOf(origin) })}
+      </Headline>
+      {showNotATransaction && (
+        <Lead>
+          <span data-testid="opaque-signature-not-a-transaction">{t('opaqueSignatureNotATransaction')}</span>
+        </Lead>
+      )}
+      <RawValue value={value} errorId={errorId} />
+      <RequestCard origin={origin} />
+    </>
+  );
+};
+
+const WordSignature: FC<{ origin: string; bytes: Uint8Array }> = ({ origin, bytes }) => {
+  const { t } = useTranslation();
+  const hex = useMemo(() => {
+    try {
+      return Word.deserialize(bytes).toHex();
+    } catch (e) {
+      console.error('Failed to deserialize payload for sign:', e);
+      return null;
+    }
+  }, [bytes]);
+  return (
+    <OpaqueSignature
+      origin={origin}
+      value={hex ?? t('invalidPayload')}
+      errorId={hex === null ? 'invalidPayload' : null}
+    />
+  );
+};
+
+/** A transaction summary's holdings as the background measured them, the same measure the mobile sheet prints. */
+const SummarySignature: FC<{
+  origin: string;
+  view: TxAssetView;
+  noteFlow?: NoteFlow;
+  bytes: Uint8Array;
+}> = ({ origin, view, noteFlow, bytes }) => {
+  const { t } = useTranslation();
+  const outgoing = useResolvedAssets(view.outgoing);
+  const incoming = useResolvedAssets(view.incoming);
+  const feeAssets = useMemo(() => (view.fee ? [view.fee] : []), [view.fee]);
+  const [feeAsset] = useResolvedAssets(feeAssets);
+
+  const lines = [
+    ...outgoing.map(a => ({ amount: `-${quantityOf(a)}`, symbol: a.symbol ?? t('unknown'), incoming: false })),
+    ...view.outgoingNfts.map(nft => ({ amount: `-${t('nft')} ${nft.assetId}`, incoming: false })),
+    ...incoming.map(a => ({ amount: `+${quantityOf(a)}`, symbol: a.symbol ?? t('unknown'), incoming: true })),
+    ...view.incomingNfts.map(nft => ({ amount: `+${t('nft')} ${nft.assetId}`, incoming: true }))
+  ];
+
+  return (
+    <div className="contents" data-testid="tx-asset-view" data-mode="verified" data-account={view.account ?? ''}>
+      <AmountHeader
+        lines={lines}
+        pill={
+          <SummaryPill>
+            <Icon name={IconName.Code} size="xs" fill="currentColor" className="shrink-0 text-muted" />
+            <span className="truncate">{t('confirmSignTransactionSummary')}</span>
+          </SummaryPill>
+        }
+      />
+
+      {view.unlistedAssets > 0 && (
+        <Notice
+          variant="fact"
+          tone="warning"
+          icon={<Icon name={IconName.FactAlert} size="xs" fill="currentColor" />}
+          data-testid="tx-unlisted-assets"
+        >
+          {t('unlistedAssetsWarning')}
+        </Notice>
+      )}
+
+      <RequestCard origin={origin}>
+        {view.account && <DetailRow label={t('account')}>{truncateAddress(view.account)}</DetailRow>}
+        <HeldNotesRow heldNotesSpent={view.heldNotesSpent} />
+        <DetailRow label={t('inputNotesConsumed')}>{view.inputNotesConsumed}</DetailRow>
+        <DetailRow label={t('outputNotesCreated')}>
+          <span data-testid="tx-output-notes-created">{view.outputNotesCreated}</span>
+        </DetailRow>
+        {view.fee && (
+          <DetailRow label={t('networkFee')}>
+            <span data-testid="tx-network-fee">
+              {feeAsset ? `${quantityOf(feeAsset)} ${feeAsset.symbol ?? t('unknown')}` : t('loading')}
+            </span>
+          </DetailRow>
+        )}
+        <DetailRow label={t('storageChanged')}>
+          {view.storageChanged ? (
+            <span className="flex items-center gap-1.5">
+              <Icon name={IconName.WarningFill} size="xs" fill="currentColor" className="text-pending-ink" />
+              <span data-testid="tx-storage-changed" data-changed="true">
+                {t('yes')}
+              </span>
+            </span>
+          ) : (
+            <span data-testid="tx-storage-changed" data-changed="false">
+              {t('no')}
+            </span>
+          )}
+        </DetailRow>
+      </RequestCard>
+
+      {noteFlow ? (
+        <TransactionNoteFlow flow={noteFlow} account={view.account} />
+      ) : (
+        <p className="px-1 text-center text-body-strong font-bold text-muted" data-testid="tx-note-flow-unavailable">
+          {t('verifiedNoteDetailsUnavailable')}
+        </p>
+      )}
+
+      <Button
+        type="button"
+        variant={ButtonVariant.Ghost}
+        size="sm"
+        className="h-11 w-full"
+        iconLeft={IconName.Download}
+        title={t('downloadFullSummary')}
+        onClick={() => downloadBytes('transaction_summary.bin', bytes)}
+      />
+    </div>
+  );
+};
+
+/** A summary the background measured: its holdings, or the unmeasured caution if the measure does not read. */
+const MeasuredSummarySignature: FC<{ origin: string; effects: SimulatedEffectsWire; bytes: Uint8Array }> = ({
+  origin,
+  effects,
+  bytes
+}) => {
+  const { t } = useTranslation();
+  const measured = useMemo(() => {
+    try {
+      return fromSimulatedEffectsWire(effects);
+    } catch (e) {
+      console.error('Signing summary holdings unavailable:', e);
+      return null;
+    }
+  }, [effects]);
+
+  if (!measured) return <OpaqueSignature origin={origin} value={t('noPreview')} showNotATransaction={false} />;
+  return <SummarySignature origin={origin} view={measured.view} noteFlow={measured.noteFlow} bytes={bytes} />;
+};
+
+const SigningInputsSignature: FC<{ origin: string; bytes: Uint8Array }> = ({ origin, bytes }) => {
+  const { t } = useTranslation();
+  const signingInputs = useMemo(() => {
+    try {
+      return SigningInputs.deserialize(bytes);
+    } catch (e) {
+      console.error('Failed to deserialize payload for sign:', e);
+      return null;
+    }
+  }, [bytes]);
+
+  if (!signingInputs) {
+    return (
+      <>
+        <Notice
+          variant="fact"
+          tone="negative"
+          role="alert"
+          errorId="failedToParseSigningPayload"
+          title={t('failedToParseSigningPayload')}
+          icon={<Icon name={IconName.FactCross} size="xs" fill="currentColor" />}
+          data-testid="confirm-sign-parse-failed"
+        />
+        <RequestCard origin={origin} />
+      </>
+    );
+  }
+
+  // The background measures every summary it lets through and sends that measure, so a summary arriving without
+  // one is shown as unmeasured. It is still a transaction, so the not-a-transaction line stays off.
+  if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
+    return <OpaqueSignature origin={origin} value={t('noPreview')} showNotATransaction={false} />;
+  }
+
+  if (
+    signingInputs.variantType === SigningInputsType.Arbitrary ||
+    signingInputs.variantType === SigningInputsType.Blind
+  ) {
+    return (
+      <OpaqueSignature
+        origin={origin}
+        value={
+          signingInputs.variantType === SigningInputsType.Arbitrary
+            ? t('signArbitraryPayload')
+            : t('signBlindCommitment')
+        }
+      />
+    );
+  }
+
+  return <NoPreview origin={origin} />;
+};
+
+const NoPreview: FC<{ origin: string }> = ({ origin }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      <Lead>{t('noPreview')}</Lead>
+      <RequestCard origin={origin} />
+    </>
+  );
+};
+
+/**
+ * A Guardian account's message of field elements, the only signature it signs (`DAPP_SIGN_RULE`): an `Arbitrary`
+ * signing input whose preimage has no protocol message layout. The wallet cannot say what it means, so the caution is
+ * the body's heading and the elements are shown open.
+ */
+const MessageSignature: FC<{ origin: string; elements: string[] }> = ({ origin, elements }) => {
   const { t } = useTranslation();
   return (
     <>
@@ -87,34 +346,21 @@ const MessageSignature: FC<{ origin: string; elements: bigint[] }> = ({ origin, 
   );
 };
 
-/** Any other request: the background refuses it before this window opens, so this is a backstop. */
-const RefusedSignature: FC<{ origin: string }> = ({ origin }) => {
-  const { t } = useTranslation();
-  return (
-    <>
-      <Notice
-        variant="fact"
-        tone="negative"
-        role="alert"
-        errorId="failedToParseSigningPayload"
-        title={t('signRequestRefusedTitle')}
-        icon={<Icon name={IconName.FactCross} size="xs" fill="currentColor" />}
-        data-testid="confirm-sign-refused"
-      >
-        {t('signRequestRefused')}
-      </Notice>
-      <RequestCard origin={origin} />
-    </>
-  );
-};
-
 const SignBody: FC<{ payload: Extract<SignaturePayload, { type: 'sign' }> }> = ({ payload }) => {
-  const elements = useMemo(() => signableArbitraryElements(payload.kind, payload.payload), [payload]);
-  return elements ? (
-    <MessageSignature origin={payload.origin} elements={elements} />
-  ) : (
-    <RefusedSignature origin={payload.origin} />
-  );
+  const bytes = useMemo(() => b64ToU8(payload.payload), [payload.payload]);
+  if (payload.messageElements) return <MessageSignature origin={payload.origin} elements={payload.messageElements} />;
+  switch (payload.kind) {
+    case 'word':
+      return <WordSignature origin={payload.origin} bytes={bytes} />;
+    case 'signingInputs':
+      return payload.signingEffects ? (
+        <MeasuredSummarySignature origin={payload.origin} effects={payload.signingEffects} bytes={bytes} />
+      ) : (
+        <SigningInputsSignature origin={payload.origin} bytes={bytes} />
+      );
+    default:
+      return <NoPreview origin={payload.origin} />;
+  }
 };
 
 // The login key signs only sign-ins to its own site, so a login shows no opaque-signature warning.
@@ -177,3 +423,20 @@ export const SignatureRequest: FC<{
     </div>
   );
 };
+
+function downloadBytes(filename: string, data: Uint8Array, mimeType = 'application/octet-stream') {
+  const blob = new Blob([data as BlobPart], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  try {
+    a.click();
+  } finally {
+    a.remove();
+    // Give the browser a microtask to start the download before revoking
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+}

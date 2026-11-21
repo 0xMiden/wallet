@@ -2479,18 +2479,6 @@ export class Vault {
   async authorize(_sendTransaction: SendTransaction) {}
 
   async signData(publicKey: string, data: string, signKind: SignKind, accountId?: string): Promise<SignedBytes> {
-    // Every account signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. The dApp
-    // request path refuses all other requests before the prompt; this check refuses them again at sign time, before
-    // any key is read, for a Guardian and a single-key account alike. Only a `signingInputs` payload needs the SDK.
-    let signable = false;
-    if (signKind === 'signingInputs') {
-      await getWasmOrThrow();
-      signable =
-        (await withWasmClientLock(async () => signableArbitraryElements(signKind, data), {
-          label: 'dapp-sign-rule'
-        })) !== undefined;
-    }
-    if (!signable) throw new PublicError(DAPP_SIGN_RULE);
     // A Guardian account's signing key is its hot key, stored by `hotPublicKey` under the secure-hot-key
     // facade, while the dApp holds the hot key's COMMITMENT from connect. The default path below reads
     // accAuthSecretKeyStrgKey(<commitment>), which for a Guardian account holds the cold (recovery) key under
@@ -2499,7 +2487,21 @@ export class Vault {
     const account = accountId
       ? (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId))
       : undefined;
-    if (account?.type === WalletType.Guardian) return this.signDataWithHotKey(account, publicKey, data, signKind);
+    if (account?.type === WalletType.Guardian) {
+      // A Guardian account signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. The
+      // dApp request path refuses all other requests before the prompt; this refuses them again at sign time, before
+      // any key is read. A single-key account below is not subject to the rule. Only `signingInputs` needs the SDK.
+      let signable = false;
+      if (signKind === 'signingInputs') {
+        await getWasmOrThrow();
+        signable =
+          (await withWasmClientLock(async () => signableArbitraryElements(signKind, data), {
+            label: 'dapp-sign-rule'
+          })) !== undefined;
+      }
+      if (!signable) throw new PublicError(DAPP_SIGN_RULE);
+      return this.signDataWithHotKey(account, publicKey, data, signKind);
+    }
 
     // Decoded before the key is loaded, so a refused payload never deserializes it.
     const word = signBytesInputs(b64ToU8(data), signKind);
