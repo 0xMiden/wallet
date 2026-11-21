@@ -212,6 +212,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs attempts near
       - name: Verify exact NEAR replacement provenance
+        id: setup-near-replacement-provenance
         if: inputs.replace_unsubmitted_near_return
         shell: bash
         env:
@@ -948,6 +949,7 @@ jobs:
             ${{ steps.near-prior.outcome }}
             ${{ steps.setup-restore-prior-near-checkpoint.outcome }}
             ${{ steps.near-attempts.outcome }}
+            ${{ steps.setup-near-replacement-provenance.outcome }}
             ${{ steps.setup-install-miden-client-cli.outcome }}
             ${{ steps.setup-drop-unused-apt-repos.outcome }}
             ${{ steps.setup-install-xvfb.outcome }}
