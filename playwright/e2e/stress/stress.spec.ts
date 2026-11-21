@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { runStressDriver, type StressOptions } from './stress-driver';
+import { auditStressSends, readStressSendRows } from './stress-send-audit';
 import { expect, test } from '../fixtures/two-wallets';
 import { hexFaucetToBech32 } from '../helpers/faucet-address';
 import { streamIndexedDBToFile } from '../helpers/idb-dump';
@@ -489,6 +490,11 @@ test.describe('Stress - random send/claim', () => {
         return latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] ?? 0;
       };
 
+      const [sendRowsA, sendRowsB] = await Promise.all([
+        readStressSendRows(walletA.page, result.perOp, 'A').catch(() => null),
+        readStressSendRows(walletB.page, result.perOp, 'B').catch(() => null)
+      ]);
+      const sendAudit = sendRowsA && sendRowsB ? auditStressSends(result.perOp, { A: sendRowsA, B: sendRowsB }) : null;
       const summary = {
         seed: opts.seed,
         options: opts,
@@ -509,6 +515,7 @@ test.describe('Stress - random send/claim', () => {
         // What the wallets themselves say happened to the sends the driver
         // counted as `ok` — the driver cannot see a failure that lands after
         // `sendTokens` returns.
+        sendAudit,
         settlement: {
           unlandedSends: { A: unlandedA, B: unlandedB },
           observedDeltaA,
@@ -621,6 +628,14 @@ test.describe('Stress - random send/claim', () => {
       // ── Invariants ─────────────────────────────────────────────────────
       // At least some sends must have succeeded.
       expect(result.completed, 'no sends succeeded — environment issue').toBeGreaterThan(0);
+      expect(
+        sendAudit?.links.filter(link => link.outcome === 'duplicate'),
+        'each send must have unique wallet and chain evidence'
+      ).toEqual([]);
+      expect(
+        sendAudit?.confirmedPrimary,
+        'every driver-accepted primary send must match a completed wallet transaction'
+      ).toBe(result.completed);
 
       // Everything below reads the wallets' own transaction tables, so establish
       // FIRST that those reads describe reality. Both failure modes are silent
