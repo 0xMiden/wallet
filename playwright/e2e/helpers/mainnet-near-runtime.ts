@@ -702,6 +702,14 @@ async function finishMainnetNearReturn(
   saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, state);
 }
 
+function nearProofStage(stage: string): void {
+  writeFileSync('test-results/near-claim-observation.json', JSON.stringify({ stage }), { mode: 0o600 });
+}
+
+function stopAtPreClaimBoundary(): void {
+  throw new Error('Read-only proof reached exact pre-claim boundary');
+}
+
 export async function claimMainnetNearNote(
   wallet: GuardianAwareWalletPage,
   state: MainnetNearCheckpoint,
@@ -726,10 +734,14 @@ export async function claimMainnetNearNote(
         : undefined;
   if (!minimum || BigInt(minimum) <= 0n || (kind === 'refund' && (state.forwardReceived || state.transactions?.length)))
     throw new Error('Native NEAR note has no original bounded return or refund authority');
+  nearProofStage('claim-indexer');
   const creator = await readMainnetMidenOutputCandidates(providerHash, state.accountHex, fetch, kind === 'return');
+  nearProofStage('queue-blocker');
   const blocker = await plantQueueBlocker(wallet.page);
+  nearProofStage('wallet-sync');
   await wallet.triggerSync(true);
   await wallet.navigateTo('/history?filter=pending&view=list');
+  nearProofStage('note-discovery');
   let own: (string | null)[] = [];
   await expect
     .poll(
@@ -744,6 +756,7 @@ export async function claimMainnetNearNote(
       { timeout: 90_000, intervals: [1000, 5000, 10000] }
     )
     .toBe(true);
+  nearProofStage('note-inspection');
   const valid: { noteId: string; bytes: Uint8Array; amount: bigint }[] = [];
   for (const noteId of creator.noteIds.filter(id => own.includes(id))) {
     const bytes = Buffer.from(await exportPublicInputNote(wallet, noteId), 'hex');
@@ -775,6 +788,8 @@ export async function claimMainnetNearNote(
   const before = await vaultBalanceByFaucetId(wallet.page, state.native.faucetId);
   if (before !== BigInt(state.native.balance) - BigInt(state.principal) - BigInt(state.paidMidenFees))
     throw new Error('Native NEAR pre-claim portfolio differs from original actual receipts');
+  nearProofStage('pre-claim-boundary');
+  stopAtPreClaimBoundary();
   state.returnProviderTxId = providerHash;
   state.returnNoteId = selected.noteId;
   state.updatedAt = new Date().toISOString();
@@ -882,6 +897,8 @@ export async function runMainnetNearReverse(
   gatePath: string,
   signal: AbortSignal
 ): Promise<void> {
+  const forbidFunding = (): void => { throw new Error('Funding is disabled in the read-only proof'); };
+  forbidFunding();
   parseMainnetNearCheckpoint(state);
   const replacementRunId = nearReplacementRunId(state);
   if (
@@ -1253,10 +1270,13 @@ async function originalMainnetNearStatus(
     return status;
   };
   let status = checked(await fetchOneClickStatus(config, authority.depositAddress, undefined, undefined, fetcher));
-  if (status.status === 'PENDING_DEPOSIT' || status.status === 'INCOMPLETE_DEPOSIT')
+  if (status.status === 'PENDING_DEPOSIT' || status.status === 'INCOMPLETE_DEPOSIT') {
+    const forbidSubmit = (): void => { throw new Error('Provider submission is disabled in the read-only proof'); };
+    forbidSubmit();
     status = checked(
       await submitOneClickDeposit(config, authority.depositAddress, sourceHash, undefined, undefined, fetcher)
     );
+  }
   return status;
 }
 
@@ -1282,10 +1302,8 @@ export async function recoverMainnetNear(
   }
   if (state.consumeAuthority && !state.returnMidenTxId)
     throw new Error('Original native NEAR claim has an unknown outcome; never retry');
-  const persist = async () => {
-    state.updatedAt = new Date().toISOString();
-    saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, state);
-  };
+  const persist = async () => {};
+  nearProofStage('forward-source');
   const noteId = state.sendAuthority.noteId;
   const creator = await readMainnetMidenOwnNoteCreator(noteId, state.accountHex);
   await verifyMainnetMidenNoteInclusion(getEnvironmentConfig().rpcUrl, noteId, creator.blockNumber, state.accountHex);
@@ -1329,6 +1347,7 @@ export async function recoverMainnetNear(
   await persist();
   const sourceHash = creator.transactionId;
   if (!isHash(sourceHash)) throw new Error('Invalid original actual native NEAR source hash');
+  nearProofStage('forward-provider');
   const forward = await originalMainnetNearStatus(wallet, state, 'forward', sourceHash);
   const origins = forward.swapDetails.originChainTxHashes;
   if (
@@ -1394,6 +1413,7 @@ export async function recoverMainnetNear(
       await finishMainnetNearReturn(wallet, state, 'return');
       return;
     }
+    nearProofStage('reverse-provider');
     const reverse = await originalMainnetNearStatus(wallet, state, 'reverse', entry.hash);
     if (
       reverse.status !== 'SUCCESS' ||

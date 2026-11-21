@@ -25,9 +25,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          base=5503a277f9d9dfe8508a77df91d64b2307736257
-          test "$(git rev-parse HEAD^^)" = "$base"
-          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-claim-readonly.spec.ts src/lib/miden/front/claimable-notes.ts)"
+          base=04f23301480130153713b029bb2de4f42c1f2865
+          test "$(git rev-parse HEAD^^2)" = "$base"
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/helpers/mainnet-near-runtime.ts playwright/e2e/tests/mainnet/near-claim-readonly.spec.ts src/lib/miden/front/claimable-notes.ts)"
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44939188754:completed
           umask 077
           gh api repos/0xMiden/wallet/actions/artifacts/14721123074/zip > "$RUNNER_TEMP/near.zip"
@@ -43,6 +43,17 @@ jobs:
       - uses: ./.github/actions/apt-drop-unused-repos
       - run: npx playwright install --with-deps chromium
       - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start owned provider loop config
+        shell: bash
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Owned provider overlay did not become ready.' >&2; exit 1
       - run: yarn test:e2e:blockchain:build
         env:
           WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
@@ -55,7 +66,7 @@ jobs:
           rc=0
           E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-claim-private" xvfb-run -a yarn playwright test near-claim-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-claim-private.log" 2>&1 || rc=$?
           if test -f test-results/near-claim-observation.json; then
-            jq -c '{stage,failed,exportMatches,visible,claimRows,custodyMatches,pendingRoute,listMounted,bits}' test-results/near-claim-observation.json
+            jq -c '{stage}' test-results/near-claim-observation.json
           else
             echo 'The read-only observation did not start.'
           fi
