@@ -1,0 +1,91 @@
+name: NEAR replacement browser proof (no signing)
+on:
+  push:
+    branches: [wiktor/near-replacement-browser-proof]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Bind exact proof source and download retained checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/wiktor/near-replacement-browser-proof
+          base=8a5c38628a3383d6e668392a5926e42240520d10
+          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-replacement-readonly.spec.ts)"
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44871541172:completed
+          umask 077
+          gh api repos/0xMiden/wallet/actions/artifacts/14694460888/zip > "$RUNNER_TEMP/near.zip"
+          printf '%s  %s\n' 55e22c8a7fb31e77b345848714fdd7264a8bc2d68f4a863ed73884846f18f738 "$RUNNER_TEMP/near.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$RUNNER_TEMP/near.zip")" = roundtrip.json
+          mkdir -p test-results/mainnet-1click-state
+          unzip -p "$RUNNER_TEMP/near.zip" roundtrip.json > test-results/mainnet-1click-state/roundtrip.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start owned provider loop config
+        shell: bash
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Owned provider overlay did not become ready.' >&2; exit 1
+      - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      - name: Verify the candidate before persistence (signer and broadcaster disabled)
+        env:
+          E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+        shell: bash
+        run: |
+          umask 077
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('playwright/e2e/helpers/mainnet-near-runtime.ts')
+          source = path.read_text()
+          for old, safety in (
+              ('saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, authorized);',
+               "if (authorized.retiredReturn) throw new Error('Verified replacement candidate; persistence and signing disabled');\n    throw new Error('Not an authorized replacement probe');"),
+              ("sign: envelope => privateKeyToAccount(key).signTransaction({ ...envelope, type: 'eip1559' }),",
+               "sign: async () => { throw new Error('Proof signer disabled'); },"),
+              ('sendRawTransaction: input => client.sendRawTransaction(input),',
+               "sendRawTransaction: async () => { throw new Error('Proof broadcast disabled'); },"),
+          ):
+              assert source.count(old) == 1, 'Unexpected proof source'
+              source = source.replace(old, safety)
+          path.write_text(source)
+          PY
+          if ! E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-proof-private" xvfb-run -a yarn playwright test near-replacement-readonly.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-proof-private.log" 2>&1; then
+            echo 'Browser proof did not reach the no-persistence gate.' >&2
+            if test -f test-results/mainnet-near-return-failure.json; then
+              jq -c '{stage: (if (.returnStage == "review" or .returnStage == "sender-bind" or .returnStage == "sender-entered") then .returnStage else "unknown" end)}' test-results/mainnet-near-return-failure.json
+            fi
+            exit 1
+          fi
+          echo 'Receive produced a distinct qualifying replacement; checkpoint bytes unchanged, signer and broadcast disabled.'
