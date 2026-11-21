@@ -274,6 +274,17 @@ async function fetchNotesFromLocalClient(
   // `note.id()?.toString()`, so the ids match exactly).
   const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders);
   const visible = quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
+  const probe = (globalThis as typeof globalThis & { __nearClaimProbe?: { id: string; facts?: object } }).__nearClaimProbe;
+  if (probe) {
+    const raw = rawNotes.find(note => note.noteId === probe.id);
+    probe.facts = {
+      raw: !!raw,
+      standardPayment: raw?.standardPayment === true,
+      parsed: parsed.some(note => note.id === probe.id),
+      quarantined: quarantined.has(probe.id),
+      listed: visible.some(note => note.id === probe.id && isListedClaimableNote(note))
+    };
+  }
   // Display dates come from block headers, read now that both holds have released the client.
   const blockTimes = await getBlockTimestamps(
     visible.flatMap(n => (n.blockNum === undefined ? [] : [n.blockNum])),

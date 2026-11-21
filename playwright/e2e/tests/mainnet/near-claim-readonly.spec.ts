@@ -36,8 +36,20 @@ test('inspect the staged native return in the original wallet without authorizin
     const exact = await readMainnetMidenOutputCandidates(id, state.accountHex, fetch, true);
     assert.deepEqual(exact.noteIds, [id]);
     stage = 'wallet';
+    await walletB.page.addInitScript(noteId => {
+      Object.assign(globalThis, { __nearClaimProbe: { id: noteId } });
+    }, id);
+    await walletB.page.evaluate(noteId => {
+      Object.assign(globalThis, { __nearClaimProbe: { id: noteId } });
+    }, id);
     await walletB.triggerSync(true);
     await walletB.navigateTo('/history?filter=pending&view=list');
+    const card = walletB.page.locator(`[data-pending-note-id="${id}"]`);
+    await card.waitFor({ state: 'visible', timeout: 90_000 }).catch(() => undefined);
+    const bits = await walletB.page.evaluate(() => {
+      const p = (globalThis as typeof globalThis & { __nearClaimProbe?: { facts?: Record<string, boolean> } }).__nearClaimProbe?.facts;
+      return p ? { raw: p.raw === true, standardPayment: p.standardPayment === true, parsed: p.parsed === true, quarantined: p.quarantined === true, listed: p.listed === true } : null;
+    });
     let exportMatches = false;
     try {
       exportMatches = inspectMainnetReturnNote(
@@ -45,12 +57,14 @@ test('inspect the staged native return in the original wallet without authorizin
         Buffer.from(await exportPublicInputNote(walletB, id), 'hex')
       ).toString() === status.swapDetails.amountOut;
     } catch { /* Missing local bytes is evidence, not proof of custody loss. */ }
-    const visible = await walletB.page.locator(`[data-pending-note-id="${id}"]`).count() === 1;
+    const visible = await card.count() === 1;
+    const pendingRoute = walletB.page.url().endsWith('#/history?filter=pending&view=list');
+    const listMounted = await walletB.page.getByTestId('activity-view-button').count() === 1;
     const claimRows = (await readTransactionRowsWithBytes(walletB.page, 'consume')).filter(row => row.noteIds?.includes(id)).length;
     const custodyMatches = await vaultBalanceByFaucetId(walletB.page, state.native.faucetId) ===
       BigInt(state.native.balance) - BigInt(state.principal) - BigInt(state.paidMidenFees);
     const { writeFileSync } = await import('node:fs');
-    writeFileSync('test-results/near-claim-observation.json', JSON.stringify({ stage, exportMatches, visible, claimRows, custodyMatches }), { mode: 0o600 });
+    writeFileSync('test-results/near-claim-observation.json', JSON.stringify({ stage, exportMatches, visible, claimRows, custodyMatches, pendingRoute, listMounted, bits }), { mode: 0o600 });
   } catch {
     const { writeFileSync } = await import('node:fs');
     writeFileSync('test-results/near-claim-observation.json', JSON.stringify({ stage, failed: true }), { mode: 0o600 });
