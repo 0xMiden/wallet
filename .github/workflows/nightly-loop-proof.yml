@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 2
+          fetch-depth: 3
       - name: Verify exact settlement archive
         shell: bash
         env:
@@ -26,7 +26,7 @@ jobs:
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=4cda551849cdc69c9990d6943696fbbbc34ac468
-          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git rev-parse HEAD^^)" = "$base"
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44978236601:completed
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/helpers/mainnet-near-plan.ts playwright/e2e/helpers/mainnet-near-runtime.ts)"
           umask 077
@@ -73,5 +73,5 @@ jobs:
           rc=0
           E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-audit-private" xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-audit-private.log" 2>&1 || rc=$?
           test ! -e test-results/mainnet-1click-state/roundtrip.json
-          grep -oE '^NEAR_PLAN_CLASS (candidate-ineligible|forward-unavailable|reverse-unavailable|over-allowance|viable|selected)$' "$RUNNER_TEMP/near-audit-private.log" | sort | uniq -c || true
+          grep -oE '^NEAR_PLAN_CLASS (candidate-ineligible|forward-unavailable|reverse-unavailable|over-allowance|viable|selected|no-liquidity|minimum-amount|unsupported|invalid-request|other-400)$' "$RUNNER_TEMP/near-audit-private.log" | sort | uniq -c || true
           exit "$rc"

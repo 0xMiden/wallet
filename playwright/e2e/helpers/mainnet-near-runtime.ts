@@ -332,7 +332,27 @@ export async function runMainnetNearStage(
       gasUsdMicros: gasPrice
     });
   }
-  const fetcher = createMainnetOneClickOriginFetcher(setup.config.serviceUrl, wallet.extensionId);
+  const fetcher = createMainnetOneClickOriginFetcher(setup.config.serviceUrl, wallet.extensionId, async (input, init) => {
+    const response = await fetch(input, init);
+    if (response.status === 400) {
+      let reason = 'other-400';
+      const reader = response.clone().body?.getReader();
+      try {
+        const chunk = await reader?.read();
+        const body = chunk?.value && chunk.value.byteLength <= 4096 ? new TextDecoder().decode(chunk.value) : '';
+        if (/no liquidity available|no_liquidity/i.test(body)) reason = 'no-liquidity';
+        else if (/amount.{0,40}(too small|below|minimum)|minimum.{0,40}amount/i.test(body)) reason = 'minimum-amount';
+        else if (/unsupported|not supported/i.test(body)) reason = 'unsupported';
+        else if (/invalid|validation|required/i.test(body)) reason = 'invalid-request';
+      } catch {
+        reason = 'other-400';
+      } finally {
+        void reader?.cancel().catch(() => {});
+      }
+      console.log(`NEAR_PLAN_CLASS ${reason}`);
+    }
+    return response;
+  });
   const state = await prepareMainnetNearRoundTrip(
     {
       account,
