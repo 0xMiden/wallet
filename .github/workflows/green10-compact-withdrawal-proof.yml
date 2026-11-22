@@ -1,7 +1,7 @@
-name: Green10 withdrawal readiness (no key)
+name: Green10 owner withdrawal
 on:
   push:
-    branches: [wiktor/green10-compact-withdrawal-readiness]
+    branches: [wiktor/green10-compact-withdrawal-readiness, wiktor/green10-compact-withdraw-once]
 permissions:
   contents: read
   actions: read
@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   audit:
+    if: github.run_attempt == '1' && (github.ref_name == 'wiktor/green10-compact-withdrawal-readiness' || github.event.created == true)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -35,3 +36,43 @@ jobs:
           unzip -p "$RUNNER_TEMP/epoch.zip" roundtrip.json > "$RUNNER_TEMP/epoch.json"
           node scripts/green10-compact-withdraw.mjs "$RUNNER_TEMP/epoch.json" > "$RUNNER_TEMP/withdrawal-readiness.json"
           jq -ce 'select(.signed==false and .broadcast==false and .nonce==123 and .heldBaseUnits=="981231")' "$RUNNER_TEMP/withdrawal-readiness.json"
+      - name: Start exact owner withdrawal once on branch creation
+        if: github.ref_name == 'wiktor/green10-compact-withdraw-once' && github.event.created == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
+        run: |
+          jq -e '.ready==true and .finalized==true' "$RUNNER_TEMP/withdrawal-readiness.json" >/dev/null
+          umask 077
+          (
+            set +e
+            node scripts/green10-compact-enable.mjs > "$RUNNER_TEMP/compact-withdrawal-private.log" 2>&1
+            printf '%s\n' "$?" > "$RUNNER_TEMP/compact-activation.exit"
+          ) &
+          printf '%s\n' "$!" > "$RUNNER_TEMP/compact-activation.pid"
+      - if: github.ref_name == 'wiktor/green10-compact-withdraw-once' && github.event.created == true
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: ${{ runner.temp }}/compact-activation.json
+          gate: ${{ runner.temp }}/compact-activation-gate
+          artifact-name: green10-compact-withdrawal-journal-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/compact-activation.pid
+          snapshot-directory: ${{ runner.temp }}/compact-withdrawal-snapshot
+      - name: Require single withdrawal submission result
+        if: github.ref_name == 'wiktor/green10-compact-withdraw-once' && github.event.created == true
+        run: |
+          for _ in $(seq 1 90); do
+            test -s "$RUNNER_TEMP/compact-activation.exit" && break
+            sleep 1
+          done
+          test "$(< "$RUNNER_TEMP/compact-activation.exit")" = 0
+          test "$(jq -er '.hash' "$RUNNER_TEMP/compact-activation-outcome.json")" = "$(< "$RUNNER_TEMP/compact-activation.broadcast.once")"
+      - name: Preserve bounded withdrawal outcome, including ambiguous attempts
+        if: always() && github.ref_name == 'wiktor/green10-compact-withdraw-once' && github.event.created == true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: green10-compact-withdrawal-result-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/compact-activation.broadcast.once
+            ${{ runner.temp }}/compact-activation-outcome.json
+          if-no-files-found: ignore

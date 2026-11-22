@@ -25,6 +25,27 @@ export function green10WithdrawalIntent({ owner, compact, lock, views }) {
     value: 0n, chainId: 1, nonce: 123, type: 'eip1559' };
 }
 
+function withdrawalBound(tx, price, views) {
+  assert.equal(views.length, 2);
+  assert.ok(tx.gas > 0n && tx.maxFeePerGas > 0n && tx.maxPriorityFeePerGas >= 0n && tx.maxPriorityFeePerGas <= tx.maxFeePerGas);
+  assert.ok(views.every(view => typeof view.baseFeePerGas === 'bigint' && view.baseFeePerGas >= 0n &&
+    view.baseFeePerGas + tx.maxPriorityFeePerGas <= tx.maxFeePerGas && view.gasBalance >= tx.gas * tx.maxFeePerGas));
+  const bound = (tx.gas * tx.maxFeePerGas * price + 10n ** 18n - 1n) / 10n ** 18n;
+  // Preserve room for the original Epoch principal, original receipts, and owner cleanup.
+  assert.ok(bound > 0n && bound <= 100_000n && bound + 1_300_000n <= 1_510_431n);
+  return bound;
+}
+
+export function assertGreen10WithdrawalUnchanged(first, fresh) {
+  assert.equal(fresh.ready, true);
+  assert.equal(fresh.sha256, first.sha256);
+  assert.equal(fresh.account, first.account);
+  const tx = first.transaction;
+  for (const key of ['type', 'chainId', 'nonce', 'to', 'data', 'value']) assert.equal(fresh.transaction[key], tx[key]);
+  assert.ok(fresh.transaction.gas <= tx.gas, 'Frozen withdrawal gas no longer sufficient');
+  return withdrawalBound(tx, fresh.priceUsdMicros, fresh.feeViews);
+}
+
 export async function inspectGreen10Withdrawal(checkpoint) {
   const bytes = readFileSync(checkpoint);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -87,14 +108,14 @@ export async function inspectGreen10Withdrawal(checkpoint) {
   if (!ready) return status;
   const intent = green10WithdrawalIntent({ owner, compact, lock, views });
   const feeViews = await Promise.all(clients.map(async client => {
-    const [gas, fees, sim, gasBalance] = await Promise.all([
+    const [gas, fees, sim, gasBalance, block] = await Promise.all([
       client.estimateGas({ account: owner, to: compact, data: intent.data, value: 0n }),
       client.estimateFeesPerGas(),
       client.simulateContract({ ...base, account: owner, functionName: 'forcedWithdrawal', args: [lock, owner, 981231n] }),
-      client.getBalance({ address: owner })
+      client.getBalance({ address: owner }), client.getBlock({ blockTag: 'latest' })
     ]);
     assert.equal(sim.result, true);
-    return { gas, gasBalance, ...fees };
+    return { gas, gasBalance, ...fees, baseFeePerGas: block.baseFeePerGas };
   }));
   const prices = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd&include_last_updated_at=true', { redirect: 'error', signal: AbortSignal.timeout(12000) });
   assert.ok(prices.ok);
@@ -107,12 +128,9 @@ export async function inspectGreen10Withdrawal(checkpoint) {
   const priceUsdMicros = BigInt(Math.max(price, 1_662_490_000));
   const max = key => feeViews.map(view => view[key]).reduce((a, b) => a > b ? a : b);
   const gas = max('gas'), maxFeePerGas = max('maxFeePerGas'), maxPriorityFeePerGas = max('maxPriorityFeePerGas');
-  assert.ok(gas > 0n && maxFeePerGas > 0n && maxPriorityFeePerGas >= 0n && maxPriorityFeePerGas <= maxFeePerGas);
-  assert.ok(feeViews.every(view => view.gasBalance >= gas * maxFeePerGas));
-  const bound = (gas * maxFeePerGas * priceUsdMicros + 10n ** 18n - 1n) / 10n ** 18n;
-  // Preserve room for the original Epoch principal, both original approvals, and owner cleanup.
-  assert.ok(bound <= 100_000n && bound + 1_300_000n <= 1_510_431n);
-  return { ...status, account: owner, transaction: { ...intent, gas, maxFeePerGas, maxPriorityFeePerGas }, bound, priceUsdMicros };
+  const transaction = { ...intent, gas, maxFeePerGas, maxPriorityFeePerGas };
+  const bound = withdrawalBound(transaction, priceUsdMicros, feeViews);
+  return { ...status, account: owner, transaction, bound, priceUsdMicros, feeViews };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

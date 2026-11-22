@@ -1,13 +1,26 @@
 import assert from 'node:assert/strict';
-import { isAddressEqual, keccak256, parseTransaction, recoverTransactionAddress } from 'viem';
+import { decodeFunctionData, isAddressEqual, keccak256, parseAbi, parseTransaction, recoverTransactionAddress } from 'viem';
 
-// Return only the hash of a signed activation whose complete envelope matches the frozen plan.
-export async function verifyGreen10ActivationEnvelope(serializedTransaction, plan) {
+const withdrawalAbi = parseAbi(['function forcedWithdrawal(uint256,address,uint256) returns (bool)']);
+
+export function verifyGreen10ActivationEnvelope(serializedTransaction, plan) {
+  return verifyEnvelope(serializedTransaction, plan, 122);
+}
+
+export async function verifyGreen10WithdrawalEnvelope(serializedTransaction, plan) {
+  const { args: [, recipient, amount] } = decodeFunctionData({ abi: withdrawalAbi, data: plan.transaction.data });
+  assert.ok(isAddressEqual(recipient, plan.account), 'Withdrawal recipient must be the original owner');
+  assert.equal(amount, 981231n);
+  return verifyEnvelope(serializedTransaction, plan, 123);
+}
+
+// Return the hash only after the signed bytes match every frozen field.
+async function verifyEnvelope(serializedTransaction, plan, nonce) {
   const decoded = parseTransaction(serializedTransaction);
   const tx = plan.transaction;
   assert.equal(tx.type, 'eip1559');
   assert.equal(tx.chainId, 1);
-  assert.equal(tx.nonce, 122);
+  assert.equal(tx.nonce, nonce);
   assert.equal(tx.value, 0n);
   assert.ok(isAddressEqual(decoded.to, tx.to), 'Activation destination changed');
   const signer = await recoverTransactionAddress({ serializedTransaction });

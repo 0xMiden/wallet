@@ -9,13 +9,15 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { mainnet } from 'viem/chains';
 import { inspectGreen10Activation } from './green10-compact-live.mjs';
 import { runGreen10Activation } from './green10-compact-activate.mjs';
+import { inspectGreen10Withdrawal } from './green10-compact-withdraw.mjs';
 
 const env = process.env;
 let key = (env.E2E_MAINNET_EVM_KEY ?? '').trim().replace(/^0x/, '');
 delete env.E2E_MAINNET_EVM_KEY;
 try {
   assert.equal(env.GITHUB_REPOSITORY, '0xMiden/wallet');
-  assert.equal(env.GITHUB_REF, 'refs/heads/wiktor/green10-compact-enable-once');
+  const stage = env.GITHUB_REF === 'refs/heads/wiktor/green10-compact-enable-once' ? 'enable' : 'withdraw';
+  assert.equal(env.GITHUB_REF, `refs/heads/wiktor/green10-compact-${stage}-once`);
   assert.equal(env.GITHUB_EVENT_NAME, 'push');
   assert.equal(env.GITHUB_RUN_ATTEMPT, '1');
   assert.match(env.GITHUB_RUN_ID ?? '', /^[1-9]\d*$/);
@@ -35,10 +37,11 @@ try {
     assert.ok(runs.every(run => run.status === 'completed'));
     const main = execFileSync('gh', ['api', 'repos/0xMiden/wallet/git/ref/heads/main', '--jq', '.object.sha'], { timeout: 15000, encoding: 'utf8' }).trim();
     assert.equal(main, '4cda551849cdc69c9990d6943696fbbbc34ac468');
-    return inspectGreen10Activation(join(dir, 'epoch.json'), 1_510_431n);
+    const checkpoint = join(dir, 'epoch.json');
+    return stage === 'enable' ? inspectGreen10Activation(checkpoint, 1_510_431n) : inspectGreen10Withdrawal(checkpoint);
   };
   const hash = await runGreen10Activation({
-    runId: env.GITHUB_RUN_ID, source: env.GITHUB_SHA, marker, inspect,
+    stage, runId: env.GITHUB_RUN_ID, source: env.GITHUB_SHA, marker, inspect,
     sign: async (transaction, owner) => {
       assert.match(key, /^[0-9a-fA-F]{64}$/);
       const signer = privateKeyToAccount(`0x${key}`);
