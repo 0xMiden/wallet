@@ -9,7 +9,7 @@ import { runGreen10Activation } from '../scripts/green10-compact-activate.mjs';
 import { decodeFunctionData, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { verifyGreen10WithdrawalEnvelope } from '../scripts/green10-compact-envelope.mjs';
-import { assertGreen10WithdrawalUnchanged, green10WithdrawalIntent } from '../scripts/green10-compact-withdraw.mjs';
+import { assertGreen10WithdrawalUnchanged, green10CleanupIntent, green10WithdrawalIntent } from '../scripts/green10-compact-withdraw.mjs';
 
 const owner = `0x${'1'.repeat(40)}`;
 const compact = `0x${'2'.repeat(40)}`;
@@ -76,6 +76,20 @@ test('withdrawal cannot sign before maturity, then requires an exact ACK for one
   assert.match(await runGreen10Activation(hooks), /^0x[0-9a-f]{64}$/);
   await assert.rejects(runGreen10Activation(hooks), /consumed/);
   assert.equal(submitted, 1);
+});
+
+test('cleanup only disables the exact empty lock after the owner withdrawal finalizes', () => {
+  const cleared = { ...base, held: 0n, nonce: 124 };
+  const make = views => green10CleanupIntent({ owner, compact, lock, views });
+  const tx = make([cleared, cleared]);
+  assert.equal(tx.nonce, 124);
+  assert.equal(tx.value, 0n);
+  assert.deepEqual(decodeFunctionData({ abi: parseAbi(['function disableForcedWithdrawal(uint256) returns (bool)']), data: tx.data }), {
+    functionName: 'disableForcedWithdrawal', args: [lock]
+  });
+  for (const changed of [{ held: 1n }, { nonce: 125 }, { finalized: false }, { status: 0 }, { maturity: 0n }]) {
+    assert.throws(() => make([cleared, { ...cleared, ...changed }]));
+  }
 });
 
 test('rejects either RPC having an immature, non-finalized, or modified lock', () => {

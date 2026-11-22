@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { assertGreen10ActivationUnchanged, consumeGreen10Activation } from './green10-compact-readiness.mjs';
-import { verifyGreen10ActivationEnvelope, verifyGreen10WithdrawalEnvelope } from './green10-compact-envelope.mjs';
+import { verifyGreen10ActivationEnvelope, verifyGreen10CleanupEnvelope, verifyGreen10WithdrawalEnvelope } from './green10-compact-envelope.mjs';
 import { assertGreen10WithdrawalUnchanged } from './green10-compact-withdraw.mjs';
 
 export async function runGreen10Activation({ runId, source, marker, inspect, sign, acknowledge, submit, stage = 'enable' }) {
-  assert.ok(stage === 'enable' || stage === 'withdraw');
-  const verify = stage === 'enable' ? verifyGreen10ActivationEnvelope : verifyGreen10WithdrawalEnvelope;
+  assert.ok(['enable', 'withdraw', 'disable'].includes(stage));
+  const verify = stage === 'enable' ? verifyGreen10ActivationEnvelope : stage === 'withdraw' ? verifyGreen10WithdrawalEnvelope : verifyGreen10CleanupEnvelope;
   const recheck = stage === 'enable' ? assertGreen10ActivationUnchanged : assertGreen10WithdrawalUnchanged;
   assert.match(runId, /^[1-9]\d*$/);
   assert.match(source, /^[0-9a-f]{40}$/);

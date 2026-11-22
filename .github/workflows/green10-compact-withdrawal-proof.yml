@@ -1,7 +1,7 @@
-name: Green10 owner withdrawal
+name: Green10 empty-lock cleanup
 on:
   push:
-    branches: [wiktor/green10-compact-withdrawal-readiness, wiktor/green10-compact-withdraw-once]
+    branches: [wiktor/green10-compact-cleanup-readiness, wiktor/green10-compact-disable-once]
 permissions:
   contents: read
   actions: read
@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   audit:
-    if: github.run_attempt == '1' && (github.ref_name == 'wiktor/green10-compact-withdrawal-readiness' || github.event.created == true)
+    if: github.run_attempt == '1' && (github.ref_name == 'wiktor/green10-compact-cleanup-readiness' || github.event.created == true)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -34,10 +34,10 @@ jobs:
           printf '%s  %s\n' a50610cdcdc057a64afbc01fcf018b43f71e3de6654fdddb1a7be5f0b6e8c541 "$RUNNER_TEMP/epoch.zip" | sha256sum --check --status
           test "$(unzip -Z1 "$RUNNER_TEMP/epoch.zip")" = roundtrip.json
           unzip -p "$RUNNER_TEMP/epoch.zip" roundtrip.json > "$RUNNER_TEMP/epoch.json"
-          node scripts/green10-compact-withdraw.mjs "$RUNNER_TEMP/epoch.json" > "$RUNNER_TEMP/withdrawal-readiness.json"
-          jq -ce 'select(.signed==false and .broadcast==false and .nonce==123 and .heldBaseUnits=="981231")' "$RUNNER_TEMP/withdrawal-readiness.json"
-      - name: Start exact owner withdrawal once on branch creation
-        if: github.ref_name == 'wiktor/green10-compact-withdraw-once' && github.event.created == true
+          node scripts/green10-compact-withdraw.mjs "$RUNNER_TEMP/epoch.json" disable > "$RUNNER_TEMP/withdrawal-readiness.json"
+          jq -ce 'select(.signed==false and .broadcast==false and .nonce==124 and .heldBaseUnits=="0")' "$RUNNER_TEMP/withdrawal-readiness.json"
+      - name: Start exact empty-lock cleanup once on branch creation
+        if: github.ref_name == 'wiktor/green10-compact-disable-once' && github.event.created == true
         env:
           GH_TOKEN: ${{ github.token }}
           E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
@@ -50,16 +50,16 @@ jobs:
             printf '%s\n' "$?" > "$RUNNER_TEMP/compact-activation.exit"
           ) &
           printf '%s\n' "$!" > "$RUNNER_TEMP/compact-activation.pid"
-      - if: github.ref_name == 'wiktor/green10-compact-withdraw-once' && github.event.created == true
+      - if: github.ref_name == 'wiktor/green10-compact-disable-once' && github.event.created == true
         uses: ./.github/actions/mainnet-loop-upload
         with:
           checkpoint: ${{ runner.temp }}/compact-activation.json
           gate: ${{ runner.temp }}/compact-activation-gate
-          artifact-name: green10-compact-withdrawal-journal-${{ github.run_id }}
+          artifact-name: green10-compact-cleanup-journal-${{ github.run_id }}
           process-id: ${{ runner.temp }}/compact-activation.pid
           snapshot-directory: ${{ runner.temp }}/compact-withdrawal-snapshot
-      - name: Require single withdrawal submission result
-        if: github.ref_name == 'wiktor/green10-compact-withdraw-once' && github.event.created == true
+      - name: Require single cleanup submission result
+        if: github.ref_name == 'wiktor/green10-compact-disable-once' && github.event.created == true
         run: |
           for _ in $(seq 1 90); do
             test -s "$RUNNER_TEMP/compact-activation.exit" && break
@@ -68,10 +68,10 @@ jobs:
           test "$(< "$RUNNER_TEMP/compact-activation.exit")" = 0
           test "$(jq -er '.hash' "$RUNNER_TEMP/compact-activation-outcome.json")" = "$(< "$RUNNER_TEMP/compact-activation.broadcast.once")"
       - name: Preserve bounded withdrawal outcome, including ambiguous attempts
-        if: always() && github.ref_name == 'wiktor/green10-compact-withdraw-once' && github.event.created == true
+        if: always() && github.ref_name == 'wiktor/green10-compact-disable-once' && github.event.created == true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: green10-compact-withdrawal-result-${{ github.run_id }}
+          name: green10-compact-cleanup-result-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/compact-activation.broadcast.once
             ${{ runner.temp }}/compact-activation-outcome.json

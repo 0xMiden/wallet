@@ -14,6 +14,11 @@ export async function verifyGreen10WithdrawalEnvelope(serializedTransaction, pla
   return verifyEnvelope(serializedTransaction, plan, 123);
 }
 
+export async function verifyGreen10CleanupEnvelope(serializedTransaction, plan) {
+  decodeFunctionData({ abi: parseAbi(['function disableForcedWithdrawal(uint256) returns (bool)']), data: plan.transaction.data });
+  return verifyEnvelope(serializedTransaction, plan, 124);
+}
+
 // Return the hash only after the signed bytes match every frozen field.
 async function verifyEnvelope(serializedTransaction, plan, nonce) {
   const decoded = parseTransaction(serializedTransaction);

@@ -9,6 +9,8 @@ const activation = '0x82fc36c2a72a3611302e09f4cfa9b1e687b3874f9fd291135dcd8ed52e
 const abi = parseAbi([
   'function forcedWithdrawal(uint256,address,uint256) returns (bool)',
   'function enableForcedWithdrawal(uint256) returns (uint256)',
+  'function disableForcedWithdrawal(uint256) returns (bool)',
+  'event Transfer(address indexed from,address indexed to,uint256 value)',
   'function getForcedWithdrawalStatus(address,uint256) view returns (uint8,uint256)',
   'function balanceOf(address,uint256) view returns (uint256)',
   'event ForcedWithdrawalStatusUpdated(address indexed account,uint256 indexed id,bool activating,uint256 withdrawableAt)'
@@ -23,6 +25,13 @@ export function green10WithdrawalIntent({ owner, compact, lock, views }) {
   }
   return { to: compact, data: encodeFunctionData({ abi, functionName: 'forcedWithdrawal', args: [lock, owner, 981231n] }),
     value: 0n, chainId: 1, nonce: 123, type: 'eip1559' };
+}
+
+export function green10CleanupIntent({ owner, compact, lock, views }) {
+  assert.equal(views.length, 2);
+  assert.ok(views.every(v => v.finalized === true && v.status === 2 && v.maturity === maturity && v.held === 0n && v.nonce === 124));
+  return { to: compact, data: encodeFunctionData({ abi, functionName: 'disableForcedWithdrawal', args: [lock] }),
+    value: 0n, chainId: 1, nonce: 124, type: 'eip1559' };
 }
 
 function withdrawalBound(tx, price, views) {
@@ -46,7 +55,11 @@ export function assertGreen10WithdrawalUnchanged(first, fresh) {
   return withdrawalBound(tx, fresh.priceUsdMicros, fresh.feeViews);
 }
 
-export async function inspectGreen10Withdrawal(checkpoint) {
+export async function inspectGreen10Withdrawal(checkpoint, stage = 'withdraw') {
+  assert.ok(stage === 'withdraw' || stage === 'disable');
+  const cleanup = stage === 'disable';
+  const expectedHeld = cleanup ? 0n : 981231n;
+  const expectedNonce = cleanup ? 124 : 123;
   const bytes = readFileSync(checkpoint);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   assert.equal(sha256, 'feb25d31e256bc7b94ac73ba2e0a539e3ab1143250174f74b430c919db186ad4');
@@ -92,26 +105,41 @@ export async function inspectGreen10Withdrawal(checkpoint) {
         client.readContract({ ...base, blockNumber, args, functionName: 'balanceOf' }),
         client.getTransactionCount({ address: owner, blockNumber })
       ]);
-      assert.equal(held, 981231n);
-      assert.equal(nonce, 123);
+      assert.equal(held, expectedHeld);
+      assert.equal(nonce, expectedNonce);
       assert.equal(at, maturity);
       assert.equal(status, timestamp >= maturity ? 2 : 1);
       return { status, maturity: at, held, nonce, timestamp };
     };
-    assert.equal(pendingNonce, 123);
-    const isFinalized = finalized.number >= block.number;
+    assert.equal(pendingNonce, expectedNonce);
+    if (cleanup) {
+      const hash = '0x3ab152cd888e0501aa9d102e029f6f4aa446a17ab18e8b586b1297a0685ac00d';
+      const [withdraw, result, canonical] = await Promise.all([
+        client.getTransaction({ hash }), client.getTransactionReceipt({ hash }), client.getBlock({ blockNumber: 26471997n })
+      ]);
+      assert.equal(canonical.hash, '0x2f790b313de9c87f233dfa854f3181e64cb3c4f3ce37c542b9a9a92bf420ecee');
+      assert.ok(withdraw.blockHash === canonical.hash && result.blockHash === canonical.hash && result.status === 'success');
+      assert.ok(withdraw.nonce === 123 && withdraw.value === 0n && isAddressEqual(withdraw.from, owner) && isAddressEqual(withdraw.to, compact));
+      assert.equal(withdraw.input, encodeFunctionData({ abi, functionName: 'forcedWithdrawal', args: [lock, owner, 981231n] }));
+      assert.equal(result.gasUsed * result.effectiveGasPrice, 7384566788600n);
+      const transfers = parseEventLogs({ abi, eventName: 'Transfer', logs: result.logs }).filter(log => isAddressEqual(log.address, token));
+      assert.equal(transfers.length, 1);
+      assert.ok(isAddressEqual(transfers[0].args.from, compact) && isAddressEqual(transfers[0].args.to, owner) && transfers[0].args.value === 981231n);
+    }
+    const isFinalized = finalized.number >= (cleanup ? 26471997n : block.number);
     const [live] = await Promise.all([custody(latest), isFinalized && custody(finalized)]);
     return { ...live, finalized: isFinalized };
   }));
   const ready = views.every(view => view.finalized && view.status === 2);
-  const status = { sha256, ready, finalized: views.every(view => view.finalized), maturity: String(maturity), heldBaseUnits: '981231', nonce: 123 };
+  const status = { sha256, ready, finalized: views.every(view => view.finalized), maturity: String(maturity), heldBaseUnits: String(expectedHeld), nonce: expectedNonce };
   if (!ready) return status;
-  const intent = green10WithdrawalIntent({ owner, compact, lock, views });
+  const intent = (cleanup ? green10CleanupIntent : green10WithdrawalIntent)({ owner, compact, lock, views });
+  const call = cleanup ? { functionName: 'disableForcedWithdrawal', args: [lock] } : { functionName: 'forcedWithdrawal', args: [lock, owner, 981231n] };
   const feeViews = await Promise.all(clients.map(async client => {
     const [gas, fees, sim, gasBalance, block] = await Promise.all([
       client.estimateGas({ account: owner, to: compact, data: intent.data, value: 0n }),
       client.estimateFeesPerGas(),
-      client.simulateContract({ ...base, account: owner, functionName: 'forcedWithdrawal', args: [lock, owner, 981231n] }),
+      client.simulateContract({ ...base, account: owner, ...call }),
       client.getBalance({ address: owner }), client.getBlock({ blockTag: 'latest' })
     ]);
     assert.equal(sim.result, true);
@@ -135,7 +163,7 @@ export async function inspectGreen10Withdrawal(checkpoint) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const { sha256, ready, finalized, maturity, heldBaseUnits, nonce, bound } = await inspectGreen10Withdrawal(process.argv[2]);
+    const { sha256, ready, finalized, maturity, heldBaseUnits, nonce, bound } = await inspectGreen10Withdrawal(process.argv[2], process.argv[3]);
     console.log(JSON.stringify({ sha256, ready, finalized, maturity, heldBaseUnits, nonce,
       estimatedCostCeilingUsdMicros: bound?.toString(), signed: false, broadcast: false }));
   } catch {

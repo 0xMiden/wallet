@@ -16,8 +16,8 @@ let key = (env.E2E_MAINNET_EVM_KEY ?? '').trim().replace(/^0x/, '');
 delete env.E2E_MAINNET_EVM_KEY;
 try {
   assert.equal(env.GITHUB_REPOSITORY, '0xMiden/wallet');
-  const stage = env.GITHUB_REF === 'refs/heads/wiktor/green10-compact-enable-once' ? 'enable' : 'withdraw';
-  assert.equal(env.GITHUB_REF, `refs/heads/wiktor/green10-compact-${stage}-once`);
+  const stage = /^refs\/heads\/wiktor\/green10-compact-(enable|withdraw|disable)-once$/.exec(env.GITHUB_REF)?.[1];
+  assert.ok(stage);
   assert.equal(env.GITHUB_EVENT_NAME, 'push');
   assert.equal(env.GITHUB_RUN_ATTEMPT, '1');
   assert.match(env.GITHUB_RUN_ID ?? '', /^[1-9]\d*$/);
@@ -38,7 +38,7 @@ try {
     const main = execFileSync('gh', ['api', 'repos/0xMiden/wallet/git/ref/heads/main', '--jq', '.object.sha'], { timeout: 15000, encoding: 'utf8' }).trim();
     assert.equal(main, '4cda551849cdc69c9990d6943696fbbbc34ac468');
     const checkpoint = join(dir, 'epoch.json');
-    return stage === 'enable' ? inspectGreen10Activation(checkpoint, 1_510_431n) : inspectGreen10Withdrawal(checkpoint);
+    return stage === 'enable' ? inspectGreen10Activation(checkpoint, 1_510_431n) : inspectGreen10Withdrawal(checkpoint, stage);
   };
   const hash = await runGreen10Activation({
     stage, runId: env.GITHUB_RUN_ID, source: env.GITHUB_SHA, marker, inspect,
