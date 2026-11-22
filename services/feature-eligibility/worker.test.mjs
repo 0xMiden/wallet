@@ -61,9 +61,17 @@ const policy = (overrides = {}) => ({
   ...overrides
 });
 
-const oneClick = {
+const usdcx = { assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 };
+const nearIntents = {
   serviceUrl: 'https://one-click.example/api',
-  midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 }]
+  midenAssets: { usdcx },
+  chains: {
+    eth: {
+      name: 'Ethereum',
+      addressKind: 'evm',
+      tokens: { USDC: { assetId: 'eth:usdc', decimals: 6, miden: ['usdcx'] } }
+    }
+  }
 };
 
 const walletRules = {
@@ -382,7 +390,7 @@ test('two colo caches share only the global lease budget under a bounded mock bu
 
 test('enables swap for explicitly enabled Near Intents with a usable 1Click mapping', async () => {
   const h = harness({
-    policy: policy({ features: { earn: false, nearIntents: true }, swap: { oneClick } })
+    policy: policy({ features: { earn: false, nearIntents: true }, swap: {}, nearIntents })
   });
   const response = await h.request();
   assert.equal(response.status, 200);
@@ -390,54 +398,41 @@ test('enables swap for explicitly enabled Near Intents with a usable 1Click mapp
   assert.equal(h.paidCalls().length, 0);
 });
 
-for (const [name, features, swap] of [
-  ['missing switch', { earn: false }, { oneClick }],
-  ['disabled switch', { earn: false, nearIntents: false }, { oneClick }],
-  ['missing 1Click config', { earn: false, nearIntents: true }, {}],
-  ['missing asset mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [] } }],
+for (const [name, features, section] of [
+  ['missing switch', { earn: false }, nearIntents],
+  ['disabled switch', { earn: false, nearIntents: false }, nearIntents],
+  ['missing section', { earn: false, nearIntents: true }, undefined],
+  ['the old swap.oneClick list shape', { earn: false, nearIntents: true }, { ...nearIntents, midenAssets: [usdcx] }],
+  ['missing asset mappings', { earn: false, nearIntents: true }, { ...nearIntents, midenAssets: {} }],
+  ['missing chains', { earn: false, nearIntents: true }, { ...nearIntents, chains: {} }],
   [
     'invalid service URL',
     { earn: false, nearIntents: true },
-    { oneClick: { ...oneClick, serviceUrl: 'http://one-click.example' } }
+    { ...nearIntents, serviceUrl: 'http://one-click.example' }
   ],
   [
     'invalid asset mapping',
     { earn: false, nearIntents: true },
-    { oneClick: { ...oneClick, midenAssets: [{ assetId: 'miden:usdc', faucetId: 'bad', decimals: 6 }] } }
+    { ...nearIntents, midenAssets: { usdcx: { ...usdcx, faucetId: 'bad' } } }
   ],
   [
     'invalid additional mapping',
     { earn: false, nearIntents: true },
-    {
-      oneClick: {
-        ...oneClick,
-        midenAssets: [...oneClick.midenAssets, { assetId: 'miden:bad', faucetId: 'bad', decimals: 6 }]
-      }
-    }
+    { ...nearIntents, midenAssets: { usdcx, bad: { assetId: 'miden:bad', faucetId: 'bad', decimals: 6 } } }
   ],
   [
     'duplicate asset mappings',
     { earn: false, nearIntents: true },
-    {
-      oneClick: {
-        ...oneClick,
-        midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], faucetId: `0x${'cd'.repeat(15)}` }]
-      }
-    }
+    { ...nearIntents, midenAssets: { usdcx, other: { ...usdcx, faucetId: `0x${'cd'.repeat(15)}` } } }
   ],
   [
     'duplicate faucet mappings',
     { earn: false, nearIntents: true },
-    {
-      oneClick: {
-        ...oneClick,
-        midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], assetId: 'miden:other' }]
-      }
-    }
+    { ...nearIntents, midenAssets: { usdcx, other: { ...usdcx, assetId: 'miden:other' } } }
   ]
 ]) {
   test(`does not enable Near Intents for ${name}`, async () => {
-    const response = await harness({ policy: policy({ features, swap }) }).request();
+    const response = await harness({ policy: policy({ features, swap: {}, nearIntents: section }) }).request();
     assert.equal(response.status, 200);
     assert.equal((await response.json()).allowed.swap, false);
   });
@@ -445,17 +440,18 @@ for (const [name, features, swap] of [
 
 test('rejects a nonboolean Near Intents switch', async () => {
   const response = await harness({
-    policy: policy({ features: { earn: false, nearIntents: 'true' }, swap: { oneClick } })
+    policy: policy({ features: { earn: false, nearIntents: 'true' }, swap: {}, nearIntents })
   }).request();
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: 'eligibility_unavailable' });
 });
 
-test('applies swap geo restrictions to OneClick-enabled Near Intents', async () => {
+test('applies swap geo restrictions to enabled Near Intents', async () => {
   const h = harness({
     policy: policy({
       features: { earn: false, nearIntents: true },
-      swap: { oneClick },
+      swap: {},
+      nearIntents,
       geo: { wallet: {}, swap: { 'block US-CA': 'yes' } }
     }),
     place: { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] }

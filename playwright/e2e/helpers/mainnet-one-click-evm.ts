@@ -1,11 +1,20 @@
-import { createPublicClient, http, isAddress, isHash, parseAbi, type Address, type Hash, type Hex } from 'viem';
+import {
+  createPublicClient,
+  encodeFunctionData,
+  http,
+  isAddress,
+  isHash,
+  parseAbi,
+  type Address,
+  type Hash,
+  type Hex
+} from 'viem';
 
 import { assertOneClickQuoteBinding } from '../../../src/lib/one-click/client';
-import { buildEvmOneClickTransaction } from '../../../src/lib/one-click/evm';
 import { assertOneClickFundingDeadline } from '../../../src/lib/one-click/deadline';
 import type {
   OneClickAsset,
-  OneClickConfig,
+  NearIntentsConfig,
   OneClickQuoteRequest,
   OneClickQuoteResponse
 } from '../../../src/lib/one-click/types';
@@ -13,6 +22,7 @@ import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-req
 import { mainnetChain, mainnetRpc } from './mainnet-bridge-sources';
 
 const ERC20_BALANCE_ABI = parseAbi(['function balanceOf(address account) view returns (uint256)']);
+const ERC20_TRANSFER_ABI = parseAbi(['function transfer(address to, uint256 amount) returns (bool)']);
 const GAS_PRICE_HEADROOM = 2n;
 const MAX_TRANSFER_GAS_BY_CHAIN: Readonly<Record<number, bigint>> = { 1: 100_000n, 42161: 1_000_000n };
 
@@ -40,7 +50,7 @@ export interface MainnetEvmClient {
 export interface MainnetOneClickEvmSenderInput {
   holding: MainnetEvmHolding;
   account: Address;
-  config: OneClickConfig;
+  config: NearIntentsConfig;
   gasBudgetWei: bigint;
   broadcast: (transaction: {
     to: Address;
@@ -57,6 +67,26 @@ export interface MainnetOneClickEvmSender {
   send(transaction: CounterpartyTransaction, signal: AbortSignal): Promise<Hash>;
   readonly broadcastCount: number;
   receiptFee(hash: Hash, timeout?: number): Promise<bigint>;
+}
+
+/** The ERC20 transfer of `amountIn` to a 1Click deposit address: the one transaction the reverse leg may send. */
+export function buildMainnetEvmTransfer(
+  asset: OneClickAsset,
+  depositAddress: string,
+  amountIn: string
+): CounterpartyTransaction {
+  const contract = asset.contractAddress;
+  if (!isAddress(depositAddress) || !contract || !isAddress(contract)) throw new Error('Unsupported EVM deposit route');
+  if (!/^[0-9]{1,78}$/.test(amountIn) || BigInt(amountIn) <= 0n) throw new Error('Invalid quoted deposit amount');
+  return {
+    to: contract,
+    data: encodeFunctionData({
+      abi: ERC20_TRANSFER_ABI,
+      functionName: 'transfer',
+      args: [depositAddress, BigInt(amountIn)]
+    }),
+    value: 0n
+  };
 }
 
 export async function readMainnetEvmHolding(asset: OneClickAsset, account: Address): Promise<MainnetEvmHolding> {
@@ -164,20 +194,12 @@ export function createMainnetOneClickEvmSender({
           'The signed reverse quote is not bound to the funded Ethereum account and exact received amount'
         );
       }
-      const transfer = buildEvmOneClickTransaction(
-        holding.asset,
-        quote.quote.depositAddress,
-        quote.quote.amountIn,
-        account
-      );
-      if (!transfer.to || !transfer.from) {
-        throw new Error('The reviewed reverse transfer has no exact sender or target');
-      }
+      const transfer = buildMainnetEvmTransfer(holding.asset, quote.quote.depositAddress, quote.quote.amountIn);
       const fundingDeadline = assertOneClickFundingDeadline(request.deadline, quote.quote.deadline);
       expected = {
         target: transfer.to,
-        data: transfer.data ?? '0x',
-        value: transfer.value ? BigInt(transfer.value) : 0n,
+        data: transfer.data,
+        value: transfer.value,
         amount: BigInt(quote.quote.amountIn),
         deadline: fundingDeadline
       };
@@ -193,7 +215,7 @@ export function createMainnetOneClickEvmSender({
         transaction.data.toLowerCase() !== expected.data.toLowerCase() ||
         transaction.value !== expected.value
       ) {
-        throw new Error('The WalletConnect transfer does not match the signed reverse 1Click deposit and amount');
+        throw new Error('The reverse transfer does not match the signed reverse 1Click deposit and amount');
       }
       const [gas, fees, currentNative, currentToken] = await Promise.all([
         holding.client.estimateGas({ account, to: transaction.to, data: transaction.data, value: transaction.value }),

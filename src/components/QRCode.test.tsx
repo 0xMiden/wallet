@@ -110,6 +110,13 @@ describe('QRCode', () => {
       expect(ctorOptions().data).toBe(`miden:${ADDRESS}`);
     });
 
+    it('encodes the text as it is for a plain payload, such as an address on another chain', () => {
+      const evmAddress = '0x7a3f09d1000000000000000000000000c91e2b4a';
+      render(<QRCode palette="green" address={evmAddress} size={200} payload="plain" />);
+
+      expect(ctorOptions().data).toBe(evmAddress);
+    });
+
     it('builds the full styling options for scan-reliable rendering', () => {
       render(<QRCode palette="green" address={ADDRESS} size={256} />);
 

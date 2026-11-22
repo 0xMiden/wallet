@@ -59,29 +59,59 @@ export function knownUnspentEpochPreAuthorization(checkpointDigest, run, jobs, n
 export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, audit, auditJobs, now = Date.now()) {
   // The pinned native gate persists its SDK request before upload, then releases it only after immutable ACK.
   const attempt01 = checkpointDigest === 'a4546b4126ba6c81bc19272117d60ac904eedcea65add3ed7ff7d990817d2b12';
+  const attempt08 = checkpointDigest === 'e0bf79730133f18a5c96629ce54edeb8fbbf322b99199f6e0c58259daf3767c4';
+  const attempt11 = checkpointDigest === '82aa24b5e2ca2c999103d2bda5482dfb2ba21645d9089d4043199a66fe701847';
+  const auditedPreAck = attempt08 || attempt11;
+  const expiredAfter = attempt11
+    ? '2026-11-22T18:54:40.441Z'
+    : attempt08
+      ? '2026-11-22T01:33:58.869Z'
+      : attempt01
+        ? '2026-11-17T02:21:33.561Z'
+        : '2026-11-16T05:57:46.601Z';
   if (
-    (!attempt01 && checkpointDigest !== 'd2283bdd2372696ebe109c6b31ce5190ac7b29be07901e2ede142ba8c1f18524') ||
+    (!attempt01 &&
+      !auditedPreAck &&
+      checkpointDigest !== 'd2283bdd2372696ebe109c6b31ce5190ac7b29be07901e2ede142ba8c1f18524') ||
     !Number.isSafeInteger(now) ||
-    now <= Date.parse(attempt01 ? '2026-11-17T02:21:33.561Z' : '2026-11-16T05:57:46.601Z') ||
+    now <= Date.parse(expiredAfter) ||
     !Array.isArray(jobs?.jobs) ||
     !Array.isArray(auditJobs?.jobs)
   )
     return false;
   const scheduled = {
-    id: attempt01 ? 43999834254 : 43811169447,
+    id: attempt11 ? 45055827591 : attempt08 ? 44970377919 : attempt01 ? 43999834254 : 43811169447,
     workflow_id: 391951744,
-    head_sha: attempt01 ? 'c3b9997f069267a02a8e1715f691d0187982e23d' : '7fccdbfc371cdefc542b45af51de192032a8d415',
+    head_sha: attempt11
+      ? '4cda551849cdc69c9990d6943696fbbbc34ac468'
+      : attempt08
+        ? '77014fbfff1e297a144eb959f0e0d59553c11a2a'
+        : attempt01
+          ? 'c3b9997f069267a02a8e1715f691d0187982e23d'
+          : '7fccdbfc371cdefc542b45af51de192032a8d415',
     head_branch: attempt01 ? 'wiktor/nightly-main-green-01' : 'main',
-    event: attempt01 ? 'workflow_dispatch' : 'schedule',
+    event: attempt01 || auditedPreAck ? 'workflow_dispatch' : 'schedule',
     run_attempt: 1,
     status: 'completed',
     conclusion: 'failure'
   };
   const reviewed = {
-    id: attempt01 ? 44005625246 : 43925502671,
+    id: attempt11 ? 45059426340 : attempt08 ? 44972260190 : attempt01 ? 44005625246 : 43925502671,
     workflow_id: 415130600,
-    head_sha: attempt01 ? 'cca4608ecc222693a9f04124c671f06b48cd850f' : '748558a9438ecbbaf73639c4c4b81c303609a068',
-    head_branch: attempt01 ? 'wiktor/nightly-green-01-outcome' : 'wiktor/mainnet-438111-audit',
+    head_sha: attempt11
+      ? '1c512f88dd7010175a4060ae59760a0079e5c1ce'
+      : attempt08
+        ? '2de8aa885c2208fb24bd208d16a572cf81017cb5'
+        : attempt01
+          ? 'cca4608ecc222693a9f04124c671f06b48cd850f'
+          : '748558a9438ecbbaf73639c4c4b81c303609a068',
+    head_branch: attempt11
+      ? 'wiktor/green11-near-readonly'
+      : attempt08
+        ? 'wiktor/green08-near-readonly'
+        : attempt01
+          ? 'wiktor/nightly-green-01-outcome'
+          : 'wiktor/mainnet-438111-audit',
     event: 'push',
     run_attempt: 1,
     status: 'completed',
@@ -94,14 +124,26 @@ export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, au
     !Object.entries(reviewed).every(([key, value]) => audit[key] === value)
   )
     return false;
+  const auditNames = auditedPreAck ? ['audit'] : ['public-sdk', 'private-inventory'];
   if (
-    auditJobs.jobs.length !== 2 ||
-    !['public-sdk', 'private-inventory'].every(name => {
+    auditJobs.jobs.length !== auditNames.length ||
+    !auditNames.every(name => {
       const matches = auditJobs.jobs.filter(job => job.name === name);
       return matches.length === 1 && matches[0].status === 'completed' && matches[0].conclusion === 'success';
     })
   )
     return false;
+  if (auditedPreAck) {
+    const steps = auditJobs.jobs[0].steps;
+    if (
+      !Array.isArray(steps) ||
+      !['Verify exact settlement archive', 'Observe NEAR custody and Send review without arming'].every(name => {
+        const matches = steps.filter(step => step.name === name);
+        return matches.length === 1 && matches[0].status === 'completed' && matches[0].conclusion === 'success';
+      })
+    )
+      return false;
+  }
   const matching = jobs.jobs.filter(job => job.name === 'Chrome mainnet round trip');
   if (
     matching.length !== 1 ||
@@ -122,7 +164,8 @@ export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, au
     ['Upload mainnet near native return claim', 'skipped', 2],
     ['Authorize original near return claim', 'skipped'],
     ['Authorize original near refund', 'skipped'],
-    ['Wait for mainnet NEAR return', 'skipped']
+    ['Wait for mainnet NEAR return', 'skipped'],
+    ...(auditedPreAck ? [['Retain mainnet NEAR checkpoint', 'success']] : [])
   ].every(([name, conclusion, count = 1]) => {
     const matches = matching[0].steps.filter(step => step.name === name);
     return (
@@ -369,7 +412,12 @@ async function main() {
       output(`${leg}_attempted`, swapStepAttempted(jobs, leg, provider));
       if (provider === 'near' && leg === 'forward') {
         let verified = false;
-        const auditRunId = { 43811169447: '43925502671', 43999834254: '44005625246' }[id];
+        const auditRunId = {
+          43811169447: '43925502671',
+          43999834254: '44005625246',
+          44970377919: '44972260190',
+          45055827591: '45059426340'
+        }[id];
         if (auditRunId) {
           const audit = await github(`actions/runs/${auditRunId}`);
           const auditJobs = await github(`actions/runs/${auditRunId}/jobs?per_page=100`);

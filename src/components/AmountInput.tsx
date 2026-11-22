@@ -6,7 +6,7 @@ import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input
 import { Icon, IconName } from 'app/icons/v2';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { ClearFieldButton } from 'components/ui/ClearFieldButton';
-import { Skeleton } from 'components/ui/Skeleton';
+import { Skeleton, SkeletonTone } from 'components/ui/Skeleton';
 import { getCurrentLocale } from 'lib/i18n/core';
 import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
@@ -117,6 +117,8 @@ export interface AmountInputProps {
   disabled?: boolean;
   /** Show a skeleton in place of the value while the amount is being computed. */
   loading?: boolean;
+  /** The skeleton's tone: `onFill` when the field sits on a `fill` card. Defaults to `fill`. */
+  skeletonTone?: SkeletonTone;
   /** A unit drawn before the number (e.g. "$"), outside the input so the value stays bare digits. */
   prefix?: React.ReactNode;
   /**
@@ -124,6 +126,11 @@ export interface AmountInputProps {
    * raised, like a price. Defaults to `left`, the send and swap layout.
    */
   align?: 'left' | 'center';
+  /**
+   * `compact` draws a smaller figure with less space above it, for a field that shares a card with other rows.
+   * Defaults to `default`, the send and swap size.
+   */
+  size?: 'default' | 'compact';
   'aria-label'?: string;
   className?: string;
   'data-testid'?: string;
@@ -159,8 +166,10 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   autoFocus,
   disabled,
   loading,
+  skeletonTone,
   prefix,
   align = 'left',
+  size = 'default',
   'aria-label': ariaLabel,
   className,
   'data-testid': dataTestId
@@ -182,13 +191,21 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const centered = align === 'center';
   const showClear = Boolean(value) && !disabled && !loading;
   // Reserve the unit choice and clear target on narrow screens before the figure grows.
-  const figureSize = unitControl
-    ? (figureValue?.length ?? 0) >= 6
-      ? 'text-3xl'
-      : (figureValue?.length ?? 0) >= 4
-        ? 'text-4xl'
-        : 'text-5xl'
-    : amountTextSize(figureValue);
+  const compact = size === 'compact';
+  const figureLength = figureValue?.length ?? 0;
+  const figureSize = compact
+    ? figureLength >= 10
+      ? 'text-xl'
+      : figureLength >= 6
+        ? 'text-2xl'
+        : 'text-3xl'
+    : unitControl
+      ? figureLength >= 6
+        ? 'text-3xl'
+        : figureLength >= 4
+          ? 'text-4xl'
+          : 'text-5xl'
+      : amountTextSize(figureValue);
   const amountClasses = classNames(
     'font-heading font-extrabold leading-none',
     figureSize,
@@ -314,7 +331,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       <div
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
-          'flex cursor-text mt-3',
+          'flex cursor-text',
+          compact ? 'mt-1' : 'mt-3',
           centered ? classNames('items-start justify-center', amountTextSize(figureValue)) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
@@ -332,7 +350,10 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           </span>
         )}
         {loading ? (
-          <Skeleton className="h-14 w-40 rounded-xl" />
+          // Left-aligned, the skeleton takes the input's free width, so the unit control stays where it was.
+          <div className={classNames('self-center', !centered && 'min-w-0 flex-1')}>
+            <Skeleton tone={skeletonTone} className={classNames('rounded-xl', compact ? 'h-9 w-28' : 'h-14 w-40')} />
+          </div>
         ) : centered ? (
           // An invisible copy of the value sizes the grid cell, so the input is exactly as wide as
           // what it holds and the prefix + number centre as one.

@@ -4664,4 +4664,47 @@ describe('patchLoadedActivityStatus', () => {
     );
     expect(refreshed).toBe(loaded);
   });
+
+  it('keeps the shown 1Click tracking when updatedAt is unchanged and replaces it when updatedAt changes', () => {
+    const tracking = { updatedAt: 1_000, phase: 'arriving' };
+    const row = {
+      id: 'near-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'bridged-receive',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'RECEIVE',
+      extraInputs: { provider: 'near-intents', phase: 'delivering', oneClick: tracking }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-near-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    const shown = loaded.entries[0]?.oneClickTracking;
+    const refreshed = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: { ...tracking } } }]])
+    );
+    expect(refreshed).toBe(loaded);
+    expect(refreshed.entries[0]?.oneClickTracking).toBe(shown);
+
+    const moved = { ...tracking, updatedAt: 2_000 };
+    const replaced = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: moved } }]])
+    );
+    expect(replaced).not.toBe(loaded);
+    expect(replaced.entries[0]?.oneClickTracking).toBe(moved);
+  });
 });

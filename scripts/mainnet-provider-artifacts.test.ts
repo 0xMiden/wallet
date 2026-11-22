@@ -187,6 +187,69 @@ describe('known unsigned NEAR quote reconciliation', () => {
     head_sha: 'cca4608ecc222693a9f04124c671f06b48cd850f',
     head_branch: 'wiktor/nightly-green-01-outcome'
   });
+  it.each([
+    [
+      8,
+      'e0bf79730133f18a5c96629ce54edeb8fbbf322b99199f6e0c58259daf3767c4',
+      44970377919,
+      '77014fbfff1e297a144eb959f0e0d59553c11a2a',
+      44972260190,
+      '2de8aa885c2208fb24bd208d16a572cf81017cb5',
+      '2026-11-22T01:34:00Z'
+    ],
+    [
+      11,
+      '82aa24b5e2ca2c999103d2bda5482dfb2ba21645d9089d4043199a66fe701847',
+      45055827591,
+      '4cda551849cdc69c9990d6943696fbbbc34ac468',
+      45059426340,
+      '1c512f88dd7010175a4060ae59760a0079e5c1ce',
+      '2026-11-22T18:54:41Z'
+    ]
+  ])(
+    'accepts only the exact audited Green%s pre-ACK stop after expiry',
+    (attempt, digest, producerId, producerSha, auditId, auditSha, afterExpiry) => {
+      const producer = {
+        ...freshRun(),
+        id: producerId,
+        head_sha: producerSha,
+        head_branch: 'main'
+      };
+      const proof = {
+        ...freshAudit(),
+        id: auditId,
+        head_sha: auditSha,
+        head_branch: `wiktor/green${String(attempt).padStart(2, '0')}-near-readonly`
+      };
+      const evidence = {
+        jobs: [
+          {
+            name: 'audit',
+            status: 'completed',
+            conclusion: 'success',
+            steps: [
+              { name: 'Verify exact settlement archive', status: 'completed', conclusion: 'success' },
+              {
+                name: 'Observe NEAR custody and Send review without arming',
+                status: 'completed',
+                conclusion: 'success'
+              }
+            ]
+          }
+        ]
+      };
+      const jobs = originalJobs();
+      jobs.jobs[0]!.steps.push({ name: 'Retain mainnet NEAR checkpoint', status: 'completed', conclusion: 'success' });
+      const expired = Date.parse(afterExpiry);
+      expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, evidence, expired)).toBe(true);
+      expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, evidence, expired - 60_000)).toBe(false);
+      expect(
+        knownUnspentNearPreAuthorization(digest, producer, jobs, { ...proof, run_attempt: 2 }, evidence, expired)
+      ).toBe(false);
+      expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, auditJobs(), expired)).toBe(false);
+      expect(knownUnspentNearPreAuthorization('b'.repeat(64), producer, jobs, proof, evidence, expired)).toBe(false);
+    }
+  );
   it('recognizes only the exact independently audited unsigned attempt01 after its original windows expire', () => {
     expect(
       knownUnspentNearPreAuthorization(freshDigest, freshRun(), originalJobs(), freshAudit(), auditJobs(), freshNow)

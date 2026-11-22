@@ -323,8 +323,32 @@ const NoPreview: FC<{ origin: string }> = ({ origin }) => {
   );
 };
 
+/**
+ * A Guardian account's message of field elements, the only signature it signs (`DAPP_SIGN_RULE`): an `Arbitrary`
+ * signing input whose preimage has no protocol message layout. The wallet cannot say what it means, so the caution is
+ * the body's heading and the elements are shown open.
+ */
+const MessageSignature: FC<{ origin: string; elements: string[] }> = ({ origin, elements }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      <Headline
+        icon={<Icon name={IconName.Exclamation} size="xs" fill="currentColor" />}
+        tone="bg-pending-tint-ink text-page"
+        title={t('signMessageTitle')}
+        data-testid="confirm-sign-message"
+      >
+        {t('signMessageWarning', { count: elements.length })}
+      </Headline>
+      <RawValue value={elements.join(', ')} />
+      <RequestCard origin={origin} />
+    </>
+  );
+};
+
 const SignBody: FC<{ payload: Extract<SignaturePayload, { type: 'sign' }> }> = ({ payload }) => {
   const bytes = useMemo(() => b64ToU8(payload.payload), [payload.payload]);
+  if (payload.messageElements) return <MessageSignature origin={payload.origin} elements={payload.messageElements} />;
   switch (payload.kind) {
     case 'word':
       return <WordSignature origin={payload.origin} bytes={bytes} />;

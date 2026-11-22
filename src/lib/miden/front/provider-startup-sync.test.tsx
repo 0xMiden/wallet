@@ -23,6 +23,7 @@ jest.mock('lib/store', () => {
     currentAccount: null,
     accounts: [],
     networks: [],
+    balances: {},
     syncFromBackend: (state: object) => set({ ...state, isInitialized: true }),
     setSyncStatus: jest.fn()
   }));

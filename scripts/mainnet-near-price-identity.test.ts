@@ -1,14 +1,16 @@
 /** @jest-environment node */
 import { mainnetOneClickPriceId } from '../playwright/e2e/helpers/mainnet-one-click-prices';
-import type { OneClickAsset, OneClickMidenAssetConfig } from '../src/lib/one-click/types';
+import type { OneClickAsset, NearIntentsMidenAssetConfig } from '../src/lib/one-click/types';
 
-const verifiedNative: OneClickMidenAssetConfig = {
+const verifiedNative: NearIntentsMidenAssetConfig = {
+  id: 'usdcx',
   assetId: 'nep141:miden-0xe69e6ca6e39df1b10c1e5399399feb.omft.near',
   faucetId: '0xe69e6ca6e39df1b10c1e5399399feb',
   decimals: 6
 };
 function native(): OneClickAsset {
-  return { ...verifiedNative, blockchain: 'miden', symbol: 'USDCX', coingeckoId: 'usdcx' };
+  const { assetId, faucetId, decimals } = verifiedNative;
+  return { assetId, faucetId, decimals, blockchain: 'miden', symbol: 'USDCX', coingeckoId: 'usdcx' };
 }
 it('prices the verified native identity using its USD-coin backing without changing the provider asset', () => {
   const asset = native();

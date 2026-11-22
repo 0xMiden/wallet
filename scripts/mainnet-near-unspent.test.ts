@@ -12,6 +12,8 @@ const mockStatus = jest.fn<Promise<OneClickStatusResponse>, []>();
 const mockWrite = jest.fn();
 const mockGrant = jest.fn();
 const mockSubmit = jest.fn();
+const mockQueueBlocker = jest.fn();
+const mockOutputCandidates = jest.fn();
 const mockClient = {
   getChainId: jest.fn(),
   getBalance: jest.fn(),
@@ -47,10 +49,15 @@ jest.mock('../playwright/e2e/helpers/mainnet-send-authorization', () => ({
 jest.mock('../playwright/e2e/helpers/mainnet-consume-authorization', () => ({}));
 jest.mock('../playwright/e2e/helpers/mainnet-one-click-ui', () => ({}));
 jest.mock('../playwright/e2e/helpers/mainnet-miden-request', () => ({}));
-jest.mock('../playwright/e2e/helpers/history', () => ({}));
+jest.mock('../playwright/e2e/helpers/history', () => ({
+  plantQueueBlocker: (...args: unknown[]) => mockQueueBlocker(...args)
+}));
+jest.mock('../playwright/e2e/helpers/mainnet-miden-indexer', () => ({
+  readMainnetMidenOutputCandidates: (...args: unknown[]) => mockOutputCandidates(...args)
+}));
 jest.mock('../playwright/e2e/helpers/swap', () => ({}));
 jest.mock('../playwright/e2e/ios/helpers/wc-counterparty', () => ({}));
-import { runMainnetNearStage } from '../playwright/e2e/helpers/mainnet-near-runtime';
+import { claimMainnetNearNote, runMainnetNearStage } from '../playwright/e2e/helpers/mainnet-near-runtime';
 
 const env = { ...process.env };
 const wallet = { getAccountAddress: jest.fn(), extensionId: 'a'.repeat(32), page: {} };
@@ -101,7 +108,61 @@ function fixture() {
   state.forwardQuote = { ...quote, quoteHash: hashOneClickQuote(status.quoteResponse) };
   return { state, status };
 }
-describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s', sourceRunId => {
+it('does not block the transaction queue before discovering the exact NEAR claim note', async () => {
+  jest.clearAllMocks();
+  const { state } = fixture();
+  mockQueueBlocker.mockResolvedValue('blocker');
+  mockOutputCandidates.mockResolvedValue({ noteIds: [] });
+  const syncFailed = new Error('note discovery did not complete');
+  const scopedWallet = {
+    ...wallet,
+    getAccountAddress: async () => state.account,
+    triggerSync: async () => {
+      throw syncFailed;
+    }
+  };
+  await expect(
+    Reflect.apply(claimMainnetNearNote, undefined, [
+      scopedWallet,
+      state,
+      `0x${'a'.repeat(64)}`,
+      'refund',
+      'test-gate',
+      new AbortController().signal
+    ])
+  ).rejects.toBe(syncFailed);
+  expect(mockOutputCandidates).toHaveBeenCalledTimes(1);
+  expect(mockQueueBlocker).not.toHaveBeenCalled();
+  expect(mockSave).not.toHaveBeenCalled();
+});
+
+it('fails closed before restoring or persisting when an explicit NEAR replacement lacks provenance', async () => {
+  jest.clearAllMocks();
+  try {
+    Object.assign(process.env, {
+      E2E_NETWORK: 'mainnet',
+      GITHUB_RUN_ID: '44930000000',
+      GITHUB_RUN_ATTEMPT: '1',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_REF: 'refs/heads/main',
+      MAINNET_NEAR_REPLACEMENT_APPROVED: 'true',
+      MAINNET_NEAR_REPLACEMENT_PROVENANCE: 'false'
+    });
+    mockState.mockReturnValue(fixture().state);
+    await expect(recover()).rejects.toThrow('NEAR replacement requires verified original authority');
+    expect(mockRestore).not.toHaveBeenCalled();
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+  } finally {
+    process.env = { ...env };
+  }
+});
+describe.each([
+  ['43811169447', 84],
+  ['43999834254', 84],
+  ['44970377919', 85],
+  ['45055827591', 87]
+])('audited unsigned NEAR source %s', (sourceRunId, expectedNonce) => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers().setSystemTime(new Date('2026-11-17T03:00:00Z'));
@@ -120,7 +181,7 @@ describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s',
     mockClient.getChainId.mockResolvedValue(state.evm.chainId);
     mockClient.getBalance.mockResolvedValue(BigInt(state.evm.nativeBalance));
     mockClient.readContract.mockResolvedValue(BigInt(state.evm.tokenBalance));
-    mockClient.getTransactionCount.mockResolvedValue(84);
+    mockClient.getTransactionCount.mockResolvedValue(expectedNonce);
   });
   afterEach(() => {
     process.env = { ...env };
@@ -150,9 +211,13 @@ describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s',
   it('passes the canonical hex faucet required by the real 1Click client configuration boundary', async () => {
     await expect(recover()).resolves.toBeUndefined();
     expect(mockStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        midenAssets: [{ assetId: mockState().nativeAssetId, faucetId: mockState().native.hex, decimals: 6 }]
-      }),
+      {
+        serviceUrl: mockState().serviceUrl,
+        chains: [],
+        midenAssets: [
+          { id: 'usdcx', assetId: mockState().nativeAssetId, faucetId: mockState().native.hex, decimals: 6 }
+        ]
+      },
       expect.any(String),
       undefined,
       undefined,
@@ -202,7 +267,8 @@ describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s',
     if (changed === 'native') mockVault.mockResolvedValue(1n);
     if (changed === 'token') mockClient.readContract.mockResolvedValue(1n);
     if (changed === 'gas') mockClient.getBalance.mockResolvedValue(1n);
-    if (changed === 'pending-nonce') mockClient.getTransactionCount.mockResolvedValueOnce(84).mockResolvedValueOnce(85);
+    if (changed === 'pending-nonce')
+      mockClient.getTransactionCount.mockResolvedValueOnce(expectedNonce).mockResolvedValueOnce(expectedNonce + 1);
     if (changed === 'chain') mockClient.getChainId.mockResolvedValue(1);
     if (changed === 'guardian') jest.mocked(wallet.getAccountAddress).mockResolvedValue('different');
     if (changed === 'provider') status.status = 'PROCESSING';
@@ -223,5 +289,56 @@ describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s',
     expect(JSON.stringify(state)).toBe(original);
     expect(mockSave).not.toHaveBeenCalled();
     noFunding();
+  });
+});
+describe('native NEAR recovery reporting', () => {
+  const info = () => ({ annotations: [] as { type: string; description?: string }[], timeout: 30_000 });
+  const reported = (value: ReturnType<typeof info>) =>
+    value.annotations.map(row => JSON.parse(row.description ?? '{}').operation as { recoveryEffect: string });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.E2E_NETWORK = 'mainnet';
+    process.env.GITHUB_RUN_ID = '43930000000';
+    process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'true';
+    process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR = 'existing-original-secret';
+    process.env.E2E_WALLET_REPORT_INVOCATION = 'near-recover';
+    delete process.env.MAINNET_NEAR_PREAUTH_UNSPENT;
+    const { state } = fixture();
+    state.phase = 'recovery-required';
+    Reflect.set(state, 'sendAuthority', { noteId: `0x${'1'.repeat(64)}` });
+    mockState.mockReturnValue(state);
+    jest.mocked(wallet.getAccountAddress).mockResolvedValue(state.account);
+  });
+  afterEach(() => {
+    process.env = { ...env };
+  });
+  const run = (value: ReturnType<typeof info>, recoverNear: jest.Mock) =>
+    Reflect.apply(runMainnetNearStage, undefined, [wallet, 'recover', value, recoverNear]);
+  it.each([
+    ['cancelled', 'refunded'],
+    ['complete', 'bridge_completion_asserted']
+  ])('reports a settled %s recovery as a prior-authorized return', async (phase, outcome) => {
+    const value = info();
+    const recoverNear = jest.fn(async () => {
+      mockState().phase = phase as MainnetNearCheckpoint['phase'];
+    });
+    await expect(run(value, recoverNear)).resolves.toBeUndefined();
+    expect(recoverNear).toHaveBeenCalledTimes(1);
+    expect(reported(value)).toMatchObject([{ recoveryEffect: 'prior_authorized_return', outcome }]);
+  });
+  it('reports no work for a terminal checkpoint without calling recovery', async () => {
+    mockState().phase = 'complete';
+    const value = info();
+    const recoverNear = jest.fn();
+    await expect(run(value, recoverNear)).resolves.toBeUndefined();
+    expect(recoverNear).not.toHaveBeenCalled();
+    expect(reported(value)).toMatchObject([{ recoveryEffect: 'no_work' }]);
+  });
+  it('reports nothing when recovery fails', async () => {
+    const value = info();
+    const recoverNear = jest.fn().mockRejectedValue(new Error('unresolved'));
+    await expect(run(value, recoverNear)).rejects.toThrow('Original native NEAR recovery blocked');
+    expect(reported(value)).toEqual([]);
   });
 });
