@@ -353,6 +353,7 @@ export async function runMainnetNearStage(
     }
     return response;
   });
+  let dryControls = 0;
   const state = await prepareMainnetNearRoundTrip(
     {
       account,
@@ -383,8 +384,17 @@ export async function runMainnetNearStage(
           fetcher
         );
       } catch (error) {
-        if (error instanceof OneClickHttpError && error.status === 400) return undefined;
-        throw error;
+        if (!(error instanceof OneClickHttpError && error.status === 400)) throw error;
+        if (dryControls < 3) {
+          dryControls++;
+          try {
+            const preview = await requestOneClickQuote(setup.config, request, true, fetcher);
+            console.log(BigInt(preview.quote.minAmountOut) > 0n ? 'NEAR_PLAN_CLASS dry-positive' : 'NEAR_PLAN_CLASS dry-zero');
+          } catch (controlError) {
+            console.log(controlError instanceof OneClickHttpError && controlError.status === 400 ? 'NEAR_PLAN_CLASS dry-refused' : 'NEAR_PLAN_CLASS dry-unknown');
+          }
+        }
+        return undefined;
       }
     }
   );
