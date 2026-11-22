@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 3
+          fetch-depth: 4
       - name: Verify exact settlement archive
         shell: bash
         env:
@@ -26,7 +26,7 @@ jobs:
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=4cda551849cdc69c9990d6943696fbbbc34ac468
-          test "$(git rev-parse HEAD^^)" = "$base"
+          test "$(git rev-parse HEAD^^^)" = "$base"
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44978236601:completed
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/helpers/mainnet-near-plan.ts playwright/e2e/helpers/mainnet-near-runtime.ts)"
           umask 077
@@ -67,7 +67,7 @@ jobs:
           E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
           MAINNET_NEAR_MODE: prepare
           MAINNET_LOOP_RECOVERY_CLEARED: 'true'
-          MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: '1538013'
+          MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: '1511399'
         run: |
           umask 077
           rc=0
