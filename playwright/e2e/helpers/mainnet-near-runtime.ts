@@ -1,5 +1,6 @@
 import type { TestInfo } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { clearTimeout, setTimeout } from 'node:timers';
 import { privateKeyToAccount, privateKeyToAddress } from 'viem/accounts';
 import { expect } from '@playwright/test';
 import { createPublicClient, erc20Abi, getAddress, http, isHash, isHex, type Hash } from 'viem';
