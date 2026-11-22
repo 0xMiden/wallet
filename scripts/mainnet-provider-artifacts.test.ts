@@ -187,6 +187,44 @@ describe('known unsigned NEAR quote reconciliation', () => {
     head_sha: 'cca4608ecc222693a9f04124c671f06b48cd850f',
     head_branch: 'wiktor/nightly-green-01-outcome'
   });
+  it('accepts only the exact audited Green08 pre-ACK stop after expiry', () => {
+    const digest = 'e0bf79730133f18a5c96629ce54edeb8fbbf322b99199f6e0c58259daf3767c4';
+    const producer = {
+      ...freshRun(),
+      id: 44970377919,
+      head_sha: '77014fbfff1e297a144eb959f0e0d59553c11a2a',
+      head_branch: 'main'
+    };
+    const proof = {
+      ...freshAudit(),
+      id: 44972260190,
+      head_sha: '2de8aa885c2208fb24bd208d16a572cf81017cb5',
+      head_branch: 'wiktor/green08-near-readonly'
+    };
+    const evidence = {
+      jobs: [
+        {
+          name: 'audit',
+          status: 'completed',
+          conclusion: 'success',
+          steps: [
+            { name: 'Verify exact settlement archive', status: 'completed', conclusion: 'success' },
+            { name: 'Observe NEAR custody and Send review without arming', status: 'completed', conclusion: 'success' }
+          ]
+        }
+      ]
+    };
+    const jobs = originalJobs();
+    jobs.jobs[0]!.steps.push({ name: 'Retain mainnet NEAR checkpoint', status: 'completed', conclusion: 'success' });
+    const expired = Date.parse('2026-11-22T01:34:00Z');
+    expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, evidence, expired)).toBe(true);
+    expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, evidence, expired - 60_000)).toBe(false);
+    expect(
+      knownUnspentNearPreAuthorization(digest, producer, jobs, { ...proof, run_attempt: 2 }, evidence, expired)
+    ).toBe(false);
+    expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, auditJobs(), expired)).toBe(false);
+    expect(knownUnspentNearPreAuthorization('b'.repeat(64), producer, jobs, proof, evidence, expired)).toBe(false);
+  });
   it('recognizes only the exact independently audited unsigned attempt01 after its original windows expire', () => {
     expect(
       knownUnspentNearPreAuthorization(freshDigest, freshRun(), originalJobs(), freshAudit(), auditJobs(), freshNow)
