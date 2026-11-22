@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { closeSync, fsyncSync, openSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 // Read-only qualification for the Green10 activation. This module cannot sign or broadcast.
 export function assertGreen10ActivationReadiness({ legs, views, priceUsdMicros, remainingUsdMicros }) {
@@ -25,4 +28,42 @@ export function assertGreen10ActivationReadiness({ legs, views, priceUsdMicros, 
     if (maximum > bound) bound = maximum;
   }
   return bound;
+}
+
+export function assertGreen10ActivationUnchanged(first, fresh) {
+  assert.equal(fresh.account, first.account);
+  assert.equal(fresh.sha256, first.sha256);
+  const tx = first.transaction;
+  for (const key of ['type', 'chainId', 'nonce', 'to', 'data', 'value'])
+    assert.equal(fresh.transaction[key], tx[key], `Activation ${key} changed`);
+  assert.ok(fresh.transaction.gas <= tx.gas, 'Frozen gas no longer sufficient');
+  assert.ok(tx.maxPriorityFeePerGas >= 0n && tx.maxPriorityFeePerGas <= tx.maxFeePerGas);
+  for (const view of fresh.views) {
+    assert.ok(typeof view.baseFeePerGas === 'bigint' && view.baseFeePerGas >= 0n);
+    assert.ok(view.baseFeePerGas + tx.maxPriorityFeePerGas <= tx.maxFeePerGas, 'Frozen fee no longer sufficient');
+  }
+  return assertGreen10ActivationReadiness({ legs: [], views: fresh.views.map(view => ({ ...view, gas: tx.gas, maxFeePerGas: tx.maxFeePerGas })),
+    priceUsdMicros: fresh.priceUsdMicros, remainingUsdMicros: 1_510_431n });
+}
+
+export function consumeGreen10Activation({ marker, hash, journal, ack, preparedAt, now }) {
+  assert.ok(Number.isSafeInteger(preparedAt) && preparedAt > 0 && Number.isSafeInteger(now));
+  assert.ok(now >= preparedAt && now - preparedAt < 240_000, 'Activation authority expired');
+  assert.match(hash, /^0x[0-9a-f]{64}$/);
+  assert.ok(Buffer.isBuffer(journal) && journal.length > 0 && journal.length <= 65_536);
+  assert.equal(ack, `${createHash('sha256').update(journal).digest('hex')}\n`, 'Immutable ACK does not match');
+  assert.equal(JSON.parse(journal).signedHash, hash, 'Signed hash changed');
+  const fd = openSync(marker, 'wx', 0o600);
+  try {
+    writeFileSync(fd, `${hash}\n`);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  const directory = openSync(dirname(marker), 'r');
+  try {
+    fsyncSync(directory);
+  } finally {
+    closeSync(directory);
+  }
 }
