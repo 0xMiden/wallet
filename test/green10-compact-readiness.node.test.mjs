@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { privateKeyToAccount } from 'viem/accounts';
+import { runGreen10Activation } from '../scripts/green10-compact-activate.mjs';
 import { verifyGreen10ActivationEnvelope } from '../scripts/green10-compact-envelope.mjs';
 import { assertGreen10ActivationReadiness, consumeGreen10Activation, assertGreen10ActivationUnchanged } from '../scripts/green10-compact-readiness.mjs';
 
@@ -73,6 +74,34 @@ test('verifies an exact activation envelope without a live key or transport', as
     await assert.rejects(verifyGreen10ActivationEnvelope(changed, plan));
   }
   await assert.rejects(verifyGreen10ActivationEnvelope(serialized, { ...plan, account: `0x${'3'.repeat(40)}` }));
+});
+
+test('only submits once after fresh custody and exact acknowledgement; ambiguous transport consumes the attempt', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'compact-activate-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const marker = join(dir, 'broadcast.once');
+  const signer = privateKeyToAccount(`0x${'3'.repeat(64)}`);
+  const transaction = { type: 'eip1559', chainId: 1, nonce: 122, to: `0x${'2'.repeat(40)}`, data: '0x12345678', value: 0n, gas: 48000n, maxFeePerGas: 200000000n, maxPriorityFeePerGas: 1n };
+  const plan = { account: signer.address, sha256: 'a'.repeat(64), transaction, bound: 19200n, priceUsdMicros: 2000000000n, views: Array.from({ length: 2 }, () => ({ ...snapshot, baseFeePerGas: 100000000n })) };
+  let signed = 0, sent = 0;
+  const hooks = {
+    runId: '999', source: 'b'.repeat(40), marker,
+    inspect: async () => plan,
+    sign: tx => { signed++; return signer.signTransaction(tx); },
+    acknowledge: async bytes => `${createHash('sha256').update(bytes).digest('hex')}\n`,
+    submit: async () => { sent++; throw new Error('ambiguous'); }
+  };
+  await assert.rejects(runGreen10Activation({ ...hooks, acknowledge: async () => 'wrong' }), /ACK/);
+  assert.equal(sent, 0);
+  let reads = 0;
+  await assert.rejects(runGreen10Activation({ ...hooks, inspect: async () => { if (++reads === 2) throw new Error('custody changed'); return plan; } }), /custody changed/);
+  assert.equal(sent, 0);
+  await assert.rejects(runGreen10Activation(hooks), /ambiguous/);
+  assert.equal(sent, 1);
+  assert.match(readFileSync(marker, 'utf8'), /^0x[0-9a-f]{64}\n$/);
+  await assert.rejects(runGreen10Activation(hooks), /already consumed/);
+  assert.equal(sent, 1);
+  assert.equal(signed, 3);
 });
 
 test('rejects missing independent evidence, unknown or active intent, or changed ledger', () => {
