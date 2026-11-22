@@ -88,7 +88,8 @@ export const MAINNET_NEAR_STATE_PATH = 'test-results/mainnet-1click-state/roundt
 const auditedUnspentNearNonce = new Map([
   ['43811169447', 84],
   ['43999834254', 84],
-  ['44970377919', 85]
+  ['44970377919', 85],
+  ['45055827591', 87]
 ]);
 
 export async function runMainnetNearStage(
