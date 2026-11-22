@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Reconcile the exact expired Green12 NEAR quote without renewing its authority.
 - [FIX][ci] Report the last NEAR forward stage without uploading private worker logs.
 - [FIX][ci] Reconcile the exact expired Green11 NEAR quote without renewing it or funding a new loop.
 - [FIX][ci] Reconcile the exact expired Green08 NEAR quote without renewing it or funding a new loop.
