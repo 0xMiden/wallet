@@ -4228,6 +4228,14 @@
     "message": "Guardian wechseln",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "Der Browserspeicher reagiert nicht",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Ihre Wallet-Daten sind nicht verloren gegangen, aber der Browser reagiert nicht mehr auf Anfragen danach. Beenden Sie den Browser vollständig und starten Sie ihn neu, um die Daten wiederherzustellen.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Alltagsschlüssel offenlegen",
     "englishSource": "Reveal everyday key"

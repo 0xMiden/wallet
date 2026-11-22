@@ -931,6 +931,8 @@
   "connectivityGuardianTitle": "Guardian inaccesible",
   "connectivityGuardianBody": "Tu guardian no responde, por lo que no se pueden confirmar las transacciones.",
   "connectivityGuardianCta": "Cambia Guardian",
+  "storageStalledTitle": "El almacenamiento del navegador no responde",
+  "storageStalledBody": "Los datos de tu monedero no se han perdido, pero el navegador ha dejado de responder a las solicitudes relacionadas con ellos. Cierra y vuelve a abrir el navegador por completo para restablecerlos.",
   "revealHotKey": "Revelar la clave diaria",
   "revealHotKeyDescription": "Tu clave diaria se puede rotar desde Ajustes → Rotar la clave diaria, por lo que revelarla supone un riesgo menor que revelar tu frase de recuperación; sin embargo, cualquiera que la tenga podrá firmar transacciones hasta que la rote.",
   "hotKeyRevealWarningTitle": "Antes de revelar tus claves privadas",
