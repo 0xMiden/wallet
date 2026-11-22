@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 2
+          fetch-depth: 3
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
@@ -27,7 +27,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$(git rev-parse HEAD^)" = 4cda551849cdc69c9990d6943696fbbbc34ac468
+          test "$(git rev-parse HEAD^^)" = 4cda551849cdc69c9990d6943696fbbbc34ac468
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44990040178:completed
           umask 077
           gh api repos/0xMiden/wallet/actions/artifacts/14741840831/zip > "$RUNNER_TEMP/epoch.zip"
@@ -39,3 +39,20 @@ jobs:
             exit 1
           fi
           jq -ce '{sha256,rpcCount,heldBaseUnits,nonce,activationSimulationPassed,estimatedCostCeilingUsdMicros,signed,broadcast}' "$RUNNER_TEMP/compact-result"
+      - name: Prepare no-key Compact journal canary
+        run: |
+          umask 077
+          jq -nc --arg run "$GITHUB_RUN_ID" --arg source "$GITHUB_SHA" '{kind:"nonfinancial-canary",stage:"enable",run:$run,source:$source,signed:false}' > "$RUNNER_TEMP/compact-journal.json"
+          sha256sum "$RUNNER_TEMP/compact-journal.json" | cut -d ' ' -f 1 > "$RUNNER_TEMP/compact-gate.ready"
+      - uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: ${{ runner.temp }}/compact-journal.json
+          gate: ${{ runner.temp }}/compact-gate
+          artifact-name: green10-compact-ack-canary-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/unused-canary.pid
+          snapshot-directory: ${{ runner.temp }}/compact-ack-snapshot
+      - name: Verify exact canary ACK without a signer
+        run: |
+          cmp "$RUNNER_TEMP/compact-gate.ready" "$RUNNER_TEMP/compact-gate"
+          cmp "$RUNNER_TEMP/compact-journal.json" "$RUNNER_TEMP/compact-ack-snapshot/downloaded.json"
+          jq -e '.kind=="nonfinancial-canary" and .signed==false' "$RUNNER_TEMP/compact-journal.json"
