@@ -931,6 +931,8 @@
   "connectivityGuardianTitle": "Guardian unreachable",
   "connectivityGuardianBody": "Your guardian isn't responding, so transactions can't be acknowledged.",
   "connectivityGuardianCta": "Switch Guardian",
+  "storageStalledTitle": "Browser storage is not responding",
+  "storageStalledBody": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it.",
   "revealHotKey": "Reveal everyday key",
   "revealHotKeyDescription": "Your everyday key is rotatable from Settings → Rotate everyday key, so revealing it is lower-stakes than your recovery phrase — but anyone who holds it can sign transactions until you rotate.",
   "hotKeyRevealWarningTitle": "Before you reveal your private keys",
