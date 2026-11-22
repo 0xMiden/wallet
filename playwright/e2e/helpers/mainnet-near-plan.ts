@@ -125,8 +125,10 @@ export async function prepareMainnetNearRoundTrip(
       gasUsdMicros <= 0n ||
       holding.gasReserveWei <= 0n ||
       holding.nativeBalanceWei < holding.gasReserveWei * 2n
-    )
+    ) {
+      console.log('NEAR_PLAN_CLASS candidate-ineligible');
       continue;
+    }
     const nativeFees = tokenValueUsdMicro(feeBudget, 6, nativePrice, true);
     const gasFees = tokenValueUsdMicro(holding.gasReserveWei, 18, gasUsdMicros, true);
     let found: {
@@ -144,13 +146,23 @@ export async function prepareMainnetNearRoundTrip(
         attempts: MAINNET_ONE_CLICK_DRY_PROBES_PER_CANDIDATE,
         quote: async amount => {
           const forward = await quote(request(nativeAsset, asset, amount, facts.account, facts.evmAccount));
-          if (!forward || BigInt(forward.quote.minAmountOut) <= 0n) return undefined;
+          if (!forward || BigInt(forward.quote.minAmountOut) <= 0n) {
+            console.log('NEAR_PLAN_CLASS forward-unavailable');
+            return undefined;
+          }
           const reverse = await quote(
             request(asset, nativeAsset, BigInt(forward.quote.minAmountOut), facts.evmAccount, facts.account)
           );
-          if (!reverse || BigInt(reverse.quote.minAmountOut) <= 0n) return undefined;
+          if (!reverse || BigInt(reverse.quote.minAmountOut) <= 0n) {
+            console.log('NEAR_PLAN_CLASS reverse-unavailable');
+            return undefined;
+          }
           const providerFees = loss(forward, nativePrice, tokenUsdMicros) + loss(reverse, tokenUsdMicros, nativePrice);
-          if (providerFees + nativeFees + gasFees > facts.lossBudgetUsdMicros) return undefined;
+          if (providerFees + nativeFees + gasFees > facts.lossBudgetUsdMicros) {
+            console.log('NEAR_PLAN_CLASS over-allowance');
+            return undefined;
+          }
+          console.log('NEAR_PLAN_CLASS viable');
           const plan = planOneClickRoundTrip({
             routeId: asset.assetId,
             symbol: nativeAsset.symbol,

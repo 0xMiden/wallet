@@ -1,0 +1,77 @@
+name: Green09 NEAR planner diagnostics (no spend)
+on:
+  push:
+    branches: [wiktor/green09-near-plan-proof]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Verify exact settlement archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          base=4cda551849cdc69c9990d6943696fbbbc34ac468
+          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44978236601:completed
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/helpers/mainnet-near-plan.ts playwright/e2e/helpers/mainnet-near-runtime.ts)"
+          umask 077
+          fetch() {
+            gh api "repos/0xMiden/wallet/actions/artifacts/$1/zip" > "$RUNNER_TEMP/$3.zip"
+            printf '%s  %s\n' "$2" "$RUNNER_TEMP/$3.zip" | sha256sum --check --status
+            test "$(unzip -Z1 "$RUNNER_TEMP/$3.zip")" = roundtrip.json
+            mkdir -p "test-results/mainnet-$3-state"
+            unzip -p "$RUNNER_TEMP/$3.zip" roundtrip.json > "test-results/mainnet-$3-state/roundtrip.json"
+          }
+          fetch 14737300848 860657208eb4d3b9d5861937e3e0c15843ef77abafd528de507640a646b25ff8 swap
+          fetch 14737240925 217235f3af9f752f857994684ea5180316df4d720552a5e1dce902cdcf4f9f5e epoch
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - name: Start owned provider loop config
+        shell: bash
+        run: |
+          yarn esbuild playwright/e2e/helpers/mainnet-loop-config.ts --bundle --platform=node --format=esm --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-loop-config.mjs
+          node scripts/mainnet-loop-config-server.mjs > "$RUNNER_TEMP/mainnet-config.log" 2>&1 &
+          pid=$!
+          for n in $(seq 1 30); do
+            if grep -q '^Nightly mainnet snapshot ready at http://127.0.0.1:' "$RUNNER_TEMP/mainnet-config.log" && grep -q '^MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:' "$GITHUB_ENV"; then exit 0; fi
+            kill -0 "$pid"; sleep 1
+          done
+          echo 'Owned provider overlay did not become ready.' >&2; exit 1
+      - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      - name: Classify route planning without persisting authority
+        shell: bash
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+          MAINNET_NEAR_MODE: prepare
+          MAINNET_LOOP_RECOVERY_CLEARED: 'true'
+          MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: '1538013'
+        run: |
+          umask 077
+          rc=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-audit-private" xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-audit-private.log" 2>&1 || rc=$?
+          test ! -e test-results/mainnet-1click-state/roundtrip.json
+          grep -oE '^NEAR_PLAN_CLASS (candidate-ineligible|forward-unavailable|reverse-unavailable|over-allowance|viable|selected)$' "$RUNNER_TEMP/near-audit-private.log" | sort | uniq -c || true
+          exit "$rc"

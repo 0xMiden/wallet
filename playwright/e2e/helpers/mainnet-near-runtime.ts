@@ -103,7 +103,7 @@ export async function runMainnetNearStage(
     !runId ||
     !/^[1-9]\d{0,19}$/.test(runId) ||
     process.env.GITHUB_RUN_ATTEMPT !== '1' ||
-    !['recover', 'prepare', 'forward', 'reverse'].includes(mode)
+    !['prepare'].includes(mode)
   )
     throw new Error('Native NEAR requires an explicit first-attempt mainnet workflow stage');
   const previous = loadMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH);
@@ -276,16 +276,15 @@ export async function runMainnetNearStage(
   if (previous?.sourceRunId === runId) throw new Error('Native NEAR authority already exists for this source run');
   const swap = loadMainnetSwapCheckpoint('test-results/mainnet-swap-state/roundtrip.json');
   const epoch = loadMainnetEpochCheckpoint('test-results/mainnet-epoch-state/roundtrip.json');
-  const allowance = remainingMainnetLoopBudget(runId, 'near', [
+  const allowance = remainingMainnetLoopBudget('44978236601', 'near', [
     { provider: 'swap', checkpoint: swap },
     { provider: 'epoch', checkpoint: epoch }
   ]);
   if (process.env.MAINNET_LOOP_RECOVERY_CLEARED !== 'true')
     throw new Error('The all-provider recovery barrier must clear before native NEAR preparation');
   const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
-  const key = (process.env.E2E_MAINNET_EVM_KEY?.trim() ?? '').replace(/^0x/, '');
-  if (!keyPair || !/^[0-9a-f]{64}$/i.test(key)) throw new Error('Existing funded Guardian and EVM keys are required');
-  const evmAccount = privateKeyToAddress(`0x${key}`);
+  if (!keyPair || epoch?.sourceRunId !== '44978236601') throw new Error('Missing pinned read-only custody inputs');
+  const evmAccount = getAddress(epoch.evm.account);
   await restoreMainnetLoopGuardian(wallet, keyPair);
   const account = await wallet.getAccountAddress();
   if ((swap?.sourceRunId === runId && swap.account !== account) || epoch?.account !== account)
@@ -369,7 +368,7 @@ export async function runMainnetNearStage(
       }
     }
   );
-  saveMainnetNearCheckpoint(MAINNET_NEAR_STATE_PATH, state);
+  console.log('NEAR_PLAN_CLASS selected');
   if (info) {
     const prepared = observeNightly(info, {
       key: 'near-forward',
