@@ -80,6 +80,10 @@ test('reconcile canonical Epoch claim fees and restored native custody', async (
   const cost = loss(BigInt(epoch.native.balance) - vault, valuation.stableUsdMicros, 10n ** 6n) +
     loss(BigInt(epoch.evm.tokenBalance) - BigInt(epoch.after.evmToken), valuation.stableUsdMicros, 10n ** 6n) +
     loss(BigInt(epoch.evm.nativeBalance) - BigInt(epoch.after.evmNative), valuation.gasUsdMicros, 10n ** 18n);
-  assert.equal(cost, BigInt(epoch.realizedCostUsdMicros!));
-  console.log(`GREEN07_FEE_AUDIT ${JSON.stringify({ epochNativeFee: String(epochFee), epochCostUsdMicros: String(cost), custodyMatches: true })}`);
+  const retained = BigInt(epoch.after.evmToken) - BigInt(epoch.evm.tokenBalance);
+  assert.equal(retained, BigInt(epoch.forwardReceived!) - BigInt(epoch.returnAmount!));
+  assert.ok(retained >= 0n);
+  const net = cost - retained * BigInt(valuation.stableUsdMicros) / 1_000_000n;
+  assert.equal(net > 0n ? net : 0n, BigInt(epoch.realizedCostUsdMicros!));
+  console.log(`GREEN07_FEE_AUDIT ${JSON.stringify({ epochNativeFee: String(epochFee), epochCostUsdMicros: String(cost), netCostUsdMicros: String(net), custodyMatches: true })}`);
 });

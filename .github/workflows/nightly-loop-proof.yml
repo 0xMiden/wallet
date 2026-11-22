@@ -18,14 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 2
+          fetch-depth: 3
       - name: Verify original producer and artifact bytes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=77014fbfff1e297a144eb959f0e0d59553c11a2a
-          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git rev-parse HEAD^^)" = "$base"
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/green07-fee-audit.spec.ts)"
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44966586461:completed
           gh run view 44966586461 --json headSha,attempt,conclusion --jq '[.headSha,.attempt,.conclusion]|join(":")' | grep -Fx "$base:1:failure"
@@ -60,4 +60,4 @@ jobs:
         run: |
           umask 077
           E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/fee-audit-private" xvfb-run -a yarn playwright test green07-fee-audit.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/fee-audit-private.log" 2>&1
-          jq -Rcer 'select(startswith("GREEN07_FEE_AUDIT "))|split(" ")[1]|fromjson|{epochNativeFee,epochCostUsdMicros,custodyMatches}' "$RUNNER_TEMP/fee-audit-private.log"
+          jq -Rcer 'select(startswith("GREEN07_FEE_AUDIT "))|split(" ")[1]|fromjson|{epochNativeFee,epochCostUsdMicros,netCostUsdMicros,custodyMatches}' "$RUNNER_TEMP/fee-audit-private.log"
