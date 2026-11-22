@@ -18,6 +18,7 @@ import {
   type MainnetNearCheckpoint
 } from './mainnet-near-checkpoint';
 import { verifyRetiredNearReturnAbsence } from './mainnet-near-return-absence';
+import { nearNativeRequestDiagnostic } from './mainnet-near-native-request-diagnostic';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 import { realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
@@ -53,6 +54,7 @@ import { captureMainnetNearIntentsQuote, readMainnetNearIntentsDeposit } from '.
 import {
   assertNeverStartedBuilding,
   plantQueueBlocker,
+  readTransactionRow,
   readTransactionRows,
   readTransactionRowsWithBytes,
   releaseQueueBlocker,
@@ -574,6 +576,26 @@ export async function runMainnetNearForward(
       state.sendAuthority = authority;
       await persist();
     }
+  }).catch(async error => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const row = await Promise.race([
+        readTransactionRow(wallet.page, queued.id).catch(() => undefined),
+        new Promise<undefined>(resolve => {
+          timer = setTimeout(resolve, 1500);
+        })
+      ]);
+      writeFileSync(
+        'test-results/mainnet-near-forward-stage.json',
+        JSON.stringify(nearNativeRequestDiagnostic(error, row)),
+        { mode: 0o600 }
+      );
+    } catch {
+      // Preserve the original authorization failure if observation fails.
+    } finally {
+      clearTimeout(timer);
+    }
+    throw error;
   });
   recordNearForwardStage('acknowledged');
   await waitForSendRow(wallet.page, {
