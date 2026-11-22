@@ -157,7 +157,8 @@ it('fails closed before restoring or persisting when an explicit NEAR replacemen
     process.env = { ...env };
   }
 });
-describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s', sourceRunId => {
+describe.each(['43811169447', '43999834254', '44970377919'])('audited unsigned NEAR source %s', sourceRunId => {
+  const expectedNonce = sourceRunId === '44970377919' ? 85 : 84;
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers().setSystemTime(new Date('2026-11-17T03:00:00Z'));
@@ -176,7 +177,7 @@ describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s',
     mockClient.getChainId.mockResolvedValue(state.evm.chainId);
     mockClient.getBalance.mockResolvedValue(BigInt(state.evm.nativeBalance));
     mockClient.readContract.mockResolvedValue(BigInt(state.evm.tokenBalance));
-    mockClient.getTransactionCount.mockResolvedValue(84);
+    mockClient.getTransactionCount.mockResolvedValue(expectedNonce);
   });
   afterEach(() => {
     process.env = { ...env };
@@ -262,7 +263,8 @@ describe.each(['43811169447', '43999834254'])('audited unsigned NEAR source %s',
     if (changed === 'native') mockVault.mockResolvedValue(1n);
     if (changed === 'token') mockClient.readContract.mockResolvedValue(1n);
     if (changed === 'gas') mockClient.getBalance.mockResolvedValue(1n);
-    if (changed === 'pending-nonce') mockClient.getTransactionCount.mockResolvedValueOnce(84).mockResolvedValueOnce(85);
+    if (changed === 'pending-nonce')
+      mockClient.getTransactionCount.mockResolvedValueOnce(expectedNonce).mockResolvedValueOnce(expectedNonce + 1);
     if (changed === 'chain') mockClient.getChainId.mockResolvedValue(1);
     if (changed === 'guardian') jest.mocked(wallet.getAccountAddress).mockResolvedValue('different');
     if (changed === 'provider') status.status = 'PROCESSING';

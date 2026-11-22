@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Reconcile the exact expired Green08 NEAR quote without renewing it or funding a new loop.
+
 - [FIX][ci] Open the compact fixed-output Bridge form for nightly Epoch returns without changing the quote or signing requirements.
 
 - [FIX][ci] Drive the fullscreen Command Swap composer in the nightly without skipping the rendered quote and amount checks.

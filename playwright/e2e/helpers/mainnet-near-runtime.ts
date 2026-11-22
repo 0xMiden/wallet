@@ -85,6 +85,12 @@ import {
 
 export const MAINNET_NEAR_STATE_PATH = 'test-results/mainnet-1click-state/roundtrip.json';
 
+const auditedUnspentNearNonce = new Map([
+  ['43811169447', 84],
+  ['43999834254', 84],
+  ['44970377919', 85]
+]);
+
 export async function runMainnetNearStage(
   wallet: GuardianAwareWalletPage,
   mode: string,
@@ -121,7 +127,7 @@ export async function runMainnetNearStage(
     if (
       process.env.MAINNET_NEAR_PREAUTH_UNSPENT === 'true' &&
       previous &&
-      ['43811169447', '43999834254'].includes(previous.sourceRunId)
+      auditedUnspentNearNonce.has(previous.sourceRunId)
     ) {
       const keyPair = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR?.trim();
       if (!keyPair) throw new Error('Original Guardian is required for live NEAR unspent verification');
@@ -1160,8 +1166,9 @@ export async function verifyUnstartedNearForward(
   parseMainnetNearCheckpoint(state);
   const quote = state.forwardQuote;
   const windowEnd = Math.max(Date.parse(state.createdAt), Date.parse(state.pricedAt)) + 600_000;
+  const expectedNonce = auditedUnspentNearNonce.get(state.sourceRunId);
   if (
-    !['43811169447', '43999834254'].includes(state.sourceRunId) ||
+    expectedNonce === undefined ||
     state.authorizationRunId !== state.sourceRunId ||
     state.phase !== 'forward-authorized' ||
     !quote ||
@@ -1206,8 +1213,8 @@ export async function verifyUnstartedNearForward(
       functionName: 'balanceOf',
       args: [account]
     })) !== BigInt(state.evm.tokenBalance) ||
-    (await client.getTransactionCount({ address: account, blockTag: 'latest' })) !== 84 ||
-    (await client.getTransactionCount({ address: account, blockTag: 'pending' })) !== 84
+    (await client.getTransactionCount({ address: account, blockTag: 'latest' })) !== expectedNonce ||
+    (await client.getTransactionCount({ address: account, blockTag: 'pending' })) !== expectedNonce
   )
     throw new Error('Original NEAR EVM inventory or unused nonce changed');
   const status = await fetchOneClickStatus(
