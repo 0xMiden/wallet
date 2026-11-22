@@ -1,0 +1,41 @@
+name: Green10 Compact activation readiness (no key)
+on:
+  push:
+    branches: [wiktor/green10-compact-recovery]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Exercise fail-closed activation readiness assertions
+        run: node --test test/green10-compact-readiness.node.test.mjs
+      - name: Rebind original custody and simulate without a signer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD^)" = 4cda551849cdc69c9990d6943696fbbbc34ac468
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44990040178:completed
+          umask 077
+          gh api repos/0xMiden/wallet/actions/artifacts/14741840831/zip > "$RUNNER_TEMP/epoch.zip"
+          printf '%s  %s\n' a50610cdcdc057a64afbc01fcf018b43f71e3de6654fdddb1a7be5f0b6e8c541 "$RUNNER_TEMP/epoch.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$RUNNER_TEMP/epoch.zip")" = roundtrip.json
+          unzip -p "$RUNNER_TEMP/epoch.zip" roundtrip.json > "$RUNNER_TEMP/epoch.json"
+          if ! node scripts/green10-compact-live.mjs "$RUNNER_TEMP/epoch.json" 1510431 > "$RUNNER_TEMP/compact-result" 2> "$RUNNER_TEMP/compact-errors"; then
+            echo 'Read-only chain, quote, or simulation evidence did not qualify.' >&2
+            exit 1
+          fi
+          jq -ce '{sha256,rpcCount,heldBaseUnits,nonce,activationSimulationPassed,estimatedCostCeilingUsdMicros,signed,broadcast}' "$RUNNER_TEMP/compact-result"
