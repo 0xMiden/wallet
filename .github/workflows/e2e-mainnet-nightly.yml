@@ -916,6 +916,7 @@ jobs:
             test-results/mainnet-epoch-state/roundtrip.json.return-solve-failure.json
             test-results/mainnet-near-summary.json
             test-results/mainnet-near-return-failure.json
+            test-results/mainnet-near-forward-stage.json
             test-results/mainnet-epoch-recovery.json
             test-results/mainnet-near-recovery.json
             test-results/mainnet-usdcx-payouts.md
