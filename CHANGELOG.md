@@ -2,6 +2,8 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][mobile] Open incoming-note claims over the active dApp without closing or navigating away from its session.
+
 - [FIX][ci] Report the last NEAR forward stage without uploading private worker logs.
 - [FIX][ci] Reconcile the exact expired Green11 NEAR quote without renewing it or funding a new loop.
 - [FIX][ci] Reconcile the exact expired Green08 NEAR quote without renewing it or funding a new loop.

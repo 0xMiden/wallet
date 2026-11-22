@@ -205,6 +205,9 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST' },
   AllowedPrivateData: { None: 0 }
 }));
+jest.mock('app/templates/history/useActivityClaimList', () => ({
+  useActivityClaimList: () => ({ representedItems: [], renderPendingItem: () => null })
+}));
 jest.mock('app/pages/Browser/DappPeekTray', () => ({ DappPeekTray: () => null }));
 jest.mock('app/pages/Browser/DappSwitcher', () => ({ DappSwitcher: () => null }));
 jest.mock('app/pages/Browser/DappConfirmationModal', () => ({
@@ -453,7 +456,14 @@ afterEach(async () => {
 });
 
 it('opens incoming-transfer claims on a received-note notification tap without closing or leaving the foreground dApp', async () => {
-  mockCurrentAccount = { publicKey: 'pk', name: 'Acc', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+  mockCurrentAccount = {
+    publicKey: 'pk',
+    name: 'Acc',
+    isPublic: true,
+    type: WalletType.OnChain,
+    hdIndex: 0,
+    authScheme: 'ecdsa'
+  };
   await openForeground();
   const original = control().sessionStates[0]!;
   expect(control().session?.id).toBe('origin');
@@ -471,7 +481,7 @@ it('opens incoming-transfer claims on a received-note notification tap without c
   jest.useFakeTimers();
   try {
     await act(async () => {
-      await tap({
+      const receivedNoteAction = {
         actionId: 'tap',
         notification: {
           id: 1001,
@@ -479,7 +489,9 @@ it('opens incoming-transfer claims on a received-note notification tap without c
           body: en.noteReceivedTapToClaim,
           extra: { type: 'note_received', navigateTo: '/history?filter=pending&view=list' }
         }
-      });
+      };
+      await tap(receivedNoteAction);
+      await tap(receivedNoteAction);
       jest.advanceTimersByTime(200);
     });
 
