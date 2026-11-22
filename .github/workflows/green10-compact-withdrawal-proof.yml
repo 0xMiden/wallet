@@ -1,0 +1,37 @@
+name: Green10 withdrawal readiness (no key)
+on:
+  push:
+    branches: [wiktor/green10-compact-withdrawal-readiness]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Verify exact owner, amount and maturity guards
+        run: node --test test/green10-compact-withdraw.node.test.mjs
+      - name: Verify withdrawal custody without a signer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api repos/0xMiden/wallet/git/ref/heads/main --jq '.object.sha')" = 4cda551849cdc69c9990d6943696fbbbc34ac468
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44990040178:completed
+          umask 077
+          gh api repos/0xMiden/wallet/actions/artifacts/14741840831/zip > "$RUNNER_TEMP/epoch.zip"
+          printf '%s  %s\n' a50610cdcdc057a64afbc01fcf018b43f71e3de6654fdddb1a7be5f0b6e8c541 "$RUNNER_TEMP/epoch.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$RUNNER_TEMP/epoch.zip")" = roundtrip.json
+          unzip -p "$RUNNER_TEMP/epoch.zip" roundtrip.json > "$RUNNER_TEMP/epoch.json"
+          node scripts/green10-compact-withdraw.mjs "$RUNNER_TEMP/epoch.json" > "$RUNNER_TEMP/withdrawal-readiness.json"
+          jq -ce 'select(.signed==false and .broadcast==false and .nonce==123 and .heldBaseUnits=="981231")' "$RUNNER_TEMP/withdrawal-readiness.json"
