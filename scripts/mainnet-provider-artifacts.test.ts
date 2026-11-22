@@ -205,6 +205,15 @@ describe('known unsigned NEAR quote reconciliation', () => {
       45059426340,
       '1c512f88dd7010175a4060ae59760a0079e5c1ce',
       '2026-11-22T18:54:41Z'
+    ],
+    [
+      12,
+      'b3c2a1e3068644497325cbb3d39bbdccdeba04876bcff6e781f01ecc794405c4',
+      45072272341,
+      '239ada789a8f2fc06ce2afdec8896d4f2dbcd977',
+      45075171185,
+      'd0d014848aba5f291855fdd605e6e523e81b3f42',
+      '2026-11-22T21:47:09Z'
     ]
   ])(
     'accepts only the exact audited Green%s pre-ACK stop after expiry',
