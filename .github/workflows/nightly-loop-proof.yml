@@ -1,7 +1,7 @@
-name: Green10 Compact activation readiness (no key)
+name: Green10 Compact activation
 on:
   push:
-    branches: [wiktor/green10-compact-recovery]
+    branches: [wiktor/green10-compact-recovery, wiktor/green10-compact-enable-once]
 permissions:
   contents: read
   actions: read
@@ -10,12 +10,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   audit:
+    if: github.run_attempt == '1' && (github.ref_name == 'wiktor/green10-compact-recovery' || github.event.created == true)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 5
+          fetch-depth: 6
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
@@ -27,7 +29,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$(git rev-parse HEAD^^^^)" = 4cda551849cdc69c9990d6943696fbbbc34ac468
+          test "$(git rev-parse HEAD^^^^^)" = 4cda551849cdc69c9990d6943696fbbbc34ac468
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44990040178:completed
           umask 077
           gh api repos/0xMiden/wallet/actions/artifacts/14741840831/zip > "$RUNNER_TEMP/epoch.zip"
@@ -39,12 +41,21 @@ jobs:
             exit 1
           fi
           jq -ce '{sha256,rpcCount,heldBaseUnits,nonce,activationSimulationPassed,estimatedCostCeilingUsdMicros,signed,broadcast}' "$RUNNER_TEMP/compact-result"
+      - name: Verify executor rejects an unarmed ref without a signer
+        if: github.ref_name == 'wiktor/green10-compact-recovery'
+        run: |
+          node --check scripts/green10-compact-enable.mjs
+          if node scripts/green10-compact-enable.mjs; then exit 1; fi
+          test ! -e "$RUNNER_TEMP/compact-activation-gate.ready"
+          test ! -e "$RUNNER_TEMP/compact-activation.broadcast.once"
       - name: Prepare no-key Compact journal canary
+        if: github.ref_name == 'wiktor/green10-compact-recovery'
         run: |
           umask 077
           jq -nc --arg run "$GITHUB_RUN_ID" --arg source "$GITHUB_SHA" '{kind:"nonfinancial-canary",stage:"enable",run:$run,source:$source,signed:false}' > "$RUNNER_TEMP/compact-journal.json"
           sha256sum "$RUNNER_TEMP/compact-journal.json" | cut -d ' ' -f 1 > "$RUNNER_TEMP/compact-gate.ready"
-      - uses: ./.github/actions/mainnet-loop-upload
+      - if: github.ref_name == 'wiktor/green10-compact-recovery'
+        uses: ./.github/actions/mainnet-loop-upload
         with:
           checkpoint: ${{ runner.temp }}/compact-journal.json
           gate: ${{ runner.temp }}/compact-gate
@@ -52,7 +63,47 @@ jobs:
           process-id: ${{ runner.temp }}/unused-canary.pid
           snapshot-directory: ${{ runner.temp }}/compact-ack-snapshot
       - name: Verify exact canary ACK without a signer
+        if: github.ref_name == 'wiktor/green10-compact-recovery'
         run: |
           cmp "$RUNNER_TEMP/compact-gate.ready" "$RUNNER_TEMP/compact-gate"
           cmp "$RUNNER_TEMP/compact-journal.json" "$RUNNER_TEMP/compact-ack-snapshot/downloaded.json"
           jq -e '.kind=="nonfinancial-canary" and .signed==false' "$RUNNER_TEMP/compact-journal.json"
+      - name: Start exact owner activation once on branch creation
+        if: github.ref_name == 'wiktor/green10-compact-enable-once' && github.event.created == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          E2E_MAINNET_EVM_KEY: ${{ secrets.E2E_MAINNET_EVM_KEY }}
+        run: |
+          umask 077
+          (
+            set +e
+            node scripts/green10-compact-enable.mjs > "$RUNNER_TEMP/compact-activation-private.log" 2>&1
+            printf '%s\n' "$?" > "$RUNNER_TEMP/compact-activation.exit"
+          ) &
+          printf '%s\n' "$!" > "$RUNNER_TEMP/compact-activation.pid"
+      - if: github.ref_name == 'wiktor/green10-compact-enable-once' && github.event.created == true
+        uses: ./.github/actions/mainnet-loop-upload
+        with:
+          checkpoint: ${{ runner.temp }}/compact-activation.json
+          gate: ${{ runner.temp }}/compact-activation-gate
+          artifact-name: green10-compact-activation-journal-${{ github.run_id }}
+          process-id: ${{ runner.temp }}/compact-activation.pid
+          snapshot-directory: ${{ runner.temp }}/compact-activation-snapshot
+      - name: Require single submission result
+        if: github.ref_name == 'wiktor/green10-compact-enable-once' && github.event.created == true
+        run: |
+          for _ in $(seq 1 90); do
+            test -s "$RUNNER_TEMP/compact-activation.exit" && break
+            sleep 1
+          done
+          test "$(< "$RUNNER_TEMP/compact-activation.exit")" = 0
+          test "$(jq -er '.hash' "$RUNNER_TEMP/compact-activation-outcome.json")" = "$(< "$RUNNER_TEMP/compact-activation.broadcast.once")"
+      - name: Preserve bounded activation result, including ambiguous attempts
+        if: always() && github.ref_name == 'wiktor/green10-compact-enable-once' && github.event.created == true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: green10-compact-activation-result-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/compact-activation.broadcast.once
+            ${{ runner.temp }}/compact-activation-outcome.json
+          if-no-files-found: ignore
