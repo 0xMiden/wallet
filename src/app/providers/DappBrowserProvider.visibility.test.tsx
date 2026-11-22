@@ -117,6 +117,11 @@ jest.mock('@miden/dapp-browser', () => ({
   }
 }));
 jest.mock('app/icons/brand/new-bread.svg?raw', () => '<svg />', { virtual: true });
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
+  getEffectiveRpcUrl: () => mockEffectiveRpc
+}));
 jest.mock('lib/platform', () => ({
   isMobile: () => true,
   isExtension: () => false,
@@ -126,6 +131,8 @@ jest.mock('lib/platform', () => ({
 }));
 let mockStatus = WalletStatus.Ready;
 let mockHydrated = true;
+let mockEffectiveNetwork = 'testnet';
+let mockEffectiveRpc = 'https://rpc.test';
 let mockPath = '/browser';
 const mockSetActiveSession = jest.fn();
 let mockCurrentAccount: WalletAccount | null = null;
@@ -377,6 +384,23 @@ async function openManagedSession(id: string) {
   await settle();
   await waitFor(() => expect(lastVisibility(id)).toBe(true));
 }
+async function tapReceivedNotification() {
+  jest.mocked(LocalNotifications.addListener).mockClear();
+  await setupNotificationTapListener();
+  const tap = jest.mocked(LocalNotifications.addListener).mock.calls[0]?.[1];
+  if (!tap) throw new Error('Notification tap listener was not registered');
+  await act(async () => {
+    await tap({
+      actionId: 'tap',
+      notification: {
+        id: 1001,
+        title: en.noteReceivedTitle,
+        body: en.noteReceivedTapToClaim,
+        extra: { type: 'note_received', navigateTo: '/history?filter=pending&view=list' }
+      }
+    });
+  });
+}
 async function closeAlert() {
   const sheet = screen.getByRole('alertdialog', { name: en.error });
   await act(async () => {
@@ -425,6 +449,8 @@ beforeEach(async () => {
   mockResetViewport.mockReset().mockResolvedValue(undefined);
   mockStatus = WalletStatus.Ready;
   mockHydrated = true;
+  mockEffectiveNetwork = 'testnet';
+  mockEffectiveRpc = 'https://rpc.test';
   mockPath = '/browser';
   testI18n = i18n.createInstance();
   await testI18n.use(initReactI18next).init({
@@ -509,6 +535,83 @@ it('opens incoming-transfer claims on a received-note notification tap without c
   } finally {
     jest.useRealTimers();
   }
+});
+
+it.each(['locked', 'account', 'endpoint', 'network', 'session'])(
+  'invalidates the incoming sheet without restoring or claiming against a replaced %s scope',
+  async condition => {
+    mockCurrentAccount = {
+      publicKey: 'account-before',
+      name: 'Acc',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 0,
+      authScheme: 'ecdsa'
+    };
+    const tree = await openForeground();
+    const original = control().sessionStates[0]!;
+    await tapReceivedNotification();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    mockSetVisible.mockClear();
+
+    if (condition === 'locked') mockStatus = WalletStatus.Locked;
+    if (condition === 'account') mockCurrentAccount = { ...mockCurrentAccount!, publicKey: 'account-after' };
+    if (condition === 'endpoint') mockEffectiveRpc = 'https://rpc.other.test';
+    if (condition === 'network') mockEffectiveNetwork = 'devnet';
+    if (condition === 'session') {
+      act(() => {
+        control().open(session('replacement'));
+        control().setSlotRect(RECT);
+      });
+    }
+    tree!.rerender(<Tree />);
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(control().session?.id).toBe(condition === 'session' ? 'replacement' : 'origin');
+    expect(mockCloseAll).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(mockOpen).toHaveBeenCalledTimes(condition === 'session' ? 2 : 1);
+    expect(mockMorph).not.toHaveBeenCalled();
+    expect(control().sessionStates.find(state => state.session.id === 'origin')?.instance).toBe(original.instance);
+  }
+);
+
+it('waits behind an unresolved outgoing confirmation, then presents incoming claims without replacing it', async () => {
+  await openForeground();
+  let outgoing: Promise<unknown> | undefined;
+  act(() => {
+    outgoing = dappConfirmationStore.requestConfirmation(approval());
+  });
+  await tapReceivedNotification();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  const stillPending = dappConfirmationStore.getAllPendingRequests();
+  expect(stillPending).toHaveLength(1);
+  expect(stillPending[0]?.id).toBe('approval');
+  expect(mockCloseAll).not.toHaveBeenCalled();
+  act(() => dappConfirmationStore.resolveConfirmation('origin', { confirmed: false }));
+  await outgoing;
+  await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+  expect(mockOpen).toHaveBeenCalledTimes(1);
+  expect(control().session?.id).toBe('origin');
+});
+
+it('releases the incoming overlay hold on dismissal and reveals the same dApp instance', async () => {
+  const tree = await openForeground();
+  const original = control().sessionStates[0]!;
+  await tapReceivedNotification();
+  expect(lastVisibility()).toBe(false);
+  fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(lastVisibility()).toBe(true));
+  expect(control().session?.id).toBe(original.session.id);
+  expect(control().session?.url).toBe(original.session.url);
+  expect(control().sessionStates[0]?.instance).toBe(original.instance);
+  expect(mockCloseAll).not.toHaveBeenCalled();
+  expect(mockOpen).toHaveBeenCalledTimes(1);
+  expect(mockClose).not.toHaveBeenCalled();
+  expect(mockMorph).not.toHaveBeenCalled();
+  expect(navigate).not.toHaveBeenCalled();
+  tree?.unmount();
 });
 
 it('minimizes the native Bread capsule through the standard parked session and reselects retained fullscreen', async () => {
