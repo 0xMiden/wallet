@@ -393,12 +393,23 @@ export async function runMainnetNearStage(
   }
 }
 
+function recordNearForwardStage(
+  stage: 'preflight' | 'review' | 'arm' | 'submit' | 'queue' | 'release' | 'native-request' | 'acknowledged'
+): void {
+  try {
+    writeFileSync('test-results/mainnet-near-forward-stage.json', JSON.stringify({ stage }), { mode: 0o600 });
+  } catch {
+    // Diagnostics cannot change the funding gate or the original error.
+  }
+}
+
 export async function runMainnetNearForward(
   wallet: GuardianAwareWalletPage,
   state: MainnetNearCheckpoint,
   gatePath: string,
   signal: AbortSignal
 ): Promise<void> {
+  recordNearForwardStage('preflight');
   parseMainnetNearCheckpoint(state);
   const age = Date.now() - Date.parse(state.pricedAt);
   if (
@@ -519,12 +530,14 @@ export async function runMainnetNearForward(
     refundFee: quote.quote.refundFee
   };
   await persist();
+  recordNearForwardStage('review');
   await wallet.prepareSendReview({
     recipientAddress: quote.quote.depositAddress,
     amount: fromBaseUnits(BigInt(state.principal), 6),
     isPrivate: false,
     tokenSymbol: 'USDCX'
   });
+  recordNearForwardStage('arm');
   const handle = await armMainnetSendAuthorization(wallet.page, {
     accountId: state.accountHex,
     recipientId: canonicalMainnetLoopFaucet(quote.quote.depositAddress),
@@ -532,7 +545,9 @@ export async function runMainnetNearForward(
     amount: state.principal,
     expiresAt: Math.min(Date.parse(deadline), Date.parse(state.pricedAt) + 600_000)
   });
+  recordNearForwardStage('submit');
   await wallet.submitSendReview();
+  recordNearForwardStage('queue');
   const queued = await waitForSendRow(wallet.page, {
     recipient: quote.quote.depositAddress,
     amountBaseUnits: BigInt(state.principal),
@@ -548,7 +563,9 @@ export async function runMainnetNearForward(
       canonicalMainnetLoopFaucet(row.accountId) === state.accountHex
   );
   if (unrelated.length || signal.aborted) throw new Error('Native NEAR forward queue is unrelated or aborted');
+  recordNearForwardStage('release');
   await releaseQueueBlocker(wallet.page, blocker);
+  recordNearForwardStage('native-request');
   const acknowledged = await releaseMainnetSendAuthorization(wallet.page, handle, {
     checkpointPath: MAINNET_NEAR_STATE_PATH,
     gatePath,
@@ -558,6 +575,7 @@ export async function runMainnetNearForward(
       await persist();
     }
   });
+  recordNearForwardStage('acknowledged');
   await waitForSendRow(wallet.page, {
     recipient: quote.quote.depositAddress,
     amountBaseUnits: BigInt(state.principal),
