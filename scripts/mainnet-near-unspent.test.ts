@@ -157,8 +157,12 @@ it('fails closed before restoring or persisting when an explicit NEAR replacemen
     process.env = { ...env };
   }
 });
-describe.each(['43811169447', '43999834254', '44970377919'])('audited unsigned NEAR source %s', sourceRunId => {
-  const expectedNonce = sourceRunId === '44970377919' ? 85 : 84;
+describe.each([
+  ['43811169447', 84],
+  ['43999834254', 84],
+  ['44970377919', 85],
+  ['45055827591', 87]
+])('audited unsigned NEAR source %s', (sourceRunId, expectedNonce) => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers().setSystemTime(new Date('2026-11-17T03:00:00Z'));

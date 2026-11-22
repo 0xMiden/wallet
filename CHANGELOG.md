@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Reconcile the exact expired Green11 NEAR quote without renewing it or funding a new loop.
 - [FIX][ci] Reconcile the exact expired Green08 NEAR quote without renewing it or funding a new loop.
 
 - [FIX][ci] Open the compact fixed-output Bridge form for nightly Epoch returns without changing the quote or signing requirements.
