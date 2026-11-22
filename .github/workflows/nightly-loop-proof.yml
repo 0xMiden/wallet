@@ -1,0 +1,63 @@
+name: Green08 Swap and Epoch fee audit (read only)
+on:
+  push:
+    branches: [wiktor/green08-fee-audit]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Verify original producer and artifact bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          base=77014fbfff1e297a144eb959f0e0d59553c11a2a
+          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/green08-fee-audit.spec.ts)"
+          test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 44970377919:completed
+          gh run view 44970377919 --json headSha,attempt,conclusion --jq '[.headSha,.attempt,.conclusion]|join(":")' | grep -Fx "$base:1:failure"
+          umask 077
+          mkdir -p test-results/fee-audit
+          cd test-results/fee-audit
+          fetch() {
+            gh api "repos/0xMiden/wallet/actions/artifacts/$1/zip" > "$3.zip"
+            printf '%s  %s\n' "$2" "$3.zip" | sha256sum --check --status
+          }
+          fetch 14733643260 2eae53fdaf49896a209e98b81af8483dd8a9e6a183d8a2db3d708a3562f0e3a3 swap
+          fetch 14733434058 08c94650a269300fc137e116d9379757d6a708619127a820d61c1fcacb949ae2 epoch
+          fetch 14734106311 6822980015dcdfdfc117619b038004b480bb955262d570198723cc636946b960 nightly
+          unzip -p swap.zip roundtrip.json > swap.json
+          unzip -p epoch.zip roundtrip.json > epoch.json
+          unzip -p nightly.zip mainnet-swap-forward-claim.json > forward.json
+          unzip -p nightly.zip mainnet-swap-reverse-claim.json > reverse.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      - name: Audit canonical fees without transaction authorization
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+        run: |
+          umask 077
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/fee-audit-private" xvfb-run -a yarn playwright test green08-fee-audit.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/fee-audit-private.log" 2>&1
+          jq -Rcer 'select(startswith("GREEN08_FEE_AUDIT "))|split(" ")[1]|fromjson|{swapFees,swapCostUsdMicros,epochNativeFee,epochCostUsdMicros,netCostUsdMicros,custodyMatches}' "$RUNNER_TEMP/fee-audit-private.log"
