@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
 - [FIX][all] Match equivalent hex and bech32 account and faucet IDs across activity, badge, and recovered swap history with bounded canonical ID caching.
 - [FIX][mobile] Open incoming-note claims over the active dApp without closing or navigating away from its session.
 
@@ -106,7 +107,6 @@
 - [FIX][all] Switch the Guardian directly on chain when the outgoing Guardian refuses the switch proposal or a co-signature with any HTTP 4xx (a 401 included), so a Guardian that rejects this device cannot block the switch.
 
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
-- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
 - [FIX][all] Before a transaction is submitted, a WebAssembly trap inside the wallet's WASM lock while it records what the transaction is about to submit now retires the broken client instead of answering from it, and fails the transaction before it is sent.
 - [FIX][all] A transaction the network already accepted is also recorded as completed instead of failed, so Retry cannot send it a second time, when the extension cannot read back the result of a swap, a custom transaction or a Guardian transaction it already applied, and when reading the transaction's saved record fails for a moment.
 - [FIX][all] A swap that went through from a single-key account now keeps its order when its completion is interrupted, and a swap from a Guardian or a single-key account keeps it when the wallet cannot update its local record or read back its result, so the order can still be cancelled or reclaimed, and its expiry counts from when the swap landed (#2147).
