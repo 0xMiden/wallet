@@ -528,7 +528,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             await db.transaction('rw', transactions, async () => {
               await Dexie.waitFor(checkCheap());
               const finalCommitment = record.recovery?.finalCommitment;
-              const match = rows.find(row => {
+              const matches = (row: ITransaction) => {
                 if (row.recovery && row.recovery.network !== network) return false;
                 if (row.id === record.id) return true;
                 const localCommitment = row.recovery?.finalCommitment ?? commitments.get(row.id);
@@ -544,7 +544,19 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                     record.type === 'consume' &&
                     sameNonemptyNotes(row.noteIds, record.noteIds))
                 );
-              });
+              };
+              // The snapshot only names the candidate: swap tracking and Cancel write these rows between entries, so
+              // every write below starts from the row as stored now, read inside this transaction.
+              const candidate = rows.find(matches);
+              const stored = await transactions.get(candidate?.id ?? record.id);
+              const match = stored && matches(stored) ? stored : undefined;
+              const slot = candidate ? rows.indexOf(candidate) : -1;
+              if (slot >= 0) {
+                if (match) rows[slot] = match;
+                else rows.splice(slot, 1);
+              } else if (match) {
+                rows.push(match);
+              }
               if (match) {
                 if (match.recovered) {
                   if (match.recovery) {
@@ -641,10 +653,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             }
           }
           await checkCheap();
-          const settled = loaded.rows;
-          if (settled)
+          if (loaded.rows)
             await db.transaction('rw', transactions, async () => {
               await Dexie.waitFor(checkCheap());
+              // Read inside the writing transaction, so a row another writer changed since the snapshot keeps it.
+              const settled = await transactions.where('accountId').equals(account.publicKey).toArray();
               for (const row of reconcileRecoveredSwaps(settled)) await transactions.put(row);
             });
           restored += added;
