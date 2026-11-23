@@ -889,6 +889,25 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   if (mainnetSwapNextAction(state) === 'stop')
     throw new Error('The checkpoint requires operator recovery before another spend');
   if (mode === 'recover') {
+    if (process.env.MAINNET_SWAP_PRIOR_FORWARD_UNSPENT === 'true') {
+      if (
+        state.sourceRunId !== '45118679621' ||
+        state.authorizationRunId !== state.sourceRunId ||
+        state.phase !== 'forward-authorized' ||
+        state.paidFees !== '0' ||
+        state.forwardRequestAuthority ||
+        state.reverseRequestAuthority ||
+        state.forwardOrderId ||
+        state.reverseOrderId
+      ) throw new Error('Audited cancelled Swap checkpoint no longer matches');
+      const live = await balances(walletB, state);
+      if (live.offer !== BigInt(state.offer.balance) || live.request !== BigInt(state.request.balance) ||
+          live.native !== BigInt(state.native.balance))
+        throw new Error('Audited cancelled Swap custody changed');
+      state.phase = 'unspent';
+      persist(state);
+      return;
+    }
     if (state.phase === 'forward-authorized' && process.env.MAINNET_SWAP_PRIOR_FORWARD_ATTEMPTED === 'false') {
       state.phase = 'unspent';
       persist(state);
