@@ -629,6 +629,8 @@ async function onDeadline(op_id: string): Promise<void> {
   // Defensive: a paused op's timer is cleared, so onDeadline shouldn't fire for
   // it — but if a stale timer callback races the pause, do nothing.
   if (op.paused) return;
+  // The timer that fired is the op's current one at entry; a start signal or sign resume arms a new one.
+  const firedTimer = op.timer;
 
   if (downgradeReadDeadline(op_id, op)) return;
 
@@ -641,7 +643,8 @@ async function onDeadline(op_id: string): Promise<void> {
   // still tears down the realm it may be wedging, but nothing is reopened.
   const storageStalled = await checkStorage();
   // The probe can take seconds: the op may have settled or paused, or a write may have started, meanwhile.
-  if (inFlight.get(op_id) !== op || op.paused) return;
+  // A re-armed op has a fresh deadline of its own and a newer firing; this one is superseded.
+  if (inFlight.get(op_id) !== op || op.paused || op.timer !== firedTimer) return;
   if (storageStalled && !op.critical) {
     takeInFlight(op_id)?.reject(new StorageStalledError());
     return;

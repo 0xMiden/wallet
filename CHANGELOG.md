@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] A deadline that fires while the storage check runs no longer closes the background document when the operation was re-armed with a fresh deadline in the meantime.
 - [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
 
 - [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
