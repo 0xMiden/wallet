@@ -2,6 +2,7 @@
 
 ## 1.18.1 (TBD)
 
+- [FIX][ci] Reload the selected extension build before using a saved Playwright wallet profile.
 - [FIX][ci] Reconcile the exact expired Green12 NEAR quote without renewing its authority.
 - [FIX][ci] Report the last NEAR forward stage without uploading private worker logs.
 - [FIX][ci] Report bounded queue diagnostics when NEAR forward authorization fails.

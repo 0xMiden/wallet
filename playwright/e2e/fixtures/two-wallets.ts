@@ -2,7 +2,7 @@
    resolve its fixture dependencies, and rejects anything but a destructuring pattern in the
    first argument: `async (_, use)` fails at runtime with "First argument must use the object
    destructuring pattern". `async ({}, use)` is the required idiom, not a style choice. */
-import { chromium, test as base, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, test as base, type BrowserContext, type Page, type Worker } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -34,6 +34,7 @@ import {
   type NetworkOrigins
 } from '../harness/network-faults';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
+import { reloadUnpackedExtension } from '../harness/reload-unpacked-extension';
 import {
   BLANK_FRAME_WAIT_MS,
   SCREEN_CHANGE_BINDING,
@@ -371,36 +372,18 @@ async function launchWalletInstance(
   // target it.
   let context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
 
-  let serviceWorker = await waitForExtensionServiceWorker(context);
-  const invalidatedPages = new Set<Page>();
-  if (suppliedProfile !== undefined && process.env.E2E_UPGRADE_PHASE === 'after') {
-    // Replacing unpacked files alone can leave the previous worker running against the new assets.
-    for (const page of context.pages()) invalidatedPages.add(page);
-    const previousWorker = serviceWorker;
-    const browser = context.browser();
-    if (!browser) throw new Error('An upgrade requires its persistent browser context');
-    const debug = await browser.newBrowserCDPSession();
-    try {
-      [serviceWorker] = await Promise.all([
-        context.waitForEvent('serviceworker', {
-          predicate: worker => worker !== previousWorker && worker.url() === previousWorker.url(),
-          timeout: 60_000
-        }),
-        (async () => {
-          // CDP marks this owned unpacked load so Chrome's developer-mode policy does not disable it.
-          const loaded = await debug.send('Extensions.loadUnpacked', { path: path.resolve(extensionPath) });
-          if (loaded.id !== new URL(previousWorker.url()).host) {
-            throw new Error('The upgrade changed extension identity');
-          }
-          const updatedPage = await context.newPage();
-          await updatedPage.goto(new URL('fullpage.html', previousWorker.url()).toString(), {
-            waitUntil: 'domcontentloaded'
-          });
-        })()
-      ]);
-    } finally {
-      await debug.detach().catch(() => {});
+  let serviceWorker: Worker;
+  let reloadedPage: Page | undefined;
+  try {
+    serviceWorker = await waitForExtensionServiceWorker(context);
+    if (suppliedProfile !== undefined) {
+      const reloaded = await reloadUnpackedExtension(context, serviceWorker, extensionPath);
+      serviceWorker = reloaded.worker;
+      reloadedPage = reloaded.page;
     }
+  } catch (error) {
+    await context.close().catch(() => {});
+    throw error;
   }
   const extensionId = new URL(serviceWorker.url()).host;
 
@@ -533,7 +516,7 @@ async function launchWalletInstance(
   // Typed `Page` (not `Page | undefined`): the return exposes this via a getter
   // (relaunch swaps it), and a getter body can't carry the control-flow
   // narrowing an inline `return` would, so the variable itself must be `Page`.
-  const existingPage = context.pages().find(p => !invalidatedPages.has(p) && p.url().includes(extensionId));
+  const existingPage = reloadedPage ?? context.pages().find(p => p.url().includes(extensionId));
   let page: Page;
   if (existingPage) {
     page = existingPage;
