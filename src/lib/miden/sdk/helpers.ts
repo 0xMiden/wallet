@@ -56,6 +56,17 @@ export function walletAccountIdToSdk(id: string): AccountId {
   return accountRefToSdk(id);
 }
 
+const MAX_CANONICAL_ACCOUNT_ID_CACHE = 256;
+const canonicalAccountIdCache = new Map<string, string>();
+
+/** Test-only: clear cached canonical account id parses between cases. */
+export const _resetCanonicalWalletAccountIdsForTest = (): void => canonicalAccountIdCache.clear();
+
+const stripAccountTag = (id: string): string => {
+  const separator = id.indexOf('_');
+  return separator === -1 ? id : id.slice(0, separator);
+};
+
 /**
  * Canonicalize a wallet-account identifier so the two id forms that meet inside
  * the wallet compare equal. dApp/adapter-initiated transactions arrive with the
@@ -72,9 +83,24 @@ export function walletAccountIdToSdk(id: string): AccountId {
  * guardian misroute (AUTH_UNAUTHORIZED) it exists to prevent.
  */
 export function canonicalWalletAccountId(id: string): string {
-  const address = id.split('_')[0] ?? id;
+  const address = stripAccountTag(id);
+  if (!address) {
+    return address;
+  }
+  const cached = canonicalAccountIdCache.get(address);
+  if (cached !== undefined) {
+    canonicalAccountIdCache.delete(address);
+    canonicalAccountIdCache.set(address, cached);
+    return cached;
+  }
   try {
-    return accountRefToSdk(address).toString();
+    const canonical = accountRefToSdk(address).toString();
+    if (canonicalAccountIdCache.size >= MAX_CANONICAL_ACCOUNT_ID_CACHE) {
+      const oldest = canonicalAccountIdCache.keys().next().value;
+      if (oldest !== undefined) canonicalAccountIdCache.delete(oldest);
+    }
+    canonicalAccountIdCache.set(address, canonical);
+    return canonical;
   } catch {
     return address;
   }
@@ -89,6 +115,9 @@ export function canonicalWalletAccountId(id: string): string {
  * guardian auth fails as AUTH_UNAUTHORIZED).
  */
 export function sameWalletAccountId(a: string, b: string): boolean {
+  if (stripAccountTag(a) === stripAccountTag(b)) {
+    return true;
+  }
   return canonicalWalletAccountId(a) === canonicalWalletAccountId(b);
 }
 
@@ -106,7 +135,7 @@ export function sameWalletAccountId(a: string, b: string): boolean {
  * non-composite forms because neither bech32 nor hex can contain an underscore.
  */
 export function accountRefToSdk(accountRef: string): AccountId {
-  const ref = accountRef.split('_')[0] ?? accountRef;
+  const ref = stripAccountTag(accountRef);
   if (ref.startsWith('0x') || ref.startsWith('0X')) {
     // Lowercased prefix: `AccountId.fromHex` requires a literal '0x' and rejects
     // '0X…' outright ("hex encoded data must start with 0x"), even though the
