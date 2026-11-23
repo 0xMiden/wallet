@@ -1773,6 +1773,7 @@
   "bridgeConnectWalletTitle": "Подключите свой кошелек",
   "bridgeConnectWalletBody": "Кошелек, в котором хранятся токены, которые вы хотите перенести в Miden.",
   "bridgeConnectWalletAction": "Подключить кошелек",
+  "bridgeConnectPickerFailed": "Не удалось открыть окно выбора кошелька. Попробуйте ещё раз.",
   "bridgeConnectSource": "Ваш кошелек",
   "bridgeConnectSourceHint": "Не подключено",
   "bridgeConnectNextTitle": "После подключения",

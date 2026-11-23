@@ -1768,6 +1768,7 @@
   "bridgeConnectWalletTitle": "Verbinden Sie Ihre Wallet",
   "bridgeConnectWalletBody": "Die Wallet, in der sich die Token befinden, die Sie zu Miden bringen möchten.",
   "bridgeConnectWalletAction": "Wallet verbinden",
+  "bridgeConnectPickerFailed": "Der Wallet-Picker konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.",
   "bridgeConnectSource": "Ihre Wallet",
   "bridgeConnectSourceHint": "Nicht verbunden",
   "bridgeConnectNextTitle": "Nach dem Verbinden",

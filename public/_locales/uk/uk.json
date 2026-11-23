@@ -1775,6 +1775,7 @@
   "bridgeConnectWalletTitle": "Підключіть свій гаманець",
   "bridgeConnectWalletBody": "Гаманець, у якому зберігаються токени, які ви хочете перенести до Miden.",
   "bridgeConnectWalletAction": "Підключити гаманець",
+  "bridgeConnectPickerFailed": "Не вдалося відкрити вікно вибору гаманця. Спробуйте ще раз.",
   "bridgeConnectSource": "Ваш гаманець",
   "bridgeConnectSourceHint": "Не підключено",
   "bridgeConnectNextTitle": "Після підключення",

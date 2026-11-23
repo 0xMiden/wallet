@@ -8096,6 +8096,10 @@
     "message": "ウォレットを接続する",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "ウォレットピッカーを開くことができませんでした。もう一度お試しください。",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "ウォレット",
     "englishSource": "Your wallet"

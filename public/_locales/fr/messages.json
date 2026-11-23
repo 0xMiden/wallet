@@ -8100,6 +8100,10 @@
     "message": "Connecter un portefeuille",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "Le sélecteur de portefeuille n’a pas pu s’ouvrir. Veuillez réessayer.",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "Votre portefeuille",
     "englishSource": "Your wallet"

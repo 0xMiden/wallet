@@ -8096,6 +8096,10 @@
     "message": "连接钱包",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "无法打开钱包选择器。请重试。",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "您的钱包",
     "englishSource": "Your wallet"

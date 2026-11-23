@@ -8098,6 +8098,10 @@
     "message": "Połącz portfel",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "Nie udało się otworzyć selektora portfela. Spróbuj ponownie.",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "Twój portfel",
     "englishSource": "Your wallet"

@@ -8096,6 +8096,10 @@
     "message": "Connect wallet",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "The wallet picker could not open. Try again.",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "Your wallet",
     "englishSource": "Your wallet"

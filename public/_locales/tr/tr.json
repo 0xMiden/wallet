@@ -1776,6 +1776,7 @@
   "bridgeConnectWalletTitle": "Cüzdanınızı bağlayın",
   "bridgeConnectWalletBody": "Miden’e aktarmak istediğiniz token’ları barındıran cüzdan.",
   "bridgeConnectWalletAction": "Cüzdanı bağla",
+  "bridgeConnectPickerFailed": "Cüzdan seçici açılamadı. Lütfen tekrar deneyin.",
   "bridgeConnectSource": "Cüzdanınız",
   "bridgeConnectSourceHint": "Bağlı değil",
   "bridgeConnectNextTitle": "Bağlandıktan sonra",

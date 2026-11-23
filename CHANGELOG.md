@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
 - [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
 - [FIX][ci] Reconcile the exact cancelled nightly Swap checkpoint after verifying that custody did not change.
 
