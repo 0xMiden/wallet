@@ -520,12 +520,13 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           };
           // A record is saved as soon as it is decoded, ahead of its note imports, so recent history shows while the
           // rest is still importing. The checkpoint still moves only after every note of the page is imported, and
-          // a replay of an interrupted page finds the saved rows by id and imports the notes again.
+          // a replay of an interrupted page finds the saved rows by id and imports the notes again. Resolves true when it
+          // inserted a new row.
           const saveRecord = async (record: ITransaction) => {
             await decodeLocalCommitments();
             loaded.rows ??= await transactions.where('accountId').equals(account.publicKey).toArray();
             const rows = loaded.rows;
-            await db.transaction('rw', transactions, async () => {
+            return db.transaction('rw', transactions, async () => {
               await Dexie.waitFor(checkCheap());
               const finalCommitment = record.recovery?.finalCommitment;
               const matches = (row: ITransaction) => {
@@ -598,11 +599,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                   match.recovery = recovery;
                   await transactions.update(match.id, { recovery });
                 }
-                return;
+                return false;
               }
               await transactions.put(record);
               rows.push(record);
-              added++;
+              return true;
             });
           };
           // The next entry's delta is requested while this one's notes import, and no entry further ahead.
@@ -644,7 +645,11 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               summary
             );
             record.recoveredBadgeNetwork = provenBadgeNetwork() ?? '';
-            await saveRecord(record);
+            // Counted as it is saved, so a page that stops after this row still reports it.
+            if (await saveRecord(record)) {
+              added++;
+              restored++;
+            }
             // Import one output per call so each operation releases the WASM lock.
             for (const note of summary.outputNotes) {
               await checkCheap();
@@ -660,7 +665,6 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               const settled = await transactions.where('accountId').equals(account.publicKey).toArray();
               for (const row of reconcileRecoveredSwaps(settled)) await transactions.put(row);
             });
-          restored += added;
           checkpoint = {
             ...checkpoint,
             cursor: page.nextCursor,
