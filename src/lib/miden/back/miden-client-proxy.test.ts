@@ -5255,3 +5255,43 @@ it.each(['newTransaction', 'guardianPipeline'])(
     expect(snapshotCrashDiagnostics(error)).toEqual({});
   }
 );
+
+describe('MidenClientProxy - a deadline re-armed while its probe runs (#2148)', () => {
+  const parkOnProbe = async () => {
+    const loaded = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+    let finishProbe!: () => void;
+    G.__px.probeGate = new Promise<void>(resolve => {
+      finishProbe = resolve;
+    });
+    const p = loaded.midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    await wait(40); // the first deadline fires and parks on the probe
+    const [op_id] = loaded.__test.inFlightOpIds();
+    return { ...loaded, p, op_id: op_id!, finishProbe };
+  };
+
+  it('leaves the realm alone when the start signal re-armed the op during the probe', async () => {
+    const { __test, markOpStarted, op_id, finishProbe } = await parkOnProbe();
+    markOpStarted(op_id);
+    finishProbe();
+    await flush();
+
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(1);
+  });
+
+  it('leaves the realm alone when a sign pause and resume re-armed the op during the probe', async () => {
+    const { __test, handleOffscreenSignRequest, op_id, finishProbe } = await parkOnProbe();
+    const release = __test.allowDefaultSigner(op_id);
+    await handleOffscreenSignRequest(signRequestFor(op_id), async () => new Uint8Array([0x7]));
+    release();
+    finishProbe();
+    await flush();
+
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(1);
+  });
+});
