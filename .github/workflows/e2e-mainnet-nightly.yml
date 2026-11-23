@@ -34,6 +34,10 @@ on:
         description: Explicit one-time replacement of an expired unsubmitted return; preserves its old authority and requires recovery-only.
         type: boolean
         default: false
+      replace_unsubmitted_near_return:
+        description: One-time recovery of the original held NEAR proceeds; requires loops_only and excludes fresh payments.
+        type: boolean
+        default: false
       loss_budget_usd_micros:
         description: Remaining allowance for fresh loops after prior recovery costs, in micro-USD (maximum 2000000).
         type: string
@@ -59,11 +63,13 @@ jobs:
       legacy_cleared: ${{ steps.legacy-barrier.outputs.legacy_cleared }}
     env:
       E2E_NETWORK: mainnet
+      E2E_WALLET_REPORT_JOB_KEY: mainnet
       WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
       MIDEN_E2E_MAINNET_NIGHTLY: 'true'
       MAINNET_SWAP_RECOVERY_RETURN_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_swap_recovery_return && 'true' || 'false' }}
       MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.replace_unsubmitted_swap_return && 'true' || 'false' }}
       MAINNET_LOOP_LOSS_BUDGET_USD_MICROS: ${{ github.event_name == 'schedule' && '2000000' || inputs.loss_budget_usd_micros }}
+      MAINNET_NEAR_REPLACEMENT_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.replace_unsubmitted_near_return && 'true' || 'false' }}
       MAINNET_LOOP_BRIDGES_ONLY: ${{ inputs.bridges_only && 'true' || 'false' }}
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
       E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
@@ -83,6 +89,13 @@ jobs:
           if ! [[ "$budget" =~ ^[1-9][0-9]{0,6}$ ]] || [ "$budget" -gt 2000000 ]; then
             echo 'Invalid remaining loss/fee allowance; no wallet restoration authorized.' >&2; exit 1
           fi
+          if [ "$MAINNET_NEAR_REPLACEMENT_APPROVED" = true ] && {
+            [ "$GITHUB_REF" != refs/heads/main ] || [ "$LOOPS_ONLY" != true ] ||
+            [ "$SWAPS_ONLY" = true ] || [ "$BRIDGES_ONLY" = true ] || [ "$budget" != 1712349 ] ||
+            [ "$MAINNET_SWAP_RECOVERY_RETURN_APPROVED" = true ] || [ "$MAINNET_SWAP_RETURN_REPLACEMENT_APPROVED" = true ];
+          }; then
+            echo 'NEAR replacement requires main, loops_only and the exact remaining budget.' >&2; exit 1
+          fi
           if [ "$SWAPS_ONLY" = true ] && [ "$BRIDGES_ONLY" = true ]; then
             echo 'Choose swaps_only or bridges_only, not both.' >&2; exit 1
           fi
@@ -101,8 +114,20 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+      - name: Initialize Wallet E2E report
+        id: wallet-report-init
+        if: github.repository == '0xMiden/wallet' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          REPORT_SWAPS_ONLY: ${{ inputs.swaps_only }}
+          REPORT_BRIDGES_ONLY: ${{ inputs.bridges_only }}
+          REPORT_LOOPS_ONLY: ${{ inputs.loops_only }}
+          REPORT_EXPLICIT_RECOVERY_ONLY: ${{ inputs.authorize_swap_recovery_return || inputs.replace_unsubmitted_swap_return }}
+        run: node scripts/wallet-e2e/job.cjs initialize
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        id: setup-rust-toolchain
       - name: Cache miden-client-cli
+        id: setup-cache-miden-client-cli
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/miden-client
@@ -114,12 +139,15 @@ jobs:
         id: inject-guardian
         uses: ./.github/actions/inject-linked-guardian-pr
       - name: Install dependencies
+        id: setup-install-dependencies
         if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
       - name: Install dependencies (linked PRs injected)
+        id: setup-install-dependencies-linked-prs-injected
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
       - name: Build read-only Epoch SDK
+        id: setup-build-read-only-epoch-sdk
         run: |
           yarn esbuild scripts/helpers/mainnet-epoch-readonly-sdk.ts --bundle --platform=node --format=cjs --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-epoch-readonly-sdk.cjs
           node -e "const sdk=require('./node_modules/.cache/nightly-epoch-readonly-sdk.cjs'); for (const name of ['createLockTag','getAllocatorId','getTaskData','getIntentQuote','getCompactData','getMidenCollateralConfig','getIntentStatus','resolveServiceConfiguration','resolveCompactAddress']) if (typeof sdk[name] !== 'function') throw new Error('Missing read-only Epoch SDK export: '+name);"
@@ -129,6 +157,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs find
       - name: Restore prior swap checkpoint
+        id: setup-restore-prior-swap-checkpoint
         if: steps.swap-prior.outputs.name != ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -148,6 +177,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs find epoch
       - name: Restore prior Epoch checkpoint
+        id: setup-restore-prior-epoch-checkpoint
         if: steps.epoch-prior.outputs.name != ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -167,6 +197,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs find near
       - name: Restore prior NEAR checkpoint
+        id: setup-restore-prior-near-checkpoint
         if: steps.near-prior.outputs.name != ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -180,11 +211,44 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mainnet-swap-artifacts.mjs attempts near
+      - name: Verify exact NEAR replacement provenance
+        id: setup-near-replacement-provenance
+        if: inputs.replace_unsubmitted_near_return
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEAR_FRONTIER: ${{ steps.near-prior.outputs.run_id }}
+        run: |
+          test "$NEAR_FRONTIER" = 44871541172
+          sha256sum --check --status <<'SHA'
+          2c72efc48b1151f7c7f7320a115ac9f6bdd290f7fb7d5450730a42b0611ce461  test-results/mainnet-swap-state/roundtrip.json
+          3478eb7eb398302b997ebbb0c0d1674b79f44b0db3b05c811519c778fa07893e  test-results/mainnet-epoch-state/roundtrip.json
+          SHA
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          download() {
+            gh api "repos/0xMiden/wallet/actions/artifacts/$1/zip" > "$work/$1.zip"
+            printf '%s  %s\n' "$2" "$work/$1.zip" | sha256sum --check --status
+            test "$(unzip -Z1 "$work/$1.zip")" = roundtrip.json
+            unzip -p "$work/$1.zip" roundtrip.json > "$work/$1.json"
+          }
+          historical=6a8cf4b067cd5809cf39800521158e666ec747de39d673f6615a0470299117f7
+          download 14681848612 "$historical"
+          download 14681873349 "$historical"
+          download 14694460888 55e22c8a7fb31e77b345848714fdd7264a8bc2d68f4a863ed73884846f18f738
+          cmp -s "$work/14681848612.json" "$work/14681873349.json"
+          cmp -s "$work/14694460888.json" test-results/mainnet-1click-state/roundtrip.json
+          node scripts/verify-mainnet-near-replacement.mjs "$work/14681848612.json"
+          echo 'MAINNET_NEAR_REPLACEMENT_PROVENANCE=true' >> "$GITHUB_ENV"
       - name: Install miden-client-cli
+        id: setup-install-miden-client-cli
         uses: ./.github/actions/install-miden-client-cli
       - name: Drop apt repositories this repo never installs from
+        id: setup-drop-unused-apt-repos
         uses: ./.github/actions/apt-drop-unused-repos
       - name: Install xvfb
+        id: setup-install-xvfb
         timeout-minutes: 6
         run: |
           if command -v xvfb-run >/dev/null 2>&1; then exit 0; fi
@@ -193,9 +257,11 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
           sudo apt-get install -y xvfb
       - name: Install Playwright browsers
+        id: setup-install-playwright-browsers
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Start wallet eligibility fixture
+        id: setup-start-wallet-eligibility-fixture
         uses: ./.github/actions/start-eligibility-fixture
       - name: Select owned provider overlay
         id: overlay
@@ -211,6 +277,7 @@ jobs:
           appendFileSync(process.env.GITHUB_OUTPUT, `required=${process.env.SWAPS_ONLY !== 'true' || active}\n`);
           NODE
       - name: Start owned provider loop config
+        id: setup-start-owned-provider-loop-config
         if: steps.overlay.outputs.required == 'true'
         run: |
           set -euo pipefail
@@ -223,19 +290,27 @@ jobs:
           done
           echo 'Owned provider overlay did not become ready.' >&2; exit 1
       - name: Build the extension for mainnet
+        id: wallet-build
         run: yarn test:e2e:blockchain:build
+      - name: Capture Wallet E2E build identity
+        if: steps.wallet-report-init.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        run: node scripts/wallet-e2e/job.cjs capture-build
       - name: Prepare explicitly approved first swap recovery return
+        id: wallet-observe-swap-recovery-grant
         if: github.event_name == 'workflow_dispatch' && (inputs.authorize_swap_recovery_return || inputs.replace_unsubmitted_swap_return)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           umask 077
-          MAINNET_SWAP_MODE=authorize-recovery-return E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-operator-prepare-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-operator-prepare.log" 2>&1 || { echo 'First recovery-return authorization blocked; original authority retained.' >&2; exit 1; }
+          MAINNET_SWAP_MODE=authorize-recovery-return E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-operator-prepare-results" bash scripts/wallet-e2e/run.sh swap-recovery-grant xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-operator-prepare.log" 2>&1 || { echo 'First recovery-return authorization blocked; original authority retained.' >&2; exit 1; }
       - name: Recover prior mainnet swap
         id: swap-recover
         env:
           MAINNET_SWAP_BOOTSTRAP: ${{ steps.swap-prior.outputs.bootstrap }}
           MAINNET_SWAP_PRIOR_FORWARD_ATTEMPTED: ${{ steps.swap-attempts.outputs.forward_attempted }}
+          MAINNET_SWAP_PRIOR_FORWARD_UNSPENT: ${{ steps.swap-attempts.outputs.forward_pre_authority_unspent }}
           MAINNET_SWAP_PRIOR_REVERSE_ATTEMPTED: ${{ steps.swap-attempts.outputs.reverse_attempted }}
         run: |
           umask 077
@@ -249,9 +324,10 @@ jobs:
           const needs=active&&['forward-authorized','reverse-authorized'].includes(state.phase)&&state[`${leg}RequestAuthority`]!==undefined;
           appendFileSync(process.env.GITHUB_OUTPUT,`recovery_only=${Boolean(active)}\nneeds_claim=${Boolean(needs)}\nclaim_leg=${leg}\n`);
           NODE
-          (code=0; GITHUB_OUTPUT="$RUNNER_TEMP/swap-recover.outputs" MAINNET_SWAP_MODE=recover MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.recover.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-recover-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-recover.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-recover.exit"; if [ "$code" = 0 ]; then touch test-results/mainnet-swap-state/roundtrip.json.recover.done.ready; fi) &
+          (code=0; GITHUB_OUTPUT="$RUNNER_TEMP/swap-recover.outputs" MAINNET_SWAP_MODE=recover MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.recover.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-recover-results" bash scripts/wallet-e2e/run.sh swap-recover xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-recover.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-recover.exit"; if [ "$code" = 0 ]; then touch test-results/mainnet-swap-state/roundtrip.json.recover.done.ready; fi) &
           echo $! > "$RUNNER_TEMP/swap-recover.pid"
       - name: Upload original swap recovery claim authority
+        id: swap-recover-claim-auth
         if: steps.swap-recover.outputs.needs_claim == 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -262,6 +338,7 @@ jobs:
           snapshot-directory: ${{ runner.temp }}/swap-recover-claim-auth
           alternative-gates: test-results/mainnet-swap-state/roundtrip.json.recover.done
       - name: Wait for prior mainnet swap recovery
+        id: swap-recovery-wait
         timeout-minutes: 31
         run: |
           while [ ! -f "$RUNNER_TEMP/swap-recover.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-recover.pid"; kill -0 "$pid"; sleep 1; done
@@ -276,6 +353,7 @@ jobs:
           appendFileSync(process.env.GITHUB_OUTPUT, `required=${state.phase === 'reverse-authorized' && state.authorizationRunId === process.env.GITHUB_RUN_ID}\n`);
           NODE
       - name: Upload mainnet swap reverse authorization
+        id: swap-recovered-return-auth
         if: steps.swap-recovery-return.outputs.required == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -284,12 +362,14 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Run mainnet swap reverse
+        id: wallet-observe-swap-recovered-return
         if: steps.swap-recovery-return.outputs.required == 'true'
         run: |
           umask 077
-          (code=0; MAINNET_SWAP_MODE=reverse MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.reverse.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-recovered-return-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-recovered-return.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-recovered-return.exit") &
+          (code=0; MAINNET_SWAP_MODE=reverse MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.reverse.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-recovered-return-results" bash scripts/wallet-e2e/run.sh swap-recovered-return xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-recovered-return.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-recovered-return.exit") &
           echo $! > "$RUNNER_TEMP/swap-recovered-return.pid"
       - name: Upload recovered swap SDK return authority
+        id: swap-recovered-return-sdk-auth
         if: steps.swap-recovery-return.outputs.required == 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -299,6 +379,7 @@ jobs:
           process-id: ${{ runner.temp }}/swap-recovered-return.pid
           snapshot-directory: ${{ runner.temp }}/swap-recovered-return-auth
       - name: Upload recovered swap SDK return claim authority
+        id: swap-recovered-return-claim-auth
         if: steps.swap-recovery-return.outputs.required == 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -308,12 +389,14 @@ jobs:
           process-id: ${{ runner.temp }}/swap-recovered-return.pid
           snapshot-directory: ${{ runner.temp }}/swap-recovered-return-claim-auth
       - name: Wait for recovered swap return
+        id: wallet-wait-swap-recovered-return
         if: steps.swap-recovery-return.outputs.required == 'true'
         timeout-minutes: 31
         run: |
           while [ ! -f "$RUNNER_TEMP/swap-recovered-return.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-recovered-return.pid"; kill -0 "$pid"; sleep 1; done
           read -r code < "$RUNNER_TEMP/swap-recovered-return.exit"; [ "$code" = 0 ] || { echo 'Original swap return blocked; retain its authority.' >&2; exit 1; }
       - name: Recover prior mainnet Epoch
+        id: wallet-observe-epoch-recover
         env:
           MAINNET_EPOCH_FORWARD_ATTEMPTED: ${{ steps.epoch-attempts.outputs.forward_attempted }}
           MAINNET_EPOCH_PREAUTH_UNSPENT: ${{ steps.epoch-attempts.outputs.forward_pre_authority_unspent }}
@@ -322,7 +405,7 @@ jobs:
           mkdir -p test-results/mainnet-epoch-state
           (
             code=0
-            MAINNET_EPOCH_MODE=recover E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-recover-results" xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/epoch-recover.log" 2>&1 || code=$?
+            MAINNET_EPOCH_MODE=recover E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-recover-results" bash scripts/wallet-e2e/run.sh epoch-recover xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/epoch-recover.log" 2>&1 || code=$?
             printf '%s\n' "$code" > "$RUNNER_TEMP/epoch-recover.exit"
             if [ "$code" = 0 ]; then touch test-results/mainnet-epoch-state/roundtrip.json.recover.done.ready; fi
           ) &
@@ -361,6 +444,7 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-recover.pid
           snapshot-directory: ${{ runner.temp }}/epoch-recover-evm2
       - name: Upload mainnet epoch signed EVM 3
+        id: epoch-recover-evm3
         if: steps.epoch-recover-auth.outputs.skipped != 'true' && steps.epoch-recover-evm1.outputs.envelope-kind != 'deposit' && steps.epoch-recover-evm2.outputs.envelope-kind != 'deposit'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -370,6 +454,7 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-recover.pid
           snapshot-directory: ${{ runner.temp }}/epoch-recover-evm3
       - name: Upload mainnet epoch native return claim
+        id: epoch-recover-new-claim
         if: steps.epoch-recover-auth.outputs.skipped != 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -379,6 +464,7 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-recover.pid
           snapshot-directory: ${{ runner.temp }}/epoch-recover-new-claim
       - name: Authorize original epoch return claim
+        id: epoch-recover-old-claim
         if: steps.epoch-recover-auth.outputs.alternative-gate == 'test-results/mainnet-epoch-state/roundtrip.json.recover.claim'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -388,6 +474,7 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-recover.pid
           snapshot-directory: ${{ runner.temp }}/epoch-recover-old-claim
       - name: Authorize original epoch refund
+        id: epoch-recover-refund
         if: steps.epoch-recover-auth.outputs.alternative-gate == 'test-results/mainnet-epoch-state/roundtrip.json.refund'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -404,6 +491,7 @@ jobs:
           read -r code < "$RUNNER_TEMP/epoch-recover.exit"
           if [ "$code" != 0 ]; then echo 'Original Epoch recovery blocked; retain its public checkpoint.' >&2; exit 1; fi
       - name: Recover prior mainnet NEAR
+        id: wallet-observe-near-recover
         env:
           MAINNET_NEAR_FORWARD_ATTEMPTED: ${{ steps.near-attempts.outputs.forward_attempted }}
           MAINNET_NEAR_PREAUTH_UNSPENT: ${{ steps.near-attempts.outputs.forward_pre_authority_unspent }}
@@ -412,7 +500,7 @@ jobs:
           mkdir -p test-results/mainnet-1click-state
           (
             code=0
-            MAINNET_NEAR_MODE=recover E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-recover-results" xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/near-recover.log" 2>&1 || code=$?
+            MAINNET_NEAR_MODE=recover E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-recover-results" bash scripts/wallet-e2e/run.sh near-recover xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/near-recover.log" 2>&1 || code=$?
             printf '%s\n' "$code" > "$RUNNER_TEMP/near-recover.exit"
             if [ "$code" = 0 ]; then touch test-results/mainnet-1click-state/roundtrip.json.recover.done.ready; fi
           ) &
@@ -431,6 +519,7 @@ jobs:
             test-results/mainnet-1click-state/roundtrip.json.recover.refund.claim
             test-results/mainnet-1click-state/roundtrip.json.recover.done
       - name: Upload mainnet near signed EVM 1
+        id: near-recover-evm1
         if: steps.near-recover-auth.outputs.skipped != 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -440,6 +529,7 @@ jobs:
           process-id: ${{ runner.temp }}/near-recover.pid
           snapshot-directory: ${{ runner.temp }}/near-recover-evm
       - name: Upload mainnet near native return claim
+        id: near-recover-new-claim
         if: steps.near-recover-auth.outputs.skipped != 'true'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -449,6 +539,7 @@ jobs:
           process-id: ${{ runner.temp }}/near-recover.pid
           snapshot-directory: ${{ runner.temp }}/near-recover-new-claim
       - name: Authorize original near return claim
+        id: near-recover-old-claim
         if: steps.near-recover-auth.outputs.alternative-gate == 'test-results/mainnet-1click-state/roundtrip.json.recover.claim'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -458,6 +549,7 @@ jobs:
           process-id: ${{ runner.temp }}/near-recover.pid
           snapshot-directory: ${{ runner.temp }}/near-recover-old-claim
       - name: Authorize original near refund
+        id: near-recover-refund
         if: steps.near-recover-auth.outputs.alternative-gate == 'test-results/mainnet-1click-state/roundtrip.json.recover.refund.claim'
         uses: ./.github/actions/mainnet-loop-upload
         with:
@@ -484,12 +576,14 @@ jobs:
           const reports = ['test-results/mainnet-epoch-recovery.json', 'test-results/mainnet-near-recovery.json'].map(path => JSON.parse(readFileSync(path, 'utf8')));
           if (reports.some(report => typeof report.recoveryOnly !== 'boolean')) throw new Error('Missing actual provider recovery disposition');
           const recovered = process.env.SWAP_RECOVERY_ONLY === 'true' || reports.some(report => report.recoveryOnly);
+          if (!recovered && process.env.MAINNET_NEAR_REPLACEMENT_APPROVED === 'true') throw new Error('NEAR replacement cannot fund fresh loops');
           appendFileSync(process.env.GITHUB_OUTPUT, `recovery_only=${recovered}\nrecovery_cleared=${!recovered}\n`);
           if (!recovered) appendFileSync(process.env.GITHUB_ENV, 'MAINNET_LOOP_RECOVERY_CLEARED=true\n');
           NODE
       - name: Prepare mainnet solver swap
+        id: wallet-observe-swap-prepare
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
-        run: MAINNET_SWAP_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-prepare xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+        run: MAINNET_SWAP_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-swap-prepare bash scripts/wallet-e2e/run.sh swap-prepare xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
       - name: Upload mainnet swap forward authorization
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -499,10 +593,11 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Run mainnet swap forward
+        id: swap-forward-run
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         run: |
           umask 077
-          (code=0; MAINNET_SWAP_MODE=forward MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.forward.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-forward-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-forward.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-forward.exit") &
+          (code=0; MAINNET_SWAP_MODE=forward MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.forward.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-forward-results" bash scripts/wallet-e2e/run.sh swap-forward xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-forward.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-forward.exit") &
           echo $! > "$RUNNER_TEMP/swap-forward.pid"
       - name: Upload swap SDK forward authority
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
@@ -523,6 +618,7 @@ jobs:
           process-id: ${{ runner.temp }}/swap-forward.pid
           snapshot-directory: ${{ runner.temp }}/swap-forward-claim-auth
       - name: Wait for mainnet swap forward
+        id: wallet-wait-swap-forward
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         timeout-minutes: 31
         run: |
@@ -537,10 +633,11 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Run mainnet swap reverse
+        id: wallet-observe-swap-reverse
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         run: |
           umask 077
-          (code=0; MAINNET_SWAP_MODE=reverse MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.reverse.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-reverse-results" xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-reverse.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-reverse.exit") &
+          (code=0; MAINNET_SWAP_MODE=reverse MAINNET_SWAP_SDK_GATE=test-results/mainnet-swap-state/roundtrip.json.reverse.sdk E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/swap-reverse-results" bash scripts/wallet-e2e/run.sh swap-reverse xvfb-run -a yarn playwright test mainnet-swap-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/swap-reverse.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/swap-reverse.exit") &
           echo $! > "$RUNNER_TEMP/swap-reverse.pid"
       - name: Upload swap SDK reverse authority
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
@@ -561,19 +658,22 @@ jobs:
           process-id: ${{ runner.temp }}/swap-reverse.pid
           snapshot-directory: ${{ runner.temp }}/swap-reverse-claim-auth
       - name: Wait for mainnet swap return
+        id: wallet-wait-swap-reverse
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.bridges_only
         timeout-minutes: 31
         run: |
           while [ ! -f "$RUNNER_TEMP/swap-reverse.exit" ]; do read -r pid < "$RUNNER_TEMP/swap-reverse.pid"; kill -0 "$pid"; sleep 1; done
           read -r code < "$RUNNER_TEMP/swap-reverse.exit"; [ "$code" = 0 ] || { echo 'Swap return blocked; retain original authority.' >&2; exit 1; }
       - name: Prepare mainnet Epoch loop
+        id: wallet-observe-epoch-prepare
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
-        run: MAINNET_EPOCH_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-prepare-results" xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+        run: MAINNET_EPOCH_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-prepare-results" bash scripts/wallet-e2e/run.sh epoch-prepare xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
       - name: Run mainnet epoch forward
+        id: wallet-observe-epoch-forward
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         run: |
           umask 077
-          (code=0; MAINNET_EPOCH_MODE=forward E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-forward-results" xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/epoch-forward.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/epoch-forward.exit") &
+          (code=0; MAINNET_EPOCH_MODE=forward E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-forward-results" bash scripts/wallet-e2e/run.sh epoch-forward xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/epoch-forward.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/epoch-forward.exit") &
           echo $! > "$RUNNER_TEMP/epoch-forward.pid"
       - name: Upload Epoch native forward authority
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
@@ -594,16 +694,18 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-forward.pid
           snapshot-directory: ${{ runner.temp }}/epoch-forward-sdk-auth
       - name: Wait for mainnet Epoch forward
+        id: wallet-wait-epoch-forward
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         timeout-minutes: 21
         run: |
           while [ ! -f "$RUNNER_TEMP/epoch-forward.exit" ]; do read -r pid < "$RUNNER_TEMP/epoch-forward.pid"; kill -0 "$pid"; sleep 1; done
           read -r code < "$RUNNER_TEMP/epoch-forward.exit"; [ "$code" = 0 ] || { echo 'Epoch forward blocked; retain original authority.' >&2; exit 1; }
       - name: Run mainnet epoch reverse
+        id: wallet-observe-epoch-reverse
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         run: |
           umask 077
-          (code=0; MAINNET_EPOCH_MODE=reverse E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-reverse-results" xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/epoch-reverse.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/epoch-reverse.exit") &
+          (code=0; MAINNET_EPOCH_MODE=reverse E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/epoch-reverse-results" bash scripts/wallet-e2e/run.sh epoch-reverse xvfb-run -a yarn playwright test mainnet-epoch-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/epoch-reverse.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/epoch-reverse.exit") &
           echo $! > "$RUNNER_TEMP/epoch-reverse.pid"
       - name: Upload Epoch reverse authority
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
@@ -653,14 +755,16 @@ jobs:
           process-id: ${{ runner.temp }}/epoch-reverse.pid
           snapshot-directory: ${{ runner.temp }}/epoch-claim
       - name: Wait for mainnet Epoch return
+        id: wallet-wait-epoch-reverse
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         timeout-minutes: 21
         run: |
           while [ ! -f "$RUNNER_TEMP/epoch-reverse.exit" ]; do read -r pid < "$RUNNER_TEMP/epoch-reverse.pid"; kill -0 "$pid"; sleep 1; done
           read -r code < "$RUNNER_TEMP/epoch-reverse.exit"; [ "$code" = 0 ] || { echo 'Epoch return blocked; retain original authority.' >&2; exit 1; }
       - name: Prepare mainnet NEAR loop
+        id: wallet-observe-near-prepare
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
-        run: MAINNET_NEAR_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-prepare-results" xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
+        run: MAINNET_NEAR_MODE=prepare E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-prepare-results" bash scripts/wallet-e2e/run.sh near-prepare xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --retries=0
       - name: Upload native NEAR read-only preflight
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -670,10 +774,11 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Run mainnet near forward
+        id: wallet-observe-near-forward
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         run: |
           umask 077
-          (code=0; MAINNET_NEAR_MODE=forward E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-forward-results" xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/near-forward.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/near-forward.exit") &
+          (code=0; MAINNET_NEAR_MODE=forward E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-forward-results" bash scripts/wallet-e2e/run.sh near-forward xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/near-forward.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/near-forward.exit") &
           echo $! > "$RUNNER_TEMP/near-forward.pid"
       - name: Upload NEAR native forward authority
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
@@ -685,16 +790,18 @@ jobs:
           process-id: ${{ runner.temp }}/near-forward.pid
           snapshot-directory: ${{ runner.temp }}/near-forward-auth
       - name: Wait for mainnet NEAR forward
+        id: wallet-wait-near-forward
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         timeout-minutes: 21
         run: |
           while [ ! -f "$RUNNER_TEMP/near-forward.exit" ]; do read -r pid < "$RUNNER_TEMP/near-forward.pid"; kill -0 "$pid"; sleep 1; done
           read -r code < "$RUNNER_TEMP/near-forward.exit"; [ "$code" = 0 ] || { echo 'NEAR forward blocked; retain original authority.' >&2; exit 1; }
       - name: Run mainnet near reverse
+        id: wallet-observe-near-reverse
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         run: |
           umask 077
-          (code=0; MAINNET_NEAR_MODE=reverse E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-reverse-results" xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/near-reverse.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/near-reverse.exit") &
+          (code=0; MAINNET_NEAR_MODE=reverse E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-reverse-results" bash scripts/wallet-e2e/run.sh near-reverse xvfb-run -a yarn playwright test mainnet-1click-loop.spec.ts --config playwright.mainnet.config.ts --retries=0 > "$RUNNER_TEMP/near-reverse.log" 2>&1 || code=$?; printf '%s\n' "$code" > "$RUNNER_TEMP/near-reverse.exit") &
           echo $! > "$RUNNER_TEMP/near-reverse.pid"
       - name: Upload NEAR reverse authority
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
@@ -724,6 +831,7 @@ jobs:
           process-id: ${{ runner.temp }}/near-reverse.pid
           snapshot-directory: ${{ runner.temp }}/near-claim
       - name: Wait for mainnet NEAR return
+        id: wallet-wait-near-reverse
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
         timeout-minutes: 21
         run: |
@@ -745,10 +853,11 @@ jobs:
       - name: Run native mainnet round trip
         id: native-roundtrip
         if: ${{ !cancelled() && !inputs.swaps_only && !inputs.loops_only && steps.recovery-barrier.outputs.recovery_cleared == 'true' && steps.legacy-barrier.outputs.legacy_cleared == 'true' }}
-        run: E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-round-trip xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
+        run: E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-round-trip bash scripts/wallet-e2e/run.sh native-round-trip xvfb-run -a yarn playwright test mainnet-round-trip.spec.ts --config playwright.mainnet.config.ts
       - name: Run USDCx bridge loops
+        id: wallet-observe-usdcx-round-trip
         if: ${{ !cancelled() && !inputs.swaps_only && !inputs.loops_only && steps.recovery-barrier.outputs.recovery_only != 'true' && steps.recovery-barrier.outputs.recovery_cleared == 'true' && steps.legacy-barrier.outputs.legacy_cleared == 'true' && steps.native-roundtrip.outcome == 'success' }}
-        run: E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-bridge-loop xvfb-run -a yarn playwright test mainnet-bridge-loop.spec.ts --config playwright.mainnet.config.ts
+        run: E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-bridge-loop bash scripts/wallet-e2e/run.sh usdcx-round-trip xvfb-run -a yarn playwright test mainnet-bridge-loop.spec.ts --config playwright.mainnet.config.ts
       - name: Retain mainnet swap checkpoint
         if: always() && hashFiles('test-results/mainnet-swap-state/roundtrip.json') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -807,6 +916,8 @@ jobs:
             test-results/mainnet-epoch-state/roundtrip.json.return-readiness-failure.json
             test-results/mainnet-epoch-state/roundtrip.json.return-solve-failure.json
             test-results/mainnet-near-summary.json
+            test-results/mainnet-near-return-failure.json
+            test-results/mainnet-near-forward-stage.json
             test-results/mainnet-epoch-recovery.json
             test-results/mainnet-near-recovery.json
             test-results/mainnet-usdcx-payouts.md
@@ -817,6 +928,95 @@ jobs:
         run: |
           echo '::error::Recovered original provider principal only; no fresh coverage or legacy spending was authorized.'
           exit 1
+      - name: Assemble Wallet E2E report
+        id: wallet-report-assemble
+        if: always() && steps.wallet-report-init.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          REPORT_SETUP_OUTCOMES: >-
+            ${{ steps.setup-rust-toolchain.outcome }}
+            ${{ steps.setup-cache-miden-client-cli.outcome }}
+            ${{ steps.inject-web-sdk.outcome }}
+            ${{ steps.inject-guardian.outcome }}
+            ${{ steps.setup-install-dependencies.outcome }}
+            ${{ steps.setup-install-dependencies-linked-prs-injected.outcome }}
+            ${{ steps.setup-build-read-only-epoch-sdk.outcome }}
+            ${{ steps.swap-prior.outcome }}
+            ${{ steps.setup-restore-prior-swap-checkpoint.outcome }}
+            ${{ steps.swap-attempts.outcome }}
+            ${{ steps.epoch-prior.outcome }}
+            ${{ steps.setup-restore-prior-epoch-checkpoint.outcome }}
+            ${{ steps.epoch-attempts.outcome }}
+            ${{ steps.near-prior.outcome }}
+            ${{ steps.setup-restore-prior-near-checkpoint.outcome }}
+            ${{ steps.near-attempts.outcome }}
+            ${{ steps.setup-near-replacement-provenance.outcome }}
+            ${{ steps.setup-install-miden-client-cli.outcome }}
+            ${{ steps.setup-drop-unused-apt-repos.outcome }}
+            ${{ steps.setup-install-xvfb.outcome }}
+            ${{ steps.setup-install-playwright-browsers.outcome }}
+            ${{ steps.setup-start-wallet-eligibility-fixture.outcome }}
+            ${{ steps.overlay.outcome }}
+            ${{ steps.setup-start-owned-provider-loop-config.outcome }}
+          REPORT_BUILD_OUTCOME: ${{ steps.wallet-build.outcome }}
+          REPORT_RECOVERY_AUTH_OUTCOMES: >-
+            ${{ steps.swap-recover-claim-auth.outcome }}
+            ${{ steps.swap-recovery-return.outcome }}
+            ${{ steps.swap-recovered-return-auth.outcome }}
+            ${{ steps.swap-recovered-return-sdk-auth.outcome }}
+            ${{ steps.swap-recovered-return-claim-auth.outcome }}
+            ${{ steps.epoch-recover-auth.outcome }}
+            ${{ steps.epoch-recover-evm1.outcome }}
+            ${{ steps.epoch-recover-evm2.outcome }}
+            ${{ steps.epoch-recover-evm3.outcome }}
+            ${{ steps.epoch-recover-new-claim.outcome }}
+            ${{ steps.epoch-recover-old-claim.outcome }}
+            ${{ steps.epoch-recover-refund.outcome }}
+            ${{ steps.near-recover-auth.outcome }}
+            ${{ steps.near-recover-evm1.outcome }}
+            ${{ steps.near-recover-new-claim.outcome }}
+            ${{ steps.near-recover-old-claim.outcome }}
+            ${{ steps.near-recover-refund.outcome }}
+          REPORT_BARRIER_OUTCOME: ${{ steps.recovery-barrier.outcome }}
+          REPORT_RECOVERY_ONLY: ${{ steps.recovery-barrier.outputs.recovery_only }}
+          REPORT_INVOCATION_SWAP_RECOVERY_GRANT: ${{ steps.wallet-observe-swap-recovery-grant.outcome }}
+          REPORT_INVOCATION_SWAP_RECOVER: ${{ steps.swap-recover.outcome }}
+          REPORT_WAIT_SWAP_RECOVER: ${{ steps.swap-recovery-wait.outcome }}
+          REPORT_INVOCATION_SWAP_RECOVERED_RETURN: ${{ steps.wallet-observe-swap-recovered-return.outcome }}
+          REPORT_WAIT_SWAP_RECOVERED_RETURN: ${{ steps.wallet-wait-swap-recovered-return.outcome }}
+          REPORT_INVOCATION_EPOCH_RECOVER: ${{ steps.wallet-observe-epoch-recover.outcome }}
+          REPORT_WAIT_EPOCH_RECOVER: ${{ steps.epoch-recovered.outcome }}
+          REPORT_INVOCATION_NEAR_RECOVER: ${{ steps.wallet-observe-near-recover.outcome }}
+          REPORT_WAIT_NEAR_RECOVER: ${{ steps.near-recovered.outcome }}
+          REPORT_INVOCATION_SWAP_PREPARE: ${{ steps.wallet-observe-swap-prepare.outcome }}
+          REPORT_INVOCATION_SWAP_FORWARD: ${{ steps.swap-forward-run.outcome }}
+          REPORT_WAIT_SWAP_FORWARD: ${{ steps.wallet-wait-swap-forward.outcome }}
+          REPORT_INVOCATION_SWAP_REVERSE: ${{ steps.wallet-observe-swap-reverse.outcome }}
+          REPORT_WAIT_SWAP_REVERSE: ${{ steps.wallet-wait-swap-reverse.outcome }}
+          REPORT_INVOCATION_EPOCH_PREPARE: ${{ steps.wallet-observe-epoch-prepare.outcome }}
+          REPORT_INVOCATION_EPOCH_FORWARD: ${{ steps.wallet-observe-epoch-forward.outcome }}
+          REPORT_WAIT_EPOCH_FORWARD: ${{ steps.wallet-wait-epoch-forward.outcome }}
+          REPORT_INVOCATION_EPOCH_REVERSE: ${{ steps.wallet-observe-epoch-reverse.outcome }}
+          REPORT_WAIT_EPOCH_REVERSE: ${{ steps.wallet-wait-epoch-reverse.outcome }}
+          REPORT_INVOCATION_NEAR_PREPARE: ${{ steps.wallet-observe-near-prepare.outcome }}
+          REPORT_INVOCATION_NEAR_FORWARD: ${{ steps.wallet-observe-near-forward.outcome }}
+          REPORT_WAIT_NEAR_FORWARD: ${{ steps.wallet-wait-near-forward.outcome }}
+          REPORT_INVOCATION_NEAR_REVERSE: ${{ steps.wallet-observe-near-reverse.outcome }}
+          REPORT_WAIT_NEAR_REVERSE: ${{ steps.wallet-wait-near-reverse.outcome }}
+          REPORT_INVOCATION_NATIVE_ROUND_TRIP: ${{ steps.native-roundtrip.outcome }}
+          REPORT_INVOCATION_USDCX_ROUND_TRIP: ${{ steps.wallet-observe-usdcx-round-trip.outcome }}
+        run: node scripts/wallet-e2e/job.cjs assemble
+      - name: Upload Wallet E2E report
+        if: always() && steps.wallet-report-assemble.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wallet-e2e-v1-${{ github.run_id }}-${{ github.run_attempt }}-mainnet
+          path: ${{runner.temp}}/wallet-e2e/mainnet/wallet-e2e-report-v1.json
+          retention-days: 30
+          if-no-files-found: ignore
 
   mainnet-agglayer:
     name: Chrome mainnet AggLayer loop
@@ -827,6 +1027,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 230 || 185 }}
     env:
       E2E_NETWORK: mainnet
+      E2E_WALLET_REPORT_JOB_KEY: agglayer
       WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
       MIDEN_E2E_MAINNET_NIGHTLY: 'true'
       E2E_MAINNET_PLAIN_SEED: ${{ secrets.E2E_MAINNET_PLAIN_SEED }}
@@ -843,8 +1044,20 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+      - name: Initialize Wallet E2E report
+        id: wallet-report-init
+        if: github.repository == '0xMiden/wallet' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          REPORT_SWAPS_ONLY: ${{ inputs.swaps_only }}
+          REPORT_BRIDGES_ONLY: ${{ inputs.bridges_only }}
+          REPORT_LOOPS_ONLY: ${{ inputs.loops_only }}
+          REPORT_EXPLICIT_RECOVERY_ONLY: ${{ inputs.authorize_swap_recovery_return || inputs.replace_unsubmitted_swap_return }}
+        run: node scripts/wallet-e2e/job.cjs initialize
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        id: setup-rust-toolchain
       - name: Cache miden-client-cli
+        id: setup-cache-miden-client-cli
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/miden-client
@@ -856,16 +1069,21 @@ jobs:
         id: inject-guardian
         uses: ./.github/actions/inject-linked-guardian-pr
       - name: Install dependencies
+        id: setup-install-dependencies
         if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
       - name: Install dependencies (linked PRs injected)
+        id: setup-install-dependencies-linked-prs-injected
         if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
         uses: ./.github/actions/yarn-install
       - name: Install miden-client-cli
+        id: setup-install-miden-client-cli
         uses: ./.github/actions/install-miden-client-cli
       - name: Drop apt repositories this repo never installs from
+        id: setup-drop-unused-apt-repos
         uses: ./.github/actions/apt-drop-unused-repos
       - name: Install xvfb
+        id: setup-install-xvfb
         timeout-minutes: 6
         run: |
           if command -v xvfb-run >/dev/null 2>&1; then exit 0; fi
@@ -874,14 +1092,23 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
           sudo apt-get install -y xvfb
       - name: Install Playwright browsers
+        id: setup-install-playwright-browsers
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Start wallet eligibility fixture
+        id: setup-start-wallet-eligibility-fixture
         uses: ./.github/actions/start-eligibility-fixture
       - name: Build the extension for mainnet
+        id: wallet-build
         run: yarn test:e2e:blockchain:build
+      - name: Capture Wallet E2E build identity
+        if: steps.wallet-report-init.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        run: node scripts/wallet-e2e/job.cjs capture-build
       - name: Run the mainnet AggLayer loop
-        run: E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-agglayer-loop xvfb-run -a yarn playwright test mainnet-agglayer-loop.spec.ts --config playwright.mainnet.config.ts
+        id: agglayer-run
+        run: E2E_PLAYWRIGHT_OUTPUT_DIR=test-results/mainnet-agglayer-loop bash scripts/wallet-e2e/run.sh agglayer-round-trip xvfb-run -a yarn playwright test mainnet-agglayer-loop.spec.ts --config playwright.mainnet.config.ts
       - name: Publish the AggLayer summary
         if: always()
         run: |
@@ -895,4 +1122,35 @@ jobs:
           name: mainnet-agglayer-${{ github.run_id }}
           path: test-results/mainnet-agglayer-loop/agglayer-night.md
           retention-days: 90
+          if-no-files-found: ignore
+      - name: Assemble Wallet E2E report
+        id: wallet-report-assemble
+        if: always() && steps.wallet-report-init.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          REPORT_SETUP_OUTCOMES: >-
+            ${{ steps.setup-rust-toolchain.outcome }}
+            ${{ steps.setup-cache-miden-client-cli.outcome }}
+            ${{ steps.inject-web-sdk.outcome }}
+            ${{ steps.inject-guardian.outcome }}
+            ${{ steps.setup-install-dependencies.outcome }}
+            ${{ steps.setup-install-dependencies-linked-prs-injected.outcome }}
+            ${{ steps.setup-install-miden-client-cli.outcome }}
+            ${{ steps.setup-drop-unused-apt-repos.outcome }}
+            ${{ steps.setup-install-xvfb.outcome }}
+            ${{ steps.setup-install-playwright-browsers.outcome }}
+            ${{ steps.setup-start-wallet-eligibility-fixture.outcome }}
+          REPORT_BUILD_OUTCOME: ${{ steps.wallet-build.outcome }}
+          REPORT_INVOCATION_AGGLAYER_ROUND_TRIP: ${{ steps.agglayer-run.outcome }}
+        run: node scripts/wallet-e2e/job.cjs assemble
+      - name: Upload Wallet E2E report
+        if: always() && steps.wallet-report-assemble.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wallet-e2e-v1-${{ github.run_id }}-${{ github.run_attempt }}-agglayer
+          path: ${{runner.temp}}/wallet-e2e/agglayer/wallet-e2e-report-v1.json
+          retention-days: 30
           if-no-files-found: ignore

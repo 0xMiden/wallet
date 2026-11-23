@@ -12,11 +12,12 @@
  */
 
 import { NoteFilterTypes, NoteType, Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
-import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import { type SignKind, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import extensionBrowser, { type Windows } from 'webextension-polyfill';
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import * as noteQuarantine from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -24,6 +25,7 @@ import { requestCustomTransaction } from 'lib/miden/transaction';
 import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletStatus } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 // ── Capture intercom listeners via the mock ────────────────────────
 const _g = globalThis as any;
@@ -82,7 +84,9 @@ jest.mock('lib/miden/back/store', () => ({
   store: {
     getState: () => ({
       currentAccount: { publicKey: (globalThis as any).__dappExtTestCurrentAccount ?? 'miden-account-1' },
-      status: (globalThis as any).__dappExtTestStatus ?? 'Ready'
+      status: (globalThis as any).__dappExtTestStatus ?? 'Ready',
+      // The connected account's kind, which the sign gate reads. Empty reads as a single-key account.
+      accounts: (globalThis as any).__dappExtTestAccounts ?? []
     }),
     // Drives `waitForUnlock`: `unlockWallet()` below notifies these the way the real store's updates do.
     updates: {
@@ -375,6 +379,7 @@ beforeEach(() => {
   mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-1');
   mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
   _g.__dappExtTestCurrentAccount = 'miden-account-1';
+  _g.__dappExtTestAccounts = [];
   delete _g.__dappExtTestStatus;
   _g.__dappExtTestStoreListeners.clear();
   _g.__dappExtRemovedListeners.length = 0;
@@ -1917,6 +1922,149 @@ describe('Full confirmation cycles in extension mode', () => {
 
       await expect(signRefused(SIGNER_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
       expect(signData).not.toHaveBeenCalled();
+    });
+  });
+
+  // A Guardian account signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. Every other
+  // request is refused before the popup opens. A single-key account's request is not refused by this gate.
+  describe('requestSign - the Guardian sign rule applies before the popup opens', () => {
+    // The SDK stub that `lib/miden/dapp-sign-inputs` reads; each case replaces its `SigningInputs` and restores it.
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const variant = (variantType: number) => ({ variantType, free: () => undefined });
+    const cases: [string, SignKind, { deserialize: () => unknown }][] = [
+      ['a raw word', 'word', { deserialize: () => variant(1) }],
+      ['transaction summary signing inputs', 'signingInputs', { deserialize: () => variant(0) }],
+      ['blind signing inputs', 'signingInputs', { deserialize: () => variant(2) }],
+      [
+        'an arbitrary preimage of 257 elements, without reading it',
+        'signingInputs',
+        {
+          deserialize: () => ({
+            ...variant(1),
+            toElements: () => ({
+              length: () => 257,
+              get: () => {
+                throw new Error('the element cap must refuse before any element is read');
+              },
+              free: () => undefined
+            })
+          })
+        }
+      ]
+    ];
+    const signRequest = (kind: SignKind) =>
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: SIGNER_COMMITMENT_HEX,
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind
+      });
+    const withSigningInputs = async (signingInputs: unknown, run: () => Promise<void>) => {
+      const defaultSigningInputs = sdk.SigningInputs;
+      sdk.SigningInputs = signingInputs;
+      try {
+        await run();
+      } finally {
+        sdk.SigningInputs = defaultSigningInputs;
+      }
+    };
+
+    it.each(cases)('refuses %s for a Guardian account', async (_label, kind, signingInputs) => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+      const signData = jest.fn(async () => 'fake-signature-base64');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+      const create = jest.mocked(extensionBrowser.windows.create);
+      create.mockClear();
+
+      await withSigningInputs(signingInputs, async () => {
+        const refusal = signRequest(kind);
+        await expect(refusal).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+        await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+      });
+      expect(create).not.toHaveBeenCalled();
+      expect(signData).not.toHaveBeenCalled();
+    });
+
+    // The popup asks for its payload by the id in its URL; a locked wallet's popup asks only once unlocked.
+    const servedPayload = async () => {
+      const calls = jest.mocked(extensionBrowser.windows.create).mock.calls;
+      const url = String((calls[calls.length - 1]![0] as { url?: string }).url);
+      const id = url.match(/[?&]id=([^&]+)/)![1];
+      const listener = _g.__dappExtTest.intercomListeners[_g.__dappExtTest.intercomListeners.length - 1];
+      const response = await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, { id: 'fake-port' });
+      return response.payload as { messageElements?: string[] };
+    };
+
+    it('opens the popup for arbitrary signing inputs of a Guardian account, with the elements to show', async () => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+      const create = jest.mocked(extensionBrowser.windows.create);
+      create.mockClear();
+
+      // The wasmMock default reads every payload as Arbitrary signing inputs with the preimage 1, 2, 3.
+      void signRequest('signingInputs').catch(() => undefined);
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect((await servedPayload()).messageElements).toEqual(['1', '2', '3']);
+    });
+
+    it('serves a single-key account no message elements', async () => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.OnChain }];
+      jest.mocked(extensionBrowser.windows.create).mockClear();
+
+      void signRequest('signingInputs').catch(() => undefined);
+      await new Promise(r => setTimeout(r, 0));
+
+      expect((await servedPayload()).messageElements).toBeUndefined();
+    });
+
+    it('classifies a Guardian account when a locked popup asks for its payload, after the unlock', async () => {
+      arrangeSignerAccount();
+      // Locked at the entry gate: the store lists no accounts.
+      _g.__dappExtTestAccounts = [];
+      jest.mocked(extensionBrowser.windows.create).mockClear();
+
+      void signRequest('signingInputs').catch(() => undefined);
+      await new Promise(r => setTimeout(r, 0));
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+
+      expect((await servedPayload()).messageElements).toEqual(['1', '2', '3']);
+    });
+
+    it('refuses a forbidden Guardian request with the sign rule when the locked popup asks, before any approval', async () => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [];
+      const signData = jest.fn(async () => 'fake-signature-base64');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+      jest.mocked(extensionBrowser.windows.create).mockClear();
+
+      const outcome = signRequest('word').then(
+        () => 'resolved',
+        (err: Error) => err.message
+      );
+      await new Promise(r => setTimeout(r, 0));
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+
+      await expect(servedPayload()).rejects.toThrow(DAPP_SIGN_RULE);
+      await expect(outcome).resolves.toContain(DAPP_SIGN_RULE);
+      expect(signData).not.toHaveBeenCalled();
+    });
+
+    it.each(cases)('does not refuse %s for a single-key account', async (_label, kind, signingInputs) => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.OnChain }];
+      const create = jest.mocked(extensionBrowser.windows.create);
+      create.mockClear();
+
+      await withSigningInputs(signingInputs, async () => {
+        void signRequest(kind).catch(() => undefined);
+        await new Promise(r => setTimeout(r, 0));
+      });
+      expect(create).toHaveBeenCalledTimes(1);
     });
   });
 

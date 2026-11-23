@@ -45,6 +45,7 @@ import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { handleTestAuthorizationStorage } from 'lib/miden/sdk/test-authorization-storage';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { beginStartupProbe } from 'lib/miden/storage-health';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import {
@@ -85,6 +86,8 @@ function afterInitialStartup(action: () => void) {
 
 export async function start() {
   console.log('Miden background script started');
+  // Before any await: the probe must not queue behind Dexie work a stalled browser never finishes.
+  beginStartupProbe();
   startupHydrated = false;
   let hydrated: () => void = () => undefined;
   let startupFailed: (error: unknown) => void = () => undefined;

@@ -71,6 +71,11 @@ let mockStoreState: { tokenPrices: TokenPrices } = { tokenPrices: {} };
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
+let mockCachedQuotes: TokenPrices | undefined;
+jest.mock('lib/prices/display-cache', () => ({
+  ...jest.requireActual('lib/prices/display-cache'),
+  useCachedDisplayQuotes: () => mockCachedQuotes
+}));
 
 // The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
 const mockHiddenIds = new Set<string>();
@@ -112,7 +117,7 @@ const renderChild =
     </span>
   );
 
-const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0, kind: 'market' as const });
 
 const total = () => screen.getByTestId('total');
 
@@ -122,6 +127,7 @@ beforeEach(() => {
   mockUseAllTokensBaseMetadata.mockReturnValue({ ETH: {} });
   mockUseAllBalances.mockReturnValue(balancesReturn([]));
   mockStoreState = { tokenPrices: { ETH: quote(100), BTC: quote(50) } };
+  mockCachedQuotes = undefined;
   capturedTransitionProps = null;
   mockHiddenIds.clear();
   mockBridgeSnapshot = undefined;
@@ -146,6 +152,56 @@ describe('Balance', () => {
     mockStoreState = { tokenPrices: { ...mockStoreState.tokenPrices } };
     view.rerender(<Balance>{renderChild()}</Balance>);
     expect(total()).toHaveTextContent('no figure');
+  });
+
+  it('values a fresher cached quote and keeps its unknown daily change', () => {
+    const now = Date.now();
+    const live = {
+      price: 100,
+      change24h: 5,
+      percentageChange24h: 5,
+      observedAt: now - 16 * 60_000,
+      kind: 'market' as const
+    };
+    const cached = {
+      price: 40,
+      change24h: Number.NaN,
+      percentageChange24h: Number.NaN,
+      observedAt: now - 1_000,
+      kind: 'market' as const
+    };
+    mockCachedQuotes = { ETH: cached };
+    mockStoreState = { tokenPrices: { ETH: live } };
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([{ tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } }])
+    );
+    let seen: { absolute: number; percentage: number } | null = { absolute: 1, percentage: 1 };
+    const view = render(
+      <Balance>
+        {(totalValue, change) => {
+          seen = change;
+          return <span data-testid="total">{totalValue === null ? 'no figure' : totalValue.toString()}</span>;
+        }}
+      </Balance>
+    );
+    expect(total()).toHaveTextContent('80');
+    expect(seen).toBeNull();
+
+    mockStoreState = {
+      tokenPrices: {
+        ETH: { price: 100, change24h: 5, percentageChange24h: 5, observedAt: now, kind: 'market' }
+      }
+    };
+    view.rerender(
+      <Balance>
+        {(totalValue, change) => {
+          seen = change;
+          return <span data-testid="total">{totalValue === null ? 'no figure' : totalValue.toString()}</span>;
+        }}
+      </Balance>
+    );
+    expect(total()).toHaveTextContent('200');
+    expect(seen).toEqual({ absolute: 10, percentage: (10 / 190) * 100 });
   });
 
   it('yields a zero fiat total when there are no balances', () => {

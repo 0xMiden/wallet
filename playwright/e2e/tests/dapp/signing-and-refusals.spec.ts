@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 
+import { DAPP_SIGN_RULE } from '../../../../src/lib/miden/dapp-sign-rule';
 import { expect, test } from '../../fixtures/two-wallets';
 import type { ConfirmKind } from '../../helpers/confirm-actions';
 import {
@@ -58,17 +59,25 @@ import {
   popupBlock,
   unwrap
 } from '../../helpers/test-dapp';
-import type { ConnectedView, RawArg, VerifyInput } from '../../test-dapp/protocol';
+import type { ConnectedView, Outcome, RawArg, SignatureView, VerifyInput } from '../../test-dapp/protocol';
 
 // The first limb is below the modulus only in little-endian order; the real SDK must accept the wallet's gate.
 const WORD = `0xffffffffffffff00${'11'.repeat(24)}`;
 const OTHER_KEY = `0x${'22'.repeat(32)}`;
 const SUMMARY_AMOUNT = tst(0.5);
-// en.json's `opaqueSignatureTitle`, rendered by OpaqueSignature in confirm/SignatureRequest.tsx for Arbitrary and Blind
-// inputs.
+// en.json's `signMessageTitle`, rendered by MessageSignature in confirm/SignatureRequest.tsx for the only sign request the wallet
+// accepts: arbitrary signing inputs that carry their preimage.
+// en.json's `opaqueSignatureTitle` and `opaqueSignatureNotATransaction`: the single-key account's warning for Arbitrary
+// and Blind inputs.
 const OPAQUE_WARNING = "Bread can't preview this";
-// en.json's `opaqueSignatureNotATransaction`, shown beside it.
 const OPAQUE_NOT_A_TRANSACTION = 'This signature cannot authorize a transaction from your account.';
+const MESSAGE_TITLE = 'Message signature request';
+// A Guardian account's wallet refuses every other sign request before any prompt, and the adapter wraps the provider's refusal.
+const SIGN_RULE_REFUSED = refusal(
+  'WalletTransactionError',
+  `INVALID_PARAMS: ${DAPP_SIGN_RULE}`,
+  'InvalidParamsMidenWalletError'
+);
 // en.json's `confirmLoginSignature` up to the domain it names: the `loginSign` title in ConfirmPage.tsx, which has no
 // test id.
 const LOGIN_TITLE = 'Sign in to ';
@@ -81,96 +90,122 @@ async function connectedView(j: Journey, ctx: CellContext): Promise<ConnectedVie
 
 function signingCells(j: Journey): Record<string, DappCellImpl> {
   const { dapp } = j;
-  const signingInputsCell = (
-    variant: 'arbitrary' | 'summary' | 'blind',
-    popupShows: (popup: Page) => Promise<void>
+  const signSigningInputs = (variant: 'arbitrary' | 'summary' | 'blind', ctx: CellContext) =>
+    callDapp(
+      dapp,
+      'signSigningInputs',
+      {
+        variant,
+        felts: ['1', '2', '3'],
+        wordHex: WORD,
+        faucetId: j.tokenFaucetId,
+        amount: SUMMARY_AMOUNT.toString()
+      },
+      ctx.deadline
+    );
+  // The wallet refuses the request with the sign rule and opens no popup.
+  const refusedBeforePrompt = (request: (ctx: CellContext) => Promise<unknown>): DappCellImpl => ({
+    budget: 'read',
+    run: async ctx => {
+      const result = await expectNoPrompt(dapp, () => request(ctx), ctx);
+      expect(result).toEqual(SIGN_RULE_REFUSED);
+    }
+  });
+  const showsMessage = async (popup: Page) => {
+    await expect(popup.getByText(MESSAGE_TITLE)).toBeVisible();
+  };
+  // Guardian: the wallet signs only arbitrary signing inputs that carry their preimage (DAPP_SIGN_RULE).
+  const guardianCells: Record<string, DappCellImpl> = {
+    G1: refusedBeforePrompt(ctx => callDapp(dapp, 'signWord', { wordHex: WORD }, ctx.deadline)),
+    G2a: {
+      budget: 'read',
+      run: async ctx => {
+        const me = await connectedView(j, ctx);
+        const { result } = await answerPrompt(
+          dapp,
+          () => signSigningInputs('arbitrary', ctx),
+          { kind: 'sign', decision: 'approve', origin: dapp.origin, whileOpen: showsMessage },
+          ctx
+        );
+        // Q2: a Guardian account signs with its hot key, so the signature verifies against the connect key.
+        const signed = unwrap(result, 'signBytes(signingInputs, arbitrary)', ctx);
+        expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
+        expect(
+          await expectDomainSignature(
+            input => callDapp(dapp, 'verifySignature', input, ctx.deadline),
+            signed,
+            'signingInputs',
+            recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
+          )
+        ).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
+      }
+    },
+    G2b: refusedBeforePrompt(ctx => signSigningInputs('summary', ctx)),
+    G2c: refusedBeforePrompt(ctx => signSigningInputs('blind', ctx))
+  };
+  // Single-key accounts are not gated (guardianMessageElements returns undefined): every sign request still prompts.
+  const signedAfterPrompt = (
+    kind: 'word' | 'signingInputs',
+    ask: (ctx: CellContext) => Promise<Outcome<SignatureView>>,
+    popupShows?: (popup: Page) => Promise<void>,
+    rawVerify = false
   ): DappCellImpl => ({
     budget: 'read',
     run: async ctx => {
       const me = await connectedView(j, ctx);
       const { result } = await answerPrompt(
         dapp,
-        () =>
-          callDapp(
-            dapp,
-            'signSigningInputs',
-            {
-              variant,
-              felts: ['1', '2', '3'],
-              wordHex: WORD,
-              faucetId: j.tokenFaucetId,
-              amount: SUMMARY_AMOUNT.toString()
-            },
-            ctx.deadline
-          ),
+        () => ask(ctx),
         { kind: 'sign', decision: 'approve', origin: dapp.origin, whileOpen: popupShows },
         ctx
       );
-      // Q2: a Guardian account signs with its hot key, so both kinds expect the same verifiable signature.
-      const signed = unwrap(result, `signBytes(signingInputs, ${variant})`, ctx);
+      const signed = unwrap(result, `signBytes(${kind})`, ctx);
+      expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
       const publicKeyB64 = recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64);
       const verify = (input: VerifyInput) => callDapp(dapp, 'verifySignature', input, ctx.deadline);
-      // A summary is signed as before, so only the raw check applies; Blind and Arbitrary sign the domain commitment.
-      const verdict =
-        variant === 'summary'
-          ? await verify({
-              kind: 'signingInputs',
-              payloadB64: signed.payloadB64,
-              signatureB64: signed.signatureB64,
-              publicKeyB64
-            })
-          : await expectDomainSignature(verify, signed, 'signingInputs', publicKeyB64);
-      expect(verdict).toEqual({
-        verifies: true,
-        commitmentHex: me.publicKeyHex
-      });
+      // A summary is signed as before, so only the raw check applies; the others sign the domain commitment.
+      const verdict = rawVerify
+        ? await verify({
+            kind: 'signingInputs',
+            payloadB64: signed.payloadB64,
+            signatureB64: signed.signatureB64,
+            publicKeyB64
+          })
+        : await expectDomainSignature(verify, signed, kind, publicKeyB64);
+      expect(verdict).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
     }
   });
   const opaque = async (popup: Page) => {
     await expect(popup.getByText(OPAQUE_WARNING)).toBeVisible();
     await expect(popup.getByText(OPAQUE_NOT_A_TRANSACTION)).toBeVisible();
   };
-  return {
-    G1: {
-      budget: 'read',
-      run: async ctx => {
-        const me = await connectedView(j, ctx);
-        const { result } = await answerPrompt(
-          dapp,
-          () => callDapp(dapp, 'signWord', { wordHex: WORD }, ctx.deadline),
-          { kind: 'sign', decision: 'approve', origin: dapp.origin },
-          ctx
-        );
-        const signed = unwrap(result, 'signBytes(word)', ctx);
-        expect(signed.schemeTag).toBe(ECDSA_SCHEME_TAG);
-        // Rk3: on Guardian the key behind the signature must be the one connect handed the dApp.
-        expect(
-          await expectDomainSignature(
-            input => callDapp(dapp, 'verifySignature', input, ctx.deadline),
-            signed,
-            'word',
-            recoverEcdsaPublicKey(signed.signatureB64, signed.messageB64)
-          )
-        ).toEqual({ verifies: true, commitmentHex: me.publicKeyHex });
-      }
-    },
-    G2a: signingInputsCell('arbitrary', opaque),
+  const singleKeyCells: Record<string, DappCellImpl> = {
+    G1: signedAfterPrompt('word', ctx => callDapp(dapp, 'signWord', { wordHex: WORD }, ctx.deadline)),
+    G2a: signedAfterPrompt('signingInputs', ctx => signSigningInputs('arbitrary', ctx), opaque),
     // The twin consumes one unauthenticated note carrying 0.5 TST (previewTwinSummary). The sheet measures
     // holdings with no consumed note credited, so it counts that held note. The note lists its assets, so the
     // opaque warning stays absent.
-    G2b: signingInputsCell('summary', async popup => {
-      const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
-      await expect(verified).toBeVisible();
-      await expect(verified.getByTestId('tx-held-notes-spent')).toHaveText('1');
-      await expect(popup.getByText(OPAQUE_WARNING)).toHaveCount(0);
-    }),
-    G2c: signingInputsCell('blind', opaque),
+    G2b: signedAfterPrompt(
+      'signingInputs',
+      ctx => signSigningInputs('summary', ctx),
+      async popup => {
+        const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
+        await expect(verified).toBeVisible();
+        await expect(verified.getByTestId('tx-held-notes-spent')).toHaveText('1');
+        await expect(popup.getByText(OPAQUE_WARNING)).toHaveCount(0);
+      },
+      true
+    ),
+    G2c: signedAfterPrompt('signingInputs', ctx => signSigningInputs('blind', ctx), opaque)
+  };
+  return {
+    ...(j.axis.label === 'guardian' ? guardianCells : singleKeyCells),
     G3: {
       budget: 'read',
       run: async ctx => {
         const { result } = await answerPrompt(
           dapp,
-          () => callDapp(dapp, 'signWord', { wordHex: WORD }, ctx.deadline),
+          () => signSigningInputs('arbitrary', ctx),
           { kind: 'sign', decision: 'decline', origin: dapp.origin },
           ctx
         );

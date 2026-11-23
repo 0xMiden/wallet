@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
+import type { KlinePoint, MarketQuote, Timeframe } from './binance';
 
 const KRAKEN_API_BASE = 'https://api.kraken.com/0/public';
 const REQUEST_TIMEOUT = 10_000;
@@ -113,7 +113,7 @@ async function readHistory(pair: string, interval: number, since: number): Promi
   return series.length === 1 ? (series[0] ?? []) : [];
 }
 
-async function quoteWithHistory(pair: string, ticker: KrakenTicker, now: number): Promise<TokenPriceInfo | undefined> {
+async function quoteWithHistory(pair: string, ticker: KrakenTicker, now: number): Promise<MarketQuote | undefined> {
   const price = Number(ticker.c[0]);
   if (!(price > 0) || !Number.isFinite(price)) return undefined;
   const target = now - 24 * 60 * 60;
@@ -146,7 +146,7 @@ async function quoteWithHistory(pair: string, ticker: KrakenTicker, now: number)
 }
 
 /** Fetch direct USD prices. Omit a quote when its 24-hour reference is unavailable. */
-export async function fetchKrakenPrices(markets: ReadonlyMap<string, string>): Promise<TokenPrices> {
+export async function fetchKrakenPrices(markets: ReadonlyMap<string, string>): Promise<Record<string, MarketQuote>> {
   if (markets.size === 0) return {};
   const tickers = new Map<string, KrakenTicker>();
   const pairs = [...new Set(markets.values())];
@@ -167,7 +167,7 @@ export async function fetchKrakenPrices(markets: ReadonlyMap<string, string>): P
       }
     }
   }
-  const prices: TokenPrices = {};
+  const prices: Record<string, MarketQuote> = {};
   const now = Math.floor(Date.now() / 1000);
   const queue = [...markets];
   const readNext = async (): Promise<void> => {

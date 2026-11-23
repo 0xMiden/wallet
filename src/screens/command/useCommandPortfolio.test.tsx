@@ -4,6 +4,7 @@ import { act, render, screen } from '@testing-library/react';
 
 import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { fixedQuote } from 'lib/prices/fixed';
 import { useWalletStore } from 'lib/store';
 
 import { useCommandPortfolio } from './useCommandPortfolio';
@@ -13,7 +14,13 @@ let rows: TokenBalanceData[] = [];
 const mockUseAllBalances = jest.fn();
 let hidden = false;
 let hiddenReady = true;
-const quote = { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() };
+let mockCachedPrices: import('lib/prices/binance').TokenPrices | undefined;
+
+jest.mock('lib/prices/display-cache', () => ({
+  ...jest.requireActual('lib/prices/display-cache'),
+  useCachedDisplayQuotes: () => mockCachedPrices
+}));
+const quote = { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const };
 
 jest.mock('lib/miden/front', () => ({
   useAllBalances: () => mockUseAllBalances(),
@@ -23,9 +30,9 @@ jest.mock('app/hooks/useHiddenTokens', () => ({
   useHiddenTokens: () => ({ loaded: hiddenReady, isHidden: (id: string) => hidden && id === 'hidden' })
 }));
 jest.mock('lib/miden/swap/tokens', () => ({
-  tokenQuote: (prices: Record<string, typeof quote>, id: string) => prices[id]
+  tokenQuote: (prices: Record<string, typeof quote>, id: string) =>
+    id === 'fixed' ? jest.requireActual('lib/prices/fixed').fixedQuote('USDCX') : prices[id]
 }));
-jest.mock('lib/prices/binance', () => ({ isNominalQuote: (price: { price: number }) => price.price === 1 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
   getEffectiveRpcUrl: () => 'https://node-a'
@@ -62,6 +69,7 @@ beforeEach(() => {
   rows = [row('priced', 3)];
   hidden = false;
   hiddenReady = true;
+  mockCachedPrices = undefined;
   mockUseAllBalances.mockClear();
   useWalletStore.setState({
     balances: { 'account-a': rows },
@@ -114,6 +122,49 @@ it('keeps current token identities when quote service is loading or failed, with
     expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
     expect(screen.getByRole('status').textContent).toContain('"priceMovement24h":null');
   }
+});
+
+it.each(['ready', 'error'] as const)('displays a fresher cached quote without recording it (%s)', status => {
+  const now = Date.now();
+  tagBalanceSnapshot(
+    rows,
+    { network: 'testnet', effectiveNetwork: 'testnet', rpcUrl: scope.rpcUrl, accountNonce: '1', capturedAt: now },
+    scope.accountId
+  );
+  mockCachedPrices = {
+    priced: { ...quote, price: 4, observedAt: now - 1000, change24h: NaN, percentageChange24h: NaN }
+  };
+  useWalletStore.setState({
+    tokenPrices: { priced: { ...quote, observedAt: now - 16 * 60_000 } },
+    tokenPricesStatus: status
+  });
+  render(<Probe />);
+  expect(JSON.parse(screen.getByRole('status').textContent ?? '')).toMatchObject({
+    value: '12',
+    allocation: [],
+    canRecord: false,
+    priceMovement24h: null
+  });
+});
+
+it('shows a proven USDCx balance while the unrelated market feed is loading, without recording history', () => {
+  expect(fixedQuote('USDCX')?.price).toBe(1);
+  rows = [row('fixed', 7.25)];
+  tagBalanceSnapshot(
+    rows,
+    {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      accountNonce: '1',
+      capturedAt: Date.now()
+    },
+    scope.accountId
+  );
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: {}, tokenPricesStatus: 'loading' });
+  render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":"7.25"');
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
 });
 
 it('uses the existing landed store rows without starting a second balance polling hook', () => {
@@ -206,7 +257,7 @@ it('allocates only current, proven priced wallet holdings from the valued subtot
       beta: quote,
       hidden: quote,
       unknown: quote,
-      nominal: { ...quote, price: 1 }
+      nominal: { ...quote, price: 1, kind: 'nominal' as const }
     },
     tokenPricesStatus: 'ready'
   });
@@ -285,7 +336,10 @@ it('does not record a partial USD figure when holdings have unknown scale, missi
 
 it('refuses nominal or stale quotes and a balance proof from an old read', () => {
   rows = [row('priced', 3)];
-  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: { priced: { ...quote, price: 1 } } });
+  useWalletStore.setState({
+    balances: { 'account-a': rows },
+    tokenPrices: { priced: { ...quote, price: 1, kind: 'nominal' as const } }
+  });
   tagBalanceSnapshot(
     rows,
     {

@@ -3,14 +3,13 @@ import { createServer, type Server } from 'node:http';
 import { Address } from '@miden-sdk/miden-sdk';
 
 import { parseTokenList } from '../../../src/lib/token-list/parse';
-import { parseOneClickFeePolicy } from '../../../src/lib/one-click/fees';
 
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
 const CHAINS = [
-  { name: 'ethereum', blockchain: 'eth', chainId: 1 },
-  { name: 'arbitrum', blockchain: 'arb', chainId: 42161 }
+  { name: 'ethereum', blockchain: 'eth', chainId: 1, label: 'Ethereum' },
+  { name: 'arbitrum', blockchain: 'arb', chainId: 42161, label: 'Arbitrum' }
 ];
 
 export function canonicalMainnetLoopFaucet(faucet: string): string {
@@ -69,7 +68,6 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
     typeof document.version !== 'number' ||
     document.version < 1 ||
     !record(document.features) ||
-    !record(document.swap) ||
     !record(document.supportedEvmChains) ||
     !Array.isArray(catalog) ||
     catalog.length > 1_000 ||
@@ -113,20 +111,14 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
   ) {
     throw new Error('The live catalog does not bind the verified native Miden asset');
   }
-  const evmAssets: {
-    assetId: string;
-    blockchain: string;
-    chainId: number;
-    contractAddress: string;
-    decimals: number;
-    symbol: string;
-  }[] = [];
+  const chains: Record<string, { name: string; addressKind: 'evm'; tokens: Record<string, unknown> }> = {};
   const contracts = new Set<string>();
-  for (const { name, blockchain, chainId } of CHAINS) {
+  for (const { name, blockchain, chainId, label } of CHAINS) {
     const chain = document.supportedEvmChains[name];
     if (chain === undefined) continue;
     if (!record(chain) || chain.chainId !== chainId || !record(chain.bridges))
       throw new Error('Invalid mainnet EVM chain binding');
+    const tokens: Record<string, unknown> = {};
     for (const bridge of Object.values(chain.bridges)) {
       if (!record(bridge) || !record(bridge.tokens)) continue;
       for (const symbol of ['USDC', 'USDT', 'USDT0']) {
@@ -151,42 +143,28 @@ export function qualifyMainnetLoopConfig(document: unknown, catalog: unknown, to
         ) {
           throw new Error('The live EVM asset disagrees with its published contract binding');
         }
+        if (tokens[listed.symbol] !== undefined) throw new Error('Ambiguous published stablecoin symbol');
         contracts.add(key);
-        evmAssets.push({ assetId, blockchain, chainId, contractAddress, decimals: 6, symbol: listed.symbol });
+        tokens[listed.symbol] = { assetId, decimals: 6, contractAddress, miden: ['usdcx'] };
       }
     }
+    if (Object.keys(tokens).length > 0) chains[blockchain] = { name: label, addressKind: 'evm', tokens };
   }
-  if (!evmAssets.length) throw new Error('No published stablecoin route with supported all-in fee accounting');
-  const previous = record(document.swap.oneClick) ? document.swap.oneClick : {};
+  if (!Object.keys(chains).length)
+    throw new Error('No published stablecoin route with supported all-in fee accounting');
+  const previous = record(document.nearIntents) ? document.nearIntents : {};
   const serviceUrl = previous.serviceUrl ?? 'https://1click.chaindefuser.com';
   if (typeof serviceUrl !== 'string') throw new Error('Invalid real 1Click service');
   const url = new URL(serviceUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
     throw new Error('Invalid real 1Click service');
-  const configuredPolicy = parseOneClickFeePolicy(previous.feePolicy);
-  const feePolicy =
-    configuredPolicy ??
-    (url.origin === 'https://1click.chaindefuser.com' &&
-    url.pathname.replace(/\/+$/, '') === '' &&
-    Array.isArray(previous.appFees) && previous.appFees.length > 0
-      ? {
-          kind: 'partner',
-          platformRecipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd',
-          minimumPlatformFeeBps: 20
-        }
-      : undefined);
   return {
     ...document,
     features: { ...document.features, nearIntents: true },
-    swap: {
-      ...document.swap,
-      oneClick: {
-        ...previous,
-        serviceUrl,
-        ...(feePolicy === undefined ? {} : { feePolicy }),
-        midenAssets: [{ assetId: nativeAssetId, faucetId: hex, decimals: native.decimals }],
-        evmAssets
-      }
+    nearIntents: {
+      serviceUrl,
+      midenAssets: { usdcx: { assetId: nativeAssetId, faucetId: hex, decimals: native.decimals } },
+      chains
     }
   };
 }

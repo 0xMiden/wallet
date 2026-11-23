@@ -150,6 +150,9 @@ export interface MidenDAppSignPayload extends MidenDAppPayloadBase {
   // The background's one measure of a transaction summary, taken after its fee read. Absent for any other payload;
   // the popup never measures a summary itself.
   signingEffects?: SimulatedEffectsWire;
+  // Set only for a Guardian account, which signs just a message of field elements (`DAPP_SIGN_RULE`): the elements, as
+  // decimal strings. Absent for a single-key account.
+  messageElements?: string[];
 }
 
 // A sign-in with `accountId`'s login key for `domain`, the registrable domain read from `origin`.

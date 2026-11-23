@@ -1,7 +1,7 @@
 import { basketChange24h, basketKlines } from './basket';
 import type { BasketComponent, KlinePoint, KlineSeries, TokenPrices } from './binance';
 
-jest.mock('./fixed', () => ({ isFixedQuote: () => false, fixedQuote: () => undefined }));
+jest.mock('./fixed', () => ({ fixedQuote: () => undefined }));
 jest.mock('./unquoted-default', () => ({ hasUnquotedDefaultPrice: () => false }));
 
 const component = (priceSymbol: string, weight: number): BasketComponent => ({
@@ -14,7 +14,7 @@ const quote = (percentageChange24h: number, source?: 'basket') => ({
   price: 1,
   change24h: 0,
   percentageChange24h,
-  ...(source ? { source } : {})
+  kind: source ?? ('market' as const)
 });
 
 describe('basketChange24h', () => {
@@ -127,8 +127,11 @@ describe('basketKlines', () => {
       { time: 0, value: 22 },
       { time: 4, value: 20 }
     ]);
-    const btcQuote = { price: 100, change24h: 0, percentageChange24h: 0 };
-    const prices: TokenPrices = { BTC: btcQuote, ETH: { price: 20, change24h: 0, percentageChange24h: 0 } };
+    const btcQuote = { price: 100, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
+    const prices: TokenPrices = {
+      BTC: btcQuote,
+      ETH: { price: 20, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+    };
     // At 0 BTC was 50 of today's 100 and ETH 20 of today's 20: the basket was worth 0.6 * 0.5 + 0.4 * 1 of today.
     expect(basketKlines(mix, [btc, eth], 2, prices, 5)).toEqual([
       { time: -12, value: 2 * (0.6 * 0.4 + 0.4 * 0.5) },

@@ -26,6 +26,7 @@ const mockNote = {
 let mockClaimItems = [mockNote];
 let mockHiddenNotesFailed = false;
 beforeEach(() => {
+  mockNearIntentsConfig = null;
   mockClaimItems = [mockNote];
   mockHiddenNotesFailed = false;
 });
@@ -66,6 +67,17 @@ jest.mock('lib/woozie', () => ({
   listen: () => () => {},
   HistoryAction: { Replace: 'REPLACE' },
   useLocation: () => ({ pathname: '/receive' })
+}));
+let mockNearIntentsConfig: object | null = null;
+jest.mock('lib/one-click/config', () => ({ useNearIntentsConfig: () => mockNearIntentsConfig }));
+jest.mock('screens/near-intents-flow/NearIntentsTab', () => ({
+  __esModule: true,
+  default: ({ tabs }: { tabs?: React.ReactNode }) => (
+    <div data-testid="near-intents-form">
+      {tabs}
+      <button data-testid="near-intents-get-deposit-address">Get</button>
+    </div>
+  )
 }));
 jest.mock('screens/command/CommandHomePrompts', () => ({ CommandHomePrompts: () => null }));
 jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
@@ -237,4 +249,41 @@ it('uses the real workbench Back for the selected note, not route history', () =
   expect(screen.getByTestId('receive-note-note-one')).toBeInTheDocument();
   expect(screen.getByTestId('receive-selected-asset')).toHaveTextContent('TWO');
   expect(goBack).not.toHaveBeenCalled();
+});
+
+describe('NEAR Intents tab', () => {
+  const renderReceive = () =>
+    render(
+      <CommandShell scope={scope} route={{ kind: 'flow', action: 'receive' }}>
+        <Receive />
+      </CommandShell>
+    );
+
+  it('shows no tabs when NEAR Intents is not enabled', () => {
+    renderReceive();
+    expect(screen.queryByTestId('receive-tabs')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('receive-tab-near-intents')).not.toBeInTheDocument();
+    expect(screen.getByTestId('command-receive')).toBeInTheDocument();
+  });
+
+  it('shows the tabs on the address view when enabled, with the address tab selected', () => {
+    mockNearIntentsConfig = { pairs: [] };
+    renderReceive();
+    expect(screen.getByTestId('receive-tab-miden')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('receive-tab-near-intents')).toBeInTheDocument();
+    expect(screen.getByTestId('receive-current-address')).toBeInTheDocument();
+    expect(screen.queryByTestId('near-intents-form')).not.toBeInTheDocument();
+  });
+
+  it('switches to the NEAR Intents form and back to the address', async () => {
+    mockNearIntentsConfig = { pairs: [] };
+    renderReceive();
+    fireEvent.click(screen.getByTestId('receive-tab-near-intents'));
+    expect(await screen.findByTestId('near-intents-form')).toBeInTheDocument();
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeInTheDocument();
+    expect(screen.queryByTestId('receive-current-address')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('receive-tab-miden'));
+    expect(screen.getByTestId('receive-current-address')).toBeInTheDocument();
+    expect(screen.queryByTestId('near-intents-form')).not.toBeInTheDocument();
+  });
 });

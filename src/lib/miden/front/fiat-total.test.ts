@@ -10,7 +10,7 @@ jest.mock('lib/miden/swap/tokens', () => ({
   tokenQuote: (prices: TokenPrices, _faucetId: string, symbol: string) => prices[symbol]
 }));
 
-const PRICES: TokenPrices = { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } };
+const PRICES: TokenPrices = { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
 
 const row = (tokenId: string, symbol: string, balance: number, scaleIsUnknown = false): TokenBalanceData => ({
   tokenId,
@@ -49,7 +49,10 @@ describe('valuedBalanceTotal', () => {
   });
 
   it('leaves a non-finite balance or price out, so one bad value cannot make the total infinite', () => {
-    const infinitePrice: TokenPrices = { ...PRICES, BAD: { price: Infinity, change24h: 0, percentageChange24h: 0 } };
+    const infinitePrice: TokenPrices = {
+      ...PRICES,
+      BAD: { price: Infinity, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+    };
     expect(valuedBalanceTotal([row('a', 'ETH', 1), row('b', 'ETH', Infinity)], PRICES)).toEqual({
       totalFiat: 2000,
       previousFiat: 2000,
@@ -65,7 +68,9 @@ describe('valuedBalanceTotal', () => {
   });
 
   it('values the same holdings at the price 24 hours ago, for the change pill', () => {
-    const moved: TokenPrices = { ETH: { price: 2000, change24h: 100, percentageChange24h: 5.26 } };
+    const moved: TokenPrices = {
+      ETH: { price: 2000, change24h: 100, percentageChange24h: 5.26, kind: 'market' as const }
+    };
     expect(valuedBalanceTotal([row('a', 'ETH', 2)], moved)).toMatchObject({ totalFiat: 4000, previousFiat: 3800 });
   });
 });

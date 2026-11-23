@@ -25,6 +25,14 @@ import en from '../../../public/_locales/en/en.json';
 
 // `mock`-prefixed so jest's hoisted mock factory may reference it.
 let mockReady = true;
+let mockPasskeyAvailable = false;
+jest.mock('app/hooks/usePlatformUnlock', () => ({
+  usePlatformUnlock: () => ({ state: { available: mockPasskeyAvailable, hasPassword: true, credential: null } })
+}));
+jest.mock('app/templates/PasskeyUnlockSettings', () => ({
+  __esModule: true,
+  default: () => <div data-testid="passkey-setup-form" />
+}));
 
 jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
@@ -36,6 +44,7 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 jest.mock('components/Button', () => ({
+  ButtonVariant: { Secondary: 'secondary' },
   Button: ({ title, onClick }: { title: string; onClick?: () => void }) => (
     <button type="button" onClick={onClick}>
       {title}
@@ -75,6 +84,7 @@ describe('OpenSidePanel', () => {
 
   beforeEach(async () => {
     mockReady = true;
+    mockPasskeyAvailable = false;
     mockOpenSidePanel.mockReset();
     mockCloseTab.mockReset();
     mockNavigate.mockReset();
@@ -86,6 +96,16 @@ describe('OpenSidePanel', () => {
       interpolation: { escapeValue: false, prefix: '$', suffix: '$' },
       resources: { en: { translation: en } }
     });
+  });
+
+  it('offers optional passkey enrollment on the ready onboarding screen', async () => {
+    mockPasskeyAvailable = true;
+    await render();
+    const button = Array.from(testContainer!.querySelectorAll('button')).find(b => b.textContent === en.passkeyEnable);
+    expect(button).toBeDefined();
+    await act(async () => button?.click());
+    expect(testContainer!.querySelector('[data-testid="passkey-setup-form"]')).not.toBeNull();
+    expect(mockOpenSidePanel).not.toHaveBeenCalled();
   });
 
   afterEach(async () => {

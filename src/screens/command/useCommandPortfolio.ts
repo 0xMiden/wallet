@@ -5,8 +5,7 @@ import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
-import { isNominalQuote } from 'lib/prices/binance';
-import { isFixedQuote } from 'lib/prices/fixed';
+import { selectDisplayQuotes, useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { useWalletStore } from 'lib/store';
 
 const CURRENT_MS = 15 * 60_000;
@@ -18,8 +17,10 @@ export function useCommandPortfolio(scope: AccountScope) {
     state => state.balancesLoading[scope.accountId] ?? state.balances[scope.accountId] === undefined
   );
   const rows = storedRows ?? EMPTY_ROWS;
-  const tokenPrices = useWalletStore(state => state.tokenPrices);
+  const livePrices = useWalletStore(state => state.tokenPrices);
   const pricesStatus = useWalletStore(state => state.tokenPricesStatus);
+  const cachedPrices = useCachedDisplayQuotes();
+  const tokenPrices = selectDisplayQuotes(livePrices, cachedPrices);
   const { isHidden, loaded: hiddenReady } = useHiddenTokens(scope.accountId);
 
   let held = false;
@@ -27,6 +28,8 @@ export function useCommandPortfolio(scope: AccountScope) {
   const pricedValues: { tokenId: string; value: number }[] = [];
   let partial = false;
   let staleQuote = false;
+  let hasMarketValue = false;
+  let usesCachedPrice = false;
   const priced: string[] = [];
   const unpriced: string[] = [];
   const assets = rows.filter(row => !isHidden(row.tokenId));
@@ -37,7 +40,7 @@ export function useCommandPortfolio(scope: AccountScope) {
     if (
       !hasKnownScale(row.metadata) ||
       !quote ||
-      isNominalQuote(quote) ||
+      quote.kind === 'nominal' ||
       !Number.isFinite(quote.price) ||
       quote.price <= 0
     ) {
@@ -46,7 +49,7 @@ export function useCommandPortfolio(scope: AccountScope) {
       continue;
     }
     if (
-      !isFixedQuote(quote) &&
+      quote.kind !== 'fixed' &&
       (!quote.observedAt || Date.now() - quote.observedAt > CURRENT_MS || quote.observedAt > Date.now())
     ) {
       staleQuote = true;
@@ -60,6 +63,9 @@ export function useCommandPortfolio(scope: AccountScope) {
       unpriced.push(row.tokenId);
       continue;
     }
+    hasMarketValue ||= quote.kind !== 'fixed';
+    const liveQuote = tokenQuote(livePrices, row.tokenId, row.metadata.symbol);
+    usesCachedPrice ||= quote !== liveQuote;
     pricedRows.push(row);
     pricedValues.push({ tokenId: row.tokenId, value });
     priced.push(row.tokenId);
@@ -69,21 +75,31 @@ export function useCommandPortfolio(scope: AccountScope) {
     proof?.capturedAt && proof.capturedAt <= Date.now() && Date.now() - proof.capturedAt <= CURRENT_MS
   );
   const { totalFiat: total, previousFiat } = valuedBalanceTotal(pricedRows, tokenPrices);
+  const empty =
+    current && !isLoading && hiddenReady && rows.length > 0 && rows.every(row => row.balanceBaseUnits === '0');
+  // Fixed quotes and a proven empty vault do not depend on the market feed.
+  const canValueWithoutFeed = empty || (held && !partial && !hasMarketValue);
   const value =
-    current && hiddenReady && pricesStatus === 'ready' && (!held || pricedRows.length > 0) ? String(total) : null;
+    current &&
+    hiddenReady &&
+    (pricesStatus === 'ready' || canValueWithoutFeed || (usesCachedPrice && !partial)) &&
+    (!held || pricedRows.length > 0)
+      ? String(total)
+      : null;
   const allocation =
-    value !== null && !isLoading && Number.isFinite(total) && total > 0
+    value !== null && !usesCachedPrice && !isLoading && Number.isFinite(total) && total > 0
       ? pricedValues.map(row => ({ ...row, percentage: (row.value / total) * 100 }))
       : [];
   const move = total - previousFiat;
   const percentage = (move / previousFiat) * 100;
   const marketPriced = pricedRows.some(row => {
     const quote = tokenQuote(tokenPrices, row.tokenId, row.metadata.symbol);
-    return quote && !isFixedQuote(quote) && Number.isFinite(quote.change24h);
+    return quote && quote.kind !== 'fixed' && Number.isFinite(quote.change24h);
   });
   const priceMovement24h =
     value !== null &&
     !isLoading &&
+    !usesCachedPrice &&
     marketPriced &&
     previousFiat > 0 &&
     Number.isFinite(move) &&
@@ -101,7 +117,7 @@ export function useCommandPortfolio(scope: AccountScope) {
     coverageKey: `priced:${priced.sort().join(',')}|unpriced:${unpriced.sort().join(',')}`,
     capturedAt: proof?.capturedAt,
     current: current && !isLoading,
-    empty: current && !isLoading && hiddenReady && rows.length > 0 && rows.every(row => row.balanceBaseUnits === '0'),
+    empty,
     canRecord:
       current &&
       rows.length > 0 &&
@@ -109,6 +125,7 @@ export function useCommandPortfolio(scope: AccountScope) {
       hiddenReady &&
       pricesStatus === 'ready' &&
       !staleQuote &&
+      !usesCachedPrice &&
       value !== null
   };
 }

@@ -1,9 +1,10 @@
-import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { OffscreenAbortFacts, OffscreenDeadlineTimer, OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { ProposalChainSyncError } from 'lib/miden/guardian';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
 import { markFailedReexecution, ProofFreshnessUnknownError, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { annotateOffscreenDeadline } from 'lib/telemetry/offscreen-deadline-diagnostics';
 
 import {
   chunkAutoConsumeBatch,
@@ -1041,5 +1042,385 @@ describe('an error whose cause getter throws (#1313)', () => {
   it('still reads a deadline kill as a recovered engine', () => {
     const aborted = withThrowingCause(new OperationAbortedError('op-1', 'deadline'));
     expect(resolveTransactionErrorMessage(aborted, 'creating-proposal')).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+});
+
+describe('offscreen deadline evidence (#2203)', () => {
+  it.each([false, true])('keeps deadline facts out of the warning (wrapped=%s)', wrapped => {
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    annotateOffscreenDeadline(abort, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving'
+    });
+    if (wrapped) abort.cause = new Error('inner');
+    const error = wrapped ? new Error('outer', { cause: abort }) : abort;
+    const expected = wrapped ? `Error: outer <- caused by ${abort} <- caused by Error: inner` : String(abort);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(resolveTransactionErrorMessage(error, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+      expect(warn).toHaveBeenCalledWith('[transaction] error classified, raw cause:', expected);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('distinguishes own and collateral deadlines with the same id', () => {
+    const own = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    const collateral = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'collateral', timer: 'started', killer: 'write' }
+    });
+    expect(formatRawTransactionError(own)).toBe(
+      'OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+    expect(formatRawTransactionError(collateral)).toBe(
+      'OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=collateral; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+    expect(formatRawTransactionError(own)).not.toBe(formatRawTransactionError(collateral));
+  });
+
+  it('retains every timer phase and trigger for both deadline reasons', () => {
+    const timers: OffscreenDeadlineTimer[] = ['dispatch', 'backstop', 'started', 'resumed'];
+    const triggers: Array<'read' | 'write'> = ['read', 'write'];
+    const reasons: Array<'deadline' | 'deadline-no-kill'> = ['deadline', 'deadline-no-kill'];
+    for (const timer of timers) {
+      for (const killer of triggers) {
+        for (const reason of reasons) {
+          const abort = new OperationAbortedError('op-1', reason, {
+            started: true,
+            deadline: { owner: 'own', timer, killer }
+          });
+          expect(formatRawTransactionError(abort)).toBe(
+            `OperationAbortedError: Offscreen operation op-1 aborted (${reason})` +
+              ` [offscreen deadline: owner=own; timer=${timer}; trigger=${killer}; method=unobserved; stage=not_observed]`
+          );
+        }
+      }
+    }
+    const ordinary = Object.assign(new Error('ordinary'), {
+      facts: { started: true, deadline: { owner: 'own', timer: 'started', killer: 'write' } }
+    });
+    expect(formatRawTransactionError(ordinary)).toBe('Error: ordinary');
+  });
+
+  it('uses only validated observations from the matching error link', () => {
+    const facts: OffscreenAbortFacts = {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    };
+    const abort = new OperationAbortedError('op-1', 'deadline', facts);
+    annotateOffscreenDeadline(abort, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'creating-proposal'
+    });
+    expect(formatRawTransactionError(new Error('outer', { cause: abort }))).toBe(
+      'Error: outer <- caused by OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=guardianPipeline; stage=creating-proposal]'
+    );
+
+    const unannotated = Object.assign(new OperationAbortedError('op-1', 'deadline', facts), {
+      offscreenDeadlineMethod: 'sendTransaction',
+      offscreenDeadlineStage: 'executing'
+    });
+    const wrapper = new Error('outer', { cause: unannotated });
+    annotateOffscreenDeadline(wrapper, {
+      offscreenDeadlineMethod: 'newTransaction',
+      offscreenDeadlineStage: 'proving'
+    });
+    expect(formatRawTransactionError(wrapper)).toBe(
+      'Error: outer <- caused by OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+
+    const invalid = new OperationAbortedError('op-1', 'deadline', facts);
+    annotateOffscreenDeadline(invalid, {
+      offscreenDeadlineMethod: 'INVALID_METHOD',
+      offscreenDeadlineStage: 'INVALID_STAGE'
+    });
+    expect(formatRawTransactionError(invalid)).toBe(
+      'OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+
+    const reconstructed = Object.assign(new Error('reconstructed'), {
+      name: 'OperationAbortedError',
+      reason: 'deadline',
+      facts
+    });
+    expect(Object.getPrototypeOf(reconstructed)).toBe(Error.prototype);
+    expect(formatRawTransactionError(reconstructed)).toBe(
+      'OperationAbortedError: reconstructed' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+  });
+
+  it('prints explicit unknowns without invoking hostile diagnostic fields', () => {
+    const canary = 'DIAGNOSTIC_CANARY';
+    const valid = { owner: 'own', timer: 'started', killer: 'write' };
+    const cases: Array<{ facts: unknown; suffix: string }> = [
+      {
+        facts: undefined,
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { started: true },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: 7,
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { owner: 'own' } },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { timer: 'resumed' } },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=resumed; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { killer: 'read' } },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=read; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { ...valid, owner: canary } },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { ...valid, timer: canary } },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=unavailable; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { ...valid, killer: canary } },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=started; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { ...valid, extra: canary }, extra: canary },
+        suffix: ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: Object.setPrototypeOf({}, { deadline: valid }),
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.setPrototypeOf({ timer: 'started', killer: 'write' }, { owner: 'own' }) },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.setPrototypeOf({ owner: 'own', killer: 'write' }, { timer: 'started' }) },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=unavailable; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.setPrototypeOf({ owner: 'own', timer: 'started' }, { killer: 'write' }) },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=started; trigger=unavailable; method=unobserved; stage=not_observed]'
+      }
+    ];
+    const throwingGetter = () =>
+      jest.fn(() => {
+        throw new Error(canary);
+      });
+    const getters = {
+      facts: throwingGetter(),
+      deadline: throwingGetter(),
+      owner: throwingGetter(),
+      timer: throwingGetter(),
+      killer: throwingGetter()
+    };
+    cases.push(
+      {
+        facts: Object.defineProperty({}, 'deadline', { get: getters.deadline }),
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.defineProperty({ ...valid }, 'owner', { get: getters.owner }) },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.defineProperty({ ...valid }, 'timer', { get: getters.timer }) },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=unavailable; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.defineProperty({ ...valid }, 'killer', { get: getters.killer }) },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=started; trigger=unavailable; method=unobserved; stage=not_observed]'
+      }
+    );
+    const descriptorTrap = jest.fn(() => {
+      throw new Error(canary);
+    });
+    const propertyTrap = throwingGetter();
+    const unreadable = new Proxy({}, { getOwnPropertyDescriptor: descriptorTrap, get: propertyTrap });
+    cases.push(
+      {
+        facts: unreadable,
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: unreadable },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      }
+    );
+    const errors: Array<{ error: Error; suffix: string }> = cases.map(({ facts, suffix }) => ({
+      error: Object.defineProperty(new OperationAbortedError('op-1', 'deadline'), 'facts', { value: facts }),
+      suffix
+    }));
+    const inheritedFacts = new OperationAbortedError('op-1', 'deadline');
+    Reflect.deleteProperty(inheritedFacts, 'facts');
+    Object.setPrototypeOf(inheritedFacts, Object.assign(new Error(), { facts: { deadline: valid } }));
+    errors.push(
+      {
+        error: Object.defineProperty(new OperationAbortedError('op-1', 'deadline'), 'facts', { get: getters.facts }),
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        error: inheritedFacts,
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      }
+    );
+    for (const { error, suffix } of errors) {
+      Object.defineProperty(error, 'cause', { value: new Error('inner') });
+      const output = formatRawTransactionError(error);
+      expect(output).toBe(
+        `OperationAbortedError: Offscreen operation op-1 aborted (deadline)${suffix} <- caused by Error: inner`
+      );
+      expect(output).not.toContain(canary);
+      const appended = output.slice(
+        'OperationAbortedError: Offscreen operation op-1 aborted (deadline)'.length,
+        -' <- caused by Error: inner'.length
+      );
+      expect(appended).toMatch(/^ \[offscreen deadline: [\x20-\x7e]+\]$/);
+      expect(appended.length).toBeLessThan(200);
+    }
+    for (const getter of Object.values(getters)) expect(getter).not.toHaveBeenCalled();
+    expect(propertyTrap).not.toHaveBeenCalled();
+  });
+
+  it('keeps deadline facts within the existing cause-chain boundary', () => {
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    const suffix =
+      ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]';
+    const wrapper = new Error('outer', { cause: abort });
+    Object.defineProperty(abort, 'cause', { value: wrapper });
+    const cyclic = formatRawTransactionError(wrapper);
+    expect(cyclic).toBe(
+      `Error: outer <- caused by OperationAbortedError: Offscreen operation op-1 aborted (deadline)${suffix}`
+    );
+    expect(cyclic.match(/\[offscreen deadline:/g)).toHaveLength(1);
+
+    const leaf = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    let fifth: Error = leaf;
+    for (let i = 4; i >= 1; i--) fifth = new Error(`w${i}`, { cause: fifth });
+    const fifthOutput = formatRawTransactionError(fifth);
+    expect(fifthOutput).toBe(
+      'Error: w1 <- caused by Error: w2 <- caused by Error: w3 <- caused by Error: w4 <- caused by ' +
+        `OperationAbortedError: Offscreen operation op-1 aborted (deadline)${suffix}`
+    );
+    expect(fifthOutput.match(/\[offscreen deadline:/g)).toHaveLength(1);
+    expect(formatRawTransactionError(new Error('w0', { cause: fifth }))).toBe(
+      'Error: w0 <- caused by Error: w1 <- caused by Error: w2 <- caused by Error: w3 <- caused by Error: w4'
+    );
+    const ordinary = new Error('w1', {
+      cause: new Error('w2', { cause: new Error('w3', { cause: new Error('w4', { cause: new Error('w5') }) }) })
+    });
+    expect(formatRawTransactionError(ordinary)).toBe(
+      'Error: w1 <- caused by Error: w2 <- caused by Error: w3 <- caused by Error: w4 <- caused by Error: w5'
+    );
+    expect(formatRawTransactionError(new Error('outer', { cause: 'leaf' }))).toBe('Error: outer <- caused by leaf');
+
+    const timers: OffscreenDeadlineTimer[] = ['dispatch', 'backstop', 'started', 'resumed'];
+    const owners: Array<'own' | 'collateral'> = ['own', 'collateral'];
+    const triggers: Array<'read' | 'write'> = ['read', 'write'];
+    const methods = ['sendTransaction', 'swapTransaction', 'consumeNoteId', 'newTransaction', 'guardianPipeline'];
+    for (const owner of owners) {
+      for (const timer of timers) {
+        for (const killer of triggers) {
+          for (const method of methods) {
+            const bounded = new OperationAbortedError('op-1', 'deadline', {
+              started: true,
+              deadline: { owner, timer, killer }
+            });
+            annotateOffscreenDeadline(bounded, {
+              offscreenDeadlineMethod: method,
+              offscreenDeadlineStage: 'registering-guardian'
+            });
+            const output = formatRawTransactionError(bounded);
+            const appended = output.slice('OperationAbortedError: Offscreen operation op-1 aborted (deadline)'.length);
+            expect(appended).toMatch(/^ \[offscreen deadline: [\x20-\x7e]+\]$/);
+            expect(appended.length).toBeLessThan(200);
+          }
+        }
+      }
+    }
+  });
+
+  it('keeps deadline classification and nondeadline strings unchanged', () => {
+    const owners: Array<'own' | 'collateral'> = ['own', 'collateral'];
+    const reasons: Array<'deadline' | 'deadline-no-kill'> = ['deadline', 'deadline-no-kill'];
+    for (const owner of owners) {
+      for (const reason of reasons) {
+        const abort = new OperationAbortedError('op-1', reason, {
+          started: true,
+          deadline: { owner, timer: 'started', killer: 'write' }
+        });
+        for (const error of [abort, new TypeError('Failed to fetch', { cause: abort })]) {
+          expect(isGuardianOutage(error)).toBe(false);
+          expect(isNodeOutage(error)).toBe(false);
+          expect(isProverProcedureMismatch(error)).toBe(false);
+          expect(resolveTransactionErrorMessage(error, 'creating-proposal')).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+        }
+      }
+    }
+    for (const reason of ['transport', 'doc-closed']) {
+      const abort = new OperationAbortedError('op-1', reason, {
+        started: true,
+        deadline: { owner: 'own', timer: 'started', killer: 'write' }
+      });
+      expect(formatRawTransactionError(abort)).toBe(
+        `OperationAbortedError: Offscreen operation op-1 aborted (${reason})`
+      );
+    }
+    const ordinary = Object.assign(new Error('ordinary'), {
+      reason: 'deadline',
+      facts: { started: true, deadline: { owner: 'own', timer: 'started', killer: 'write' } }
+    });
+    expect(formatRawTransactionError(ordinary)).toBe('Error: ordinary');
+    expect(formatRawTransactionError('primitive')).toBe('primitive');
+    expect(formatRawTransactionError(new Error('outer', { cause: new TypeError('inner') }))).toBe(
+      'Error: outer <- caused by TypeError: inner'
+    );
   });
 });

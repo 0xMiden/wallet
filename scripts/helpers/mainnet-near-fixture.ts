@@ -48,6 +48,11 @@ export function nativeNearFixture(): MainnetNearCheckpoint {
     paidEvmFees: '0'
   };
 }
+/** A checkpoint of a new run: no app fees and no fee policy, as the partner key now carries the fees. */
+export function nativeNearNoFeeFixture(): MainnetNearCheckpoint {
+  const { feePolicy: _legacyPolicy, ...state } = nativeNearFixture();
+  return { ...state, appFees: [] };
+}
 export const nativeNearQuote = (depositAddress: string, amountIn: string) => ({
   quoteHash: '2'.repeat(44),
   correlationId: 'original-provider-quote',

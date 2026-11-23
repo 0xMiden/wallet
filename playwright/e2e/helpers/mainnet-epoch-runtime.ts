@@ -652,7 +652,8 @@ export async function runEpochReverse(
   });
   const stopSolveFailure = observeEpochSolveFailure(wallet.page, path);
   try {
-    await wallet.page.goto(`chrome-extension://${wallet.extensionId}/fullpage.html#/bridge/deposit`);
+    // The compact Bridge exposes fixed-output Epoch; fullscreen Command Bridge does not.
+    await wallet.page.goto(`chrome-extension://${wallet.extensionId}/sidepanel.html#/bridge/deposit`);
     await counterparty.start();
     const connection = counterparty.connectWithRetry(
       () =>
