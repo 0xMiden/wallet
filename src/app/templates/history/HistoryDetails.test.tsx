@@ -602,8 +602,8 @@ describe('HistoryDetails', () => {
     direction: 'evm-to-miden',
     request: {
       amount: '1000000',
-      originAsset: 'usdc',
-      destinationAsset: 'miden-usdc',
+      originAsset: { assetId: 'usdc', blockchain: 'eth', symbol: 'USDC', decimals: 6 },
+      destinationAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
       refundTo: 'refund',
       recipient: 'account',
       deadline: '2026-10-22T12:00:00.000Z',
@@ -643,7 +643,8 @@ describe('HistoryDetails', () => {
     },
     config: {
       serviceUrl: 'https://service.example',
-      midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+      chains: [],
+      midenAssets: [{ id: 'usdc', assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
     },
     network: 'mainnet',
     accountId: 'account',
