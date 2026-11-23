@@ -1,4 +1,5 @@
 import * as Repo from 'lib/miden/repo';
+import { classifyError } from 'lib/telemetry/classify';
 import { captureDiagnosticLog } from 'lib/telemetry/crash';
 import { annotateOffscreenDeadline } from 'lib/telemetry/offscreen-deadline-diagnostics';
 
@@ -178,6 +179,53 @@ describe('entering Unconfirmed (#1081)', () => {
 });
 
 describe('persisted offscreen deadline evidence (#2203)', () => {
+  it.each([
+    { label: 'Failed', status: ITransactionStatus.Failed, record: cancelTransaction, errorKind: 'unknown' },
+    {
+      label: 'Unconfirmed',
+      status: ITransactionStatus.Unconfirmed,
+      record: markTransactionUnconfirmed,
+      errorKind: 'unknown'
+    },
+    {
+      label: 'Failed with timeout cause',
+      status: ITransactionStatus.Failed,
+      record: cancelTransaction,
+      errorKind: 'timeout'
+    }
+  ])('keeps the proving suffix local to $label deadline history and export', async ({ status, record, errorKind }) => {
+    const transaction = generating({ stage: 'proving', cancelledInFlightAt: undefined });
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    const failure = new Error('send interrupted', { cause: abort });
+    const nestedCause = errorKind === 'timeout' ? new Error('request timed out') : undefined;
+    if (nestedCause) {
+      abort.cause = nestedCause;
+    }
+    const originalError = `${failure} <- caused by ${abort}`;
+    const causeText = nestedCause ? ` <- caused by ${nestedCause}` : '';
+    expect(classifyError(originalError + causeText)).toBe(errorKind);
+    annotateOffscreenDeadline(abort, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving'
+    });
+    await Repo.transactions.put(transaction);
+    await record(transaction, failure);
+
+    const rawError =
+      originalError +
+      ' [offscreen deadline: owner=own; timer=started; trigger=write; method=guardianPipeline; stage=proving]' +
+      causeText;
+    expect(await read()).toMatchObject({ status, rawError });
+    const exported: { transactions: ITransaction[] } = JSON.parse(await Repo.exportDb());
+    expect(exported[Repo.Table.Transactions]).toEqual([
+      expect.objectContaining({ id: transaction.id, status, rawError })
+    ]);
+    expect(report()).toHaveBeenCalledWith(expect.objectContaining({ result: 'errored', errorKind }));
+  });
+
   it('keeps an owned deadline in Failed history and its local export', async () => {
     const transaction: ITransaction = generating({
       stage: 'creating-proposal',

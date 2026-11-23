@@ -399,7 +399,15 @@ function formatOffscreenDeadlineFacts(link: Error): string {
 
 /** The raw error chain and validated deadline facts persisted on `ITransaction.rawError`. */
 export function formatRawTransactionError(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
+  return formatTransactionErrorChain(error).rawError;
+}
+
+/** Render both forms in one walk so diagnostic suffixes never affect telemetry classification. */
+export function formatTransactionErrorChain(error: unknown): { rawError: string; errorChain: string } {
+  if (!(error instanceof Error)) {
+    const text = String(error);
+    return { rawError: text, errorChain: text };
+  }
   // Walk `cause`. Several wrappers in this pipeline say "see the cause chain" in
   // their own message -- `WasmClientPoisonedError` among them -- while every
   // consumer printed only the outermost frame, so the sentence pointed at
@@ -408,6 +416,7 @@ export function formatRawTransactionError(error: unknown): string {
   // guardian send failure reads as "uncaught realm error" and names neither the
   // call that trapped nor the reason.
   const parts: string[] = [];
+  const localParts: string[] = [];
   for (const link of causeChain(error)) {
     if (parts.length >= 5) break;
     let isError = false;
@@ -416,16 +425,20 @@ export function formatRawTransactionError(error: unknown): string {
     try {
       if (link instanceof Error) {
         isError = true;
-        parts.push(`${link.name}: ${link.message}${formatOffscreenDeadlineFacts(link)}`);
+        const text = `${link.name}: ${link.message}`;
+        localParts.push(text + formatOffscreenDeadlineFacts(link));
+        parts.push(text);
       } else if (link !== undefined) {
-        parts.push(String(link));
+        const text = String(link);
+        localParts.push(text);
+        parts.push(text);
       }
     } catch {
       // An unreadable link costs its own text, not the links below it.
     }
     if (!isError) break;
   }
-  return parts.join(' <- caused by ');
+  return { rawError: localParts.join(' <- caused by '), errorChain: parts.join(' <- caused by ') };
 }
 
 /**
