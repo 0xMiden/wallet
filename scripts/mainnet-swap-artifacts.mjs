@@ -206,6 +206,26 @@ function stepAttempted(jobs, names) {
   );
 }
 
+export function knownUnspentScheduledSwap(digest, run, jobs, audit) {
+  const step = (name, conclusion) => jobs?.jobs?.some(job =>
+    job.steps?.some(item => item.name === name && item.status === 'completed' && item.conclusion === conclusion)
+  );
+  return Boolean(
+    digest === '0c865198fefc4e4146bb026195f60f1758ceaf63752eda34513bacf31d47d8c3' &&
+    run?.id === 45118679621 && run.workflow_id === 391951744 && run.repository?.id === 853430876 &&
+    run.event === 'schedule' && run.head_branch === 'main' &&
+    run.head_sha === '78290ae5ed11aa3a87dd32e47f7cb27c5e93c4bc' &&
+    run.run_attempt === 1 && run.status === 'completed' && run.conclusion === 'cancelled' &&
+    step('Upload swap SDK forward authority', 'cancelled') &&
+    step('Upload swap SDK forward claim authority', 'skipped') &&
+    step('Retain mainnet swap checkpoint', 'success') &&
+    audit?.id === 45119437266 && audit.workflow_id === 415130600 && audit.repository?.id === 853430876 &&
+    audit.event === 'push' && audit.head_branch === 'wiktor/scheduled-45118679621-readonly' &&
+    audit.head_sha === '2bdde361fcc6f341640d2574e80ba90ae6c058fe' &&
+    audit.run_attempt === 1 && audit.status === 'completed' && audit.conclusion === 'success'
+  );
+}
+
 export function swapStepAttempted(jobs, leg, provider = 'swap') {
   validateProvider(provider);
   return stepAttempted(jobs, [
@@ -428,6 +448,12 @@ async function main() {
       if (run.workflow_id !== current.workflow_id) throw new Error('Checkpoint source belongs to a different workflow');
       const jobs = await github(`actions/runs/${id}/jobs?per_page=100`);
       output(`${leg}_attempted`, swapStepAttempted(jobs, leg, provider));
+      if (provider === 'swap' && leg === 'forward') {
+        const verified = id === '45118679621' && knownUnspentScheduledSwap(
+          createHash('sha256').update(checkpoint).digest('hex'), run, jobs, await github('actions/runs/45119437266')
+        );
+        output('forward_pre_authority_unspent', verified);
+      }
       if (provider === 'near' && leg === 'forward') {
         let verified = false;
         const auditRunId = {
