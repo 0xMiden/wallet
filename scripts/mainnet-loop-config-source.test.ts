@@ -50,6 +50,7 @@ it.each([true, false])('uses native Node faucet metadata, refusing unavailable p
   process.env.E2E_NETWORK = 'mainnet';
   delete process.env.MIDEN_REMOTE_CONFIG_URL;
   const faucetId = '0xe69e6ca6e39df1b10c1e5399399feb';
+  const usdc = '0xaf88d065e77c8cc2239327c5edb3a432268e5831';
   const metadata = jest.mocked(readMainnetFaucetMetadata);
   if (available) metadata.mockResolvedValue({ symbol: 'USDCX', decimals: 6 });
   else metadata.mockRejectedValue(new Error('Public faucet state unavailable'));
@@ -59,24 +60,36 @@ it.each([true, false])('uses native Node faucet metadata, refusing unavailable p
       ...testnet,
       network: 'mainnet',
       features: { ...testnet.features, nearIntents: true },
-      swap: {
-        ...testnet.swap,
-        oneClick: {
-          serviceUrl: 'https://one-click.example',
-          midenAssets: [{ assetId: 'miden:usdcx', faucetId, decimals: 6 }]
+      nearIntents: {
+        serviceUrl: 'https://one-click.example',
+        midenAssets: { usdcx: { assetId: 'miden:usdcx', faucetId, decimals: 6 } },
+        chains: {
+          arb: {
+            name: 'Arbitrum',
+            addressKind: 'evm',
+            tokens: { USDC: { assetId: 'arb:usdc', decimals: 6, contractAddress: usdc, miden: ['usdcx'] } }
+          }
         }
       }
     })
   });
-  const catalog = jest
-    .fn()
-    .mockResolvedValue(
-      new Response(JSON.stringify([{ assetId: 'miden:usdcx', blockchain: 'miden', symbol: 'USDCX', decimals: 6 }]))
-    );
+  const catalog = jest.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        { assetId: 'miden:usdcx', blockchain: 'miden', symbol: 'USDCX', decimals: 6 },
+        { assetId: 'arb:usdc', blockchain: 'arb', symbol: 'USDC', decimals: 6, contractAddress: usdc }
+      ])
+    )
+  );
   const setup = await loadMainnetOneClickSetup(read, catalog);
   expect(metadata).toHaveBeenCalledWith(faucetId, 'https://rpc.mainnet.miden.io');
-  if (available) expect(setup?.assets).toEqual([expect.objectContaining({ faucetId, symbol: 'USDCX', decimals: 6 })]);
-  else expect(setup).toBeUndefined();
+  if (available) {
+    expect(setup?.assets).toEqual([
+      expect.objectContaining({ assetId: 'arb:usdc', chainId: 42161, contractAddress: usdc }),
+      expect.objectContaining({ faucetId, symbol: 'USDCX', decimals: 6 })
+    ]);
+    expect(setup?.catalog.chains.map(chain => chain.id)).toEqual(['arb']);
+  } else expect(setup).toBeUndefined();
 });
 it('refuses a mainnet qualification override in another network', async () => {
   process.env.E2E_NETWORK = 'testnet';

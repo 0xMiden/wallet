@@ -258,8 +258,8 @@ describe('wallet prompts', () => {
 
   describe('getPendingNotesUsdTotal', () => {
     const prices = {
-      USDC: { price: 2, change24h: 0, percentageChange24h: 0 },
-      ETH: { price: 3000, change24h: 0, percentageChange24h: 0 }
+      USDC: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+      ETH: { price: 3000, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
     };
     const usdc = {
       id: 'note-1',

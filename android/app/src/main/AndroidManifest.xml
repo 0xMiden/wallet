@@ -5,6 +5,7 @@
     <queries>
         <package android:name="io.metamask" />
         <package android:name="me.rainbow" />
+        <package android:name="app.phantom" />
         <package android:name="com.wallet.crypto.trustapp" />
         <package android:name="io.safe.global" />
         <package android:name="io.zerion.android" />

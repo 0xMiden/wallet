@@ -34,6 +34,7 @@ import { beforeMobileDeadline } from './mobile-store-reads';
 import { TOKEN, TOKEN_DECIMALS } from './money-path';
 import { ECDSA_SCHEME_TAG, recoverEcdsaPublicKey } from './signature-recovery';
 import { expectDomainSignature, unwrap } from './test-dapp';
+import { DAPP_SIGN_RULE } from '../../../src/lib/miden/dapp-sign-rule';
 import type { ConnectedView, Outcome, RawArg, SessionView, SignatureView } from '../test-dapp/protocol';
 
 /**
@@ -63,6 +64,13 @@ const NOT_GRANTED_WRAPPED: ExpectedRefusal = {
   causeName: 'NotGrantedMidenWalletError'
 };
 const NOT_GRANTED_RAW: ExpectedRefusal = { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' };
+// The wallet signs only arbitrary signing inputs that carry their preimage and refuses every other sign request
+// before any sheet; the adapter wraps the provider's refusal.
+const SIGN_RULE_REFUSED: ExpectedRefusal = {
+  name: REFUSAL_WRAPPERS.transaction,
+  message: `INVALID_PARAMS: ${DAPP_SIGN_RULE}`,
+  causeName: 'InvalidParamsMidenWalletError'
+};
 /** A custom request the wallet cannot simulate, refused before any sheet. */
 const NOT_SIMULATED: ExpectedRefusal = {
   name: REFUSAL_WRAPPERS.transaction,
@@ -357,7 +365,22 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
         );
       }
     },
-    G1: signedCell('word', ctx => j.call('signWord', { wordHex: WORD }, ctx.deadline)),
+    // Only a Guardian account is gated; a single-key account's word still prompts and signs.
+    G1:
+      j.axis.label === 'guardian'
+        ? {
+            budget: 'read',
+            run: async ctx => {
+              const result = await expectNoSheet(
+                j.dapp,
+                () => j.call('signWord', { wordHex: WORD }, ctx.deadline),
+                ctx,
+                { refusal: true }
+              );
+              expectRefusal(result, SIGN_RULE_REFUSED, ctx);
+            }
+          }
+        : signedCell('word', ctx => j.call('signWord', { wordHex: WORD }, ctx.deadline)),
     G2a: signedCell('signingInputs', ctx =>
       j.call('signSigningInputs', { variant: 'arbitrary', felts: ['1', '2', '3'] }, ctx.deadline)
     ),

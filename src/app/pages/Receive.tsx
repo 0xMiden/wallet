@@ -1,30 +1,47 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
-import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
+import { useTranslation } from 'react-i18next';
+
+import { HomeGroupPaneBody, HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { CommandReceive } from 'app/pages/Receive/CommandReceive';
 import { useFlowPresentation, type FlowPresentation } from 'components/flow/FlowPresentation';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
+import { Spinner } from 'components/ui/Spinner';
 import { useAccount } from 'lib/miden/front';
+import { useNearIntentsConfig } from 'lib/one-click/config';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { isBridgeInOfferedOnNetwork, useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { navigate, useLocation } from 'lib/woozie';
 
+// Loaded only when the user opens the tab: the form reads the 1Click catalog and the faucets.
+const NearIntentsTab = React.lazy(() => import('screens/near-intents-flow/NearIntentsTab'));
+
 export interface ReceiveProps {
   presentation?: FlowPresentation;
 }
 
+type ReceiveTab = 'miden' | 'near-intents';
+
 /**
  * Receive surface: compact shares the current address; Command also reviews
- * pending notes with the same Activity claim controller.
+ * pending notes with the same Activity claim controller. When the network
+ * offers NEAR Intents, a second compact tab gives a 1Click deposit address for
+ * a token on another chain.
  */
 const ReceiveManager: React.FC<ReceiveProps> = ({ presentation }) => {
+  const { t } = useTranslation();
   const account = useAccount();
   const flowPresentation = useFlowPresentation();
   const command = (presentation ?? flowPresentation) === 'command';
   const { pathname } = useLocation();
   const address = account.publicKey;
+  const nearIntentsConfig = useNearIntentsConfig();
+  const [tab, setTab] = useState<ReceiveTab>('miden');
+  // With no NEAR Intents config there is one tab, and the page is the address alone.
+  const activeTab: ReceiveTab = nearIntentsConfig ? tab : 'miden';
   const hasBridgeDocument = useBridgeConfigSnapshot().config !== null;
   // The same network-offer rule keeps unavailable Bridge visible and controls its polling hold.
   const bridgeAvailability = useBridgeInAvailability({
@@ -72,35 +89,86 @@ const ReceiveManager: React.FC<ReceiveProps> = ({ presentation }) => {
   // `address` alone this would run once at mount — while the gate was still
   // false and there was no flow — and never again. Every share would then be
   // reported cancelled, the previous bug exactly inverted.
+  //
+  // Depends on the tab too. The Miden address is on screen only on the Miden
+  // tab, so the flow completes only there: a visit that stays on the NEAR
+  // Intents tab never shows the address, and leaving it cancels the flow.
   useEffect(() => {
-    if (!onReceiveRoute || !address) return;
+    if (!onReceiveRoute || !address || activeTab !== 'miden') return;
     const flow = flowRef.current;
     if (!flow) return;
     flowRef.current = null;
     flow.complete();
-  }, [address, onReceiveRoute]);
+  }, [address, onReceiveRoute, activeTab]);
 
   const openBridgeDeposit = useCallback(() => {
     navigate('/bridge/deposit');
   }, []);
 
+  const tabItems: readonly SegmentedControlItem<ReceiveTab>[] = [
+    { id: 'miden', label: t('miden'), 'data-testid': 'receive-tab-miden' },
+    {
+      id: 'near-intents',
+      label: t('nearIntentsTab'),
+      badge: t('nearIntentsBeta'),
+      ring: 'rainbow',
+      'data-testid': 'receive-tab-near-intents'
+    }
+  ];
+  const tabs = nearIntentsConfig ? (
+    <SegmentedControl
+      items={tabItems}
+      value={activeTab}
+      onChange={setTab}
+      accent="receive"
+      layout="fill"
+      size="md"
+      aria-label={t('receiveMethod')}
+      data-testid="receive-tabs"
+    />
+  ) : undefined;
+
+  const nearIntentsView =
+    nearIntentsConfig && activeTab === 'near-intents' ? (
+      <Suspense
+        fallback={
+          <HomeGroupPaneBody top="visual">
+            {tabs}
+            <div className="flex justify-center pt-10">
+              <Spinner />
+            </div>
+          </HomeGroupPaneBody>
+        }
+      >
+        <NearIntentsTab config={nearIntentsConfig} tabs={tabs} />
+      </Suspense>
+    ) : null;
+
   if (command)
-    return (
+    return nearIntentsView ? (
+      <div data-testid="command-receive-near-intents" className="mx-auto flex w-full max-w-md flex-col">
+        {nearIntentsView}
+      </div>
+    ) : (
       <CommandReceive
         address={address}
         onBridgeDeposit={openBridgeDeposit}
         bridgeAvailability={bridgeAvailability}
         bridgeOffered={bridgeOffered}
+        tabs={tabs}
       />
     );
   return (
     <HomeGroupPaneRoot testId="receive-flow">
-      <AddressTab
-        address={address}
-        onBridgeDeposit={openBridgeDeposit}
-        bridgeAvailability={bridgeAvailability}
-        bridgeOffered={bridgeOffered}
-      />
+      {nearIntentsView ?? (
+        <AddressTab
+          address={address}
+          onBridgeDeposit={openBridgeDeposit}
+          bridgeAvailability={bridgeAvailability}
+          bridgeOffered={bridgeOffered}
+          tabs={tabs}
+        />
+      )}
     </HomeGroupPaneRoot>
   );
 };

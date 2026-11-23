@@ -1,8 +1,21 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
+import {
+  closeSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 import { listPlaywrightTests } from './playwright-list';
 
@@ -20,19 +33,6 @@ import { listPlaywrightTests } from './playwright-list';
 const repoRoot = resolve(__dirname, '../../..');
 
 const configSource = (file: string) => readFileSync(resolve(repoRoot, file), 'utf8');
-
-/** The json reports a real Playwright run leaves; listing tests must not rewrite them. */
-const reportFiles = [
-  'test-results/results.json',
-  'test-results-stress/results.json',
-  'test-results/stored-override/results.json'
-];
-const reportStamp = (file: string) => statSync(resolve(repoRoot, file), { throwIfNoEntry: false })?.mtimeMs ?? null;
-let reportsBefore: (number | null)[];
-
-beforeAll(() => {
-  reportsBefore = reportFiles.map(reportStamp);
-});
 
 /** Configs whose testDir the base config ignores. */
 const overridingConfigs = [
@@ -2073,9 +2073,36 @@ describe('configs whose testDir holds Jest suites load only their Playwright spe
   });
 });
 
-// Declared last: Jest runs this file's tests in order, so the check sees every list run above.
 describe('list runs write no report files', () => {
-  it('leaves every json report as it was', () => {
-    expect(reportFiles.map(reportStamp)).toEqual(reportsBefore);
+  it.each([
+    ['playwright.e2e.config.ts', 'test-results/results.json'],
+    ['playwright.stress.config.ts', 'test-results-stress/results.json'],
+    ['playwright.stored-override.config.ts', 'test-results/stored-override/results.json']
+  ])('%s neither creates a report nor changes an existing one', (config, report) => {
+    // Playwright resolves the report and output directories relative to its config.
+    // The same config and specs can list in a private directory, away from other runs.
+    const directory = mkdtempSync(join(tmpdir(), 'wallet-playwright-list-'));
+    try {
+      symlinkSync(join(repoRoot, 'playwright'), join(directory, 'playwright'), 'dir');
+      symlinkSync(join(repoRoot, 'node_modules'), join(directory, 'node_modules'), 'dir');
+      for (const file of new Set(['playwright.e2e.config.ts', config])) {
+        copyFileSync(join(repoRoot, file), join(directory, file));
+      }
+
+      const isolatedConfig = join(directory, config);
+      const reportPath = join(directory, report);
+      expect(listPlaywrightTests(isolatedConfig)).toMatch(/Total: [1-9]\d* tests? in /);
+      expect(statSync(reportPath, { throwIfNoEntry: false })).toBeUndefined();
+
+      const priorReport = '{"suites":[]}\n';
+      mkdirSync(dirname(reportPath), { recursive: true });
+      writeFileSync(reportPath, priorReport);
+      const priorTimestamp = statSync(reportPath).mtimeMs;
+      expect(listPlaywrightTests(isolatedConfig)).toMatch(/Total: [1-9]\d* tests? in /);
+      expect(readFileSync(reportPath, 'utf8')).toBe(priorReport);
+      expect(statSync(reportPath).mtimeMs).toBe(priorTimestamp);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

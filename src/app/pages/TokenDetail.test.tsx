@@ -410,7 +410,11 @@ function configure(o: Overrides = {}) {
   mockWalletNetwork = o.network;
   // The default token is ETH, so `priceInfo` is ETH's quote; `tokenPrices` replaces the whole feed.
   mockTokenPrices = o.tokenPrices ?? {
-    ETH: { percentageChange24h: 0, ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }) }
+    ETH: {
+      percentageChange24h: 0,
+      ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }),
+      kind: 'market' as const
+    }
   };
   mockGetExplorerAccountUrl.mockReturnValue(
     o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
@@ -473,7 +477,7 @@ describe('TokenDetail', () => {
   it('values IETH and charts it at ETH, the symbol the feed quotes it under', () => {
     configure({
       balances: [{ tokenId: TEST_TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
-      tokenPrices: { ETH: { price: 3000, change24h: 45, percentageChange24h: 1.5 } }
+      tokenPrices: { ETH: { price: 3000, change24h: 45, percentageChange24h: 1.5, kind: 'market' as const } }
     });
     render(<TokenDetail tokenId={TEST_TOKEN_IETH.faucetId} />);
 
@@ -508,7 +512,9 @@ describe('TokenDetail', () => {
 
   it('values a basket token at its net asset value without a move or a market chart', () => {
     renderPage({
-      tokenPrices: { ETH: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), source: 'basket' } }
+      tokenPrices: {
+        ETH: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'basket' as const }
+      }
     });
 
     expect(within(screen.getByTestId('token-detail-hero')).getByText('$25.00')).toBeInTheDocument();
@@ -526,14 +532,14 @@ describe('TokenDetail', () => {
           change24h: 0,
           percentageChange24h: 0,
           observedAt: Date.now(),
-          source: 'basket',
+          kind: 'basket' as const,
           composition: [
             { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.6 },
             { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.4 }
           ]
         },
-        BTC: { price: 60000, change24h: 0, percentageChange24h: 1 },
-        SOL: { price: 90, change24h: 0, percentageChange24h: 1 }
+        BTC: { price: 60000, change24h: 0, percentageChange24h: 1, kind: 'market' as const },
+        SOL: { price: 90, change24h: 0, percentageChange24h: 1, kind: 'market' as const }
       }
     });
 
@@ -559,14 +565,14 @@ describe('TokenDetail', () => {
           price: 2,
           change24h: 0,
           percentageChange24h: 0,
-          source: 'basket',
+          kind: 'basket' as const,
           composition: [
             { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.600004 },
             { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.399996 }
           ]
         },
-        BTC: { price: 60000, change24h: 0, percentageChange24h: 1 },
-        SOL: { price: 90, change24h: 0, percentageChange24h: 1 }
+        BTC: { price: 60000, change24h: 0, percentageChange24h: 1, kind: 'market' as const },
+        SOL: { price: 90, change24h: 0, percentageChange24h: 1, kind: 'market' as const }
       }
     });
 
@@ -581,7 +587,7 @@ describe('TokenDetail', () => {
           price: 2,
           change24h: 0,
           percentageChange24h: 0,
-          source: 'basket',
+          kind: 'basket' as const,
           composition: [{ faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 1 }]
         }
       }
@@ -594,7 +600,9 @@ describe('TokenDetail', () => {
 
   it('shows no fiat line and no price section for a token the feed does not quote', () => {
     // Prices have loaded, and ETH is not among them.
-    renderPage({ tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } } });
+    renderPage({
+      tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
+    });
 
     const hero = screen.getByTestId('token-detail-hero');
     expect(within(hero).getByText('12.50')).toBeInTheDocument();
@@ -637,7 +645,7 @@ describe('TokenDetail', () => {
       renderPage(
         {
           balances: [{ tokenId: 'mtst1fixture', balance: 12.5, metadata: { symbol: 'TST' } }],
-          tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } }
+          tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
         },
         'mtst1fixture'
       );
@@ -877,7 +885,7 @@ describe('TokenDetail', () => {
     it('omits the fiat line rather than pricing a quantity it does not have', () => {
       renderPage({
         balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
-        tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } }
+        tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
       });
 
       // The market price elsewhere on the page is a price PER token and does not
@@ -926,7 +934,7 @@ describe('TokenDetail', () => {
       renderPage(
         {
           balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
-          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0 } }
+          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
         },
         MIDEN_USDC_FAUCET
       );
@@ -953,7 +961,9 @@ describe('TokenDetail', () => {
     it('shows the percent change, not the USD change, for a large-price token', () => {
       // A realistic BTC quote: down $335.30 in USD, which is -0.405% of the price 24h ago. The pill
       // once read the USD figure as a percent and showed "-335.3%".
-      renderPage({ priceInfo: { price: 82365.071, change24h: -335.3, percentageChange24h: -0.40541 } });
+      renderPage({
+        priceInfo: { price: 82365.071, change24h: -335.3, percentageChange24h: -0.40541 }
+      });
 
       const pill = screen.getByTestId('token-detail-price-change');
       expect(pill).toHaveTextContent('tokenDetailChange24h_-0.4');
@@ -969,7 +979,9 @@ describe('TokenDetail', () => {
       [0, 'text-ink', '0.0']
     ])('tones a %p change as a status pill (%s)', (percentageChange24h, inkClass, label) => {
       // A USD change far from the percent, so a pill that read `change24h` would fail.
-      renderPage({ priceInfo: { price: 2000, change24h: percentageChange24h * 100, percentageChange24h } });
+      renderPage({
+        priceInfo: { price: 2000, change24h: percentageChange24h * 100, percentageChange24h }
+      });
 
       const pill = screen.getByTestId('token-detail-price-change');
       expect(pill).toHaveTextContent(`tokenDetailChange24h_${label}`);

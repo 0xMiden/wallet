@@ -89,6 +89,7 @@ export type PillProps = PillBehaviourProps & {
   'aria-haspopup'?: 'dialog' | 'menu';
   'aria-expanded'?: boolean;
   'data-testid'?: string;
+  'data-phase'?: string;
 };
 
 // Literal class strings, so Tailwind generates them.
@@ -187,7 +188,8 @@ export const Pill: React.FC<PillProps> = ({
   'aria-label': ariaLabel,
   'aria-haspopup': ariaHasPopup,
   'aria-expanded': ariaExpanded,
-  'data-testid': dataTestId
+  'data-testid': dataTestId,
+  'data-phase': dataPhase
 }) => {
   // `cn` (tailwind-merge), not `clsx`: a caller's own border/background/text utility in
   // `className` has to REPLACE the tone default it conflicts with, not just coexist with it —
@@ -223,6 +225,7 @@ export const Pill: React.FC<PillProps> = ({
         aria-live={live ? 'polite' : undefined}
         aria-label={ariaLabel}
         data-testid={dataTestId}
+        data-phase={dataPhase}
       >
         {content}
       </span>
@@ -244,6 +247,7 @@ export const Pill: React.FC<PillProps> = ({
       aria-haspopup={ariaHasPopup}
       aria-expanded={ariaExpanded}
       data-testid={dataTestId}
+      data-phase={dataPhase}
       className={classes}
     >
       {content}

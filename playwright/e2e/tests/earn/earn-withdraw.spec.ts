@@ -537,7 +537,9 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         expect(nonceRequests()).toHaveLength(6);
         expect(positions.requests.some(request => request.path === '/positions')).toBe(true);
         await survivor.navigateTo(`/history-details/${txId}`);
-        await expect(survivorPage.getByText('Received', { exact: true })).toBeVisible({ timeout: 30_000 });
+        await expect(survivorPage.getByTestId('history-status-pill').getByText('Received', { exact: true })).toBeVisible({
+          timeout: 30_000
+        });
         await expect(survivorPage.getByRole('button', { name: 'Retry delivery', exact: true })).toHaveCount(0);
         await captureWithdrawalScreen(survivor, testInfo, 'withdrawal-received');
         await survivor.navigateTo(`/history-details/${receipt.id}`);

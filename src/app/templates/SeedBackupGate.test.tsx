@@ -78,7 +78,7 @@ beforeEach(() => {
       { publicKey: 'a', name: 'Account', isPublic: false, type: WalletType.Guardian, hdIndex: 0, authScheme: 'falcon' }
     ],
     balances: { a: [token(1)] },
-    tokenPrices: { ETH: { price: 150, change24h: 0, percentageChange24h: 0 } }
+    tokenPrices: { ETH: { price: 150, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
   };
 });
 
@@ -89,14 +89,14 @@ const app = () => (
 );
 
 it.each([149.99, 0])('allows actions below the threshold: %s USD', value => {
-  mockState.tokenPrices.ETH = { price: value, change24h: 0, percentageChange24h: 0 };
+  mockState.tokenPrices.ETH = { price: value, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
   render(app());
   expect(screen.getByRole('button')).toBeInTheDocument();
   expect(mockSave).not.toHaveBeenCalled();
 });
 
 it.each([150, 150.01])('blocks actions at %s USD and saves the requirement', value => {
-  mockState.tokenPrices.ETH = { price: value, change24h: 0, percentageChange24h: 0 };
+  mockState.tokenPrices.ETH = { price: value, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
   render(app());
   expect(screen.queryByRole('button', { name: 'Wallet action' })).not.toBeInTheDocument();
   expect(screen.getByRole('alertdialog')).toHaveAccessibleName('seedBackupRequiredTitle');
@@ -163,7 +163,7 @@ it('does not ask to back up an imported phrase or a removed phrase', () => {
 it('does not invent a value for an unpriced token or an unresolved scale', () => {
   mockState.tokenPrices = {};
   expect(reachesSeedBackupThreshold(mockState)).toBe(false);
-  mockState.tokenPrices = { ETH: { price: 150, change24h: 0, percentageChange24h: 0 } };
+  mockState.tokenPrices = { ETH: { price: 150, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
   mockState.balances.a = [{ ...token(1), metadata: { ...token(1).metadata, scaleIsUnknown: true } }];
   expect(reachesSeedBackupThreshold(mockState)).toBe(false);
 });
@@ -172,7 +172,7 @@ it('ignores invalid balances and prices', () => {
   mockState.balances.a = [token(NaN), token(Infinity), token(-1)];
   expect(reachesSeedBackupThreshold(mockState)).toBe(false);
   mockState.balances.a = [token(1)];
-  mockState.tokenPrices.ETH = { price: Infinity, change24h: 0, percentageChange24h: 0 };
+  mockState.tokenPrices.ETH = { price: Infinity, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
   expect(reachesSeedBackupThreshold(mockState)).toBe(false);
 });
 

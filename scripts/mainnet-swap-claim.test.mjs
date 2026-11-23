@@ -108,6 +108,64 @@ test('waits without signing while the newly queued original PSWAP is not public 
     RpcClient.prototype.getNotesById = originalGet;
   }
 });
+test('reports canonical order inclusion before a payback or claim exists', async () => {
+  const { original, scope } = fixture();
+  const blockNum = 123;
+  const noteRoot = Word.fromHex(scope.noteId);
+  let provesCanonicalNote = true;
+  const record = {
+    note: original,
+    noteId: original.id(),
+    metadata: original.metadata(),
+    inclusionProof: {
+      location: () => ({ blockNum: () => blockNum, blockNoteTreeIndex: () => 0 }),
+      notePath: () => ({
+        verify(index, id, root) {
+          assert.equal(index, 0n);
+          assert.equal(id.toHex(), scope.noteId);
+          assert.equal(root, noteRoot);
+          return provesCanonicalNote;
+        }
+      })
+    }
+  };
+  const originalGet = RpcClient.prototype.getNotesById;
+  const originalHeader = RpcClient.prototype.getBlockHeaderByNumber;
+  const originalCommitHeight = RpcClient.prototype.getNullifierCommitHeight;
+  const observed = [];
+  RpcClient.prototype.getNotesById = async () => [record];
+  RpcClient.prototype.getBlockHeaderByNumber = async () => ({ blockNum: () => blockNum, noteRoot: () => noteRoot });
+  RpcClient.prototype.getNullifierCommitHeight = async () => {
+    observed.push('payback check');
+    return undefined;
+  };
+  const onOriginalIncluded = () => observed.push('inclusion');
+  try {
+    const rpcUrl = 'https://rpc.mainnet.miden.io';
+    assert.equal(await claims.readMainnetSwapPayback(rpcUrl, scope, onOriginalIncluded), undefined);
+    assert.deepEqual(observed.splice(0), ['inclusion', 'payback check']);
+
+    assert.equal(
+      await claims.readMainnetSwapPayback(rpcUrl, scope, () => {
+        throw new Error('report unavailable');
+      }),
+      undefined
+    );
+    assert.deepEqual(observed.splice(0), ['payback check']);
+
+    provesCanonicalNote = false;
+    await assert.rejects(
+      () => claims.readMainnetSwapPayback(rpcUrl, scope, onOriginalIncluded),
+      /canonical header root/
+    );
+    assert.deepEqual(observed, []);
+  } finally {
+    RpcClient.prototype.getNotesById = originalGet;
+    RpcClient.prototype.getBlockHeaderByNumber = originalHeader;
+    RpcClient.prototype.getNullifierCommitHeight = originalCommitHeight;
+  }
+});
+
 test('never treats a nonempty malformed original response as pending', async () => {
   const { scope } = fixture();
   const originalGet = RpcClient.prototype.getNotesById;

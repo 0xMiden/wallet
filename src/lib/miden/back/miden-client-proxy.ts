@@ -53,6 +53,7 @@ import {
   isWasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
+import { checkStorage, isStorageStalledNow, StorageStalledError } from 'lib/miden/storage-health';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
@@ -600,6 +601,20 @@ function rejectAllInFlight(
   }
 }
 
+function downgradeReadDeadline(op_id: string, op: InFlightOp): boolean {
+  if (op.critical || !isCriticalOpInFlight()) return false;
+  // A cheap read's deadline while a value-moving critical op owns the doc.
+  // Fail only this read - never tear down the realm running the write
+  // (design §3.3). The offscreen op keeps running; its result is dropped.
+  takeInFlight(op_id)?.reject(
+    new OperationAbortedError(op_id, 'deadline-no-kill', {
+      started: op.started,
+      deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
+    })
+  );
+  return true;
+}
+
 /**
  * The deadline handler (design §3.2, §3.3). Who may kill during a critical op:
  *   - a NON-critical (read) op's deadline while ANY critical op is in flight →
@@ -615,23 +630,23 @@ async function onDeadline(op_id: string): Promise<void> {
   // it — but if a stale timer callback races the pause, do nothing.
   if (op.paused) return;
 
-  if (!op.critical && isCriticalOpInFlight()) {
-    // A cheap read's deadline while a value-moving critical op owns the doc.
-    // Fail only this read — never tear down the realm running the write
-    // (design §3.3). The offscreen op keeps running; its result is dropped.
-    takeInFlight(op_id)?.reject(
-      new OperationAbortedError(op_id, 'deadline-no-kill', {
-        started: op.started,
-        deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
-      })
-    );
-    return;
-  }
+  if (downgradeReadDeadline(op_id, op)) return;
 
   // Either this IS the critical op whose own deadline fired (kill the wedge), or
   // a read deadline with no critical op in flight (kill + reopen).
   // Read before the close: a start signal or sign resume during it re-arms this op's timer.
   const deadline = { timer: op.timerPhase, killer: op.critical ? 'write' : 'read' } as const;
+  // A deadline on a browser whose IndexedDB is not answering is that stall, not a wedged realm: the reopened document
+  // would open the same database and hang again, an endless close/reopen loop (#2148). A read just fails; a write
+  // still tears down the realm it may be wedging, but nothing is reopened.
+  const storageStalled = await checkStorage();
+  // The probe can take seconds: the op may have settled or paused, or a write may have started, meanwhile.
+  if (inFlight.get(op_id) !== op || op.paused) return;
+  if (storageStalled && !op.critical) {
+    takeInFlight(op_id)?.reject(new StorageStalledError());
+    return;
+  }
+  if (downgradeReadDeadline(op_id, op)) return;
   const closed = await forceCloseOffscreenDocument();
   // Closing the doc killed every concurrent op's realm — reject them all.
   // TODO(slice 4): there is a small window where an op whose sendMessage is
@@ -640,7 +655,7 @@ async function onDeadline(op_id: string): Promise<void> {
   // weigh this against the write kill-window taxonomy (design §5) before routing
   // writes through here.
   rejectAllInFlight(op_id, deadline);
-  if (closed) {
+  if (closed && !storageStalled) {
     // Reopen eagerly so the next call doesn't pay the cold start on its own
     // critical path. Best-effort: the next call's ensureOffscreenDocument()
     // would recreate it anyway.
@@ -666,6 +681,8 @@ async function dispatchOp(
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
   try {
+    // While storage is stalled nothing may be dispatched: every op would park on the same stuck database and pile up.
+    if (await isStorageStalledNow()) throw new StorageStalledError();
     await ensureOffscreenDocument();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
