@@ -2,7 +2,9 @@ import { performance } from 'node:perf_hooks';
 
 import type { TestInfo } from '@playwright/test';
 
-import { createOperation, createStage } from '../../../scripts/wallet-e2e/report.cjs';
+import { createOperation, createStage, matches, schema } from '../../../scripts/wallet-e2e/report.cjs';
+
+export const NIGHTLY_OBSERVATION = 'wallet-e2e-observation-v1';
 
 type TokenAmount = { asset: string; baseUnits: string; decimals: number };
 
@@ -96,7 +98,6 @@ type Stage = {
 
 export type ObserveNightly = (outcome?: OperationOutcome, stage?: Stage) => void;
 
-// Record only hand-picked scalar evidence and never add reporting work for ordinary E2E runs.
 export function observeNightly(info: TestInfo | undefined, context: OperationContext): ObserveNightly {
   if (!info || !process.env.E2E_WALLET_REPORT_INVOCATION) return () => {};
   return (outcome, stage) => {
@@ -104,9 +105,9 @@ export function observeNightly(info: TestInfo | undefined, context: OperationCon
       const operation = createOperation({ ...context, ...outcome });
       const stages = stage ? [createStage(stage)] : [];
       const description = JSON.stringify({ operation: { ...operation, stages }, timeout: info.timeout });
-      info.annotations.push({ type: 'wallet-e2e-observation-v1', description });
+      info.annotations.push({ type: NIGHTLY_OBSERVATION, description });
     } catch {
-      // Reporter data never decides whether the running wallet operation passes.
+      // Bad observations must never interrupt a wallet test.
     }
   };
 }
@@ -140,34 +141,10 @@ export async function observedStage<T>(
 
 export function nightlyAmount(asset: { symbol: string; decimals: number }, amount: bigint): TokenAmount | undefined {
   const symbol = asset.symbol.toUpperCase();
-  if (
-    ![
-      'MIDEN',
-      'USDC',
-      'USDCX',
-      'PAXG',
-      'ETH',
-      'BTC',
-      'WBTC',
-      'WETH',
-      'WMATIC',
-      'POL',
-      'MATIC',
-      'USDT',
-      'SOL',
-      'NEAR'
-    ].includes(symbol)
-  ) {
-    return undefined;
-  }
-  if (
-    amount < 0n ||
-    amount >= 10n ** 30n ||
-    !Number.isSafeInteger(asset.decimals) ||
-    asset.decimals < 0 ||
-    asset.decimals > 24
-  ) {
-    return undefined;
-  }
-  return { asset: symbol === 'USDCX' ? 'USDCx' : symbol, decimals: asset.decimals, baseUnits: amount.toString() };
+  const value = {
+    asset: symbol === 'USDCX' ? 'USDCx' : symbol,
+    decimals: asset.decimals,
+    baseUnits: amount.toString()
+  };
+  return matches(value, schema.$defs.amount) ? value : undefined;
 }

@@ -8,6 +8,7 @@ import { INVOCATIONS, STATUS, TITLES } from '../../../scripts/wallet-e2e/invocat
 import { trustedEnvironment } from '../../../scripts/wallet-e2e/job.cjs';
 import {
   MAX_REPORT_BYTES,
+  createOperation,
   errorFor,
   known,
   matches,
@@ -18,32 +19,25 @@ import {
   valueOrUnknown
 } from '../../../scripts/wallet-e2e/report.cjs';
 
-const OBSERVATION = 'wallet-e2e-observation-v1';
-type WireOperation = {
-  key: string;
-  stages: unknown[];
-  outcome: string;
-  recoveryEffect: string;
-  sourceRunId: { value: string | null; reason: string | null };
-  offered: { value: unknown; reason: string | null };
-  minimum: { value: unknown; reason: string | null };
-  received: { value: unknown; reason: string | null };
-  fee: { value: unknown; reason: string | null };
-};
+import { NIGHTLY_OBSERVATION } from './nightly-observation';
+
+type ReportOperation = ReturnType<typeof createOperation>;
+const OBSERVED_FIELDS = ['sourceRunId', 'offered', 'minimum', 'received', 'fee'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isOperation(value: unknown): value is WireOperation {
+function isOperation(value: unknown): value is ReportOperation {
   return matches(value, schema.$defs.operation);
 }
 
-function readObservations(result: TestResult): { operations: WireOperation[]; timeout?: number } {
-  const operations = new Map<string, WireOperation>();
+function readObservations(result: TestResult): { operations: ReportOperation[]; timeout?: number } {
+  const operations = new Map<string, ReportOperation>();
   let timeout: number | undefined;
   for (const annotation of result.annotations) {
-    if (annotation.type !== OBSERVATION || !annotation.description || annotation.description.length > 8_000) continue;
+    if (annotation.type !== NIGHTLY_OBSERVATION || !annotation.description || annotation.description.length > 8_000)
+      continue;
     const parsed: unknown = JSON.parse(annotation.description);
     if (!isRecord(parsed) || !isOperation(parsed.operation)) throw new Error('Malformed wallet E2E observation');
     const { operation } = parsed;
@@ -52,11 +46,10 @@ function readObservations(result: TestResult): { operations: WireOperation[]; ti
       operation.stages = [...earlier.stages, ...operation.stages];
       if (operation.outcome === 'unknown') operation.outcome = earlier.outcome;
       if (operation.recoveryEffect === 'unknown') operation.recoveryEffect = earlier.recoveryEffect;
-      if (operation.sourceRunId.value === null) operation.sourceRunId = earlier.sourceRunId;
-      if (operation.offered.value === null) operation.offered = earlier.offered;
-      if (operation.minimum.value === null) operation.minimum = earlier.minimum;
-      if (operation.received.value === null) operation.received = earlier.received;
-      if (operation.fee.value === null) operation.fee = earlier.fee;
+      // A stage without a new measurement keeps the value already observed.
+      for (const field of OBSERVED_FIELDS) {
+        if (operation[field].value === null) operation[field] = earlier[field];
+      }
     }
     operations.set(operation.key, operation);
     if (typeof parsed.timeout === 'number' && matches(parsed.timeout, schema.$defs.duration)) timeout = parsed.timeout;
