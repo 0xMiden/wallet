@@ -211,6 +211,11 @@ export interface GuardianHistoryRecoveryContext {
     guardianAccountId: string;
   }>;
   shouldYield: () => Promise<string | null>;
+  /**
+   * The wallet-lock part of `shouldYield` without its in-flight transaction read, for the checks inside one entry. The
+   * pass runs `shouldYield` once per entry and this one on every other check. Absent, every check uses `shouldYield`.
+   */
+  shouldYieldCheap?: () => Promise<string | null>;
   /** The history generation the detached run read when it started; every write of this pass is bound to it. */
   generation: string;
 }

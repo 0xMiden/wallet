@@ -931,6 +931,92 @@ it('prefetches only the next delta while current note work is pending', async ()
   }
 });
 
+function twoOutputsPerEntry() {
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => ({
+    accountId: account.publicKey,
+    inputNotes: [],
+    outputNotes: [0, 1].map(index => ({
+      id: `note-${encoded}-${index}`,
+      visibility: 'public',
+      assets: [{ faucetId: 'asset', amount: '7' }]
+    }))
+  }));
+}
+
+it('replays a page whose row was saved before an interrupted note import without losing or duplicating anything', async () => {
+  const imported: string[] = [];
+  let crash = true;
+  source('https://one', [{ entries: [entry(3), entry(2)] }]);
+  source('https://two', []);
+  twoOutputsPerEntry();
+  jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async (_encoded, _account, id) => {
+    if (crash && id === 'note-3-0') {
+      shouldYield.mockResolvedValue('wallet locked');
+      return;
+    }
+    if (id) imported.push(id);
+  });
+  try {
+    const first = await run();
+    expect(first.deferred).toBe(true);
+    expect((await transactions.toArray()).map(row => row.recovery?.nonce)).toEqual([3]);
+    expect(imported).toEqual([]);
+    expect((await operatorCheckpoint('https://one'))?.completed).not.toBe(true);
+    expect((await operatorCheckpoint('https://one'))?.cursor).toBeUndefined();
+
+    crash = false;
+    shouldYield.mockResolvedValue(null);
+    const second = await run();
+    expect(second).toEqual({ deferred: false, sourceFailures: 0, restored: 2, deferredSources: 0 });
+    expect(imported).toEqual(['note-3-0', 'note-3-1', 'note-2-0', 'note-2-1']);
+    const rows = await transactions.toArray();
+    expect(rows.map(row => row.recovery?.nonce).sort()).toEqual([2, 3]);
+    expect(new Set(rows.map(row => row.id)).size).toBe(2);
+    expect((await operatorCheckpoint('https://one'))?.completed).toBe(true);
+  } finally {
+    jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async () => undefined);
+  }
+});
+
+it('reads the in-flight transaction queue once per entry, not once per check', async () => {
+  const cheap = jest.fn<Promise<string | null>, []>(async () => null);
+  source('https://one', [{ entries: [entry(3), entry(2), entry(1)] }]);
+  source('https://two', []);
+  twoOutputsPerEntry();
+  const result = await recoverGuardianHistory(account, {
+    createClient,
+    shouldYield,
+    shouldYieldCheap: cheap,
+    generation: await storedGeneration()
+  });
+  expect(result.deferred).toBe(false);
+  expect(await transactions.count()).toBe(3);
+  expect(shouldYield.mock.calls.length).toBeLessThanOrEqual(10);
+  expect(cheap.mock.calls.length).toBeGreaterThanOrEqual(15);
+});
+
+it('still yields in the middle of an entry through the per-check guard', async () => {
+  const cheap = jest.fn<Promise<string | null>, []>(async () => null);
+  source('https://one', [{ entries: [entry(3), entry(2)] }]);
+  source('https://two', []);
+  twoOutputsPerEntry();
+  jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async (_encoded, _account, id) => {
+    if (id === 'note-3-0') cheap.mockResolvedValue('wallet locked');
+  });
+  try {
+    const result = await recoverGuardianHistory(account, {
+      createClient,
+      shouldYield,
+      shouldYieldCheap: cheap,
+      generation: await storedGeneration()
+    });
+    expect(result.deferred).toBe(true);
+    expect(jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes)).toHaveBeenCalledTimes(1);
+  } finally {
+    jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async () => undefined);
+  }
+});
+
 /** A createClient that waits on `built` for operator two. */
 function slowOperatorTwo(built: { promise: Promise<void> }) {
   return jest.fn(async (walletAccount: WalletAccount, endpoint: string) => {
