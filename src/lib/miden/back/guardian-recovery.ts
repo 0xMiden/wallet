@@ -109,6 +109,9 @@ function deferAbortedOp(result: GuardianPendingNoteRecoveryResult, error: unknow
   result.evicted = isWasmClientPoisonedError(error);
 }
 
+/** The shortest time between two reads of the in-flight transaction queue during the history pass. */
+const HISTORY_QUEUE_READ_INTERVAL_MS = 1000;
+
 async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' | null> {
   if (isWalletLocked()) return 'wallet locked';
   try {
@@ -951,11 +954,16 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     // in the next session.
     // The history pass reads the queue once per entry through `shouldYield` and checks the wallet lock, with that last
     // queue verdict, on every other check, because the queue read scans a table that grows with each restored row.
+    // Even that read is skipped when the last one is under a second old.
     let queueVerdict: 'transaction in flight' | null = null;
+    let queueReadAt = -Infinity;
     const history = await recoverGuardianHistory(account, {
       createClient: createGuardianClientContext,
       shouldYield: async () => {
+        if (isWalletLocked()) return 'wallet locked';
+        if (performance.now() - queueReadAt < HISTORY_QUEUE_READ_INTERVAL_MS) return queueVerdict;
         const verdict = await shouldYield();
+        queueReadAt = performance.now();
         queueVerdict = verdict === 'transaction in flight' ? verdict : null;
         return verdict;
       },

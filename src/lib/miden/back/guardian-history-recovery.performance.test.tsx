@@ -397,7 +397,8 @@ class SyntheticHistory {
   }
   async authenticate() {
     this.authCalls++;
-    await this.wasm(5);
+    // A signature is WASM work, so it waits for the lock like the client operations it can now overlap with.
+    await this.lock(() => this.wasm(5));
     return 'synthetic-signature';
   }
   async page(endpoint: string, cursor?: string): Promise<HistoryPage> {
