@@ -270,12 +270,13 @@ jest.mock('../helpers', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
+  __esModule: true,
+  ...jest.requireActual('../sdk/helpers'),
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
   // Needed once a test enters the Guardian branch of generateTransaction
   // (isGuardianAccount → true): the per-account lock key is canonicalized and
   // wallet-account matching is done via these helpers.
-  canonicalWalletAccountId: (id: string) => id,
-  sameWalletAccountId: (a: string, b: string) => a === b
+  canonicalWalletAccountId: (id: string) => id
 }));
 
 // The guardian branch wraps generateGuardianTransaction in a per-account lock;
