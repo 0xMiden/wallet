@@ -226,6 +226,13 @@ test('manual build choices expose only verified testnet and Chrome Devnet networ
   assert.doesNotMatch(choices, /- mainnet/);
 });
 
+test('PR compile surfaces iOS job uses the xcode-27-xlarge runner matching the store toolchain', () => {
+  const source = readFileSync(new URL('../../.github/workflows/pr-compile-surfaces.yml', import.meta.url), 'utf8');
+  const iosJob = source.match(/\n  ios:\n([\s\S]*?)(?=\n  [a-z0-9_-]+:|$)/)?.[1];
+  assert.ok(iosJob);
+  assert.match(iosJob, /^    runs-on: xcode-27-xlarge$/m);
+});
+
 test('Apple signing requires the existing provisioning profile as private decoded material', async () => {
   const { validateAppleSigningMaterial } = await implementation();
   const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
