@@ -601,6 +601,20 @@ function rejectAllInFlight(
   }
 }
 
+function downgradeReadDeadline(op_id: string, op: InFlightOp): boolean {
+  if (op.critical || !isCriticalOpInFlight()) return false;
+  // A cheap read's deadline while a value-moving critical op owns the doc.
+  // Fail only this read - never tear down the realm running the write
+  // (design §3.3). The offscreen op keeps running; its result is dropped.
+  takeInFlight(op_id)?.reject(
+    new OperationAbortedError(op_id, 'deadline-no-kill', {
+      started: op.started,
+      deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
+    })
+  );
+  return true;
+}
+
 /**
  * The deadline handler (design §3.2, §3.3). Who may kill during a critical op:
  *   - a NON-critical (read) op's deadline while ANY critical op is in flight →
@@ -616,18 +630,7 @@ async function onDeadline(op_id: string): Promise<void> {
   // it — but if a stale timer callback races the pause, do nothing.
   if (op.paused) return;
 
-  if (!op.critical && isCriticalOpInFlight()) {
-    // A cheap read's deadline while a value-moving critical op owns the doc.
-    // Fail only this read — never tear down the realm running the write
-    // (design §3.3). The offscreen op keeps running; its result is dropped.
-    takeInFlight(op_id)?.reject(
-      new OperationAbortedError(op_id, 'deadline-no-kill', {
-        started: op.started,
-        deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
-      })
-    );
-    return;
-  }
+  if (downgradeReadDeadline(op_id, op)) return;
 
   // Either this IS the critical op whose own deadline fired (kill the wedge), or
   // a read deadline with no critical op in flight (kill + reopen).
@@ -637,10 +640,13 @@ async function onDeadline(op_id: string): Promise<void> {
   // would open the same database and hang again, an endless close/reopen loop (#2148). A read just fails; a write
   // still tears down the realm it may be wedging, but nothing is reopened.
   const storageStalled = await checkStorage();
+  // The probe can take seconds: the op may have settled or paused, or a write may have started, meanwhile.
+  if (inFlight.get(op_id) !== op || op.paused) return;
   if (storageStalled && !op.critical) {
     takeInFlight(op_id)?.reject(new StorageStalledError());
     return;
   }
+  if (downgradeReadDeadline(op_id, op)) return;
   const closed = await forceCloseOffscreenDocument();
   // Closing the doc killed every concurrent op's realm — reject them all.
   // TODO(slice 4): there is a small window where an op whose sendMessage is

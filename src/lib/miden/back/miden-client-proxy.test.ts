@@ -48,7 +48,10 @@ jest.mock('lib/miden/storage-health', () => {
   const g = globalThis as any;
   return {
     ...jest.requireActual('lib/miden/storage-health'),
-    checkStorage: async () => g.__px.storageStalled,
+    checkStorage: async () => {
+      await g.__px.probeGate;
+      return g.__px.storageStalled;
+    },
     isStorageStalledNow: async () => g.__px.storageStalled
   };
 });
@@ -2364,6 +2367,35 @@ describe('MidenClientProxy — stalled browser storage (#2148)', () => {
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
     expect(__test.inFlightSize()).toBe(0);
+  });
+});
+
+describe('MidenClientProxy — a write that starts while the deadline probe runs (#2148)', () => {
+  it('fails the read without killing the realm that now runs the write', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    const prover = await import('./offscreen-prover');
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+    let finishProbe!: () => void;
+    G.__px.probeGate = new Promise<void>(resolve => {
+      finishProbe = resolve;
+    });
+
+    const p = midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    await wait(40); // the deadline fires and parks on the probe
+    prover.incrementCriticalOp(); // a write takes the document during the probe
+    finishProbe();
+    await flush();
+
+    const err = await p;
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as any).reason).toBe('deadline-no-kill');
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(0);
+    prover.decrementCriticalOp();
   });
 });
 

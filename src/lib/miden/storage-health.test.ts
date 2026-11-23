@@ -1,4 +1,5 @@
 import {
+  beginStartupProbe,
   checkStorage,
   isStorageStalled,
   isStorageStalledError,
@@ -88,6 +89,7 @@ describe('stall flag', () => {
     expect(mockPutToStorage).toHaveBeenCalledWith(STORAGE_STALL_KEY, true);
 
     answer = 'success';
+    requests[0]!.onsuccess?.();
     await jest.advanceTimersByTimeAsync(STORAGE_RECHECK_INTERVAL_MS);
     await expect(isStorageStalledNow()).resolves.toBe(false);
     expect(mockPutToStorage).toHaveBeenLastCalledWith(STORAGE_STALL_KEY, false);
@@ -114,7 +116,54 @@ describe('stall flag', () => {
     const again = isStorageStalledNow();
     await jest.advanceTimersByTimeAsync(STORAGE_PROBE_DEADLINE_MS);
     await expect(again).resolves.toBe(true);
-    expect((globalThis as any).indexedDB.open).toHaveBeenCalledTimes(opens + 1);
+    // The recheck reuses the pending open instead of starting another.
+    expect((globalThis as any).indexedDB.open).toHaveBeenCalledTimes(opens);
+  });
+
+  it('closes the connection when a pending open finally succeeds, and the next probe opens afresh', async () => {
+    const check = checkStorage();
+    await jest.advanceTimersByTimeAsync(STORAGE_PROBE_DEADLINE_MS);
+    await check;
+    requests[0]!.onsuccess?.();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(requests[0]!.result.close).toHaveBeenCalled();
+
+    answer = 'success';
+    await jest.advanceTimersByTimeAsync(STORAGE_RECHECK_INTERVAL_MS);
+    await expect(isStorageStalledNow()).resolves.toBe(false);
+    expect(requests).toHaveLength(2);
+  });
+
+  it('retries a failed clear of a persisted stall on the next call', async () => {
+    const check = checkStorage();
+    await jest.advanceTimersByTimeAsync(STORAGE_PROBE_DEADLINE_MS);
+    await check;
+    expect(mockPutToStorage).toHaveBeenCalledTimes(1);
+
+    answer = 'success';
+    requests[0]!.onsuccess?.();
+    mockPutToStorage.mockRejectedValueOnce(new Error('quota'));
+    await jest.advanceTimersByTimeAsync(STORAGE_RECHECK_INTERVAL_MS);
+    await expect(isStorageStalledNow()).resolves.toBe(false);
+    expect(mockPutToStorage).toHaveBeenCalledTimes(2);
+
+    await expect(isStorageStalledNow()).resolves.toBe(false);
+    expect(mockPutToStorage).toHaveBeenCalledTimes(3);
+    expect(mockPutToStorage).toHaveBeenLastCalledWith(STORAGE_STALL_KEY, false);
+    await expect(isStorageStalledNow()).resolves.toBe(false);
+    expect(mockPutToStorage).toHaveBeenCalledTimes(3);
+  });
+
+  it('every gate waits for the startup probe, which writes the mirror', async () => {
+    beginStartupProbe();
+    const gate = isStorageStalledNow();
+    let settled = false;
+    void gate.then(() => (settled = true));
+    await jest.advanceTimersByTimeAsync(STORAGE_PROBE_DEADLINE_MS - 1);
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(gate).resolves.toBe(true);
+    expect(mockPutToStorage).toHaveBeenCalledWith(STORAGE_STALL_KEY, true);
   });
 
   it('is free while healthy: no probe', async () => {

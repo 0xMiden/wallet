@@ -296,9 +296,12 @@ async function runSync(force: boolean): Promise<void> {
       // A stalled IndexedDB is the browser's fault, not the node's (#2148): no failure streak, breaker window or
       // connectivity banner, and nothing below may touch storage. The 30 s timeout fires before the offscreen
       // deadline reports the stall, so a timeout is checked against the probe here.
+      // A sync timeout, or on the inline path a watchdog eviction, is probed afresh: the cached flag is false after a
+      // healthy start, and a stall must not feed the node-failure streak.
       if (
         isStorageStalledError(err) ||
-        (/sync timeout/i.test(String((err as any)?.message ?? err)) && (await checkStorage()))
+        ((isSyncWatchdogEviction(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) &&
+          (await checkStorage()))
       ) {
         console.warn('[SyncManager] sync skipped: browser storage is not answering');
         broadcastSyncCompleted();
@@ -999,7 +1002,5 @@ export function setupSyncManager(): void {
   // (Chrome MV3 requires synchronous registration to catch events that wake the SW).
 
   // Run an initial sync immediately
-  // Also writes the first stall mirror, replacing one a previous service worker left behind.
-  void checkStorage();
   doSync().catch(err => console.warn('[SyncManager] Initial sync error:', err));
 }
