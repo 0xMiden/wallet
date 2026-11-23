@@ -126,6 +126,16 @@ test('eligibility verification selects every actual requested platform origin an
   }
 });
 
+test('eligibility allowlist docs require the Chrome extension origin for the release smoke check', () => {
+  const bullet = readFileSync(new URL('../../services/feature-eligibility/README.md', import.meta.url), 'utf8')
+    .split('\n')
+    .find(line => line.startsWith('- `FEATURE_ELIGIBILITY_ALLOWED_ORIGINS`'));
+  assert.ok(bullet);
+  assert.match(bullet, /release validation still requires the Chrome extension origin/);
+  assert.match(bullet, /runtime requests may omit Origin/);
+  assert.doesNotMatch(bullet, /absent-Origin extension requests need no entry/);
+});
+
 test('Java properties escaping protects special characters, newlines and Unicode passwords', async () => {
   const { javaPropertyEscape, androidSigningProperties } = await implementation();
   assert.equal(javaPropertyEscape(' leading =:#!\\\n\t\r\f\u00e9\ud83d\udd10'), '\\ leading\\ \\=\\:\\#\\!\\\\\\n\\t\\r\\f\\u00e9\\ud83d\\udd10');
@@ -185,7 +195,7 @@ test('workflow keeps automation and source checkouts pinned and signing out of a
   assert.equal((source.match(/ref: \$\{\{ inputs\.source_sha \}\}/g) ?? []).length, 4);
   assert.equal((source.match(/run: yarn install --frozen-lockfile/g) ?? []).length, 3);
   assert.equal((source.match(/environment: wallet-store-signing/g) ?? []).length, 2);
-  assert.match(source, /runs-on: macos-26/);
+  assert.match(source, /runs-on: xcode-27\n/);
   assert.match(source, /java-version: '21'/);
   assert.match(source, /bundleRelease -PandroidBuildNumber="\$BUILD_NUMBER"/);
   assert.match(source, /'destination': 'export'/);
@@ -214,6 +224,13 @@ test('manual build choices expose only verified testnet and Chrome Devnet networ
   assert.match(choices, /- testnet/);
   assert.match(choices, /- devnet/);
   assert.doesNotMatch(choices, /- mainnet/);
+});
+
+test('PR compile surfaces iOS job uses the xcode-27-xlarge runner matching the store toolchain', () => {
+  const source = readFileSync(new URL('../../.github/workflows/pr-compile-surfaces.yml', import.meta.url), 'utf8');
+  const iosJob = source.match(/\n  ios:\n([\s\S]*?)(?=\n  [a-z0-9_-]+:|$)/)?.[1];
+  assert.ok(iosJob);
+  assert.match(iosJob, /^    runs-on: xcode-27-xlarge$/m);
 });
 
 test('Apple signing requires the existing provisioning profile as private decoded material', async () => {

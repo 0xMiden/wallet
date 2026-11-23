@@ -28,6 +28,7 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection
 
 const props = {
   token: { id: 'usdc', name: 'USDC', decimals: 6, balance: 100, fiatPrice: 1, scaleIsKnown: true },
+  logoFaucetId: undefined,
   tokenLabel: 'Circle USDC',
   arrivingName: 'USDCx',
   network: { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
@@ -81,6 +82,30 @@ it('shows the available balance and retains the test-funds warning', () => {
   expect(screen.getByTestId('bridge-test-funds-warning')).toHaveAttribute('role', 'note');
 });
 
+it('labels an unreadable balance unavailable', () => {
+  const unreadableProps = {
+    ...props,
+    token: { ...props.token, balance: 0 },
+    balanceUnreadable: true
+  } as React.ComponentProps<typeof EvmBridgeDepositForm> & { balanceUnreadable: boolean };
+  const view = render(<EvmBridgeDepositForm {...unreadableProps} />);
+
+  expect(screen.getByTestId('send-token-selector')).toHaveTextContent('unavailable');
+  expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+
+  view.rerender(<EvmBridgeDepositForm {...props} token={{ ...props.token, balance: 0 }} />);
+  expect(screen.getByTestId('send-token-selector')).toHaveTextContent('available 0');
+  expect(screen.getByTestId('send-amount-confirm')).toBeEnabled();
+});
+
+it('fills a percentage shortcut from the selected EVM token balance', () => {
+  const onAmountChange = jest.fn();
+  render(<EvmBridgeDepositForm {...props} onAmountChange={onAmountChange} />);
+
+  fireEvent.click(screen.getByTestId('amount-shortcut-75'));
+  expect(onAmountChange).toHaveBeenCalledWith('75');
+});
+
 it.each([
   { token: { ...props.token, scaleIsKnown: false } },
   { network: undefined },
@@ -120,6 +145,32 @@ describe('user-visible bridge amount errors', () => {
   });
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('forwards owned balance evidence only while that balance failure is displayed', async () => {
+    const errorDiagnostics: {
+      kind: 'bridge_balance_read';
+      bridgeBalanceBranch: 'circle_usdc';
+      bridgeBalanceStage: 'request';
+    } = {
+      kind: 'bridge_balance_read',
+      bridgeBalanceBranch: 'circle_usdc',
+      bridgeBalanceStage: 'request'
+    };
+    const evidenceProps = { errorDiagnostics };
+    const view = render(<EvmBridgeDepositForm {...props} {...evidenceProps} error="private balance failure" />);
+    expect(screen.getByText('private balance failure')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_bridge_balance_failed', 'field', errorDiagnostics]]);
+    mockReportUserVisibleError.mockClear();
+    view.rerender(<EvmBridgeDepositForm {...props} {...evidenceProps} error="amountMustBeLessThanBalance" />);
+    expect(screen.getByText('Visible balance limit')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['amountMustBeLessThanBalance', 'field']]);
   });
 
   it('renders the raw balance-read text even when translation would replace it', () => {

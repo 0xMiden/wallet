@@ -5,10 +5,12 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice, type NoticeVariant } from 'components/ui/Notice';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import type { FeatureUnavailableFeature } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 export interface FeatureUnavailableNoticeProps {
   availability: FeatureAvailability;
+  feature?: FeatureUnavailableFeature;
   /** `inline` under a tile or a route card; `block` (default) on a page. */
   variant?: NoticeVariant;
   /** Layout only (margins, width). */
@@ -24,6 +26,7 @@ export interface FeatureUnavailableNoticeProps {
  */
 export function FeatureUnavailableNotice({
   availability,
+  feature = 'unknown',
   variant,
   className,
   id,
@@ -31,10 +34,20 @@ export function FeatureUnavailableNotice({
 }: FeatureUnavailableNoticeProps): JSX.Element | null {
   const { t } = useTranslation();
   useUserVisibleError(
-    availability.state === 'unavailable' && availability.reason !== 'restricted'
+    availability.state === 'unavailable' && availability.reason !== 'restricted' && availability.reason !== 'pending'
       ? 'bridgeFeatureUnavailableBody'
       : null,
-    'notice'
+    'notice',
+    undefined,
+    {
+      kind: 'feature_unavailable',
+      featureUnavailableFeature: feature,
+      featureUnavailableReason:
+        availability.state === 'unavailable' &&
+        ['off', 'not-configured', 'not-deployed', 'service-down'].includes(availability.reason)
+          ? (availability.reason as 'off' | 'not-configured' | 'not-deployed' | 'service-down')
+          : 'unknown'
+    }
   );
   if (availability.state !== 'unavailable') return null;
   const restricted = availability.reason === 'restricted';
@@ -47,6 +60,7 @@ export function FeatureUnavailableNotice({
       className={className}
       id={id}
       data-testid={dataTestId}
+      data-reason={availability.reason}
     >
       {t(restricted ? 'geoRestrictedBody' : 'bridgeFeatureUnavailableBody')}
     </Notice>

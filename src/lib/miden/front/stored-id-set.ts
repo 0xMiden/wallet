@@ -42,6 +42,8 @@ export interface StoredIdSetEntry {
 }
 
 export interface StoredIdSet {
+  /** Start the same scoped read a mounted consumer would use. */
+  load: (key: string) => Promise<void>;
   /** The key's entry, read on mount. */
   useEntry: (key: string) => StoredIdSetEntry;
   /** Resolves `true` once `change` of what storage holds is stored; `false` when refused or when the save failed. */
@@ -230,6 +232,7 @@ export function createStoredIdSet(logLabel: string): StoredIdSet {
   }
 
   return {
+    load,
     useEntry,
     save,
     reset: () => {

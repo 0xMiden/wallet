@@ -3,7 +3,7 @@ import { _resetGuardianRegistryForTest, getNetworkGuardians } from 'lib/miden-ch
 import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
 
 import type { FeatureAvailability, UnavailableReason } from './availability';
-import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig } from './derive';
+import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig, EpochTokenRead } from './derive';
 import { failedDerivation } from './derived-snapshot';
 import type { FeatureEligibility } from './geo';
 import {
@@ -23,7 +23,7 @@ import {
 import type { BridgeConfig, GuardianConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
 import type { SwapPairs } from './swap-pairs';
-import { selectEarnVaultCatalog, selectNativeEthFaucet, selectSwapPairs } from './values';
+import { selectEarnVaultCatalog, selectEpochDepositTokens, selectNativeEthFaucet, selectSwapPairs } from './values';
 
 let mockNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -72,11 +72,22 @@ jest.mock('./derive', () => ({
 
 const mockLookup = jest.fn<
   Promise<FeatureEligibility | null>,
-  [string, number, { onFailure?: (reason: string) => void }?]
+  [
+    string,
+    number,
+    {
+      onFailure?: (reason: string, requestFailure?: string) => void;
+    }?
+  ]
 >();
 jest.mock('./geo-lookup', () => ({
-  lookupFeatureEligibility: (network: string, version: number, options?: { onFailure?: (reason: string) => void }) =>
-    mockLookup(network, version, options)
+  lookupFeatureEligibility: (
+    network: string,
+    version: number,
+    options?: {
+      onFailure?: (reason: string, requestFailure?: string) => void;
+    }
+  ) => mockLookup(network, version, options)
 }));
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };
@@ -87,6 +98,7 @@ const mockFeatureAvailability = jest.fn(
 );
 jest.mock('./availability', () => ({
   BRIDGE_FEATURES: ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn', 'bridgeIn', 'bridgeOut'],
+  geoFeatureGate: jest.requireActual('./availability').geoFeatureGate,
   featureAvailability: (feature: string, snapshot: unknown, overrides: unknown) =>
     mockFeatureAvailability(feature, snapshot, overrides)
 }));
@@ -96,7 +108,7 @@ jest.mock('./e2e-overrides', () => ({ getE2eOverrides: () => mockOverrides }));
 
 const NOW = 1_800_000_000_000;
 const CACHE = 'bridge_config_v1:testnet';
-const DERIVED = 'bridge_config_derived_v1:testnet';
+const DERIVED = 'bridge_config_derived_v2:testnet';
 
 const config = (version: number, network = 'testnet'): BridgeConfig => ({
   network,
@@ -125,7 +137,7 @@ const SEPOLIA_SKIPPED: DerivedChainConfig = {
     l1BridgeCode: { state: 'skipped' },
     depositTokens: { state: 'skipped' }
   },
-  epoch: { evmUsdc: { state: 'skipped' } }
+  epoch: { tokens: {} }
 };
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => ({
   network: source.network,
@@ -135,6 +147,7 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
   agglayer: { indexer: { state: 'skipped' } },
   epoch: {
     allocator: { state: 'ok', value: true },
+    allocatorAccount: { state: 'ok', value: { accountId: '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e' } },
     market: { state: 'skipped' },
     midenUsdcFaucet: { state: 'skipped' },
     vaults: { state: 'skipped' }
@@ -156,7 +169,7 @@ const seed = (
   }: { fetchedAt?: number; derivedAt?: number; network?: string } = {}
 ) => {
   const entry = storeEntry(network, version, fetchedAt);
-  mockStorage.set(`bridge_config_derived_v1:${network}`, derivedFor(entry.config, derivedAt));
+  mockStorage.set(`bridge_config_derived_v2:${network}`, derivedFor(entry.config, derivedAt));
 };
 const serve = (version: number) => mockFetch.mockImplementation(async network => storeEntry(network, version));
 const failFetch = (message = 'HTTP 503') => mockFetch.mockRejectedValue(new Error(message));
@@ -226,6 +239,21 @@ describe('the store', () => {
     expect(first).toEqual({ network: 'testnet', status: 'loading', config: null, derived: null, lastFetch: null });
     expect(getBridgeConfigSnapshot()).toBe(first);
     expect(mockReadStored).not.toHaveBeenCalled();
+  });
+
+  it('revalidates a legacy allocator admission instead of trusting its warm derived cache', async () => {
+    const entry = storeEntry('testnet', 1, NOW);
+    const legacy = derivedFor(entry.config, NOW);
+    mockStorage.set('bridge_config_derived_v1:testnet', legacy);
+    serve(1);
+
+    const snapshot = await initBridgeConfig();
+
+    expect(snapshot.config).toEqual(entry.config);
+    expect(snapshot.derived?.epoch.allocator).not.toEqual({ state: 'ok', value: true });
+    expect(mockStorage.get('bridge_config_derived_v1:testnet')).toEqual(legacy);
+    await flush();
+    expect(mockDerive).toHaveBeenCalledWith(entry.config);
   });
 
   it('serves the stored document with its derivation, ready, without fetching a fresh copy', async () => {
@@ -736,7 +764,7 @@ describe('a re-derivation that cannot read a value', () => {
     };
     return {
       ...base,
-      chains: { 11155111: { agglayer, epoch: { evmUsdc: { state: 'ok', value: USDC } } } },
+      chains: { 11155111: { agglayer, epoch: { tokens: { USDC: { state: 'ok', value: USDC } } } } },
       epoch: { ...base.epoch, vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] } },
       swap: { pairs: { state: 'ok', value: SWAP_PAIRS } }
     };
@@ -750,7 +778,7 @@ describe('a re-derivation that cannot read a value', () => {
     };
     return {
       ...base,
-      chains: { 11155111: { agglayer, epoch: { evmUsdc: down } } },
+      chains: { 11155111: { agglayer, epoch: { tokens: { USDC: down } } } },
       epoch: { ...base.epoch, allocator: down, vaults: down },
       swap: { pairs: down }
     };
@@ -758,7 +786,7 @@ describe('a re-derivation that cannot read a value', () => {
   // The Sepolia reads with the shared allocator probe, as one flat object.
   const sepoliaReads = (derived: DerivedBridgeConfig | null) => ({
     ...derived?.chains[11155111]?.agglayer,
-    ...derived?.chains[11155111]?.epoch,
+    epochUsdc: derived?.chains[11155111]?.epoch.tokens.USDC,
     allocator: derived?.epoch.allocator
   });
 
@@ -773,7 +801,7 @@ describe('a re-derivation that cannot read a value', () => {
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBe(ETH_FAUCET);
     const kept = {
       tokens: { state: 'ok', value: [ETH] },
-      evmUsdc: { state: 'ok', value: USDC },
+      epochUsdc: { state: 'ok', value: USDC },
       allocator: down,
       l1BridgeCode: { state: 'absent' }
     };
@@ -791,7 +819,7 @@ describe('a re-derivation that cannot read a value', () => {
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
     expect(selectSwapPairs(getBridgeConfigSnapshot())).toBeNull();
     expect(selectEarnVaultCatalog(getBridgeConfigSnapshot())).toBeNull();
-    expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
+    expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.tokens.USDC).toEqual(down);
   });
 
   it('keeps them through a fresher same-version commit from another realm, and not across a version', async () => {
@@ -807,7 +835,7 @@ describe('a re-derivation that cannot read a value', () => {
     expect(derived?.derivedAt).toBe(NOW + 5);
     expect(sepoliaReads(derived)).toMatchObject({
       tokens: { state: 'ok', value: [ETH] },
-      evmUsdc: { state: 'ok', value: USDC },
+      epochUsdc: { state: 'ok', value: USDC },
       allocator: down,
       l1BridgeCode: { state: 'absent' }
     });
@@ -845,7 +873,7 @@ describe('a re-derivation that cannot read a value', () => {
       expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(pairs);
       // Every other value is the new version's own read.
       expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
-      expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
+      expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.tokens.USDC).toEqual(down);
     }
   );
 
@@ -879,6 +907,93 @@ describe('a re-derivation that cannot read a value', () => {
     // The catalogue the other realm stored reads back whole.
     expect(derived?.epoch.vaults).toEqual({ state: 'ok', value: [TEST_EARN_VAULT_INFO] });
     expect(mockStorage.get(DERIVED)).toEqual(derived);
+  });
+
+  it('keeps the last scaled read of a faucet the same document reads again with no scale', async () => {
+    const FAUCET = '0x537c15a622074e91188aa894456c52';
+    const OTHER_FAUCET = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const scaled: EpochTokenRead = {
+      symbol: 'USDC',
+      decimals: 18,
+      midenFaucetId: FAUCET,
+      midenSymbol: 'USDC',
+      midenDecimals: 6
+    };
+    const unscaled = (midenFaucetId: string): EpochTokenRead => ({ symbol: 'USDC', decimals: 18, midenFaucetId });
+    const epochDocument = (version: number, network = 'testnet'): BridgeConfig => {
+      const source = config(version, network);
+      const sepolia = source.supportedEvmChains.sepolia;
+      if (!sepolia) throw new Error('missing sepolia');
+      return {
+        ...source,
+        supportedEvmChains: {
+          ...source.supportedEvmChains,
+          sepolia: {
+            ...sepolia,
+            bridges: {
+              ...sepolia.bridges,
+              epoch: {
+                depositEnabled: true,
+                withdrawalEnabled: true,
+                tokens: {
+                  USDC: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69', outputs: [] }
+                }
+              }
+            }
+          }
+        }
+      };
+    };
+    const epochRead = (source: BridgeConfig, value: EpochTokenRead): DerivedBridgeConfig => {
+      const base = derivedFor(source, Date.now());
+      return {
+        ...base,
+        chains: {
+          11155111: { ...SEPOLIA_SKIPPED, epoch: { tokens: { USDC: { state: 'ok', value } } } }
+        }
+      };
+    };
+    const serveEpoch = (version: number) =>
+      mockFetch.mockImplementation(async network => {
+        const entry = { config: epochDocument(version, network), fetchedAt: Date.now() };
+        mockStorage.set(`bridge_config_v1:${network}`, entry);
+        return entry;
+      });
+
+    serveEpoch(1);
+    mockDerive.mockImplementationOnce(async source => epochRead(source, scaled));
+    await initBridgeConfig();
+    await flush();
+    expect(selectEpochDepositTokens(getBridgeConfigSnapshot(), 11155111)).toEqual([
+      expect.objectContaining({ key: 'USDC', midenFaucetId: FAUCET, midenSymbol: 'USDC', midenDecimals: 6 })
+    ]);
+
+    serveEpoch(1);
+    mockDerive.mockImplementationOnce(async source => epochRead(source, unscaled(FAUCET)));
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(selectEpochDepositTokens(getBridgeConfigSnapshot(), 11155111)).toEqual([
+      expect.objectContaining({ key: 'USDC', midenDecimals: 6 })
+    ]);
+
+    serveEpoch(1);
+    mockDerive.mockImplementationOnce(async source => epochRead(source, unscaled(OTHER_FAUCET)));
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(selectEpochDepositTokens(getBridgeConfigSnapshot(), 11155111)).toEqual([]);
+    const replaced = getBridgeConfigSnapshot().derived;
+    expect(replaced?.chains[11155111]?.epoch.tokens.USDC).toEqual({ state: 'ok', value: unscaled(OTHER_FAUCET) });
+    expect(mockStorage.get(DERIVED)).toEqual(replaced);
+
+    serveEpoch(2);
+    mockDerive.mockImplementationOnce(async source => epochRead(source, unscaled(FAUCET)));
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(selectEpochDepositTokens(getBridgeConfigSnapshot(), 11155111)).toEqual([]);
+    expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.tokens.USDC).toEqual({
+      state: 'ok',
+      value: unscaled(FAUCET)
+    });
   });
 });
 
@@ -1008,7 +1123,7 @@ describe('the poll schedule', () => {
     }
   });
 
-  it.each(['off', 'not-configured'] as const)(
+  it.each(['off', 'not-configured', 'pending'] as const)(
     'keeps the hourly cadence while a feature is only %s and no control holds it',
     async reason => {
       mockAvailability = { earnDeposit: unavailable(reason), bridgeOut: unavailable(reason) };
@@ -1041,6 +1156,72 @@ describe('the poll schedule', () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     }
   );
+
+  it('keeps the hourly cadence while a held control waits only for the startup decision', async () => {
+    mockAvailability = { earnDeposit: unavailable('pending') };
+    seed(1);
+    serve(1);
+    await initBridgeConfig();
+    holdFastPoll();
+    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 1);
+    expect(mockFetch).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the hourly cadence after a failed startup lookup', async () => {
+    mockAvailability = { earnDeposit: unavailable('service-down') };
+    seed(1);
+    serve(1);
+    mockLookup.mockResolvedValueOnce(null);
+    await initFeatureEligibility();
+    // The version retry's refresh is the only fetch; no document can clear the failed decision.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    holdFastPoll();
+    await jest.advanceTimersByTimeAsync(DEGRADED_VISIBLE_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the hourly cadence while a held control is only geo-restricted', async () => {
+    mockAvailability = { earnDeposit: unavailable('restricted') };
+    seed(1);
+    serve(1);
+    await initFeatureEligibility();
+    holdFastPoll();
+    await jest.advanceTimersByTimeAsync(DEGRADED_VISIBLE_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(0);
+    await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still re-checks every 5 minutes for a document outage while the startup lookup is failed', async () => {
+    mockAvailability = { earnDeposit: unavailable('service-down'), fastBridgeOut: unavailable('service-down') };
+    seed(1);
+    serve(1);
+    mockLookup.mockResolvedValueOnce(null);
+    await initFeatureEligibility();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('still re-checks every 5 minutes when Earn itself is down and the startup decision allows it', async () => {
+    mockLookup.mockImplementation(async (network, version) => ({
+      network,
+      version,
+      allowed: { wallet: true, earn: true, swap: true }
+    }));
+    mockAvailability = { earnDeposit: unavailable('service-down') };
+    seed(1);
+    serve(1);
+    await initFeatureEligibility();
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 
   it('re-checks every 60 s while a greyed-out control holds it, and every 5 minutes once released', async () => {
     mockAvailability = { fastBridgeOut: unavailable('service-down') };
@@ -1212,7 +1393,7 @@ describe('the Guardian operators', () => {
   const seedGuardians = (version: number, guardians: GuardianConfig[] | undefined, network = 'testnet') => {
     const document = { ...config(version, network), ...(guardians === undefined ? {} : { guardians }) };
     mockStorage.set(`bridge_config_v1:${network}`, { config: document, fetchedAt: NOW });
-    mockStorage.set(`bridge_config_derived_v1:${network}`, derivedFor(document, NOW));
+    mockStorage.set(`bridge_config_derived_v2:${network}`, derivedFor(document, NOW));
   };
   const ids = (network = 'testnet') => getNetworkGuardians(network).map(option => option.id);
 
@@ -1467,7 +1648,7 @@ describe('startup eligibility', () => {
         return null;
       })
       .mockImplementationOnce(async (_network, _version, options) => {
-        options?.onFailure?.('request_failed');
+        options?.onFailure?.('request_failed', 'timeout');
         return null;
       });
     const result = await initFeatureEligibility();
@@ -1476,7 +1657,8 @@ describe('startup eligibility', () => {
       diagnostics: {
         startupEligibilityStage: 'eligibility_retry',
         startupEligibilityReason: 'request_failed',
-        startupEligibilityRetry: 'retry_failed'
+        startupEligibilityRetry: 'retry_failed',
+        startupEligibilityRequestFailure: 'timeout'
       }
     });
     expect(await initFeatureEligibility()).toBe(result);
@@ -1486,7 +1668,7 @@ describe('startup eligibility', () => {
   it('keeps a failed refresh distinct from the initial eligibility response and does not borrow a later failure', async () => {
     seed(13);
     failFetch();
-    let observed: ((reason: string) => void) | undefined;
+    let observed: ((reason: string, requestFailure?: string) => void) | undefined;
     mockLookup.mockImplementationOnce(async (_network, _version, options) => {
       observed = options?.onFailure;
       observed?.('version_mismatch');

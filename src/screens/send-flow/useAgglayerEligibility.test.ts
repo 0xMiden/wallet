@@ -146,6 +146,20 @@ it('blocks a failed read', async () => {
   warn.mockRestore();
 });
 
+it('does not query the registry while inactive, and checks again when the route opens', async () => {
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
+  const { result, rerender } = renderHook(({ active }) => useAgglayerEligibility('token', undefined, active), {
+    initialProps: { active: false }
+  });
+  expect(result.current).toBe('loading');
+  expect(isAgglayerFaucetAllowed).not.toHaveBeenCalled();
+  rerender({ active: true });
+  await waitFor(() => expect(result.current).toBe('allowed'));
+  expect(isAgglayerFaucetAllowed).toHaveBeenCalledTimes(1);
+  rerender({ active: false });
+  expect(result.current).toBe('loading');
+});
+
 it('does not apply an old approval to a newly selected token', async () => {
   let approveOldToken = (_allowed: boolean) => {};
   const oldCheck = new Promise<boolean>(resolve => {

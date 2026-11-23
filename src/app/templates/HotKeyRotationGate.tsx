@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import useVerificationBaseFee, { useClaimFloorBaseFee } from 'app/hooks/useVerificationBaseFee';
 import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { Button, ButtonVariant } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
@@ -222,16 +222,20 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const [txId, setTxId] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const inFlightRef = useRef<Promise<string | null> | null>(null);
-  const { row, loaded: rowLoaded } = useTransactionRow(txId ?? '');
+  const { row, loaded: rowLoaded, readFailed } = useTransactionRow(txId ?? '');
+  const trackedReadFailed = txId !== null && readFailed === true;
   const { rotationRows, fundingRows, loaded: rowsLoaded } = useRotationGateRows(accountPublicKey);
   const feeFaucetId = useNativeFeeFaucetId();
   const baseFee = useVerificationBaseFee();
+  // The funding claim runs unattended, so it is judged against the claim floor's fee, which waits while the fee is
+  // unknown; the minimum and the shortfall stay on the chain's fee.
+  const claimFloorBaseFee = useClaimFloorBaseFee();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balances, isLoading: balancesLoading } = useAllBalances(accountPublicKey, allTokensBaseMetadata);
   const { data: claimableNotes, isFallback } = useClaimableNotes(accountPublicKey);
   const selection = useMemo(
-    () => selectRotationFundingNotes({ data: claimableNotes, isFallback }, feeFaucetId, baseFee),
-    [claimableNotes, isFallback, feeFaucetId, baseFee]
+    () => selectRotationFundingNotes({ data: claimableNotes, isFallback }, feeFaucetId, claimFloorBaseFee),
+    [claimableNotes, isFallback, feeFaucetId, claimFloorBaseFee]
   );
   // While the rotation waits for funds, the pending-note scan is what finds transfers sent before the recovery.
   // The gate mounts only for the current account.
@@ -306,10 +310,11 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const rotationLive = rotationRows.some(isLiveTransaction);
 
   const onRetry = useCallback(() => {
+    if (trackedReadFailed) return;
     setTxId(null);
     // Failed rows are terminal — retry always enqueues a fresh transaction.
     void beginRotation(false);
-  }, [beginRotation]);
+  }, [beginRotation, trackedReadFailed]);
 
   const confirm = useConfirm();
   const alert = useAlert();
@@ -358,16 +363,16 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
 
   // A funding trigger never queues a second rotation beside a live one.
   const onFunded = useCallback(() => {
-    if (!rotationLive && !importing) void beginRotation(false);
-  }, [beginRotation, rotationLive, importing]);
+    if (!trackedReadFailed && !rotationLive && !importing) void beginRotation(false);
+  }, [beginRotation, rotationLive, importing, trackedReadFailed]);
 
   const { retryClaim } = useRotationFundingClaim({
     accountPublicKey,
-    active: rowsLoaded && gate.view === 'funding' && !rotationLive && !importing,
+    active: rowsLoaded && gate.view === 'funding' && !rotationLive && !importing && !trackedReadFailed,
     listLive: !isFallback && claimableNotes !== undefined && feeFaucetId !== null,
     selection,
     feeFaucetId,
-    baseFee,
+    baseFee: claimFloorBaseFee,
     fundingRows,
     rowsLoaded,
     onFunded
@@ -384,7 +389,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     if (deferredRotationDue) void beginRotation(balancesLoading);
   }, [beginRotation, deferredRotationDue, balancesLoading, rotationRows, fundingRows]);
 
-  const watchedRotationFailure = useWatchedTransactionFailure(row, rowLoaded, accountPublicKey, gate.view === 'failed');
+  const watchedRotationFailure = useWatchedTransactionFailure(
+    row,
+    rowLoaded && !trackedReadFailed,
+    accountPublicKey,
+    gate.view === 'failed'
+  );
   const watchedFundingRow = newestRow(fundingRows);
   const watchedFundingFailure = useWatchedTransactionFailure(
     watchedFundingRow,
@@ -401,7 +411,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
           ? 'raw_hot_key_rotation_failed'
           : 'hotKeyRotationFailedGeneric'
       : null;
-  if (gate.view === 'recovery-seed' && row) {
+  if (!trackedReadFailed && gate.view === 'recovery-seed' && row) {
     return <RecoverySeedPrompt transaction={row} onClose={() => Woozie.navigate('/')} />;
   }
 
@@ -426,7 +436,11 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     >
       {/* `my-auto` centres the content and lets a taller one scroll from its top instead of clipping. */}
       <div className="my-auto flex w-full flex-col items-center gap-4">
-        {importing ? (
+        {trackedReadFailed ? (
+          <Notice errorId="historyDetailsLoadError" tone="negative" role="alert">
+            {t('historyDetailsLoadError')}
+          </Notice>
+        ) : importing ? (
           <div data-testid="hot-key-rotation-import" className="flex w-full flex-col items-center gap-4">
             <ImportHotKeyScreen submitting={importBusy} onSubmit={onImportKeyPair} />
             {importError && (

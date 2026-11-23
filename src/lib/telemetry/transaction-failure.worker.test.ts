@@ -1,10 +1,12 @@
 /** @jest-environment node */
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { isIOS } from 'lib/platform';
 import { signHotDigest } from 'lib/secure-hot-key';
 import { HotKey } from 'lib/secure-hot-key/hotKeyPlugin';
 import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { captureCrash, stopCrashReporting } from './crash';
+import { annotateOffscreenDeadline } from './offscreen-deadline-diagnostics';
 import { reportTransactionFailure } from './transaction-failure';
 
 jest.mock('lib/settings/helpers', () => ({
@@ -261,3 +263,115 @@ it('sends none of a recovery phrase a report carries beside a closed name', asyn
   for (const word of ['avoid leave side', 'crush', 'gasp', 'student', 'interest']) expect(wire).not.toContain(word);
   expect(wire).not.toContain(name);
 });
+
+it('serializes only independent closed deadline queue and reap evidence without private producer values', async () => {
+  const privateValue = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe';
+  const abort = new OperationAbortedError(privateValue, 'deadline', {
+    started: true,
+    deadline: { owner: 'own', timer: 'started', killer: 'write' }
+  });
+  annotateOffscreenDeadline(abort, {
+    offscreenDeadlineMethod: 'guardianPipeline',
+    offscreenDeadlineStage: 'submitting'
+  });
+  reportTransactionFailure({ type: 'send', stage: 'proving', error: abort });
+  reportTransactionFailure({
+    type: 'consume',
+    stage: 'creating-proposal',
+    reason: 'queued_expired',
+    queueAdmissionObservation: 'in_progress_gate',
+    queueSighting: 'selected',
+    preflightSync: 'entered',
+    queueHidden: 'under_half',
+    error: new Error(privateValue)
+  });
+  reportTransactionFailure({
+    type: 'execute',
+    stage: 'proving',
+    reason: 'stuck_reaped',
+    reap: { age: 'past_limit', attempt: 'not_started_here', startRelation: 'before_realm_cutoff' },
+    error: new Error(privateValue)
+  });
+  await settle();
+  expect(captured).toHaveLength(3);
+  const wire = captured.join('\n');
+  expect(wire).toContain('offscreenDeadlineMethod');
+  expect(wire).toContain('guardianPipeline');
+  expect(wire).toContain('submitting');
+  expect(wire).toContain('queueAdmissionObservation');
+  expect(wire).toContain('in_progress_gate');
+  expect(wire).toContain('queueSighting');
+  expect(wire).toContain('queue sighting selected');
+  expect(wire).toContain('preflightSync');
+  expect(wire).toContain('sync attempt entered');
+  expect(wire).toContain('queueHidden');
+  expect(wire).toContain('queue hidden under_half');
+  expect(wire).toContain('reapStartRelation');
+  expect(wire).toContain('before_realm_cutoff');
+  expect(wire).not.toContain(privateValue);
+});
+
+it('sends only closed values for a refused submit whose error carries ids, hex and amounts', async () => {
+  const account = 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe';
+  const accountHex = '0x7bfb0f38b0fafa103f86a80559417021';
+  const transaction = `0x${'c4'.repeat(32)}`;
+  const note = `0x${'9a'.repeat(32)}`;
+  const amount = '1250000';
+  reportTransactionFailure({
+    type: 'send',
+    stage: 'submitting',
+    submitApproachHidden: 'under_half',
+    proofWindow: 'under_30_blocks',
+    hiddenDuringSubmit: false,
+    submitLegMs: 12_345,
+    error: new Error(
+      'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: ' +
+        "invalid request parameters (transaction expired): status: 'invalid request parameters (transaction expired)', " +
+        `self: "tx ${transaction} of ${amount} from ${account} to ${accountHex} note ${note}"`
+    )
+  });
+  await settle();
+  expect(captured).toHaveLength(1);
+  const event = JSON.parse(captured[0]!.split('\n')[2]!) as {
+    exception: { values: { value: string }[] };
+    extra: { walletDiagnostics: Record<string, unknown> };
+  };
+  expect(event.extra.walletDiagnostics).toMatchObject({
+    submitApproachHidden: 'under_half',
+    proofWindow: 'under_30_blocks',
+    submitHidden: 'no',
+    submitLeg: 'over_11s'
+  });
+  const message = event.exception.values[0]!.value;
+  expect(message).toContain(
+    '; point pipeline; submit_rejected; endpoint submit_proven_transaction; grpc invalid_argument; node expired;'
+  );
+  for (const field of ['under_half', 'under_30_blocks', 'over_11s']) expect(message).not.toContain(field);
+  for (const leak of [account, accountHex, transaction, note, amount, 'transaction expired']) {
+    expect(captured[0]).not.toContain(leak);
+  }
+  expect(JSON.stringify(event.extra)).not.toContain('12345');
+  expect(message).not.toContain('12345');
+});
+
+it.each(['user_cancelled', 'queued_expired', 'stuck_reaped'] as const)(
+  'omits deadline progress from the final wire when effective identity is %s',
+  async reason => {
+    const error = new OperationAbortedError('private-operation', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    annotateOffscreenDeadline(error, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving'
+    });
+    reportTransactionFailure({ type: 'send', stage: 'proving', reason, error });
+    await settle();
+    expect(captured).toHaveLength(1);
+    const wire = captured[0]!;
+    expect(wire).toContain(reason);
+    expect(wire).not.toContain('offscreenDeadlineMethod');
+    expect(wire).not.toContain('offscreenDeadlineStage');
+    expect(wire).not.toContain('private-operation');
+  }
+);

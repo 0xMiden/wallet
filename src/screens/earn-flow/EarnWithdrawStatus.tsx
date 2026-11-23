@@ -1,17 +1,18 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { useSWRConfig } from 'swr';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { IconName } from 'app/icons/v2';
 import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
 import { earnWithdrawAmountFields, formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { EmptyState } from 'components/ui/EmptyState';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { marketUidChainId } from 'lib/epoch/market-uid';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -25,6 +26,8 @@ import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+
+import { EarnPageLayout } from './EarnPageLayout';
 
 /**
  * An earn row's icon is the earn slate wherever it is drawn, so the arrow beside it is too; the
@@ -47,7 +50,8 @@ interface EarnWithdrawStatusProps {
  */
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
-  const { row, loaded } = useTransactionRow(txId);
+  const command = useFlowPresentation() === 'command';
+  const { row, loaded, readFailed } = useTransactionRow(txId);
   const { trigger, state } = useLocation();
   const mountedByReturn = usePageMountedByReturn();
   const revealedByLayer = usePageRevealedByLayer();
@@ -59,33 +63,34 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
     firstLoadedFailed.current = row.extraInputs.phase === 'failed';
   }
   useUserVisibleError(
-    loaded && row?.extraInputs.phase === 'failed' && (firstLoadedFailed.current === false || newSubmission)
+    loaded &&
+      !readFailed &&
+      row?.extraInputs.phase === 'failed' &&
+      (firstLoadedFailed.current === false || newSubmission)
       ? 'raw_earn_withdraw_failed'
       : null,
     'status_screen'
   );
-  const { mutate } = useSWRConfig();
-  const refreshedReceipt = useRef<string>();
-  const receiptId = row?.extraInputs?.phase === 'received' ? row.id : undefined;
-  const receiptAccountId = row?.accountId;
-  useEffect(() => {
-    if (!receiptId || !receiptAccountId || refreshedReceipt.current === receiptId) return;
-    refreshedReceipt.current = receiptId;
-    // Drop the old position snapshot as the real credit arrives. Active readers refresh now;
-    // a covered Earn page reloads when it returns, even within its normal 30-second read interval.
-    void mutate(key => Array.isArray(key) && key[0] === 'earn-positions' && key[1] === receiptAccountId, undefined, {
-      revalidate: true
-    });
-  }, [receiptId, receiptAccountId, mutate]);
+  // This screen does not refresh the positions: `useEarnPositions` watches the account's Earn rows while an Earn page
+  // is mounted and reads again when this row is received or fails, and a page that mounts later reads at once.
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const onDone = () => navigate('/');
 
-  if (!loaded || !row)
+  if (!readFailed && (!loaded || (!row && !command)))
     return (
       <div className="flex h-8 justify-center pt-5">
         <Spinner />
       </div>
+    );
+
+  if (readFailed || !row)
+    return (
+      <EmptyState
+        icon={IconName.Earn}
+        title={t('historyDetailsLoadError')}
+        secondaryAction={{ label: t('viewInActivities'), onClick: () => navigate('/history') }}
+      />
     );
 
   const inputs: IEarnWithdrawExtraInputs = row.extraInputs;
@@ -117,6 +122,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
         headerTitle={t('success')}
         title={t('withdrawalStarted')}
         footerDescription={t('withdrawalStartedDescription')}
+        commandFooter
         accent={accentForTransactionType('earn-withdraw')}
         primaryAction={{ label: t('done'), onClick: onDone }}
         secondaryAction={{
@@ -165,7 +171,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
 
   return (
     // The shared pushed-page frame, like every other earn page: header, body, pinned action.
-    <SubPageLayout
+    <EarnPageLayout
       data-testid="earn-withdraw-status-page"
       title={t('transactionProcessingHeader')}
       onClose={onDone}
@@ -200,7 +206,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
             : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}
         </p>
       </section>
-    </SubPageLayout>
+    </EarnPageLayout>
   );
 };
 

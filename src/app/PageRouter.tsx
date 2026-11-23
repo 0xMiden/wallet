@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { FC, useEffect, useLayoutEffect, useMemo } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
@@ -7,6 +7,7 @@ import { useDappApprovalTelemetry } from 'app/hooks/useDappApprovalTelemetry';
 import FullScreenPage, { defaultPageEntrance, FullScreenPageProps } from 'app/layouts/FullScreenPage';
 import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
+import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import HelpImproveWalletPrompt from 'app/pages/HelpImproveWallet';
 import Me from 'app/pages/Me';
@@ -20,9 +21,16 @@ import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
 import { ARCADE_COINS_PATH } from 'lib/arcade';
 import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
+import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import { useMidenContext } from 'lib/miden/front';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { isExtension } from 'lib/platform';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
+import { useWalletStore } from 'lib/store';
 import * as Woozie from 'lib/woozie';
+import { CommandBridge } from 'screens/command/bridge/CommandBridge';
+import { resolveCommandRoute } from 'screens/command/command-routes';
+import { CommandShell } from 'screens/command/CommandShell';
 import { ADDRESS_BOOK_PATH } from 'screens/contacts/contact-paths';
 import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
 import { NewContactPage } from 'screens/contacts/NewContactPage';
@@ -36,6 +44,7 @@ import EarnWithdrawAmount from 'screens/earn-flow/EarnWithdrawAmount';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
 import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
+import { NearIntentsDepositPage } from 'screens/near-intents-flow/NearIntentsDepositPage';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
@@ -49,6 +58,8 @@ import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
+import { RECOVER_FUNDS_PATH } from './pages/recover-funds-paths';
+import RecoverLockedFundsLock from './pages/RecoverLockedFundsLock';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
@@ -58,12 +69,13 @@ import { HistoryDetails } from './templates/history/HistoryDetails';
 
 interface RouteContext {
   popup: boolean;
+  sidePanel: boolean;
   fullPage: boolean;
   ready: boolean;
   locked: boolean;
   hydrated: boolean;
   finishingOnboarding: boolean;
-  settingsScrollTop: React.MutableRefObject<number>;
+  command: boolean;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
@@ -156,10 +168,10 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
         // Idle), or a just-created wallet held by the onboarding finishing mark
         // (app/onboarding-finish): show the loading spinner, NOT onboarding or Home.
         case 'loading':
-          return <RootSuspenseFallback />;
+          return <RootSuspenseFallback data-testid="wallet-route-loading" />;
 
         case 'welcome':
-          return <Welcome />;
+          return ctx.popup || ctx.sidePanel ? <OpenInFullPage /> : <Welcome />;
 
         default:
           return Woozie.Router.SKIP;
@@ -172,7 +184,9 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     (_p, ctx) => {
       switch (resolveRootView(ctx)) {
         case 'app':
-          return (
+          return ctx.command ? (
+            <></>
+          ) : (
             <TabLayout>
               <Explore />
             </TabLayout>
@@ -182,10 +196,10 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return <Unlock />;
 
         case 'loading':
-          return <RootSuspenseFallback />;
+          return <RootSuspenseFallback data-testid="wallet-route-loading" />;
 
         default:
-          return <Welcome />;
+          return ctx.popup || ctx.sidePanel ? <OpenInFullPage /> : <Welcome />;
       }
     }
   ],
@@ -218,13 +232,24 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Read-only "Network endpoints" screen, linked from the Settings row that's only
   // shown while a developer endpoint override is active. Placed ahead of the
-  // generic `/settings/:tabSlug?` route below so it matches first (that route's
+  // generic `/settings/:tabSlug` route below so it matches first (that route's
   // pattern would otherwise swallow this path with tabSlug='network-endpoints').
   [
     '/settings/network-endpoints',
     onlyReady(() => (
       <FullScreenPage entrance="slide">
         <DeveloperSettings readOnly />
+      </FullScreenPage>
+    ))
+  ],
+  // One lock of the "Recover locked bridge funds" settings page (the `recover-funds` tab), with its sponsor in the
+  // `address` query. Three segments, so the generic `/settings/:tabSlug?` route below cannot match it. It slides over
+  // the list, which stays mounted beneath it and scans again after an action here.
+  [
+    `${RECOVER_FUNDS_PATH}/:chainId/:lockId`,
+    onlyReady(({ chainId, lockId }) => (
+      <FullScreenPage key={`recover-funds-${chainId ?? ''}-${lockId ?? ''}`} entrance="slide">
+        <RecoverLockedFundsLock chainId={chainId} lockId={lockId} />
       </FullScreenPage>
     ))
   ],
@@ -246,20 +271,10 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </TabLayout>
     ))
   ],
-  // Me embeds the settings groups; this standalone root is a pushed page for the
-  // links that still open it (the accounts drawer, a sub-page's fallback back).
-  // Exact-matched and placed ahead of the generic route below, which keeps every
-  // `/settings/<slug>` flow unchanged.
+  // Old Settings links open Profile, which contains the settings menu.
+  ['/settings', onlyReady(() => <Woozie.Redirect to="/me" />)],
   [
-    '/settings',
-    onlyReady((_p, ctx) => (
-      <FullScreenPage entrance="slide">
-        <Settings rootScrollTop={ctx.settingsScrollTop} />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/settings/:tabSlug?',
+    '/settings/:tabSlug',
     onlyReady(({ tabSlug }) => (
       <FullScreenPage key="settings" entrance="slide">
         <Settings tabSlug={tabSlug} />
@@ -276,12 +291,30 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Full-screen pages - wrapped in FullScreenPage for slide animation
   [
+    // Before `/receive`. The deposit page of one NEAR Intents tracking row, keyed on the row id so a
+    // route change to another row mounts a new page with its own countdown.
+    '/receive/near-intents/:rowId',
+    onlyReady(({ rowId }) => {
+      const decoded = decodeParam(rowId);
+      if (decoded === undefined) return <Woozie.Redirect to="/receive" />;
+      return (
+        <FullScreenPage key={`near-intents-deposit-${rowId}`} entrance="slide">
+          <NearIntentsDepositPage rowId={decoded} />
+        </FullScreenPage>
+      );
+    })
+  ],
+  [
     '/receive',
-    onlyReady(() => (
-      <TabLayout>
+    onlyReady((_params, ctx) =>
+      ctx.command ? (
         <Receive />
-      </TabLayout>
-    ))
+      ) : (
+        <TabLayout>
+          <Receive />
+        </TabLayout>
+      )
+    )
   ],
   [
     '/rotate-guardian',
@@ -301,11 +334,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/bridge/deposit',
-    onlyReady(() => (
-      <FullScreenPage>
-        <BridgeDeposit />
-      </FullScreenPage>
-    ))
+    onlyReady((_params, ctx) =>
+      ctx.command ? (
+        <CommandBridge />
+      ) : (
+        <FullScreenPage>
+          <BridgeDeposit />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/history-details/:transactionId',
@@ -313,11 +350,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     // pollers keyed on its order, and it only loads when it has no entry yet. A
     // route change that reconciles in place would therefore keep showing — and
     // keep polling for — the previous transaction indefinitely.
-    onlyReady(({ transactionId }) => (
-      <FullScreenPage key={`history-details-${transactionId}`} entrance="slide">
+    onlyReady(({ transactionId }, ctx) =>
+      ctx.command ? (
         <HistoryDetails key={transactionId} transactionId={transactionId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage key={`history-details-${transactionId}`} entrance="slide">
+          <HistoryDetails key={transactionId} transactionId={transactionId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   // `/contacts/new` first: the `:address` route below would otherwise match it.
   [
@@ -352,19 +393,27 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     // Full-screen review page — registered before /send (earn convention).
     // The send form hands off here via query params; see send-flow/send-draft.ts.
     '/send/review',
-    onlyReady(() => (
-      <FullScreenPage>
+    onlyReady((_params, ctx) =>
+      ctx.command ? (
         <ReviewTransaction />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <ReviewTransaction />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/send',
-    onlyReady(() => (
-      <TabLayout>
+    onlyReady((_params, ctx) =>
+      ctx.command ? (
         <SendFlow isLoading={false} />
-      </TabLayout>
-    ))
+      ) : (
+        <TabLayout>
+          <SendFlow isLoading={false} />
+        </TabLayout>
+      )
+    )
   ],
   [
     // Swap is disabled on iOS (App Store Guideline 3.1.5(iii) — see
@@ -372,11 +421,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     // redirects any deep link / stale navigation to `/swap` back home so the
     // exchange surface is unreachable on iOS.
     '/swap',
-    onlyReady(() =>
+    onlyReady((_params, ctx) =>
       isSwapEnabled() ? (
-        <TabLayout>
+        ctx.command ? (
           <SwapFlow />
-        </TabLayout>
+        ) : (
+          <TabLayout>
+            <SwapFlow />
+          </TabLayout>
+        )
       ) : (
         <Woozie.Redirect to="/" />
       )
@@ -384,91 +437,135 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/earn/vaults/:vaultId/deposit/review',
-    onlyReady(({ vaultId }) => (
-      <FullScreenPage>
+    onlyReady(({ vaultId }, ctx) =>
+      ctx.command ? (
         <EarnDepositReview vaultId={vaultId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <EarnDepositReview vaultId={vaultId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/earn/vaults/:vaultId/deposit',
-    onlyReady(({ vaultId }) => (
-      <FullScreenPage>
+    onlyReady(({ vaultId }, ctx) =>
+      ctx.command ? (
         <EarnDepositAmount vaultId={vaultId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <EarnDepositAmount vaultId={vaultId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/earn/vaults/:vaultId',
-    onlyReady(({ vaultId }) => (
-      <FullScreenPage>
+    onlyReady(({ vaultId }, ctx) =>
+      ctx.command ? (
         <EarnVaultDetail vaultId={vaultId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <EarnVaultDetail vaultId={vaultId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/earn/withdraw-status/:txId',
-    onlyReady(({ txId }) => (
-      <FullScreenPage>
+    onlyReady(({ txId }, ctx) =>
+      ctx.command ? (
         <EarnWithdrawStatus txId={txId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <EarnWithdrawStatus txId={txId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/earn/positions/:positionId/withdraw',
-    onlyReady(({ positionId }) => (
-      <FullScreenPage>
+    onlyReady(({ positionId }, ctx) =>
+      ctx.command ? (
         <EarnWithdrawAmount positionId={positionId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <EarnWithdrawAmount positionId={positionId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/earn/positions/:positionId/withdraw/review',
-    onlyReady(({ positionId }) => (
-      <FullScreenPage>
+    onlyReady(({ positionId }, ctx) =>
+      ctx.command ? (
         <EarnWithdrawReview positionId={positionId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <EarnWithdrawReview positionId={positionId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/earn/positions/:positionId',
-    onlyReady(({ positionId }) => (
-      <FullScreenPage>
+    onlyReady(({ positionId }, ctx) =>
+      ctx.command ? (
         <EarnPositionDetail positionId={positionId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <EarnPositionDetail positionId={positionId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/earn/positions',
-    onlyReady(() => (
-      <FullScreenPage>
+    onlyReady((_params, ctx) =>
+      ctx.command ? (
         <EarnPositions />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage>
+          <EarnPositions />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/earn',
-    onlyReady(() => (
-      <TabLayout>
-        <></>
-      </TabLayout>
-    ))
+    onlyReady((_params, ctx) =>
+      ctx.command ? (
+        <Earn />
+      ) : (
+        <TabLayout>
+          <></>
+        </TabLayout>
+      )
+    )
   ],
   [
     '/generating-transaction/:txId',
-    onlyReady(({ txId }) => (
-      <FullScreenPage entrance="fade">
+    onlyReady(({ txId }, ctx) =>
+      ctx.command ? (
         <GeneratingTransactionPage txId={txId!} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage entrance="fade">
+          <GeneratingTransactionPage txId={txId!} />
+        </FullScreenPage>
+      )
+    )
   ],
   [
     '/generating-transaction-full/:txId',
-    onlyReady(({ txId }) => (
-      <FullScreenPage entrance="fade">
+    onlyReady(({ txId }, ctx) =>
+      ctx.command ? (
         <GeneratingTransactionPage txId={txId!} keepOpen={true} />
-      </FullScreenPage>
-    ))
+      ) : (
+        <FullScreenPage entrance="fade">
+          <GeneratingTransactionPage txId={txId!} keepOpen={true} />
+        </FullScreenPage>
+      )
+    )
   ],
   // The retired Pending notes page: an old link or a restored URL still lands where it went.
   ['/pending-notes', () => <Woozie.Redirect to={ACTIVITY_PENDING_PATH} />],
@@ -492,20 +589,36 @@ const PageRouter: FC = () => {
 
   const appEnv = useAppEnv();
   const miden = useMidenContext();
-  const settingsScrollTop = useRef(0);
   const finishingOnboarding = useOnboardingFinishing();
+  const accountId = useWalletStore(state => state.currentAccount?.publicKey);
+  const lockPending = backgroundLockPending.useValue();
+  const commandRoute = resolveCommandRoute(pathname);
+  const commandEnabled =
+    isExtension() &&
+    appEnv.fullPage &&
+    !appEnv.confirmWindow &&
+    !!accountId &&
+    !lockPending &&
+    !!commandRoute &&
+    resolveRootView({ ready: miden.ready, locked: miden.locked, hydrated: miden.hydrated, finishingOnboarding }) ===
+      'app';
+  const scope =
+    commandEnabled && accountId
+      ? { accountId, network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
+      : null;
 
   const ctx = useMemo<RouteContext>(
     () => ({
       popup: appEnv.popup,
+      sidePanel: appEnv.sidePanel,
       fullPage: appEnv.fullPage,
       ready: miden.ready,
       locked: miden.locked,
       hydrated: miden.hydrated,
       finishingOnboarding,
-      settingsScrollTop
+      command: commandEnabled
     }),
-    [appEnv.popup, appEnv.fullPage, miden, finishingOnboarding]
+    [appEnv.popup, appEnv.sidePanel, appEnv.fullPage, miden, finishingOnboarding, commandEnabled]
   );
   // Once the hold is on screen its safety clock must run, however long the holder's registration still takes.
   useEffect(() => {
@@ -539,13 +652,26 @@ const PageRouter: FC = () => {
   // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
   // onboarding to finish) and stays off the onboarding and recovery routes.
   const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
-  const layered = !walletOpen ? (
-    page
-  ) : (
-    <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
-      {page}
-    </MobilePageLayers>
-  );
+  // The full cover is `BackgroundLockCover` in App. Dropping the pages here unmounts them, which parks the foreground
+  // dApp and hides its native window, which a DOM cover cannot do.
+  const layered =
+    lockPending && ctx.ready ? (
+      <RootSuspenseFallback data-testid="wallet-pages-parked" />
+    ) : !walletOpen ? (
+      page
+    ) : commandEnabled && scope && commandRoute ? (
+      <CommandShell
+        key={JSON.stringify([scope.accountId, scope.network, scope.rpcUrl])}
+        scope={scope}
+        route={commandRoute}
+      >
+        {page}
+      </CommandShell>
+    ) : (
+      <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+        {page}
+      </MobilePageLayers>
+    );
 
   // The mainnet countdown sits above every page of the open wallet, over the layer stack and so
   // over Home's action bar, and never over Unlock or onboarding. The layer stack fills the height

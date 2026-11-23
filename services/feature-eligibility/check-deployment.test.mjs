@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { checkDeployment } from './check-deployment.mjs';
+import { waitUntilReady } from './run-staging-topology-workerd.mjs';
 
 const endpoint = 'https://eligibility.example/v1/eligibility';
 const options = {
@@ -216,3 +217,39 @@ for (const config of [
     await assert.rejects(checkDeployment({ ...options, fetchImpl: fixture({ config }) }));
   });
 }
+
+test('a connected readiness peer that never responds still hits the deadline', async () => {
+  let signal;
+  const fetchImpl = (_url, init) => {
+    signal = init?.signal;
+    return new Promise((_, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+  };
+  const outcome = await Promise.race([
+    waitUntilReady({ exitCode: null, signalCode: null }, 'http://127.0.0.1:9/', { deadlineMs: 200, fetchImpl }).then(
+      value => value,
+      error => error
+    ),
+    new Promise(resolve => setTimeout(() => resolve('still-pending'), 1000))
+  ]);
+
+  assert.equal(outcome instanceof Error, true);
+  assert.equal(outcome.message, 'workerd did not become ready within 45 seconds');
+  assert.ok(signal instanceof AbortSignal);
+  assert.equal(signal.aborted, true);
+});
+
+test('a ready response clears its readiness abort timer', async () => {
+  let signal;
+  await waitUntilReady({ exitCode: null, signalCode: null }, 'http://127.0.0.1:9/', {
+    deadlineMs: 200,
+    fetchImpl: (_url, init) => {
+      signal = init?.signal;
+      return Promise.resolve(new Response(null, { status: 403 }));
+    }
+  });
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(signal.aborted, false);
+});

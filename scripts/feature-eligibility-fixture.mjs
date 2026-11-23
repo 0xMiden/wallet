@@ -37,17 +37,14 @@ function hasControlCharacters(value) {
   });
 }
 
-function hasOneClickSwap(document) {
+// Reads the top-level `nearIntents` section. Its `midenAssets` and `chains` are maps keyed by id.
+function hasNearIntents(document) {
   if (document.features?.nearIntents !== true) return false;
-  const config = document.swap?.oneClick;
-  if (
-    !record(config) ||
-    !Array.isArray(config.midenAssets) ||
-    config.midenAssets.length < 1 ||
-    config.midenAssets.length > 64
-  ) {
-    return false;
-  }
+  const config = document.nearIntents;
+  if (!record(config) || !record(config.chains) || Object.keys(config.chains).length < 1) return false;
+  if (!record(config.midenAssets)) return false;
+  const midenAssets = Object.values(config.midenAssets);
+  if (midenAssets.length < 1 || midenAssets.length > 64) return false;
   if (typeof config.serviceUrl !== 'string' || config.serviceUrl.length > 512) return false;
   let serviceUrl;
   try {
@@ -70,7 +67,7 @@ function hasOneClickSwap(document) {
   }
   const assetIds = new Set();
   const faucetIds = new Set();
-  return config.midenAssets.every(asset => {
+  return midenAssets.every(asset => {
     if (
       !record(asset) ||
       typeof asset.assetId !== 'string' ||
@@ -95,7 +92,7 @@ function hasOneClickSwap(document) {
 
 function hasSwapCapability(document) {
   const hasDexSolver = typeof document.swap?.etaUrl === 'string' && document.swap.etaUrl.length > 0;
-  return hasDexSolver || hasOneClickSwap(document);
+  return hasDexSolver || hasNearIntents(document);
 }
 
 /** Real HTTP decisions for explicitly compiled E2E builds, shared by page and background realms. */
@@ -103,20 +100,32 @@ export async function createEligibilityFixture({
   networks = ['mainnet', 'testnet', 'devnet'],
   source = PUBLISHED_SOURCE,
   lazySource = false,
+  prelaunchTestnet = false,
   fetchImpl = fetch,
   onRequestWaiting
 } = {}) {
   if (!networks.length || networks.some(network => !NETWORKS.has(network))) throw new Error('invalid fixture networks');
+  if (prelaunchTestnet && (networks.length !== 1 || networks[0] !== 'testnet')) {
+    throw new Error('Prelaunch fixture requires testnet only');
+  }
+  // General onboarding tests and the Home benchmark need a stable testnet scenario,
+  // independent of the published launch clock. This is explicit fixture data, never
+  // an eligibility override or a Mainnet access-code exemption.
+  const prepare = (document, network) => {
+    const policy = enrich(document, network);
+    return prelaunchTestnet ? { ...policy, mainnetCountdown: { ...policy.mainnetCountdown, enabled: false } } : policy;
+  };
   const selected = new Set(networks);
   const documents = new Map();
   const waiting = new Set();
+  let lastEligibilityOrigin;
   let mode = 'allowed';
   const readSource = async network => {
     const response = await fetchImpl(`${source.replace(/\/$/, '')}/${network}.json`, {
       signal: AbortSignal.timeout(10_000)
     });
     if (!response.ok) throw new Error('fixture policy source failed');
-    return enrich(await response.json(), network);
+    return prepare(await response.json(), network);
   };
   if (!lazySource) {
     await Promise.all(
@@ -171,6 +180,16 @@ export async function createEligibilityFixture({
     try {
       if (request.method === 'OPTIONS') return send(response, 204, undefined);
       if (request.method === 'GET' && url.pathname === '/healthz') return send(response, 200, { ready: true });
+      if (request.method === 'GET' && url.pathname === '/_fixture/origin') {
+        return send(response, 200, {
+          observed: lastEligibilityOrigin !== undefined,
+          origin: lastEligibilityOrigin ?? null
+        });
+      }
+      if (request.method === 'POST' && url.pathname === '/_fixture/origin') {
+        lastEligibilityOrigin = undefined;
+        return send(response, 200, { reset: true });
+      }
       if (request.method === 'POST' && url.pathname === '/_fixture/response') {
         const { state } = await readBody(request);
         if (!MODES.has(state)) return send(response, 400, { error: 'invalid_state' });
@@ -184,7 +203,7 @@ export async function createEligibilityFixture({
       if (request.method === 'POST' && url.pathname === '/_fixture/config') {
         const document = await readBody(request);
         if (!selected.has(document.network)) return send(response, 400, { error: 'invalid_network' });
-        documents.set(document.network, enrich(document, document.network));
+        documents.set(document.network, prepare(document, document.network));
         return send(response, 200, { network: document.network, version: document.version });
       }
       const configNetwork = /^\/(mainnet|testnet|devnet|localnet)\.json$/.exec(url.pathname)?.[1];
@@ -196,6 +215,7 @@ export async function createEligibilityFixture({
         if (!selected.has(network) || [...url.searchParams.keys()].length !== 1) {
           return send(response, 400, { error: 'invalid_request' });
         }
+        lastEligibilityOrigin = request.headers.origin ?? null;
         return await answer(response, network);
       }
       send(response, 404, { error: 'not_found' });
@@ -227,7 +247,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const fixture = await createEligibilityFixture({
     networks: args.includes('--networks') ? value('--networks').split(',') : undefined,
     source: args.includes('--source') ? value('--source') : undefined,
-    lazySource: args.includes('--lazy-source')
+    lazySource: args.includes('--lazy-source'),
+    prelaunchTestnet: args.includes('--prelaunch-testnet')
   });
   await fixture.listen(args.includes('--port') ? Number(value('--port')) : 8551);
   process.stdout.write(`Eligibility fixture listening at ${fixture.url}\n`);

@@ -67,8 +67,6 @@ jest.mock('lib/remote-config/values', () => {
     'lib/epoch/testing/bridge-config'
   );
   const values = fixtures.remoteConfigValuesMock();
-  values.getEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
-  values.findEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
   return values;
 });
 
@@ -101,6 +99,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => '0xabcdef1234567890abcdef12345678',
   getNativeAssetMetadataSync: () => null,
   getSdkSyncedNativeAssetIdSync: () => null,
+  onNativeAssetChanged: () => () => {},
   captureNativeAssetSnapshot: () => ({ scope: 'testnet', revision: 1 })
 }));
 jest.mock('lib/miden/front', () => ({
@@ -125,17 +124,32 @@ jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) =>
 jest.mock('components/NetworkModeBanner', () => ({ NetworkModeBanner: () => null }));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
 jest.mock('components/Button', () => ({
-  Button: ({ children, title, onClick, disabled }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick} disabled={disabled}>
+  Button: ({ children, title, onClick, disabled, type, form }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type={type ?? 'button'} form={form} onClick={onClick} disabled={disabled}>
       {children ?? title}
     </button>
   ),
   ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 jest.mock('components/ui/SubPageLayout', () => ({
-  SubPageLayout: ({ children, footer }: React.PropsWithChildren<{ footer?: React.ReactNode }>) => (
+  SubPageLayout: ({
+    children,
+    footer,
+    formId,
+    onSubmit
+  }: React.PropsWithChildren<{
+    footer?: React.ReactNode;
+    formId?: string;
+    onSubmit?: React.FormEventHandler<HTMLFormElement>;
+  }>) => (
     <section>
-      {children}
+      {onSubmit ? (
+        <form id={formId} onSubmit={onSubmit}>
+          {children}
+        </form>
+      ) : (
+        children
+      )}
       {footer}
     </section>
   )
@@ -282,6 +296,7 @@ async function pastFailure() {
     evmAddress: PREPARED_OWNER,
     marketUid: mockPosition.marketUid,
     underlyingAddress: PREPARED_TOKEN,
+    underlyingSymbol: mockPosition.asset,
     amount: '10',
     underlyingDecimals: 6,
     protocol: 'dummy-lending',

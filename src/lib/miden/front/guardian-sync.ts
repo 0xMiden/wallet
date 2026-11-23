@@ -15,12 +15,18 @@ import {
   finalizeDirectGuardianSwitch,
   isGuardianAccountUnknown,
   isGuardianRegistrationPreflightError,
+  isGuardianStateOffChainRefusal,
   isGuardianUnreachableError,
   readDirectSwitchCommitState
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { readPostSwitchLocalGuardian } from 'lib/miden/guardian/post-switch-state';
-import { guardianRetryAfterSec, isGuardianRateLimited, isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
+import {
+  guardianRetryAfterSec,
+  isGuardianRateLimited,
+  isGuardianRequestTimeout,
+  isGuardianStateNotOnChain
+} from 'lib/miden/guardian/serialize';
 import type { TransactionCommitState } from 'lib/miden/sdk/miden-client-interface';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -55,6 +61,7 @@ import {
   guardianSelfHealFuseKey,
   guardianSyncFuseKey,
   isSyncFused,
+  noteLocalProbeFailure,
   noteNonEvictionSyncFailure,
   noteAbandonedSyncProbe,
   noteProbeFailure,
@@ -1268,7 +1275,18 @@ async function adoptFromPreviousGuardian(
  * operator's authoritative `initialState`. An account with no pointer at all must
  * refuse.
  */
-async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<boolean> {
+/** Why the registration that needs no Guardian read runs, in the operator's own words. */
+type MissingRegistrationCause = 'unknown-account' | 'signers-rejected';
+const MISSING_REGISTRATION_CAUSE: Record<MissingRegistrationCause, string> = {
+  'unknown-account': 'the operator holds no record of the account',
+  'signers-rejected': "the operator's record does not name the account's signers"
+};
+
+async function attemptMissingRegistrationSelfHeal(
+  account: WalletAccount,
+  fuseKey: SyncFuseKey,
+  cause: MissingRegistrationCause = 'unknown-account'
+): Promise<boolean> {
   const endpoint = resolveChosenGuardianEndpoint(account);
   if (!endpoint) return false;
 
@@ -1360,7 +1378,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
     // pushing — a standstill nothing else surfaces, since an unknown-account
     // answer clears the outage flag and stamps no sync.
     if (missingRegistrationLedger.budgetSpent(healSubject)) {
-      markGuardianUnrepairable(account.publicKey, 'the operator holds no record of the account');
+      markGuardianUnrepairable(account.publicKey, MISSING_REGISTRATION_CAUSE[cause]);
     }
     return false;
   }
@@ -1514,7 +1532,10 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       () => {
         registrationAttempted = true;
         pushAttempt.chargeEarly();
-      }
+      },
+      // One chain read, and a preflight refusal when the node does not hold this device's state: on a device whose
+      // copy is ahead of the chain, every lap would otherwise post a state a 0.19 Guardian refuses.
+      cause === 'signers-rejected' ? 'require-landed' : 'require'
     );
     noteSyncSuccess(fuseKey);
     pushAttempt.settle('charged');
@@ -1525,7 +1546,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       console.warn(`[Guardian Sync] could not clear the unsaved-switch flag for ${account.publicKey}:`, clearError)
     );
     console.warn(
-      `[Guardian Sync] registered ${account.publicKey} on ${endpoint} after the operator reported no record of it`
+      `[Guardian Sync] registered ${account.publicKey} on ${endpoint}: ${MISSING_REGISTRATION_CAUSE[cause]}`
     );
   } catch (e) {
     if (isWasmClientPoisonedError(e)) {
@@ -1557,8 +1578,21 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       // either way, so this does not re-read on every 3s tick.
       pushAttempt.settle('refunded');
       console.warn(
-        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet — the local account state could ` +
-          `not be read completely enough to authorize the operator (no attempt spent):`,
+        isGuardianStateOffChainRefusal(e)
+          ? `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the chain does not hold this ` +
+              `device's state yet, so the registration waits for a later lap (no attempt spent):`
+          : `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the local account state could ` +
+              `not be read completely enough to authorize the operator (no attempt spent):`,
+        e
+      );
+      return false;
+    }
+    // The operator stored nothing: its node does not hold the state yet, which a later lap can find it does.
+    if (isGuardianStateNotOnChain(e)) {
+      pushAttempt.settle('refunded');
+      console.warn(
+        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet: the operator's node does not ` +
+          `hold this state (no attempt spent):`,
         e
       );
       return false;
@@ -1702,12 +1736,16 @@ async function attemptColdReRegisterSelfHeal(
   let attempted = false;
   let rotation: OwnRotation | undefined;
   let verifiedSigners: readonly string[] | undefined;
+  // A 0.19 Guardian whose node lags refused the push and stored nothing, so it spends no attempt.
+  let stateNotOnChain = false;
   // What the heal's holds did, booked once on the heal fuse when the probe settles (#1233). A Guardian
   // request timeout books as an eviction: it is the same silent Guardian, cut off at 60 s before the
   // watchdog (#312). Poison is booked where it is caught instead, and the caller stops the pass.
   let evicted = false;
   let failed = false;
   let poisoned = false;
+  // The Guardian rejected the cold key's own read, before any `/configure` (see `'signers-rejected'`).
+  let signersRejected = false;
   try {
     // getAccount needs no syncState here: buildColdMultisigService only reads the
     // COLD commitment (stable across the rotation), and
@@ -1786,6 +1824,8 @@ async function attemptColdReRegisterSelfHeal(
         // was still inside WASM, and the loop's fuse feed then classified the
         // ORIGINAL 401 and zeroed the eviction count. Hand it back.
         if (isWasmClientPoisonedError(e)) throw e;
+        // The Guardian rejected the cold key: the outer catch answers it, as it does for the load.
+        if (isGuardianAuthRejection(e)) throw e;
         // The canonicalization refusal is an answer, not a failed hold.
         if (isGuardianCanonicalizationError(e)) {
           console.warn(
@@ -1951,10 +1991,14 @@ async function attemptColdReRegisterSelfHeal(
     // an operator that had not been asked for anything. That is the exact mistake the
     // preflight/post split was introduced to fix, surviving one level down. The chain
     // guard's refusal (#1233) also arrives before it, and wrote nothing.
-    await coldService.reRegisterCurrentStateOnGuardian(signers => {
-      attempted = true;
-      verifiedSigners = signers;
-    }, GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS);
+    await coldService.reRegisterCurrentStateOnGuardian(
+      signers => {
+        attempted = true;
+        verifiedSigners = signers;
+      },
+      GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS,
+      true
+    );
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
     // AN EVICTION IS NOT A VERDICT ON THE OPERATOR, and this is the arm where
@@ -2003,11 +2047,30 @@ async function attemptColdReRegisterSelfHeal(
       );
       return 'refused-transiently';
     }
-    // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
-    // retry per the bounded schedule (see `selfHealLedger`), and only a push spends an attempt.
-    console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+    if (!attempted && isGuardianAuthRejection(e)) {
+      // The cold key signs only the service load and the adopt read before the push. A stale allowlist
+      // keeps the cold key, so this rejection means the Guardian's record names none of this account's
+      // signers. The record cannot be read, so the caller registers without a Guardian read.
+      signersRejected = true;
+      console.warn(
+        `[Guardian Sync] the Guardian rejected the cold key of ${account.publicKey} too: its record does not ` +
+          `name this account's signers`,
+        e
+      );
+    } else if (isGuardianStateNotOnChain(e)) {
+      stateNotOnChain = true;
+      console.warn(
+        `[Guardian Sync] not re-registering ${account.publicKey} yet: its Guardian's node does not hold this state`,
+        e
+      );
+    } else {
+      // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
+      // retry per the bounded schedule (see `selfHealLedger`), and only a push spends an attempt.
+      console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+    }
   } finally {
-    if (!poisoned) {
+    // The fallback owns the shared fuse after a cold-read rejection.
+    if (!poisoned && (!signersRejected || finishOnly)) {
       if (evicted) {
         noteSyncWatchdogEviction(fuseKey);
       } else if (failed) {
@@ -2017,13 +2080,16 @@ async function attemptColdReRegisterSelfHeal(
       }
     }
   }
+  // The finisher has no 401 to repair, so only the sync loop's call asks for the other registration.
+  if (signersRejected && !finishOnly) return 'signers-rejected';
   // Also after a push that failed once it started: the push starts only after the chain check, so the
   // set still stands, as completion swaps when its re-register fails.
   const finishing = rotation;
   if (finishing && verifiedSigners?.some(signer => sameCommitment(signer, finishing.commitment))) {
-    return await finishOwnRotation(account, finishing);
+    const finished = await finishOwnRotation(account, finishing);
+    return stateNotOnChain && finished === 'attempted' ? 'refused-transiently' : finished;
   }
-  return attempted ? 'attempted' : 'refused-transiently';
+  return attempted && !stateNotOnChain ? 'attempted' : 'refused-transiently';
 }
 
 /**
@@ -2594,16 +2660,27 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
             // callee can tell a parked node from a trap.
             break;
           }
-          attempt.settle(
-            outcome === 'attempted' ? 'charged' : outcome === 'refused-permanently' ? 'closed' : 'refunded'
-          );
-          // Budget spent (or closed): the 401 is now permanent as far as this
-          // wallet is concerned, and nothing else would ever say so on screen.
-          // Reachable only from outcomes that are ACTUALLY about the operator -
-          // `'evicted'` returns above precisely so a local WASM failure cannot
-          // reach this line and accuse a healthy guardian.
-          if (selfHealLedger.budgetSpent(healSubject)) {
-            markGuardianUnrepairable(account.publicKey, 'the operator keeps rejecting this device');
+          if (outcome === 'signers-rejected') {
+            // The Guardian's record names none of this account's signers, so no key of this device can
+            // read it. The cold heal pushed nothing, so its attempt is refunded. The registration that needs no Guardian read
+            // has its own budget and guards: this device's key is the account's hot signer, the operator
+            // serves the Guardian key the account names, and the chain holds this device's state.
+            attempt.settle('refunded');
+            if (!(await passMayRecord(generation, account.publicKey, endpoint))) continue;
+            if (await attemptMissingRegistrationSelfHeal(account, healFuseKey, 'signers-rejected')) break;
+            noteLocalProbeFailure(healFuseKey);
+          } else {
+            attempt.settle(
+              outcome === 'attempted' ? 'charged' : outcome === 'refused-permanently' ? 'closed' : 'refunded'
+            );
+            // Budget spent (or closed): the 401 is now permanent as far as this
+            // wallet is concerned, and nothing else would ever say so on screen.
+            // Reachable only from outcomes that are ACTUALLY about the operator -
+            // `'evicted'` returns above precisely so a local WASM failure cannot
+            // reach this line and accuse a healthy guardian.
+            if (selfHealLedger.budgetSpent(healSubject)) {
+              markGuardianUnrepairable(account.publicKey, 'the operator keeps rejecting this device');
+            }
           }
         }
       } else if (isGuardianRateLimited(error)) {

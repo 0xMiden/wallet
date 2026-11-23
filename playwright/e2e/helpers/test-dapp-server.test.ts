@@ -108,6 +108,14 @@ describe('test dApp server', () => {
     );
   });
 
+  it('serves accessible text fields for native keyboard coverage', () => {
+    const html = createDappServer({ roots }).serve('/').body.toString('utf8');
+    const document = new JSDOM(html).window.document;
+
+    expect(document.querySelector('input#keyboard-input[aria-label="Keyboard input"]')).not.toBeNull();
+    expect(document.querySelector('textarea#keyboard-textarea[aria-label="Keyboard notes"]')).not.toBeNull();
+  });
+
   it('retries an extensionless import with .js, as the adapters need', () => {
     const server = createDappServer({ pageDir: pageFixture(), roots });
     const served = server.serve('/npm/@miden-sdk/miden-wallet-adapter-miden/dist/adapter');
@@ -295,7 +303,7 @@ describe('React page server', () => {
       react: versionOf(reactRoots.react),
       reactDom: versionOf(reactRoots['react-dom']),
       adapterReact: versionOf(reactRoots['@miden-sdk/miden-wallet-adapter-react'])
-    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.17.0' });
+    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.18.0' });
     expect(reactRoots.zustand).toBe(
       path.dirname(
         createRequire(path.join(reactRoots['@miden-sdk/react'], 'package.json')).resolve('zustand/package.json')

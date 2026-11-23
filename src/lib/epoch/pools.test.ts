@@ -504,6 +504,26 @@ describe('readEarnVaults on a host with no /pools route', () => {
     expect(vaults[0]?.underlying).toEqual({ address: BASE_USDC, symbol: 'USDC', decimals: 18 });
   });
 
+  it('drops a positions vault when the caller has no token metadata', async () => {
+    serve(
+      () => answer(null, 404),
+      () => answer({ success: true, data: { items: [positionsCatalogItem('DUMMY_LENDING')] } })
+    );
+
+    const result = await readVaults({ ...route(DUMMY_LISTING), fallbackUnderlying: null });
+
+    expect(result).toEqual({
+      vaults: [],
+      source: 'positions',
+      droppedMarketUids: [DUMMY_LISTING.marketUid],
+      droppedUnkeyed: false
+    });
+    expect(console.warn).toHaveBeenCalledWith(
+      '[epoch] Earn positions item unreadable, dropped: positions fallback has no token metadata',
+      DUMMY_LISTING.marketUid
+    );
+  });
+
   it('drops a positions item it cannot read and keeps the others', async () => {
     serve(
       () => answer(null, 404),

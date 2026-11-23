@@ -90,7 +90,7 @@ jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
   bridgeRowDisplay: jest.fn(),
   bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
+  hasOwnBridgeBadge: jest.requireActual('./transactionUtils').hasOwnBridgeBadge,
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
@@ -295,6 +295,17 @@ describe('HistoryItem', () => {
     const root = contentRoot(container);
     expect(root).toHaveClass('border-b');
     expect(root).not.toHaveClass('border-b-border-card');
+  });
+
+  it('rounds outgoing amounts up and incoming amounts down', () => {
+    const { rerender } = render(
+      <HistoryItem entry={makeEntry({ transactionIcon: 'SEND', amount: 1.2345, token: 'MIDEN' })} />
+    );
+
+    expect(screen.getByText('-1.24')).toBeInTheDocument();
+    rerender(<HistoryItem entry={makeEntry({ transactionIcon: 'RECEIVE', amount: 1.2345, token: 'MIDEN' })} />);
+
+    expect(screen.getByText('+1.23')).toBeInTheDocument();
   });
 
   it('localizes a failed summary row whose stored message is the English sentinel', () => {

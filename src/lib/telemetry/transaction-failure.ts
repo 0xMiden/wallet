@@ -9,8 +9,14 @@ import {
   isIndefiniteSubmitOutcomeError
 } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  QUEUE_SIGHTINGS,
+  type QueueAdmissionObservation,
+  type QueueSighting
+} from 'lib/miden/transaction/queue-admission-diagnostics';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
+import { isReownIOSFailure } from 'lib/walletconnect/native-request-failure';
 
 import {
   type BridgeReceiveFailure,
@@ -23,21 +29,43 @@ import {
   REOWN_BACKGROUND_ANSWERS
 } from './bridge-receive-failure';
 import { classifyError } from './classify';
+import { safeOwnDiagnosticData } from './closed-root-diagnostics';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
 import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
+import { annotateGuardianProving, snapshotGuardianProving } from './guardian-proving-diagnostics';
+import { transferOffscreenDeadline } from './offscreen-deadline-diagnostics';
+import { annotateProofWaitAvailability, snapshotProofWaitAvailability } from './proof-wait-availability-diagnostics';
+import { transferProposalCreateDiagnostics } from './proposal-create-diagnostics';
 import assertions from './protocol-assertions.json';
+import type { ReapStartRelation } from './reap-start-diagnostics';
+import {
+  annotateTerminalReport,
+  PREFLIGHT_SYNC_REPORTS,
+  QUEUE_HIDDEN_BUCKETS,
+  SUBMIT_HIDDEN_ANSWERS,
+  SUBMIT_LEG_BUCKETS,
+  type PreflightSyncReport,
+  type ProofWindowBucket,
+  type QueueHiddenBucket,
+  type SubmitHiddenAnswer,
+  type SubmitLegBucket
+} from './terminal-report-diagnostics';
+import {
+  AUTH_LAYOUTS,
+  COMMITMENT_MATCHES,
+  ACCOUNT_AUTH_CODES,
+  snapshotTransactionExecution
+} from './transaction-execution-diagnostics';
 import { operationOfType, stepOfStage, TRANSACTION_OPERATIONS, TRANSACTION_STEPS } from './transaction-operation';
 import { TELEMETRY_ERROR_KINDS } from './types';
+import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './ui-producer-diagnostics';
 import packageJson from '../../../package.json';
 
+export { AUTH_LAYOUTS, COMMITMENT_MATCHES, ACCOUNT_AUTH_CODES } from './transaction-execution-diagnostics';
+export { SUBMIT_HIDDEN_ANSWERS, SUBMIT_LEG_BUCKETS } from './terminal-report-diagnostics';
+
 export const AUTH_PREPARATIONS = ['provided', 'wallet_enriched', 'unchanged', 'failed', 'unavailable'] as const;
-
-export const AUTH_LAYOUTS = ['absent', 'fee', 'guardian', 'other', 'missing_preimage', 'unavailable'] as const;
-
-export const COMMITMENT_MATCHES = ['fee', 'guardian', 'neither', 'unavailable'] as const;
-
-export const ACCOUNT_AUTH_CODES = ['current_guardian', 'unrecognized', 'unavailable'] as const;
 
 export interface TransactionFailureDiagnostics {
   authPreparation: (typeof AUTH_PREPARATIONS)[number];
@@ -55,10 +83,12 @@ export const FAILURE_REASONS = [
   'rotation_funding_note_unavailable',
   'rotation_funding_not_native',
   'rotation_gate_refusal',
+  'proposal_effect_refused',
   'consume_not_landed',
   'consume_landed_external',
   'note_invalid',
-  'never_committed'
+  'never_committed',
+  'stale_proof'
 ] as const;
 
 /** A failure the wallet itself decided, named by the caller because its stored text is never sent. */
@@ -88,25 +118,7 @@ export const REPORTED_IDENTITIES = [
 /** Every identity the reporter coins passes through here, so it cannot send one the list, and the policy, lacks. */
 const coined = (identity: (typeof REPORTED_IDENTITIES)[number]): string => identity;
 
-export const SUBMIT_GRPC_STATUSES = [
-  'unavailable',
-  'internal',
-  'cancelled',
-  'aborted',
-  'data_loss',
-  'deadline_exceeded',
-  'unknown',
-  'not_found',
-  'invalid_argument',
-  'permission_denied',
-  'already_exists',
-  'resource_exhausted',
-  'failed_precondition',
-  'out_of_range',
-  'unimplemented',
-  'unauthenticated',
-  'other'
-] as const;
+export { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './ui-producer-diagnostics';
 
 // The statuses miden-client 0.17.3's `is_indeterminate_submission` reads as an unknown outcome, and the fallback.
 export const SUBMIT_UNKNOWN_OUTCOME_STATUSES = [
@@ -117,13 +129,6 @@ export const SUBMIT_UNKNOWN_OUTCOME_STATUSES = [
   'data_loss',
   'deadline_exceeded',
   'unknown',
-  'other'
-] as const;
-
-export const SUBMIT_ENDPOINTS = [
-  'submit_proven_transaction',
-  'submit_proven_batch',
-  'get_transaction_encryption_key',
   'other'
 ] as const;
 
@@ -141,15 +146,6 @@ export const SUBMIT_NODE_ERRORS = [
   'none',
   'other'
 ] as const;
-
-export const SUBMIT_HIDDEN_ANSWERS = ['yes', 'no', 'unavailable'] as const;
-
-export const SUBMIT_LEG_BUCKETS: readonly ['under_9s', '9_to_11s', 'over_11s', 'unavailable'] = [
-  'under_9s',
-  '9_to_11s',
-  'over_11s',
-  'unavailable'
-];
 
 /**
  * How long a transaction waited between its execution and its submit, against the blocks its expiration allows. The
@@ -263,6 +259,7 @@ export const EXECUTION_CAUSES = [
   'store',
   'rpc',
   'fetch_inputs',
+  'partial_blockchain_build',
   'block_after_reference',
   'account_not_in_store',
   'block_not_in_store',
@@ -297,7 +294,8 @@ export const CONSUME_ENTRY_POINTS = [
   'dapp',
   'bridge_reclaim',
   'swap_settlement',
-  'rotation_funding'
+  'rotation_funding',
+  'arcade_gc_purchase'
 ] as const;
 
 /** What queued a consume row, stamped on the row when it is created. */
@@ -310,7 +308,9 @@ export const CONSUME_DEFERRAL_CAUSES = [
   'delegated_prover_failed',
   'guardian_rate_limited',
   'guardian_unreachable',
-  'guardian_unauthorized'
+  'guardian_unauthorized',
+  'node_unreachable',
+  'chain_fee_unknown'
 ] as const;
 
 export type ConsumeDeferralCause = (typeof CONSUME_DEFERRAL_CAUSES)[number];
@@ -332,6 +332,7 @@ export const REAP_AGES = ['missing_start', 'past_limit'] as const;
 export const REAPED_ATTEMPT_ORIGINS = ['started_here', 'not_started_here'] as const;
 
 export interface ReapSnapshot {
+  startRelation?: ReapStartRelation;
   age: (typeof REAP_AGES)[number];
   attempt: (typeof REAPED_ATTEMPT_ORIGINS)[number];
 }
@@ -343,6 +344,8 @@ export const STARTUP_SELECTIONS = ['missing_start', 'before_session', 'future_st
 export const STORED_STAGE_AGES = ['under_1m', 'under_10m', 'under_1h', 'under_1d', 'over_1d'] as const;
 
 export const QUEUE_AGE_BUCKETS = ['30m_to_1h', '1h_to_6h', '6h_to_24h', 'over_24h', 'unavailable'] as const;
+export { QUEUE_SIGHTINGS, PREFLIGHT_SYNC_REPORTS, QUEUE_HIDDEN_BUCKETS };
+export type { PreflightSyncReport, QueueHiddenBucket };
 
 export type QueueAgeBucket = (typeof QUEUE_AGE_BUCKETS)[number];
 
@@ -365,7 +368,7 @@ export const FAILURE_POINTS = [
   'node_verdict'
 ] as const;
 
-export const FAILURE_OUTCOMES = ['failed', 'unconfirmed'] as const;
+export const FAILURE_OUTCOMES = ['failed', 'unconfirmed', 'landed'] as const;
 
 export const EXECUTION_REALMS = ['offscreen', 'unknown'] as const;
 
@@ -382,6 +385,7 @@ export interface TransactionFailure {
   error?: unknown;
   /** The failure that preceded an expired `never_committed` verdict; only its fixed identity is reported. */
   priorError?: unknown;
+  priorSubmitContext?: { endpoint: string; status: string; hidden: string; leg: string };
   delegateTransaction?: boolean;
   outcome?: (typeof FAILURE_OUTCOMES)[number];
   entryPoint?: ConsumeEntryPoint;
@@ -394,6 +398,17 @@ export interface TransactionFailure {
   hiddenDuringSubmit?: boolean;
   /** Age bucket for a row that expired while queued; the timestamp and exact age are never reported. */
   queueAge?: QueueAgeBucket;
+  queueAdmissionObservation?: QueueAdmissionObservation;
+  /** Strongest look the processing loop recorded for this queued wait. */
+  queueSighting?: QueueSighting;
+  /** Latest pre-send sync step recorded for this queued wait. */
+  preflightSync?: PreflightSyncReport;
+  /** Hidden time this process recorded while the row waited. */
+  queueHidden?: QueueHiddenBucket;
+  /** Hidden share of the way from the proposal to the submit stamp; absent on a row that never reached a submit. */
+  submitApproachHidden?: QueueHiddenBucket;
+  /** Blocks this attempt's expiration allowed; absent on a row that never reached a submit. */
+  proofWindow?: ProofWindowBucket;
   /** Whether this attempt's committed evidence shows that it reached the submit call. */
   submitCrossing?: (typeof SUBMIT_CROSSINGS)[number];
   /** Milliseconds from the submit stamp to its return; undefined when the row has no submit stamp. */
@@ -506,6 +521,7 @@ const EXECUTION_CAUSE_TEXT: ReadonlyArray<readonly [Exclude<ExecutionCause, 'oth
   ['store', /(?:^|: )storage error(?=:|$)/g],
   ['rpc', /(?:^|: )RPC error(?=:|$)/g],
   ['fetch_inputs', /failed to fetch transaction inputs from the data store/g],
+  ['partial_blockchain_build', /(?:^|: )error creating PartialBlockchain from internal data(?=:|$)/g],
   ['block_after_reference', /requested block \d+ is after transaction reference block \d+/g],
   ['account_not_in_store', /account with id \S+ not found in data store/g],
   ['block_not_in_store', /block with number \d+ not found in data store/g],
@@ -723,14 +739,44 @@ export function submitGrpcStatus(error: unknown): (typeof SUBMIT_GRPC_STATUSES)[
   return submitGrpcFailure(error)?.status;
 }
 
+/**
+ * Endpoint and gRPC status of an indefinite submit, or undefined when the error is not that outcome. No parsed
+ * gRPC request leaves both `unavailable`, so a measured hidden answer and submit leg still attach. A parsed request
+ * keeps its endpoint and its status, with `other` when that status is outside the unknown-outcome list.
+ */
+function indefiniteSubmitOutcome(error: unknown):
+  | {
+      endpoint: (typeof SUBMIT_ENDPOINTS)[number] | 'unavailable';
+      status: (typeof SUBMIT_UNKNOWN_OUTCOME_STATUSES)[number];
+    }
+  | undefined {
+  if (!isIndefiniteSubmitOutcomeError(error)) return undefined;
+  const parsed = submitGrpcFailure(error);
+  if (parsed === undefined) return { endpoint: 'unavailable', status: 'unavailable' };
+  return {
+    endpoint: parsed.endpoint,
+    status: SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(value => value === parsed.status) ?? 'other'
+  };
+}
+
+const submitHiddenAnswer = (hidden: boolean | undefined): SubmitHiddenAnswer =>
+  hidden === undefined ? 'unavailable' : hidden ? 'yes' : 'no';
+
+function submitLegBucket(legMs: number | undefined): SubmitLegBucket {
+  if (legMs === undefined || !Number.isFinite(legMs) || legMs < 0) return 'unavailable';
+  if (legMs < 9000) return 'under_9s';
+  return legMs <= 11000 ? '9_to_11s' : 'over_11s';
+}
+
+export function captureSubmitContext(error: unknown, hidden: boolean | undefined, legMs: number | undefined) {
+  const outcome = indefiniteSubmitOutcome(error);
+  if (outcome === undefined) return undefined;
+  const { endpoint, status } = outcome;
+  return { endpoint, status, hidden: submitHiddenAnswer(hidden), leg: submitLegBucket(legMs) };
+}
+
 function submitContextIdentity(hiddenDuringSubmit: boolean | undefined, submitLegMs: number | undefined): string {
-  const hidden: (typeof SUBMIT_HIDDEN_ANSWERS)[number] =
-    hiddenDuringSubmit === undefined ? 'unavailable' : hiddenDuringSubmit ? 'yes' : 'no';
-  let bucket: (typeof SUBMIT_LEG_BUCKETS)[number] = 'unavailable';
-  if (submitLegMs !== undefined && Number.isFinite(submitLegMs) && submitLegMs >= 0) {
-    bucket = submitLegMs < 9000 ? 'under_9s' : submitLegMs <= 11000 ? '9_to_11s' : 'over_11s';
-  }
-  return `app hidden during submit ${hidden}; submit leg ${bucket}`;
+  return `app hidden during submit ${submitHiddenAnswer(hiddenDuringSubmit)}; submit leg ${submitLegBucket(submitLegMs)}`;
 }
 
 function submitOutcomeIdentity(
@@ -738,10 +784,9 @@ function submitOutcomeIdentity(
   hiddenDuringSubmit: boolean | undefined,
   submitLegMs: number | undefined
 ): string {
-  const refusal = submitRequestFailure(error);
-  const endpoint = SUBMIT_ENDPOINT_BY_NAME.get(refusal?.endpoint) ?? 'other';
-  const matched = grpcStatusOf(refusal?.kind)?.[0];
-  const status = SUBMIT_UNKNOWN_OUTCOME_STATUSES.find(listed => listed === matched) ?? 'other';
+  const outcome = indefiniteSubmitOutcome(error) ?? { endpoint: 'unavailable', status: 'unavailable' };
+  const endpoint = outcome.endpoint;
+  const status = outcome.status;
   return `${coined('submit_outcome_unknown')}; endpoint ${endpoint}; grpc ${status}; ${submitContextIdentity(
     hiddenDuringSubmit,
     submitLegMs
@@ -774,6 +819,32 @@ function submitRefusalIdentity(refusal: { endpoint: string; kind: string }, fail
   return node === 'expired'
     ? `${identity}; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
     : identity;
+}
+
+function priorIdentity(failure: TransactionFailure): string {
+  const context = failure.priorSubmitContext;
+  if (
+    context &&
+    !isIndefiniteSubmitOutcomeError(failure.priorError) &&
+    (SUBMIT_ENDPOINTS.some(value => value === context.endpoint) || context.endpoint === 'unavailable') &&
+    SUBMIT_UNKNOWN_OUTCOME_STATUSES.some(value => value === context.status) &&
+    SUBMIT_HIDDEN_ANSWERS.some(value => value === context.hidden) &&
+    SUBMIT_LEG_BUCKETS.some(value => value === context.leg)
+  ) {
+    return `${coined('submit_outcome_unknown')}; endpoint ${context.endpoint}; grpc ${context.status}; app hidden during submit ${context.hidden}; submit leg ${context.leg}`;
+  }
+  const outcome = indefiniteSubmitOutcome(failure.priorError);
+  if (
+    context &&
+    outcome &&
+    SUBMIT_HIDDEN_ANSWERS.some(value => value === context.hidden) &&
+    SUBMIT_LEG_BUCKETS.some(value => value === context.leg) &&
+    outcome.endpoint === context.endpoint &&
+    outcome.status === context.status
+  ) {
+    return `${coined('submit_outcome_unknown')}; endpoint ${context.endpoint}; grpc ${context.status}; app hidden during submit ${context.hidden}; submit leg ${context.leg}`;
+  }
+  return failureIdentity({ type: failure.type, stage: failure.stage, error: failure.priorError });
 }
 
 function failureIdentity(failure: TransactionFailure): string {
@@ -840,6 +911,9 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...STARTUP_SELECTIONS,
   ...STORED_STAGE_AGES,
   ...QUEUE_AGE_BUCKETS,
+  ...QUEUE_SIGHTINGS,
+  ...PREFLIGHT_SYNC_REPORTS,
+  ...QUEUE_HIDDEN_BUCKETS,
   ...SUBMIT_CROSSINGS,
   ...SUBMIT_RECORDS,
   'none',
@@ -875,10 +949,15 @@ function softwareVersion(value: string): string {
 export function reportTransactionFailure(failure: TransactionFailure): void {
   try {
     const facts = failure.diagnostics;
+    const execution = snapshotTransactionExecution(failure.error);
     const preparation = diagnostic(facts?.authPreparation, AUTH_PREPARATIONS, 'unavailable');
-    const layout = diagnostic(facts?.authLayout, AUTH_LAYOUTS, 'unavailable');
-    const match = diagnostic(facts?.commitmentMatch, COMMITMENT_MATCHES, 'unavailable');
-    const accountCode = diagnostic(facts?.accountAuthCode, ACCOUNT_AUTH_CODES, 'unavailable');
+    const layout = diagnostic(execution?.authLayout ?? facts?.authLayout, AUTH_LAYOUTS, 'unavailable');
+    const match = diagnostic(execution?.commitmentMatch ?? facts?.commitmentMatch, COMMITMENT_MATCHES, 'unavailable');
+    const accountCode = diagnostic(
+      execution?.accountAuthCode ?? facts?.accountAuthCode,
+      ACCOUNT_AUTH_CODES,
+      'unavailable'
+    );
     const type = diagnostic(
       failure.type,
       [
@@ -902,7 +981,8 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const confirmingStep = CONFIRMING_STEP_BY_STAGE.get(failure.stage);
     const stage = confirmingStep === undefined ? stepName : `${stepName}; confirming step ${confirmingStep}`;
     const signingStep = SIGNING_STEP_BY_STAGE.get(failure.stage);
-    const outcome: (typeof FAILURE_OUTCOMES)[number] = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';
+    const outcome: (typeof FAILURE_OUTCOMES)[number] =
+      failure.outcome === 'unconfirmed' || failure.outcome === 'landed' ? failure.outcome : 'failed';
     const point = diagnostic(failure.point, FAILURE_POINTS, 'pipeline');
     const message =
       typeof failure.error === 'string' ? failure.error : failure.error instanceof Error ? failure.error.message : '';
@@ -961,25 +1041,38 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
       reason === 'queued_expired' && failure.queueAge !== undefined
         ? `; queue age ${diagnostic<string>(failure.queueAge, QUEUE_AGE_BUCKETS, 'unavailable')}`
         : '';
+    const queueSighting =
+      reason === 'queued_expired'
+        ? `; queue sighting ${diagnostic<string>(failure.queueSighting, QUEUE_SIGHTINGS, 'never')}`
+        : '';
+    const preflightSync =
+      reason === 'queued_expired'
+        ? `; sync attempt ${diagnostic<string>(failure.preflightSync, PREFLIGHT_SYNC_REPORTS, 'not_entered')}`
+        : '';
+    const queueHidden =
+      reason === 'queued_expired'
+        ? `; queue hidden ${diagnostic<string>(failure.queueHidden, QUEUE_HIDDEN_BUCKETS, 'unavailable')}`
+        : '';
     const submitCrossing =
       failure.submitCrossing === undefined
         ? ''
         : `; submit crossing ${diagnostic<string>(failure.submitCrossing, SUBMIT_CROSSINGS, 'unavailable')}`;
+    let reportedNeverCommittedRule: string | undefined;
     const identity =
       reason === undefined
         ? failureIdentity(failure)
         : reason === 'never_committed' && failure.neverCommittedRule !== undefined
-          ? `${reason}; rule ${diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other')}` +
+          ? `${reason}; rule ${(reportedNeverCommittedRule = diagnostic<string>(failure.neverCommittedRule, NEVER_COMMITTED_RULES, 'other'))}` +
             (failure.neverCommittedRule !== 'expired' || failure.priorError === undefined
               ? ''
-              : `; prior ${failureIdentity({ type: failure.type, stage: failure.stage, error: failure.priorError })}`) +
+              : `; prior ${priorIdentity(failure)}`) +
             (failure.neverCommittedRule === 'expired'
               ? `; proof wait ${proofWaitBucket(failure.proofWaitBlocks, failure.expiryWindowBlocks)}`
               : '')
           : reason;
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}${queueAge}${submitCrossing}; point ${point}; ${identity}${bridge}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}${signingStep === undefined ? '' : `; signing step ${signingStep}`}; realm ${realm}; proving preference ${proving}; platform ${platform}${claim}${reap}${startup}${queueAge}${queueSighting}${preflightSync}${queueHidden}${submitCrossing}; point ${point}; ${identity}${bridge}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')
@@ -993,7 +1086,31 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     delete inherited.reownRequestAge;
     delete inherited.reownPublished;
     delete inherited.reownBackgrounded;
+    delete inherited.proofWaitAvailability;
     annotateCrash(report, inherited);
+    if (point === 'node_verdict' && reason === 'never_committed' && reportedNeverCommittedRule === 'expired')
+      annotateProofWaitAvailability(report, snapshotProofWaitAvailability(failure));
+    if (inherited.proposalStep === 'proposal_create') transferProposalCreateDiagnostics(failure.error, report);
+    annotateGuardianProving(report, snapshotGuardianProving(failure.error));
+    if (identity.startsWith('offscreen_aborted_deadline;')) transferOffscreenDeadline(failure.error, report);
+    // An unknown outcome's message names these two. A refusal's cannot, or each answer would split its Sentry issue.
+    const refused = identity.startsWith(`${coined('submit_rejected')};`);
+    annotateTerminalReport(report, {
+      queueAdmissionObservation:
+        reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueAdmissionObservation') : undefined,
+      queueSighting: reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueSighting') : undefined,
+      preflightSync: reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'preflightSync') : undefined,
+      queueHidden: reason === 'queued_expired' ? safeOwnDiagnosticData(failure, 'queueHidden') : undefined,
+      reapStartRelation:
+        reason === 'stuck_reaped'
+          ? safeOwnDiagnosticData(safeOwnDiagnosticData(failure, 'reap'), 'startRelation')
+          : undefined,
+      // Facts of the row's own submit, which stay true whichever report ends it: `submitApproach` sets them only there.
+      submitApproachHidden: safeOwnDiagnosticData(failure, 'submitApproachHidden'),
+      proofWindow: safeOwnDiagnosticData(failure, 'proofWindow'),
+      submitHidden: refused ? submitHiddenAnswer(failure.hiddenDuringSubmit) : undefined,
+      submitLeg: refused ? submitLegBucket(failure.submitLegMs) : undefined
+    });
     // Each is checked against its closed list there; a value the wallet does not define is dropped.
     const bridgeSource = failure.bridgeReceive;
     if (bridgeSource !== undefined) {
@@ -1003,10 +1120,12 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
         bridgeSourceRoute: bridgeSource.sourceRoute
       });
     }
-    const native =
-      type === 'bridged-receive' && platform === 'android'
+    const candidate =
+      type === 'bridged-receive' && (platform === 'android' || platform === 'ios')
         ? bridgeReceiveNativeFailure(failure.bridgeReceive?.cause)
         : undefined;
+    const native =
+      platform === 'ios' && candidate !== undefined && !isReownIOSFailure(candidate) ? undefined : candidate;
     if (native !== undefined) {
       annotateCrash(report, {
         reownNativeOrigin: native.nativeOrigin,
@@ -1019,11 +1138,12 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     // A queued row with no stage expired untried (the loop's requeues stamp one, and every requeue clears `attemptId`):
     // whatever held the queue has its own report, and each row behind it would otherwise add another error.
     const neverStarted = reason === 'queued_expired' && failure.stage === undefined;
-    // An unknown outcome waits for the node's verdict, which is the error if it never landed; a failure already reported
-    // already has its error, so a later report on it is evidence for that one.
+    // An unknown outcome waits for the node's verdict, which is the error if it never landed; a landed row succeeded, so
+    // the step that failed after it is evidence; a failure already reported already has its error, so a later report
+    // on it is evidence for that one.
     captureCrash(report, 'manual', {
       initializeIfNeeded: true,
-      level: outcome === 'unconfirmed' || failure.alreadyReported === true || neverStarted ? 'warning' : 'error',
+      level: outcome !== 'failed' || failure.alreadyReported === true || neverStarted ? 'warning' : 'error',
       closedNames: CLOSED_NAMES
     });
   } catch {

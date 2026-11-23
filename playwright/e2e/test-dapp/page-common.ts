@@ -3,7 +3,17 @@
  * data, the page's own fault and the node's failure throw under their own names, and an output note crosses to the
  * driver in one shape. One copy, so a known-bug signature reads the same fields whichever page recorded them.
  */
-import { Note, NoteScript, NoteType } from '@miden-sdk/miden-sdk';
+import {
+  Felt,
+  FeltArray,
+  Note,
+  NoteScript,
+  NoteType,
+  Poseidon2,
+  SigningInputs,
+  SigningInputsType,
+  Word
+} from '@miden-sdk/miden-sdk';
 import { u8ToB64 } from '@miden-sdk/miden-wallet-adapter-base';
 
 import type { DappError, NoteTypeName, Outcome, OutputNoteView } from './protocol';
@@ -84,3 +94,67 @@ export const outputNoteView = (note: Note): OutputNoteView => ({
   isSameSdkNote: note instanceof Note,
   script: scriptOf(note)
 });
+
+// The harness's own copy of the wallet's signBytes scheme, so a drift in the wallet's numbers fails a cell instead of
+// being echoed back. The tag is derived on first use (no WASM call at module load) and cached as bigints, because the
+// browser binding consumes every Felt and FeltArray it is handed.
+let signBytesTag: bigint[] | undefined;
+const felts = (values: readonly bigint[]): FeltArray => new FeltArray(values.map(value => new Felt(value)));
+function domainTag(): bigint[] {
+  signBytesTag ??= [
+    ...Poseidon2.hashElements(
+      felts([...new TextEncoder().encode('miden-wallet/sign-bytes/v1')].map(byte => BigInt(byte)))
+    ).toU64s()
+  ];
+  return signBytesTag;
+}
+const wordValues = (word: Word): bigint[] => word.toFelts().map(felt => felt.asInt());
+// `arbitraryPayload()` is a FeltArray in the browser and a plain array on Node.
+function arbitraryValues(inputs: SigningInputs): bigint[] {
+  const payload = inputs.arbitraryPayload();
+  if (Array.isArray(payload)) return payload.map(felt => felt.asInt());
+  return Array.from({ length: payload.length() }, (_, at) => payload.get(at).asInt());
+}
+
+/** The word a key signs for `signBytes(payload, kind)`: Poseidon2 of the tag and the payload's elements. */
+export function signBytesCommitment(payload: Uint8Array, kind: 'word' | 'signingInputs'): Word {
+  if (kind === 'word') return Poseidon2.hashElements(felts([...domainTag(), ...wordValues(Word.deserialize(payload))]));
+  const inputs = SigningInputs.deserialize(payload);
+  const values =
+    inputs.variantType === SigningInputsType.Blind
+      ? wordValues(inputs.blindPayload())
+      : inputs.variantType === SigningInputsType.Arbitrary
+        ? arbitraryValues(inputs)
+        : undefined;
+  if (values === undefined) throw new HarnessCheckError('only Blind and Arbitrary inputs are signed under the domain');
+  return Poseidon2.hashElements(felts([...domainTag(), ...values]));
+}
+
+/**
+ * Runs `work` and returns what the provider's `signBytes` answered beside it. The published adapter hands back only the
+ * signature, so the wallet's `signedCommitment` is read off the provider the adapter calls.
+ */
+export async function withProviderSignedCommitment<T>(
+  work: () => Promise<T>
+): Promise<{ value: T; signedCommitment?: Uint8Array }> {
+  const injected: unknown = Reflect.get(window, 'midenWallet');
+  const original: unknown =
+    typeof injected === 'object' && injected !== null ? Reflect.get(injected, 'signBytes') : undefined;
+  if (typeof original !== 'function' || typeof injected !== 'object' || injected === null)
+    return { value: await work() };
+  let signedCommitment: Uint8Array | undefined;
+  const wrapped = async (...args: unknown[]): Promise<unknown> => {
+    const answer: unknown = await Reflect.apply(original, injected, args);
+    const seen: unknown =
+      typeof answer === 'object' && answer !== null ? Reflect.get(answer, 'signedCommitment') : undefined;
+    if (seen instanceof Uint8Array) signedCommitment = seen;
+    return answer;
+  };
+  Reflect.set(injected, 'signBytes', wrapped);
+  try {
+    const value = await work();
+    return signedCommitment === undefined ? { value } : { value, signedCommitment };
+  } finally {
+    Reflect.set(injected, 'signBytes', original);
+  }
+}

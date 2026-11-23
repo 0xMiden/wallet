@@ -38,12 +38,6 @@ jest.mock('components/Button', () => ({
 const mockNavigate = jest.fn();
 jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(...args) }));
 
-// Same shims the sibling TransactionSummaryBadge.test.tsx uses: `formatAmount`
-// echoes the raw base units (decimal handling is that helper's own test's job)
-// and the metadata module avoids the SDK import graph.
-jest.mock('lib/shared/format', () => ({
-  formatAmount: (amount: bigint) => String(amount)
-}));
 jest.mock('lib/miden/metadata', () => ({
   MIDEN_METADATA: { symbol: 'MIDEN', decimals: 6 }
 }));
@@ -104,7 +98,13 @@ jest.mock('./TransactionSuccessLayout', () => ({
   },
   ReceiptRows: ({ rows, surface }: { rows: ReceiptRow[]; surface?: 'fill' | 'outline' }) => {
     mockLastRows = rows;
-    return <div data-testid="rows" data-surface={surface} />;
+    return (
+      <div data-testid="rows" data-surface={surface}>
+        {rows.map(row => (
+          <div key={row.label}>{row.value}</div>
+        ))}
+      </div>
+    );
   },
   // Earn derives its own amount (USDC-denominated), so it reaches the fee through
   // this hook rather than `useReceiptAmount`. Returns a value so the fee row is
@@ -146,14 +146,14 @@ describe('EarnSuccess', () => {
 
     render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
 
-    expect(mockLastPill?.lhs).toBe('10000000 USDC');
+    expect(screen.getByTestId('pill')).toHaveTextContent('10 USDC');
   });
 
   it('renders the earn title and derives the pill from the row (USDC fallback + market name)', () => {
     render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
 
     expect(screen.getByTestId('title')).toHaveTextContent("You're Earning!");
-    expect(mockLastPill?.lhs).toBe('10000000 USDC');
+    expect(screen.getByTestId('pill')).toHaveTextContent('10 USDC');
     expect(mockLastPill?.rhs).toBe('Dummy Lending');
     expect(mockLastPill?.separator).toBeTruthy();
   });
@@ -162,7 +162,7 @@ describe('EarnSuccess', () => {
     mockAssetsMetadata = { mtst1faucet: { symbol: 'mUSDC', decimals: 4 } };
     render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
 
-    expect(mockLastPill?.lhs).toBe('10000000 mUSDC');
+    expect(screen.getByTestId('pill')).toHaveTextContent('1000 mUSDC');
   });
 
   it('builds Market, Total Deposited, Network Fee, and Transaction ID rows', () => {
@@ -182,7 +182,7 @@ describe('EarnSuccess', () => {
     // `t` is the identity function here, so the fee row asserts on its key.
     expect(labels).toEqual(['Market', 'Total Deposited', 'networkFee', 'Transaction ID']);
     expect(mockLastRows?.[0]?.value).toBe('Dummy Lending');
-    expect(mockLastRows?.[1]?.value).toBe('10000000 USDC');
+    expect(screen.getByTestId('rows')).toHaveTextContent('10 USDC');
     expect(mockLastRows?.[2]?.value).toBe('0.17 MIDEN');
   });
 
@@ -239,7 +239,7 @@ describe('EarnSuccess', () => {
     mockCollateral = { faucetId: 'mtst1faucet', symbol: 'tUSDC', decimals: 2 };
     render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
 
-    expect(mockLastPill?.lhs).toBe('10000000 tUSDC');
+    expect(screen.getByTestId('pill')).toHaveTextContent('100000 tUSDC');
   });
 
   it('withholds the amount of a deposit whose faucet the config does not name', () => {

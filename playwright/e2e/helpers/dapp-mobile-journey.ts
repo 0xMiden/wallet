@@ -29,9 +29,10 @@ import {
 import { canonicalAddress, isJourneySender, normalizeHex } from './dapp-gates';
 import { ASSETS_AND_NOTES, FUND_A, FUND_B, setupContext, tst } from './dapp-journey';
 import { knownBugRegistry } from './dapp-known-bugs';
+import { runNativeKeyboardJourney } from './dapp-mobile-keyboard';
 import { cellIdsFor } from './dapp-matrix';
 import type { MobileDappAxis } from './dapp-mobile-axis';
-import type { MobileDevice, MobileSurface } from './dapp-mobile-device';
+import type { MobileDevice, MobileSurface, NativeKeyboardControls } from './dapp-mobile-device';
 import { answerSheet, denyOpenSheet, type SeenSheet, type SheetHost } from './dapp-mobile-sheet';
 import {
   accountRows,
@@ -176,7 +177,7 @@ export interface MobileJourneyInput {
   envConfig: EnvironmentConfig;
   steps: TestStepRunner;
   testInfo: TestInfo;
-  device: MobileDevice;
+  device: MobileDevice & NativeKeyboardControls;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
@@ -553,6 +554,9 @@ export async function startMobileJourney(input: MobileJourneyInput): Promise<Mob
     });
     if (opened === undefined || dappB === undefined) throw new HarnessFault('the dApps did not open');
     const producer = dappB;
+    await steps.step('native_keyboard', () =>
+      runNativeKeyboardJourney({ surface, device, page: started, wallet: walletA, testInfo })
+    );
     let produced: ProducedNote | undefined;
     await steps.step('produce_private_note', async () => {
       produced = await produceNoteForA(

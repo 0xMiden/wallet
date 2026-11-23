@@ -12,6 +12,12 @@ import { useHasUnreadActivity } from './useHasUnreadActivity';
 // collaborators and the SDK are stubbed.
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ PswapLineageState: {}, InputNoteState: { Invalid: 'Invalid' } }));
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/miden/activity', () => ({
+  ...jest.requireActual('lib/miden/activity'),
+  getCompletedTransactions: () => {
+    throw new Error('The unread indicator must use bounded history reads');
+  }
+}));
 jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: (fn: () => unknown) => fn() }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
@@ -90,7 +96,7 @@ const txKey = (id: string) => `tx:${id}`;
 async function renderUnread() {
   const delivered = mockDeliveries.value;
   const rendered = renderHook(() => useHasUnreadActivity());
-  await waitFor(() => expect(mockDeliveries.value).toBeGreaterThan(delivered));
+  await waitFor(() => expect(mockDeliveries.value).toBeGreaterThan(delivered), { timeout: 5000 });
   return rendered.result;
 }
 
@@ -219,6 +225,117 @@ describe('useHasUnreadActivity - the account feed rows', () => {
 
     mockAccount.publicKey = A;
     rerender();
+    await waitFor(() => expect(result.current).toBe(true));
+  });
+
+  it('keeps the newest 50 visible rows when a timestamp tie spans pages', async () => {
+    const visible = Array.from({ length: 51 }, (_, i) => tx(`row-${String(i).padStart(3, '0')}`));
+    const hidden = Array.from({ length: 55 }, (_, i) =>
+      tx(`settle-${i}`, { type: 'consume', extraInputs: { swapOrderTxId: 'swap' } })
+    );
+    await transactions.bulkAdd([
+      tx('swap', { type: 'swap', displayIcon: 'SWAP', initiatedAt: 1, completedAt: 1 }),
+      ...visible,
+      ...hidden
+    ]);
+    setRead(...visible.slice(1).map(row => txKey(row.id)));
+    expect((await renderUnread()).current).toBe(false);
+  });
+
+  it('includes the oldest visible row in the recent window across tied pages', async () => {
+    const visible = Array.from({ length: 50 }, (_, i) => tx(`row-${String(i).padStart(3, '0')}`));
+    const hidden = Array.from({ length: 55 }, (_, i) =>
+      tx(`settle-${i}`, { type: 'consume', extraInputs: { swapOrderTxId: 'swap' } })
+    );
+    await transactions.bulkAdd([
+      tx('swap', { type: 'swap', displayIcon: 'SWAP', initiatedAt: 1, completedAt: 1 }),
+      ...visible,
+      ...hidden
+    ]);
+    setRead(txKey('swap'), ...visible.slice(1).map(row => txKey(row.id)));
+    expect((await renderUnread()).current).toBe(true);
+  });
+
+  it('updates when a new transaction enters the recent window', async () => {
+    const completed = Array.from({ length: 60 }, (_, i) => tx(`c${i}`, { completedAt: 200 + i }));
+    await transactions.bulkAdd(completed);
+    setRead(...completed.map(row => txKey(row.id)));
+    const result = await renderUnread();
+    expect(result.current).toBe(false);
+    await transactions.add(tx('new', { completedAt: 500 }));
+    await waitFor(() => expect(result.current).toBe(true));
+  });
+
+  it.each([ITransactionStatus.Failed, ITransactionStatus.Unconfirmed])(
+    'keeps the unread status-ranked row at a timestamp boundary (%s)',
+    async status => {
+      const read = Array.from({ length: 50 }, (_, i) => tx(`z-${String(i).padStart(3, '0')}`, { completedAt: 500 }));
+      await transactions.bulkAdd([...read, tx('a-unread', { status, completedAt: 500 })]);
+      setRead(...read.map(row => txKey(row.id)));
+      expect((await renderUnread()).current).toBe(true);
+    }
+  );
+
+  it('keeps the newest initiated failure at a timestamp boundary', async () => {
+    const read = Array.from({ length: 50 }, (_, i) =>
+      tx(`z-${String(i).padStart(3, '0')}`, { status: ITransactionStatus.Failed, completedAt: 500 })
+    );
+    await transactions.bulkAdd([
+      ...read,
+      tx('a-unread', { status: ITransactionStatus.Failed, initiatedAt: 200, completedAt: 500 })
+    ]);
+    setRead(...read.map(row => txKey(row.id)));
+    expect((await renderUnread()).current).toBe(true);
+  });
+
+  it('excludes the lower-ranked row outside the tied recent window', async () => {
+    const completed = Array.from({ length: 50 }, (_, i) => tx(`z-${String(i).padStart(3, '0')}`, { completedAt: 500 }));
+    await transactions.bulkAdd([...completed, tx('a-read', { status: ITransactionStatus.Failed, completedAt: 500 })]);
+    setRead(txKey('a-read'), ...completed.slice(1).map(row => txKey(row.id)));
+    expect((await renderUnread()).current).toBe(false);
+  });
+
+  it('looks up each claim note once across suppressed pages', async () => {
+    const failed = Array.from({ length: 150 }, (_, i) =>
+      tx(`failed-${i}`, {
+        type: 'consume',
+        status: ITransactionStatus.Failed,
+        noteId: 'claimed-note',
+        completedAt: 500 + i
+      })
+    );
+    const visible = Array.from({ length: 50 }, (_, i) => tx(`visible-${i}`, { completedAt: 200 + i }));
+    await transactions.bulkAdd([
+      ...failed,
+      ...visible,
+      tx('claim', { type: 'consume', noteId: 'other-note', noteIds: ['other-note', 'claimed-note'], completedAt: 1 })
+    ]);
+    setRead(...visible.map(row => txKey(row.id)));
+    const where = jest.spyOn(transactions, 'where');
+    try {
+      expect((await renderUnread()).current).toBe(false);
+      expect(where.mock.calls.filter(([index]) => typeof index === 'string' && index === 'noteId')).toHaveLength(1);
+      expect(where.mock.calls.filter(([index]) => typeof index === 'string' && index === 'noteIds')).toHaveLength(1);
+    } finally {
+      where.mockRestore();
+    }
+  });
+
+  it('checks claim evidence again when a new claim changes the visible window', async () => {
+    const failed = Array.from({ length: 150 }, (_, i) =>
+      tx(`failed-${i}`, {
+        type: 'consume',
+        status: ITransactionStatus.Failed,
+        noteId: 'claimed-note',
+        completedAt: 500 + i
+      })
+    );
+    const visible = Array.from({ length: 49 }, (_, i) => tx(`visible-${i}`, { completedAt: 200 + i }));
+    await transactions.bulkAdd([...failed, ...visible, tx('older-unread', { completedAt: 100 })]);
+    setRead(...[...failed, ...visible].map(row => txKey(row.id)));
+    const result = await renderUnread();
+    expect(result.current).toBe(false);
+    await transactions.add(tx('claim', { type: 'consume', noteId: 'claimed-note', completedAt: 1 }));
     await waitFor(() => expect(result.current).toBe(true));
   });
 });

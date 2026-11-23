@@ -36,7 +36,7 @@ on:
         required: false
         type: string
       state_run_id:
-        description: Previous state run (submit/release/Android upload/sync/edit inspection/Chrome resume)
+        description: Previous state run (submit/release/Android upload/sync/edit inspection/Chrome resume/iOS prepare or sync recovery)
         required: false
         type: string
       build_number:
@@ -95,6 +95,7 @@ jobs:
       - name: Initialize temporary evidence paths
         run: |
           {
+            echo "SCREENSHOT_DEADLINE_MS=$(( $(date +%s) * 1000 + 25 * 60 * 1000 ))"
             echo "PRODUCER_DIR=$RUNNER_TEMP/wallet-store-producer"
             echo "PRIOR_STATE_DIR=$RUNNER_TEMP/wallet-store-prior-state"
             echo "PRODUCER_RUN_FILE=$RUNNER_TEMP/wallet-store-producer-run.json"
@@ -105,19 +106,19 @@ jobs:
             echo "TAG_COMMIT_FILE=$RUNNER_TEMP/wallet-store-tag-commit.json"
           } >> "$GITHUB_ENV"
       - name: Check out trusted publishing automation
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.workflow_sha }}
           path: automation
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
       - name: Validate explicit publishing intent
         id: plan
         run: node automation/scripts/store-publishing/publish-plan.mjs request
       - name: Check out exact release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.source_sha }}
           path: source
@@ -142,7 +143,7 @@ jobs:
           node automation/scripts/store-publishing/publish-plan.mjs producer
       - name: Download only the verified producer artifact
         if: steps.plan.outputs.needs_producer == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           artifact-ids: ${{ steps.producer.outputs.artifact_id }}
           run-id: ${{ inputs.producer_run_id }}
@@ -161,7 +162,7 @@ jobs:
           node automation/scripts/store-publishing/publish-plan.mjs state-run
       - name: Download only the verified publication state
         if: steps.plan.outputs.needs_state == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           artifact-ids: ${{ steps.state.outputs.artifact_id }}
           run-id: ${{ inputs.state_run_id }}
@@ -180,7 +181,7 @@ jobs:
       - name: Obtain short-lived Play publishing token
         if: inputs.platform == 'android'
         id: google_auth
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: projects/538324806738/locations/global/workloadIdentityPools/wallet-publishing/providers/github
           service_account: bread-wallet-play-publisher@bread-wallet-publishing.iam.gserviceaccount.com
@@ -201,7 +202,7 @@ jobs:
         run: node automation/scripts/store-publishing/publish-plan.mjs export
       - name: Save only validated noncredential publication records
         if: always() && steps.prepare.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.plan.outputs.state_artifact_name }}
           path: ${{ runner.temp }}/wallet-store-publishing/export/

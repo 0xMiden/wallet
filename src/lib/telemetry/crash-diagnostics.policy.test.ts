@@ -6,6 +6,7 @@ import {
   STARTUP_ELIGIBILITY_REASONS,
   STARTUP_ELIGIBILITY_RETRIES
 } from 'lib/remote-config/geo';
+import { BOUNDED_JSON_FAILURES } from 'lib/remote-json';
 import {
   REOWN_NATIVE_ORIGINS,
   REOWN_WALLET_RESPONSE_CODES,
@@ -14,6 +15,7 @@ import {
   REOWN_BACKGROUND_ANSWERS
 } from 'lib/walletconnect/native-request-failure';
 
+import { BRIDGE_RECEIVE_REQUEST_CLIENTS } from './bridge-receive-failure';
 import {
   BACKGROUND_AGES,
   COMPLETION_GUARDS,
@@ -41,6 +43,7 @@ import {
   DIAGNOSTIC_STEP_OUTCOMES,
   DIAGNOSTIC_STEPS
 } from './diagnostic-log-contract';
+import { PROOF_WAIT_AVAILABILITIES } from './proof-wait-availability-diagnostics';
 import {
   RELAY_CONNECTIVITY,
   RELAY_FAILURE_BUCKETS,
@@ -49,6 +52,22 @@ import {
   RELAY_TRIGGERS,
   RELAY_VISIBILITY
 } from './relay-diagnostics';
+import {
+  PROOF_WINDOW_BUCKETS,
+  QUEUE_HIDDEN_BUCKETS,
+  SUBMIT_HIDDEN_ANSWERS,
+  SUBMIT_LEG_BUCKETS
+} from './terminal-report-diagnostics';
+import { EXECUTION_ROUTES, AUTH_OBSERVATIONS, AUTH_ARG_PRESENCE } from './transaction-execution-diagnostics';
+import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
+import {
+  FEATURE_UNAVAILABLE_FEATURES,
+  FEATURE_UNAVAILABLE_REASONS,
+  SUBMISSION_FEEDBACK_BRANCHES,
+  PENDING_RETRY_REASONS,
+  RECIPIENT_VALIDATION_STAGES,
+  BACKUP_NETWORK_FAILURE_STAGES
+} from './ui-producer-diagnostics';
 import { USER_ERROR_IDS, USER_ERROR_SURFACES } from './user-visible-error';
 import { EXTENSION_VIEW_COUNTS, SHARED_MEMORY_PROBES } from './wasm-startup';
 
@@ -70,8 +89,13 @@ const listedAfter = (text: string, phrase: string): string[] => {
 };
 
 const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['the execution route', EXECUTION_ROUTES],
+  ['Proof-wait availability', PROOF_WAIT_AVAILABILITIES],
+  ['the authentication observation', AUTH_OBSERVATIONS],
+  ['auth argument presence', AUTH_ARG_PRESENCE],
   ['Startup eligibility stage', STARTUP_ELIGIBILITY_STAGES],
   ['startup eligibility reason', STARTUP_ELIGIBILITY_REASONS],
+  ['startup eligibility request failure', BOUNDED_JSON_FAILURES],
   ['startup eligibility retry', STARTUP_ELIGIBILITY_RETRIES],
   ["the node's consume verdict", CONSUME_VERDICTS],
   ['storage owner', STORAGE_OWNERS],
@@ -112,7 +136,8 @@ const FIELDS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['; wallet response code', REOWN_WALLET_RESPONSE_CODES],
   ['; request age', REOWN_REQUEST_AGES],
   ['; publication observation', REOWN_PUBLICATIONS],
-  ['; background observation', REOWN_BACKGROUND_ANSWERS]
+  ['; background observation', REOWN_BACKGROUND_ANSWERS],
+  ['wallet request client', BRIDGE_RECEIVE_REQUEST_CLIENTS]
 ];
 
 it.each(FIELDS)('the privacy policy lists exactly the values a crash report can carry after "%s"', (phrase, values) => {
@@ -172,4 +197,85 @@ it('states the retention of the diagnostic records once, apart from the 90 days 
   expect(ninetyDays.some(line => /diagnostic records/i.test(line))).toBe(false);
   expect(retention.filter(line => line.includes('Diagnostic records') && line.includes('30 days'))).toHaveLength(1);
   expect(section('Who processes this data')).not.toContain('Sentry are configured to delete data after 90 days');
+});
+
+it.each([
+  ['featureUnavailableFeature', FEATURE_UNAVAILABLE_FEATURES],
+  ['featureUnavailableReason', FEATURE_UNAVAILABLE_REASONS],
+  ['submissionFeedbackBranch', SUBMISSION_FEEDBACK_BRANCHES],
+  ['submissionRejectedEndpoint', SUBMIT_ENDPOINTS],
+  ['submissionRejectedStatus', SUBMIT_GRPC_STATUSES],
+  ['pendingRetryReason', PENDING_RETRY_REASONS],
+  ['recipientValidationStage', RECIPIENT_VALIDATION_STAGES],
+  ['backupNetworkFailureStage', BACKUP_NETWORK_FAILURE_STAGES]
+] as const)('documents the exact closed UI producer values for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+it.each<[string, readonly string[]]>([
+  ['submitApproachHidden', QUEUE_HIDDEN_BUCKETS],
+  ['proofWindow', PROOF_WINDOW_BUCKETS],
+  ['submitHidden', SUBMIT_HIDDEN_ANSWERS],
+  ['submitLeg', SUBMIT_LEG_BUCKETS]
+])('documents the exact closed submit report values for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+// Sentry's default password rule reads property names and string values alike, and a client allowlist cannot undo it.
+it('sends the closed submit report under names and values the default scrub leaves alone', () => {
+  const sensitive = /auth|token|secret|password|passwd|pwd|credential|api_?key|private_?key|bearer|session/i;
+  const sent = [
+    'submitApproachHidden',
+    'proofWindow',
+    'submitHidden',
+    'submitLeg',
+    ...QUEUE_HIDDEN_BUCKETS,
+    ...PROOF_WINDOW_BUCKETS,
+    ...SUBMIT_HIDDEN_ANSWERS,
+    ...SUBMIT_LEG_BUCKETS
+  ];
+  expect(sent.filter(text => sensitive.test(text))).toEqual([]);
+});
+
+it.each([
+  [
+    'earnPositionsLoadStage',
+    ['configuration', 'owner_lookup', 'request', 'response_decode', 'position_decode', 'unrecorded']
+  ],
+  ['earnPositionsLoadOutcome', ['complete_failure', 'partial_failure']]
+])('documents the exact Earn load observations for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+
+it('documents every closed burnFeeFailure value', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'burnFeeFailure'))).toEqual(
+    new Set([
+      'configuration_failed',
+      'native_asset_failed',
+      'request_build_failed',
+      'dry_run_failed',
+      'result_decode_failed',
+      'probe_mismatch',
+      'busy_exhausted',
+      'request_failed',
+      'estimate_failed'
+    ])
+  );
+});
+
+it.each<[string, readonly string[]]>([
+  ['mainnetAccessCheckFailure', ['endpoint_resolve', 'sdk_ready', 'rpc_client', 'invitation_check', 'unrecorded']],
+  ['mainnetAccessCodeRejectionOrigin', ['eligibility_check', 'registration_redemption']],
+  ['noteClaimFailureOrigin', ['queue_single', 'queue_batch', 'transaction_row']],
+  [
+    'uiFailureKind',
+    ['network', 'rpc', 'proving', 'validation', 'storage', 'access_denied', 'timeout', 'unknown', 'unavailable']
+  ]
+])('documents exact caller categories for %s', (field, values) => {
+  expect(new Set(listedAfter(crashReportPolicy(), field))).toEqual(new Set(values));
+});
+it('documents the exact retry notice origins', () => {
+  expect(new Set(listedAfter(crashReportPolicy(), 'retryNoticeOrigin'))).toEqual(
+    new Set(['history_primary', 'history_earn_receive', 'history_payback', 'status_screen'])
+  );
 });

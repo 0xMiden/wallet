@@ -4,6 +4,7 @@ import { getNoteHoldingTransactions } from 'lib/miden/activity';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -14,6 +15,7 @@ import { useRetryableSWR } from 'lib/swr';
 import { whenInteractionIdle } from 'lib/ui/interaction-priority';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { isOwnClaimableNote } from '../claimable-note-ownership';
 import { toNoteTypeString } from '../helpers';
 import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
@@ -82,6 +84,11 @@ function parseNotes(
     const firstAsset = note.assets[0];
     if (!firstAsset) continue;
 
+    // Only this account's notes: another trader's PSWAP order on a tracked pair tag is
+    // consumable by anyone, and is not a payment to this account (#2118).
+    const swapOrder = swapOrders.get(noteId);
+    if (!isOwnClaimableNote({ standardPayment: note.standardPayment, swapOrder })) continue;
+
     const kind = note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown';
     parsed.push({
       id: noteId,
@@ -91,7 +98,7 @@ function parseNotes(
       isBeingClaimed: notesBeingClaimed.has(noteId),
       claimingTxId: notesBeingClaimed.get(noteId),
       type: kind,
-      swapOrder: swapOrders.get(noteId),
+      swapOrder,
       blockNum: note.blockNum,
       recallableAtMs: note.recallableAtMs,
       standardPayment: note.standardPayment,
@@ -156,6 +163,13 @@ function attachMetadataToNotes(
       carriesMoreAssets: n.carriesMoreAssets
     }));
 }
+
+/**
+ * Whether the claim list shows a note: every note but a swap note settlement claims unattended. A payback marked
+ * `coverageShort` is listed for a manual claim, and settlement may still claim it on its own read of notes and lineages.
+ */
+const isListedClaimableNote = (note: { swapOrder?: { autoConsume?: boolean; coverageShort?: true } }): boolean =>
+  !note.swapOrder || note.swapOrder.autoConsume === false || note.swapOrder.coverageShort === true;
 
 // -------------------- Side-effect helpers --------------------
 
@@ -233,6 +247,7 @@ async function fetchNotesFromLocalClient(
   let swapOrders;
   try {
     swapOrders = await withWasmClientLock(
+      // Two holds read notes and lineages, so a fill can show before its payback: a short one is marked, not dropped.
       async hold => classifySwapOrderNotes(rawNotes, publicAddress, undefined, hold),
       {
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -384,8 +399,12 @@ async function readCachedClaimableNotes(cacheKey: string): Promise<ClaimableNote
     const stored = await fetchFromStorage<unknown>(cacheKey);
     if (!Array.isArray(stored)) return null;
     // The same bound the writer applies, so a stored list can never publish more than the cache keeps.
+    // The same ownership filter as the extension's stored list, so the first view lists no foreign order.
     const notes = markFromCache(
-      sortClaimableNotes(stored.filter(isCachedClaimableNote)).slice(0, MAX_CACHED_CLAIMABLE_NOTES)
+      sortClaimableNotes(stored.filter(isCachedClaimableNote).filter(isOwnClaimableNote)).slice(
+        0,
+        MAX_CACHED_CLAIMABLE_NOTES
+      )
     );
     claimableNotesMemCache.set(cacheKey, notes);
     return notes;
@@ -581,7 +600,10 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     // client order, which changes between syncs, and the Activity cards animate every move.
     return sortClaimableNotes<ClaimableNoteWithMetadata>(
       extensionNotes
-        .filter(n => !n.swapOrder || n.swapOrder.autoConsume === false)
+        // The service worker already drops other accounts' notes; a list it stored
+        // before that rule existed may still hold them (#2118).
+        .filter(isOwnClaimableNote)
+        .filter(isListedClaimableNote)
         .filter(n => n.metadata || assetsMetadata[n.faucetId])
         .map(n => ({
           id: n.id,
@@ -651,9 +673,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // Every read, the 5s SWR poll's included, takes the WASM lock and re-renders the list; let a
     // moving pager finish first (capped). Gating the fetcher keeps SWR's dedupe and visibility rules.
     await whenInteractionIdle();
-    const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(
-      note => !note.swapOrder || note.swapOrder.autoConsume === false
-    );
+    const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(isListedClaimableNote);
 
     // 2) Seed metadata map from cache (and baked-in MIDEN)
     const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);
@@ -812,4 +832,21 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
   const extensionResult = useExtensionClaimableNotes(publicAddress, enabled && extensionMode);
   const localResult = useLocalClaimableNotes(publicAddress, enabled && !extensionMode);
   return extensionMode ? extensionResult : localResult;
+}
+
+export type ScopedClaimableNotesRead = {
+  scope: AccountScope;
+  result: ReturnType<typeof useClaimableNotes>;
+};
+
+export function isCurrentClaimableNotesRead(
+  read: ScopedClaimableNotesRead | undefined,
+  accountId: string
+): read is ScopedClaimableNotesRead {
+  return (
+    read !== undefined &&
+    read.scope.accountId === accountId &&
+    read.scope.network === getEffectiveNetworkName() &&
+    read.scope.rpcUrl === getEffectiveRpcUrl()
+  );
 }

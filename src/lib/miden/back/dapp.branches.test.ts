@@ -1,6 +1,6 @@
 /* eslint-disable import/first */
 /**
- * Branch-coverage tests for `lib/miden/back/dapp.ts` — mobile/desktop paths.
+ * Branch-coverage tests for `lib/miden/back/dapp.ts` - mobile/desktop paths.
  *
  * Targets: mobile confirmation-store paths for requestPermission,
  * requestTransaction, requestSendTransaction, requestConsumeTransaction,
@@ -19,7 +19,7 @@ import { WalletStatus } from 'lib/shared/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
-const mockSignData = jest.fn(async () => 'fake-sig-base64');
+const mockSignData = jest.fn(async () => ({ signature: 'fake-sig-base64', signedCommitment: 'fake-commitment-b64' }));
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
@@ -32,8 +32,7 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
 // before raising a sheet, so this suite stands that module in. `false` is "no limit configured",
 // which is what every case here assumes.
 // The custom path now dry-runs before either sheet and assesses the result, so this suite controls
-// the dry run. The default is "no usable result", which is what the real module produced here
-// before (no client in this environment), so the pre-existing cases are unaffected.
+// the dry run.
 const mockReleaseNoteIds = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: (notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`),
@@ -42,21 +41,51 @@ jest.mock('lib/miden/note-quarantine', () => ({
   releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...args)
 }));
 
+// The approval needs a dry run that succeeds, so the default is a dry run whose decoded view moves nothing.
 const mockSimulateCustomTransaction = jest.fn((..._args: unknown[]) =>
-  Promise.resolve({ error: 'no client in this suite' } as Record<string, unknown>)
+  Promise.resolve({ executedBytes: 'exec' } as Record<string, unknown>)
 );
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: (...args: unknown[]) => mockSimulateCustomTransaction(...args)
-}));
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: async (...args: unknown[]) =>
+      measureApprovalDryRun(await mockSimulateCustomTransaction(...args))
+  };
+});
 
 // Only the decoder is stood in: what the bytes decode TO is decode.test.ts's subject, while this
 // file's subject is what the gate does with the result. `netOutflowByFaucet` stays REAL, so these
 // cases exercise the actual per-faucet netting and folding.
-const mockSimulatedBytesToView = jest.fn((..._args: unknown[]) => undefined as unknown);
+const EMPTY_SIMULATED_VIEW = {
+  account: 'miden-account-1',
+  outgoing: [],
+  incoming: [],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
+  inputNotesConsumed: 0,
+  outputNotesCreated: 0,
+  storageChanged: false,
+  viewConsumedNotes: [],
+  createdNotes: []
+};
+const mockSimulatedBytesToView = jest.fn((..._args: unknown[]) => EMPTY_SIMULATED_VIEW as unknown);
 jest.mock('app/confirm/decode', () => {
   const actual = jest.requireActual('app/confirm/decode');
-  return { ...actual, simulatedBytesToView: (...args: unknown[]) => mockSimulatedBytesToView(...args) };
+  return {
+    ...actual,
+    simulatedBytesToView: (...args: unknown[]) => mockSimulatedBytesToView(...args),
+    simulatedOutputRecipients: () => []
+  };
 });
+
+// A custom summary's approval re-reads the chain fee before it decodes; the read is the node's, not this suite's.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: jest.fn(async () => 2),
+  getVerificationBaseFeeSync: () => 2
+}));
 
 const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
 const mockAssessOutgoingSpendingLimitDetails = jest.fn(
@@ -191,7 +220,7 @@ _g.__dappBranchMockGetAccount = jest.fn();
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 // Models hold OWNERSHIP (#788 follow-up): the lock hands its callback a hold, and
-// dapp.ts re-checks it via `assertWasmHoldCurrent` after every parking await — a
+// dapp.ts re-checks it via `assertWasmHoldCurrent` after every parking await - a
 // hold-less pass-through would make those guards a TypeError on the happy path.
 // The assert re-implements the real comparison against this mock's hold so it is
 // never a vacuous no-op.
@@ -206,7 +235,8 @@ const storedNote = {
   nullifier: 'nf1',
   state: 0,
   assets: [{ faucetId: 'faucet-1', amount: '1000000' }],
-  nonFungibleAssets: []
+  nonFungibleAssets: [],
+  standardPayment: true
 };
 const mockGetInputNoteDetails = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [storedNote]);
 const NO_COMMITMENT_MATCH = { notes: [], uncommitted: 0 };
@@ -243,6 +273,11 @@ jest.mock('../sdk/miden-client', () => ({
     throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
   },
   runWhenClientIdle: () => {}
+}));
+
+jest.mock('lib/miden/helpers', () => ({
+  ...jest.requireActual('lib/miden/helpers'),
+  standardPaymentScriptRoots: () => new Set(['0xp2id', '0xp2ide'])
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
@@ -425,7 +460,7 @@ describe('coded refusals (#1583)', () => {
 
 // ─── requestPermission (mobile paths) ──────────────────────────────
 
-describe('requestPermission — mobile branches', () => {
+describe('requestPermission - mobile branches', () => {
   it('goes through confirmation store when force=true even if session exists', async () => {
     const res = await dapp.requestPermission(
       'https://miden.xyz',
@@ -672,9 +707,9 @@ describe('an approved connect whose account key read fails, on mobile and deskto
   });
 });
 
-// ── requestConsumeTransaction — mobile branches ──────────────────
+// ── requestConsumeTransaction - mobile branches ──────────────────
 
-describe('requestConsumeTransaction — mobile error branches', () => {
+describe('requestConsumeTransaction - mobile error branches', () => {
   const validTx = {
     accountAddress: 'miden-account-1',
     noteId: 'note-1',
@@ -810,6 +845,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
     const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile, NoteScript: sdk.NoteScript, Address: sdk.Address };
     const sdkNote = (id: string) => ({
+      recipient: () => ({ script: () => ({ root: () => ({ toHex: () => '0xp2id' }) }) }),
       id: () => ({ toString: () => id }),
       metadata: () => undefined,
       assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
@@ -830,6 +866,18 @@ describe('requestConsumeTransaction — mobile error branches', () => {
 
     afterEach(() => {
       Object.assign(sdk, originalSdk);
+    });
+
+    it.each(['0xcustom', '0xpswap', '0xsponsorship'])('refuses a carried %s script before approval', async root => {
+      carryRawNote(() => ({
+        ...sdkNote('note-1'),
+        recipient: () => ({ script: () => ({ root: () => ({ toHex: () => root }) }) })
+      }));
+
+      await expect(consumeWithBytes()).rejects.toThrow('Only standard payment notes');
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
 
     it('imports the bytes into the store before it initiates the consume, in one approval', async () => {
@@ -1206,6 +1254,17 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
     mockGetConsumableNoteDtos.mockResolvedValue([]);
   });
 
+  it.each([false, undefined])('refuses a commitment match with standardPayment %s', async standardPayment => {
+    mockGetDetailsCommitmentMatches.mockResolvedValueOnce([
+      { notes: [{ ...importedNote, standardPayment }], uncommitted: 0 }
+    ]);
+    mockGetConsumableNoteDtos.mockResolvedValueOnce(consumable(importedNote.noteId));
+
+    await expect(consumeByCommitment()).rejects.toThrow('Only standard payment notes');
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])(
     'consumes bare Note bytes by commitment when decoding after unlock is %s',
     async decodeAfterUnlock => {
@@ -1217,7 +1276,10 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       const note = {
         id: () => ({ toString: () => importedNote.noteId }),
         metadata: () => undefined,
-        recipient: () => ({ digest: () => Word.fromHex(COMMITMENT) }),
+        recipient: () => ({
+          digest: () => Word.fromHex(COMMITMENT),
+          script: () => ({ root: () => ({ toHex: () => '0xp2id' }) })
+        }),
         assets: () => ({ assets: () => [], fungibleAssets: () => [], nonFungibleAssets: () => [] })
       };
       const deserialize = jest.fn(() => note);
@@ -1388,7 +1450,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
       mockGetDetailsCommitmentMatches.mock.invocationCallOrder[0]!
     );
     const sheet = mockRequestConfirmation.mock.calls[0]![0] as { transactionMessages: string[] };
-    expect(sheet.transactionMessages).toContain('Amount, +4500000');
+    expect(sheet.transactionMessages).toContain('Amount, +4.5');
     expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalledWith(
       'miden-account-1',
       '0xreal-note',
@@ -1474,9 +1536,9 @@ describe('requestConsumeTransaction by the id importPrivateNote returned (#1389)
   });
 });
 
-// ── requestTransaction — mobile error branches ──────────────────
+// ── requestTransaction - mobile error branches ──────────────────
 
-describe('requestTransaction — mobile error branches', () => {
+describe('requestTransaction - mobile error branches', () => {
   it('rejects when requestCustomTransaction throws', async () => {
     mockRequestCustomTransaction.mockRejectedValueOnce(new Error('tx-err'));
     await expect(
@@ -1495,9 +1557,9 @@ describe('requestTransaction — mobile error branches', () => {
   });
 });
 
-// ── requestSendTransaction — mobile error branches ──────────────
+// ── requestSendTransaction - mobile error branches ──────────────
 
-describe('requestSendTransaction — mobile error branches', () => {
+describe('requestSendTransaction - mobile error branches', () => {
   const validTx = {
     senderAddress: 'miden-account-1',
     recipientAddress: 'bob',
@@ -1621,7 +1683,7 @@ describe('startDappBackgroundProcessing error handling', () => {
 
 // ── requestDisconnect edge cases ──────────────────────────────────
 
-describe('requestDisconnect — edge cases', () => {
+describe('requestDisconnect - edge cases', () => {
   it('throws NotFound when current account has no permission for the origin', async () => {
     // No session stored for the test origin
     delete (storageState[STORAGE_KEY] as any)['https://unknown-dapp.xyz'];
@@ -1644,7 +1706,7 @@ describe('requestDisconnect — edge cases', () => {
 
 // ── getCurrentPermission edge cases ──────────────────────────────
 
-describe('getCurrentPermission — edge cases', () => {
+describe('getCurrentPermission - edge cases', () => {
   it('returns null permission when no current account', async () => {
     mockGetCurrentAccountPublicKey.mockResolvedValueOnce(null);
     const res = await dapp.getCurrentPermission('https://miden.xyz');
@@ -1834,9 +1896,9 @@ describe('waitForTransaction', () => {
   });
 });
 
-// ── requestPermission — existing session returns immediately ────
+// ── requestPermission - existing session returns immediately ────
 
-describe('requestPermission — returns immediately for existing session', () => {
+describe('requestPermission - returns immediately for existing session', () => {
   it('returns existing permission without going through confirmation when not force', async () => {
     // Session already exists for this origin with same appMeta.name
     const res = await dapp.requestPermission(
@@ -1932,9 +1994,9 @@ describe('removeDApp', () => {
   );
 });
 
-// ── requestSign — input validation branches ─────────────────────
+// ── requestSign - input validation branches ─────────────────────
 
-describe('requestSign — input validation', () => {
+describe('requestSign - input validation', () => {
   it('throws InvalidParams when sourcePublicKey is missing', async () => {
     await expect(
       dapp.requestSign('https://miden.xyz', {
@@ -1976,7 +2038,7 @@ describe('requestSign — input validation', () => {
   // auth secret is stored under `accAuthSecretKeyStrgKey(<commitment>)` under the
   // one vault key, so a page holding a live session for account A could name A as
   // the source account, pass account B's commitment, and get back a signature made
-  // with B's key — with `kind: 'signingInputs'` that authorizes a transaction on B.
+  // with B's key - with `kind: 'signingInputs'` that authorizes a transaction on B.
   // The approval sheet for `type: 'sign'` renders no account, so nothing on screen
   // contradicts it.
   it('throws NotGranted when sourcePublicKey names an account other than the session account', async () => {
@@ -1997,11 +2059,11 @@ describe('requestSign — input validation', () => {
   });
 });
 
-// ── requestPrivateNotes — input validation branches ──────────────
+// ── requestPrivateNotes - input validation branches ──────────────
 
 describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () => {
   // What a dApp is answered with: the wallet's own `nonFungibleAssets` field is stripped from the record.
-  const { nonFungibleAssets: _held, ...answeredNote } = storedNote;
+  const { nonFungibleAssets: _held, standardPayment: _standardPayment, ...answeredNote } = storedNote;
   const importedNote = { ...answeredNote, noteId: 'n9', noteType: NoteType.Private };
   const firstNote = { ...importedNote, noteId: 'n1' };
   const requestList = (notefilterType: NoteFilterTypes, noteIds?: string[]) =>
@@ -2256,7 +2318,7 @@ describe('requestPrivateNotes by the id importPrivateNote returned (#1536)', () 
   });
 });
 
-describe('requestPrivateNotes — input validation', () => {
+describe('requestPrivateNotes - input validation', () => {
   it('throws InvalidParams when sourcePublicKey is missing', async () => {
     await expect(
       dapp.requestPrivateNotes('https://miden.xyz', {
@@ -2289,9 +2351,9 @@ describe('requestPrivateNotes — input validation', () => {
   });
 });
 
-// ── requestAssets — mobile branches ──────────────────────────────
+// ── requestAssets - mobile branches ──────────────────────────────
 
-describe('requestAssets — mobile branches', () => {
+describe('requestAssets - mobile branches', () => {
   it('throws InvalidParams when sourcePublicKey is missing', async () => {
     await expect(
       dapp.requestAssets('https://miden.xyz', {
@@ -2305,6 +2367,25 @@ describe('requestAssets — mobile branches', () => {
 // ── formatConsumeTransactionPreview edge cases ──────────────────
 
 describe('formatConsumeTransactionPreview', () => {
+  it.each([false, undefined])(
+    'refuses a stored note with standardPayment %s before approval',
+    async standardPayment => {
+      mockGetInputNoteDetails.mockResolvedValueOnce([{ ...storedNote, standardPayment }]);
+      const request: MidenDAppConsumeRequest = {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+      };
+
+      await expect(dapp.requestConsumeTransaction('https://miden.xyz', request)).rejects.toThrow(
+        'Only standard payment notes can use a consume request - use a custom transaction request'
+      );
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    }
+  );
+
   it('formats with token metadata decimals', async () => {
     mockGetTokenMetadata.mockResolvedValueOnce({ decimals: 8, symbol: 'BTC' });
     mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-fmt');
@@ -2374,7 +2455,9 @@ describe('requestTransaction - custom spending-limit gate', () => {
     inputNotesConsumed: 0,
     outputNotesCreated: assets.length,
     fee: undefined,
-    storageChanged: false
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: assets.map((asset, index) => ({ id: `0xcreated-${index}`, amounts: [asset], nfts: [] }))
   });
 
   beforeEach(() => {
@@ -2440,14 +2523,102 @@ describe('requestTransaction - custom spending-limit gate', () => {
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
   });
 
-  it('allows an unsimulatable request when the account has no limit at all', async () => {
+  it('refuses an unsimulatable request before any prompt also when the account has no limit at all', async () => {
+    // The approval needs a dry run that succeeds, with or without a spending limit.
     mockSimulatedBytesToView.mockReturnValue(undefined);
     mockHasSpendingLimits.mockResolvedValueOnce(false);
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
 
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      `${MidenDAppErrorType.NotGranted}: The transaction could not be simulated`
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  // The summary spends two notes the account already held (30 and 20 A) and sends 80 A, so its vault nets 30 A out.
+  // The approval measures the holdings, so the 50 A of held notes is charged with the rest: 80 A leaves.
+  const summarySpendingHeldNotes = () => {
+    mockSimulateCustomTransaction.mockResolvedValue({ summaryBytes: 'sum', introducedNoteIds: [] });
+    mockSimulatedBytesToView.mockReturnValue({
+      ...viewMoving([{ faucetId: 'faucet-a', amount: 30n }]),
+      inputNotesConsumed: 2,
+      viewConsumedNotes: [
+        { id: '0xheld-1', amounts: [{ faucetId: 'faucet-a', amount: 30n }], nfts: [] },
+        { id: '0xheld-2', amounts: [{ faucetId: 'faucet-a', amount: 20n }], nfts: [] }
+      ],
+      createdNotes: [{ id: '0xsent', amounts: [{ faucetId: 'faucet-a', amount: 80n }], nfts: [] }]
+    });
+  };
+  const HELD_SPEND = [{ faucetId: 'faucet-a', amount: 80n }];
+
+  it('charges a summary that spends held notes what leaves the holdings when no spending limit is configured', async () => {
+    summarySpendingHeldNotes();
+    // Earlier cases queue a one-shot limit answer they never consume. Reset so this call sees no limit.
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValue(false);
+    // Earlier cases leave a breaching assessment behind; no limit means none.
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+
     await dapp.requestTransaction('https://miden.xyz', customRequest());
 
-    expect(mockRequestCustomTransaction).toHaveBeenCalled();
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: HELD_SPEND
+    });
+    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toEqual(HELD_SPEND);
+  });
+
+  it('assesses a summary that spends held notes against a configured limit instead of refusing it unmeasured', async () => {
+    summarySpendingHeldNotes();
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValue(true);
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(breach(80n));
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false, spendingLimitAuthenticated: true });
+
+    await dapp.requestTransaction('https://miden.xyz', customRequest());
+
+    expect(mockAssessOutgoingSpendingLimitDetails).toHaveBeenCalledWith({
+      accountId: 'miden-account-1',
+      spends: HELD_SPEND
+    });
+    const confirmation = mockRequestConfirmation.mock.calls[0]![0] as Record<string, unknown>;
+    expect(confirmation).toMatchObject({ spendingLimitAssessment: expect.objectContaining({ usdAmount: 80n }) });
+    const args = mockRequestCustomTransaction.mock.calls[0]!;
+    expect(args[6]).toEqual(HELD_SPEND);
+    expect(args[7]).toMatchObject({ kind: 'usd', accountId: 'miden-account-1', usdAmount: 80n });
+  });
+
+  it('releases quarantined notes when the locked recheck refuses the custom spend', async () => {
+    summarySpendingHeldNotes();
+    mockHasSpendingLimits.mockReset();
+    mockHasSpendingLimits.mockResolvedValue(false);
+    // Earlier cases leave a breaching assessment behind; no limit means none.
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
+    const refusal = new Error(MidenDAppErrorType.NotGranted);
+    refusal.name = 'UnattributableCustomSpendError';
+    mockRequestCustomTransaction.mockRejectedValue(refusal);
+
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          payload: {
+            address: 'miden-account-1',
+            recipientAddress: 'bob',
+            transactionRequest: 'YmFzZTY0cmVx',
+            importNotes: ['note-a']
+          }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    expect(mockRequestCustomTransaction.mock.calls[0]![6]).toEqual(HELD_SPEND);
+    expect(mockReleaseNoteIds).toHaveBeenCalledWith(['id:note-a']);
+    expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
   });
 
   it('no longer refuses a custom request that moves two capped assets', async () => {
@@ -2752,7 +2923,8 @@ describe('requests for an account that is not the current one (#1419)', () => {
   it('still signs when the current account is unchanged at approval', async () => {
     await expect(requests.sign!()).resolves.toEqual({
       type: MidenDAppMessageType.SignResponse,
-      signature: 'fake-sig-base64'
+      signature: 'fake-sig-base64',
+      signedCommitment: 'fake-commitment-b64'
     });
     expect(mockSignData).toHaveBeenCalledTimes(1);
   });

@@ -1,3 +1,11 @@
+import {
+  BridgeOperationAlreadyAdmittedError,
+  captureBridgeWalletScope,
+  prepareBridgeOperation,
+  type BridgeOperationInput
+} from 'lib/bridge/operation';
+import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
+import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -28,12 +36,18 @@ import { queueNoteImport } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import {
+  ForeignNoteClaimRefusedError,
+  isOwnClaimableNote,
+  requiresOwnClaimableNotes
+} from '../claimable-note-ownership';
+import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
   IAgglayerDelivery,
+  IApprovedCustomEffects,
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
@@ -49,26 +63,46 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
+import {
+  assertValidRecallBlocks,
+  CalendarRecallReviewRequiredError,
+  resolveSendReclaimHeight,
+  toNoteTypeString
+} from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
-import { SpendingLimitAuthorization } from '../spending-limits/types';
+import {
+  admitOutgoingTransaction,
+  hasSpendingLimits,
+  queueOutgoingTransaction,
+  queueUnattributableCustomTransaction,
+  resolveOutgoingSpendUsd,
+  spendsOf
+} from '../spending-limits/queue';
+import { SpendingLimitAuthorization, SpendingLimitPriceUnavailableError } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import {
+  ClaimBelowFloorError,
   ClaimFeeContext,
   ClaimFeeRefusedError,
   claimFeeNotes,
   getClaimFeeAhead,
   readClaimFeeContext
 } from './claim-fee';
-import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR } from './constants';
+import {
+  BRIDGED_SEND_MISSING_REQUEST_ERROR,
+  EARN_DEPOSIT_MISSING_REQUEST_ERROR,
+  NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR
+} from './constants';
 import { getNoteHoldingTransactions } from './get';
 import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
 import { holdsNotes } from './verdict-rules';
 
-export { ClaimFeeRefusedError } from './claim-fee';
+export { ClaimBelowFloorError, ClaimFeeRefusedError } from './claim-fee';
+
+/** A fee that the chain charges: a known, finite amount above zero. */
+const isChargedFee = (fee: number | null): fee is number => fee !== null && Number.isFinite(fee) && fee > 0;
 
 // A network-only onboarding choice uses canonical endpoints; a developer override does not prove a chain.
 const badgeNetwork = () => (hasCustomEndpointOverride(getActiveOverride()) ? undefined : getEffectiveNetworkName());
@@ -103,7 +137,17 @@ export const requestCustomTransaction = async (
   spentAssetTotals?: IConsumedAssetTotal[],
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; see `ITransaction.dappOrigins`. */
-  dappOrigin?: string
+  dappOrigin?: string,
+  /** The NFTs the approval-time dry run showed leaving; see `ITransaction.approvedNftOutflow`. */
+  approvedNftOutflow?: string[],
+  /** What the approval-time dry run showed leaving the account's holdings; see `ITransaction.approvedOutflow`. */
+  approvedOutflow?: IConsumedAssetTotal[],
+  /**
+   * The effects of the approval-time dry run that the user approved, with the note ids signing binds; see
+   * `ITransaction.approvedEffects`. Generation proposes the row only when its own dry run gives the same effects, so a
+   * row without them is never proposed.
+   */
+  approvedEffects?: IApprovedCustomEffects
 ): Promise<string> => {
   const byteArray = new Uint8Array(Buffer.from(transactionRequestBytes, 'base64'));
   const transaction = new Transaction(
@@ -112,15 +156,21 @@ export const requestCustomTransaction = async (
     inputNoteIds,
     delegateTransaction,
     recipientAccountId,
-    spentAssetTotals
+    spentAssetTotals,
+    approvedEffects
   );
   // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
   transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
   if (dappOrigin !== undefined) transaction.dappOrigins = [dappOrigin];
-  // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
-  // does goes through the same chokepoint as every other outgoing transaction.
+  if (approvedNftOutflow !== undefined) transaction.approvedNftOutflow = approvedNftOutflow;
+  if (approvedOutflow !== undefined) transaction.approvedOutflow = approvedOutflow;
+  // A measured empty list is not a spend, so it keeps the plain insert. A list that moves value
+  // goes through the priced chokepoint. An unattributable charge is not that empty list: the insert
+  // rechecks the policy under one write lock and refuses when a limit is present.
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
     await queueOutgoingTransaction({ ...transaction, spentAssetTotals }, spentAssetTotals, spendingLimitAuthorization);
+  } else if (spentAssetTotals === undefined) {
+    await queueUnattributableCustomTransaction(transaction, spendingLimitAuthorization);
   } else {
     await Repo.transactions.add(transaction);
   }
@@ -214,18 +264,21 @@ const grantDappOrigin = async (id: string, origin: string): Promise<void> => {
 // NOTE: this used to take a `background` flag that routed Guardian auto-consume
 // through the COLD key, because iOS hot-key signing was gated behind Face ID
 // (`.userPresence` on the SE key) and a silent background claim must not pop a
-// biometric prompt every AutoSync tick. That gate has been removed — the SE hot
-// key is `.privateKeyUsage`-only again and signs silently — so background and
+// biometric prompt every AutoSync tick. That gate has been removed - the SE hot
+// key is `.privateKeyUsage`-only again and signs silently - so background and
 // user-initiated consumes are identical and both take the standard hot-bound
 // path (see generateGuardianTransaction).
-/** Single-note consume — a thin wrapper over the batch path. */
+/** Single-note consume - a thin wrapper over the batch path. */
 export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
   delegateTransaction?: boolean,
   manualRetry?: boolean,
   entryPoint?: ConsumeEntryPoint,
-  canSign?: () => boolean
+  canSign?: () => boolean,
+  // The claim floor's fee, from an auto-consumer's per-note fallback. The queue refuses an auto-consume of a note
+  // that is worth less than the floor by itself (#2192).
+  verificationBaseFee?: number | null
 ): Promise<string> => {
   return initiateConsumeNotesTransaction(
     accountId,
@@ -233,7 +286,7 @@ export const initiateConsumeTransaction = async (
     delegateTransaction,
     manualRetry,
     undefined,
-    undefined,
+    verificationBaseFee,
     entryPoint,
     canSign
   );
@@ -247,8 +300,16 @@ export interface ConsumeNotesQueueResult {
   feeRefusedNoteIds: string[];
 }
 
+/** Settlement refused a payback chunk because one note of its cohort is backing off or held, and nothing covers it. */
+export class ClaimCohortRefusedError extends Error {
+  constructor() {
+    super('Claim not queued: a payback of this order is backing off or held');
+    this.name = 'ClaimCohortRefusedError';
+  }
+}
+
 /**
- * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
+ * Queue ONE consume transaction for many notes (Claim All / Claim Group) -
  * both the wallet's consume request (`buildConsumeTransactionRequest`) and the
  * Guardian consume proposal take many notes, so batching is one proof/submit
  * instead of N.
@@ -267,10 +328,10 @@ export interface ConsumeNotesQueueResult {
  * same noteId are serialized at the DB layer. Without this, two callers that slip past
  * the isBeingClaimed gate (e.g. two Explore re-renders racing the NoteClaimStarted
  * intercom round-trip) both see `[]` from the check and both `.add()`, producing two
- * queued consume rows — the second of which fails on-chain with "note has already been
+ * queued consume rows - the second of which fails on-chain with "note has already been
  * consumed" and spuriously trips the connectivity-issue banner.
  *
- * Returns the queued batch row id, or — when every note was deduped away — the
+ * Returns the queued batch row id, or - when every note was deduped away - the
  * id of the row that blocked the most recent note (live/Completed dedup winner
  * or the most recent Failed row from the backoff gate), so callers always get
  * a stable "this note already has a tx" response. `coveringTxIdByNoteId` names the
@@ -279,6 +340,12 @@ export interface ConsumeNotesQueueResult {
  *
  * `settlementLink` is swap settlement's: the order a row settles, written in the insert that creates the row, so
  * no running processor ever sees a settlement claim without it (#1644).
+ *
+ * `cohortNoteIds`, when passed, is every payback of the order this pass is about to claim, across all of its chunks.
+ * Inside the same dedup transaction, before any row is written, a member that is backing off or held by a dApp
+ * transaction, and that no live or completed claim covers, refuses the call with {@link ClaimCohortRefusedError}
+ * and writes nothing. A member a live or completed claim already covers does not block. Callers that omit the cohort
+ * keep skipping those notes one by one.
  */
 export const queueConsumeNotes = async (
   accountId: string,
@@ -289,7 +356,8 @@ export const queueConsumeNotes = async (
   verificationBaseFee?: number | null,
   entryPoint?: ConsumeEntryPoint,
   canSign?: () => boolean,
-  settlementLink?: IConsumeSwapSettleExtraInputs
+  settlementLink?: IConsumeSwapSettleExtraInputs,
+  cohortNoteIds?: readonly string[]
 ): Promise<ConsumeNotesQueueResult> =>
   queueConsumeRows(
     accountId,
@@ -306,7 +374,11 @@ export const queueConsumeNotes = async (
         }
       : undefined,
     entryPoint,
-    canSign
+    canSign,
+    undefined,
+    undefined,
+    undefined,
+    cohortNoteIds
   );
 
 /**
@@ -340,6 +412,75 @@ export const initiatePswapReclaimTransaction = async (
       },
       'swap_settlement',
       canSign
+    )
+  ).committedId;
+
+/** The sale a GC purchase fills, as `findLiveGcSale` (`lib/miden/arcade/gc-sale.ts`) quotes it. */
+export interface GcPurchaseQuote {
+  saleNoteId: string;
+  sellerAccountId: string;
+  /** The pay faucet (USDCx) and the fill, in base units. */
+  payFaucetId: string;
+  fillAmount: bigint;
+  /** The GC faucet and what the fill buys, in base units. */
+  gcFaucetId: string;
+  expectedAmount: bigint;
+}
+
+/**
+ * Queue an Arcade GC purchase: a consume row on the seller's public PSWAP sale note, with the fill and the GC it
+ * buys recorded on the row. The row carries no request yet: the fee-aware fill request is built from the node's
+ * copy of the note right before it runs (`gcPurchaseOf` in `lib/miden/transaction`), so nothing here needs the
+ * WASM client and the extension popup can queue it. Dedup is per sale note, like every claim: a purchase that is
+ * live or completed on this note blocks another, which is right, since the note is spent once it completes and
+ * the next purchase fills the remainder under a new id. A deliberate tap retries a failed note at once.
+ */
+export const initiateGcPurchaseTransaction = async (
+  accountId: string,
+  quote: GcPurchaseQuote,
+  delegateTransaction?: boolean,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
+): Promise<string> =>
+  (
+    await queueConsumeRows(
+      accountId,
+      [
+        {
+          id: quote.saleNoteId,
+          faucetId: quote.gcFaucetId,
+          amount: quote.expectedAmount.toString(),
+          senderAddress: quote.sellerAccountId,
+          isBeingClaimed: false,
+          type: NoteTypeEnum.Public,
+          carriesMoreAssets: false
+        }
+      ],
+      delegateTransaction,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      row => {
+        row.extraInputs = {
+          gcPurchase: {
+            saleNoteId: quote.saleNoteId,
+            sellerAccountId: quote.sellerAccountId,
+            payFaucetId: quote.payFaucetId,
+            fillAmount: quote.fillAmount.toString(),
+            gcFaucetId: quote.gcFaucetId,
+            expectedAmount: quote.expectedAmount.toString()
+          }
+        };
+      },
+      'arcade_gc_purchase',
+      undefined,
+      undefined,
+      undefined,
+      {
+        spends: [{ faucetId: quote.payFaucetId, amount: quote.fillAmount }],
+        authorization: spendingLimitAuthorization
+      }
     )
   ).committedId;
 
@@ -503,15 +644,15 @@ const queueConsumeRows = async (
   // queue write, so it throws only on a DB error or the empty-notes guard, while an
   // un-consumable note fails much later, at generation time, inside the processing
   // loop. A Miden transaction is atomic, so that failure fails the whole batch and
-  // — because the backoff gate above counts a shared row's failure once for EVERY
-  // note id it carries — one poison note dragged its healthy batch-mates into the
+  // - because the backoff gate above counts a shared row's failure once for EVERY
+  // note id it carries - one poison note dragged its healthy batch-mates into the
   // same doubling backoff, up to the 24h cap. Per-note rows used to confine that to
   // the offending note; batching reinstated it.
   //
   // Splitting on the NEXT enqueue rather than at the moment of failure is deliberate:
   // it keeps this decision inside the same dedup/backoff transaction that already
   // owns "what may be queued for this note", and it never requeues a row as a fresh
-  // write — an abandoned pipeline can still submit, so a requeue there could become a
+  // write - an abandoned pipeline can still submit, so a requeue there could become a
   // second payment. The cost is one recovery pass at N fees after a batch failure,
   // which is the trade the call sites already promise and strictly better than
   // stranding every healthy note for a day.
@@ -520,8 +661,8 @@ const queueConsumeRows = async (
   // settlement path links its returned id to a swap order, and manual Claim All
   // navigates to it.
   isolateNotesWithFailedBatch?: boolean,
-  // The chain's base fee, when the caller is an unattended auto-consumer. Required for
-  // isolation to be SAFE, not merely for it to happen.
+  // The claim floor's fee (`getClaimFloorBaseFee`), when the caller is an unattended auto-consumer.
+  // Required for isolation to be SAFE, not merely for it to happen.
   //
   // Auto-consume admits a batch when the notes are worth one fee TOGETHER. Isolation
   // then turns that one transaction into N, each paying its own fee -- so a note that
@@ -530,7 +671,7 @@ const queueConsumeRows = async (
   // batched instead (see the isolation branch for why batched, not dropped).
   //
   // `null`/omitted isolates every candidate, which is right for a manual retry: the user
-  // asked, and `isWorthClaiming` fails open on an unknown fee everywhere else too.
+  // asked, so the isolation compares against 0, not the unknown fee the claim floor refuses.
   verificationBaseFee?: number | null,
   // The rotation gate's claim (#805): stamped on every row this creates, and the only
   // earlier failures its backoff counts. An ordinary row's failure (a hot-bound claim, a
@@ -550,10 +691,23 @@ const queueConsumeRows = async (
   // `ClaimInsertRefusedError`, which aborts this Dexie transaction and rolls back the rows the call already wrote.
   canSign?: () => boolean,
   feeContext?: ClaimFeeContext,
-  feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>
+  feeNotesById?: ReadonlyMap<string, readonly ClaimFeeNote[]>,
+  outgoing?: { spends: readonly IConsumedAssetTotal[]; authorization?: SpendingLimitAuthorization },
+  // Every payback of one swap order this pass will claim, across chunks. Checked below, before any row is written,
+  // with the same coverage and held-note reads as the per-note loop. One member backing off or held by a dApp
+  // transaction, and not covered by a live or completed claim, writes nothing and throws `ClaimCohortRefusedError`.
+  // A covered member does not block. Omitted, each note is skipped on its own.
+  cohortNoteIds?: readonly string[]
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
+  }
+  // A claim from the claim list takes only this account's notes, whatever list the
+  // caller read: a stale or older list can still name another trader's PSWAP order,
+  // and consuming it fills that order from this account's balance (#2118).
+  if (requiresOwnClaimableNotes(entryPoint)) {
+    const foreign = notes.filter(note => !isOwnClaimableNote(note)).map(note => note.id);
+    if (foreign.length > 0) throw new ForeignNoteClaimRefusedError(foreign);
   }
 
   // This pre-pass saves a WASM probe only; the rw transaction still decides what may be written.
@@ -572,7 +726,24 @@ const queueConsumeRows = async (
       ? await readClaimFeeContext(accountId)
       : { vaultFeeAsset: null, nativeAssetId: null, verificationBaseFee: null });
 
-  return await Repo.db.transaction('rw', Repo.transactions, async () => {
+  // The claim floor applies to auto-consume only (#2192). A user claim always queues, and the rotation gate and swap
+  // settlement have their own rules.
+  const unattended = entryPoint === 'auto_consume' && !manualRetry;
+  // The fee this call read is newer than the caller's. Use it when it is a real fee, so a fee that the chain reports
+  // after the caller measured its batch still applies. Without it, the caller's fee applies: 0 on a chain with no
+  // fee, and null (unknown) refuses the claim.
+  const claimFloorFee = isChargedFee(context.verificationBaseFee)
+    ? context.verificationBaseFee
+    : (verificationBaseFee ?? null);
+  // For other callers an unknown fee isolates each candidate, as before.
+  const isolationFee = unattended ? claimFloorFee : (verificationBaseFee ?? 0);
+
+  let outgoingPrice: bigint | SpendingLimitPriceUnavailableError | undefined;
+  if (outgoing !== undefined && mayWrite && (await hasSpendingLimits(accountId))) {
+    outgoingPrice = await resolveOutgoingSpendUsd(outgoing.spends);
+  }
+  const tables = outgoing !== undefined ? [Repo.spendingLimits, Repo.transactions] : [Repo.transactions];
+  const insertRows = async (): Promise<ConsumeNotesQueueResult | undefined> => {
     const queueable: ConsumableNote[] = [];
     // Notes that have already lost a shared batch row and so must not join another.
     const isolate: ConsumableNote[] = [];
@@ -590,6 +761,17 @@ const queueConsumeRows = async (
       }
     }
 
+    // The cohort is re-read on every chunk. A note this pass already admitted is a live claim and does not block;
+    // one backing off or held anywhere refuses the chunk, so the pass cannot queue the others alone.
+    if (cohortNoteIds !== undefined) {
+      for (const noteId of cohortNoteIds) {
+        const { liveOrCompleted, backingOff } = await noteClaimCoverage(accountId, noteId, nowSec, rotationFunding);
+        if (!liveOrCompleted && (backingOff || heldByDappTransaction.has(noteId))) {
+          throw new ClaimCohortRefusedError();
+        }
+      }
+    }
+
     for (const note of notes) {
       const {
         rows: sameAccount,
@@ -602,7 +784,7 @@ const queueConsumeRows = async (
         // An explicit user retry must take effect NOW, even when the blocking row
         // is one the loop has backed off (guardian 429 requeue → nextEligibleAt up
         // to 5 min, #617; likewise the 409 / prover-outage requeues). Dedup still
-        // wins — we never queue a second row for the same note — but clearing the
+        // wins - we never queue a second row for the same note - but clearing the
         // cooldown lets the existing row be picked on the next cycle instead of
         // making a deliberate tap look like it did nothing. Same reasoning as
         // `requeueFailedTransaction`, which clears it for the Failed-row path.
@@ -629,7 +811,7 @@ const queueConsumeRows = async (
       }
 
       // Bounded-retry gate: no row blocks this note+account, only Failed ones and claims that hold nothing remain.
-      // Skipped entirely for explicit user retries (`manualRetry`) — a deliberate
+      // Skipped entirely for explicit user retries (`manualRetry`) - a deliberate
       // tap must always queue a fresh attempt rather than be throttled by the
       // auto-consume backoff.
       if (!manualRetry && backingOff) {
@@ -638,7 +820,7 @@ const queueConsumeRows = async (
         continue;
       }
 
-      // A shared row that failed is not evidence about THIS note — it names every note
+      // A shared row that failed is not evidence about THIS note - it names every note
       // it carried. Give the note its own row so its next outcome is its own.
       const failedBatchRow = sameAccount.find(
         tx =>
@@ -653,7 +835,7 @@ const queueConsumeRows = async (
       // A note that cannot fund its own transaction therefore STAYS IN THE BATCH, and
       // that is the whole answer for it: batched is the only way it can ever be claimed,
       // so removing it from batches means the wallet never claims it at all. Twenty
-      // notes at 20x the base fee are each below the floor and together worth 400x — an
+      // notes at 20x the base fee are each below the floor and together worth 400x - an
       // earlier revision of this dropped every one of them, permanently, because the
       // failed-batch row that made them isolation candidates is never pruned.
       //
@@ -661,7 +843,7 @@ const queueConsumeRows = async (
       // another lap of the #215 backoff. That is bounded (the backoff doubles and the
       // batch total is re-checked each pass) and strictly better than stranding real
       // value forever, whereas isolating it would pay a fee larger than it collects.
-      if (isolateNotesWithFailedBatch && failedBatchRow && isWorthClaiming(note.amount, verificationBaseFee ?? null)) {
+      if (isolateNotesWithFailedBatch && failedBatchRow && isWorthClaiming(note.amount, isolationFee)) {
         isolate.push(note);
       } else {
         queueable.push(note);
@@ -681,14 +863,40 @@ const queueConsumeRows = async (
     if (
       isolate.length > 0 &&
       queueable.length > 0 &&
-      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), verificationBaseFee ?? null)
+      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), isolationFee)
     ) {
       queueable.push(...isolate);
       isolate.length = 0;
     }
 
+    // Auto-consume only (#2192). The caller measured its FULL set against one fee. The
+    // loop above then removed each note that a claim covers, a dApp transaction holds or
+    // the #215 backoff parks, and the caller cannot see the backoff. The remainder is the
+    // transaction that pays the fee, so the remainder is measured here, after every filter.
+    //
+    // A remainder below the floor is not queued. Its notes stay pending until more notes
+    // arrive or the user claims them. Without this check, one dust note was claimed alone
+    // for a full fee each time a larger note of its batch was in backoff.
+    //
+    // The isolated notes need no second check: each one passed the floor by itself above.
+    if (
+      unattended &&
+      queueable.length > 0 &&
+      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), claimFloorFee)
+    ) {
+      queueable.length = 0;
+    }
+
     if (queueable.length === 0 && isolate.length === 0) {
-      return { committedId: blockingId!, coveringTxIdByNoteId, feeRefusedNoteIds: [] };
+      // No note was removed, so no row answers for these notes: the whole set is below the floor.
+      if (blockingId === null) throw new ClaimBelowFloorError();
+      return { committedId: blockingId, coveringTxIdByNoteId, feeRefusedNoteIds: [] };
+    }
+
+    // A cap created after the price probe needs a value before admission. Leave the lock and
+    // resolve it, then run dedup again in the new write transaction before admitting any row.
+    if (outgoing !== undefined && outgoingPrice === undefined && (await hasSpendingLimits(accountId))) {
+      return undefined;
     }
 
     const ahead = await getClaimFeeAhead(accountId);
@@ -711,7 +919,11 @@ const queueConsumeRows = async (
       const row = newRow(rowNotes);
       row.feeAdmission = decision?.admission;
       if (canSign && !canSign()) throw new ClaimInsertRefusedError();
-      await Repo.transactions.add(row);
+      const admitted =
+        outgoing === undefined
+          ? row
+          : await admitOutgoingTransaction(row, outgoing.spends, outgoingPrice, outgoing.authorization, nowSec);
+      await Repo.transactions.add(admitted);
       createdIds.push(row.id);
       for (const note of rowNotes) coveringTxIdByNoteId.set(note.id, row.id);
       // Keep the original facts: no earlier row's fee is charged against a later row.
@@ -739,7 +951,11 @@ const queueConsumeRows = async (
     const committedId = createdIds[0] ?? blockingId;
     if (committedId === null) throw new ClaimFeeRefusedError();
     return { committedId, coveringTxIdByNoteId, feeRefusedNoteIds };
-  });
+  };
+  const result = await Repo.db.transaction('rw', tables, insertRows);
+  if (result !== undefined) return result;
+  outgoingPrice = await resolveOutgoingSpendUsd(outgoing!.spends);
+  return (await Repo.db.transaction('rw', tables, insertRows))!;
 };
 
 /** {@link queueConsumeNotes}, for the callers that need only the committed row id. */
@@ -754,7 +970,7 @@ export const initiateConsumeNotesTransaction = async (...args: Parameters<typeof
  * (e.g., kernel `auth::request` errors that clear once chain state
  * advances). But without a brake, an upstream deterministic failure
  * combined with auto-consume's polling cadence + tab-switch remounts
- * produces an unbounded retry storm — one user empirically observed 122+
+ * produces an unbounded retry storm - one user empirically observed 122+
  * consume/Failed rows for 2 notes in 38 minutes (#215).
  *
  * The original #215 fix was a sliding *window* throttle (cap N failures per
@@ -763,7 +979,7 @@ export const initiateConsumeNotesTransaction = async (...args: Parameters<typeof
  * `getConsumableNotes` keeps offering yet that fails on-chain every time (a
  * deterministic rejection the consumability annotation misses, a `mock`
  * network, an "already consumed" race) drips one failure every 5 min
- * forever — 49 failures over 4 days in the captured profile (#313).
+ * forever - 49 failures over 4 days in the captured profile (#313).
  *
  * Policy (terminal-safe exponential backoff):
  *   - n = the note+account's LIFETIME Failed rows.
@@ -775,13 +991,13 @@ export const initiateConsumeNotesTransaction = async (...args: Parameters<typeof
  * so the storm decays to at most a daily probe. It stays a *probe*, not a
  * permanent give-up: a note that later becomes consumable (its reclaim
  * height is reached, chain state advances) is retried at the next expiry and
- * recovers on its own — no failure-class parsing, no stuck-forever state. A
+ * recovers on its own - no failure-class parsing, no stuck-forever state. A
  * transient failure that clears early still retries promptly because a
  * Completed row reactivates the existing-non-Failed dedup branch, and an
  * explicit user Retry (`manualRetry`) bypasses the backoff entirely.
  */
-export const RETRY_COOLDOWN_SEC = 5 * 60; // 5 minutes — base backoff after the first failure
-export const MAX_RETRY_BACKOFF_SEC = 24 * 60 * 60; // 24 hours — backoff ceiling
+export const RETRY_COOLDOWN_SEC = 5 * 60; // 5 minutes - base backoff after the first failure
+export const MAX_RETRY_BACKOFF_SEC = 24 * 60 * 60; // 24 hours - backoff ceiling
 
 /**
  * Queue a swap (PSWAP-create) transaction: the account offers `offeredAmount`
@@ -841,7 +1057,7 @@ export const initiateSwapTransaction = async (
  * This is not hypothetical: `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` has no mainnet
  * entry, and mainnet is a selectable network.
  *
- * Public sends are unaffected — the chain carries the whole note, so they need no
+ * Public sends are unaffected - the chain carries the whole note, so they need no
  * transport at all and must keep working on a transport-less network.
  */
 export const initiateSendTransaction = async (
@@ -855,10 +1071,11 @@ export const initiateSendTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
   dappOrigin?: string,
-  oneClick?: IOneClickTrackingData
+  oneClick?: IOneClickTrackingData,
+  calendarRecallTarget?: string
 ): Promise<string> => {
-  // Every send funnels through here — the wallet's own review screen and the
-  // dApp boundary both — so this is where the reclaim window has to be sound.
+  // Every send funnels through here - the wallet's own review screen and the
+  // dApp boundary both - so this is where the reclaim window has to be sound.
   // It is stored on chain as a 32-bit block height, and a value that does not
   // fit is truncated rather than refused: a window just past the limit wraps to
   // zero and the note becomes reclaimable the moment it lands, while the screen
@@ -866,6 +1083,10 @@ export const initiateSendTransaction = async (
   // `parseInt`ing a date the user picked from a calendar, so an out-of-range
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
+  if (calendarRecallTarget !== undefined) {
+    if (dappOrigin !== undefined || oneClick !== undefined) throw new CalendarRecallReviewRequiredError();
+    resolveSendReclaimHeight(0, recallBlocks, calendarRecallTarget);
+  }
 
   if (oneClick) {
     assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
@@ -909,6 +1130,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  if (calendarRecallTarget !== undefined) dbTransaction.extraInputs.calendarRecallTarget = calendarRecallTarget;
   if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(
@@ -928,7 +1150,10 @@ export const initiateSendTransaction = async (
  * PR #38, built by `buildEpochCollateralRequestBytes`) and `bridgeEpochSend`
  * drives the surrounding intent out-of-band. Either way the standard pipeline
  * proves + submits the request via `newTransaction`, then
- * `completeBridgedSendTransaction` records it.
+ * `completeBridgedSendTransaction` records it. `ownNoteId` is the one note those
+ * bytes create, which signing is bound to (`ITransaction.approvedOutputNoteIds`).
+ * A call without the bytes throws `BRIDGED_SEND_MISSING_REQUEST_ERROR` before the
+ * row is queued or its spend is booked.
  */
 export const initiateBridgedSendTransaction = async (
   accountId: string,
@@ -937,15 +1162,20 @@ export const initiateBridgedSendTransaction = async (
   destinationAddress: string,
   destinationNetwork: number,
   provider: IBridgeProvider,
-  requestBytes?: Uint8Array,
+  ownNoteId: string,
+  requestBytes: Uint8Array,
   delegateTransaction?: boolean,
   sendParams?: IBridgedSendNoteParams,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   agglayerExitTxHash?: string,
   usdcxBurn?: IUsdcxBurn,
   agglayerRoute?: AgglayerRecoveryConfig,
-  epochAllocatorUrl?: string
+  epochAllocatorUrl?: string,
+  operation?: BridgeOperationInput,
+  epochReviewedOutput?: EpochReviewedOutput
 ): Promise<string> => {
+  const walletScope = operation ? captureBridgeWalletScope() : undefined;
+  if (!requestBytes?.length) throw new Error(BRIDGED_SEND_MISSING_REQUEST_ERROR);
   const dbTransaction = new BridgedSendTransaction(
     accountId,
     amount,
@@ -962,13 +1192,46 @@ export const initiateBridgedSendTransaction = async (
     if (!agglayerRoute) throw new Error('AggLayer recovery values are required');
     dbTransaction.extraInputs.agglayerRoute = agglayerRoute;
   }
-  if (provider === 'epoch') dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+  if (provider === 'epoch') {
+    dbTransaction.extraInputs.epochCollateralRequestBytes = new Uint8Array(requestBytes);
+    dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+    if (epochReviewedOutput !== undefined)
+      dbTransaction.extraInputs.epochReviewedOutput = structuredClone(epochReviewedOutput);
+  }
   if (provider === 'usdcx') {
     if (!requestBytes || !usdcxBurn) throw new Error('USDCx burn requires a persisted request and note id');
     dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
     dbTransaction.noteType = NoteTypeEnum.Public;
   }
-  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
+  dbTransaction.approvedOutputNoteIds = [ownNoteId];
+  try {
+    if ((operation && walletScope) || epochReviewedOutput !== undefined) {
+      await queueOutgoingTransaction(
+        dbTransaction,
+        spendsOf(dbTransaction),
+        spendingLimitAuthorization,
+        undefined,
+        async () => {
+          if (operation && walletScope) {
+            dbTransaction.extraInputs.bridgeOperation = await prepareBridgeOperation(
+              dbTransaction,
+              operation,
+              walletScope
+            );
+          }
+          if (epochReviewedOutput !== undefined) {
+            assertEpochReviewedOutput(dbTransaction.extraInputs.epochReviewedOutput);
+            if (!operation) assertCompactEpochScope(dbTransaction.extraInputs.epochReviewedOutput);
+          }
+        }
+      );
+    } else {
+      await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
+    }
+  } catch (error) {
+    if (error instanceof BridgeOperationAlreadyAdmittedError) return error.rowId;
+    throw error;
+  }
 
   return dbTransaction.id;
 };
@@ -980,7 +1243,8 @@ export const initiateBridgedSendTransaction = async (
  * `buildEpochCollateralRequestBytes`); the pipeline submits it verbatim.
  * Nothing downstream can rebuild that binding, so a call without the bytes
  * throws `EARN_DEPOSIT_MISSING_REQUEST_ERROR` before the row is queued or its
- * spend is booked.
+ * spend is booked. `ownNoteId` is the one note those bytes create, which signing
+ * is bound to (`ITransaction.approvedOutputNoteIds`).
  */
 export const initiateEarnDepositTransaction = async (
   accountId: string,
@@ -991,6 +1255,7 @@ export const initiateEarnDepositTransaction = async (
   sendParams: IBridgedSendNoteParams,
   delegateTransaction: boolean,
   requestBytes: Uint8Array,
+  ownNoteId: string,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   epochAllocatorUrl?: string,
   protocol?: '1delta' | 'dummy-lending',
@@ -1010,6 +1275,7 @@ export const initiateEarnDepositTransaction = async (
     chainId
   );
   dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
+  dbTransaction.approvedOutputNoteIds = [ownNoteId];
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
   return dbTransaction.id;
 };
@@ -1068,7 +1334,9 @@ export const initiateBridgedReceiveTransaction = async (args: {
   sourceSymbol: string;
   outputAmount?: string;
   outputSymbol?: string;
+  operation?: BridgeOperationInput;
 }): Promise<string> => {
+  const walletScope = args.operation ? captureBridgeWalletScope() : undefined;
   const dbTransaction = new BridgedReceiveTransaction(
     args.accountId,
     args.amount,
@@ -1092,8 +1360,21 @@ export const initiateBridgedReceiveTransaction = async (args: {
     dbTransaction.extraInputs.usdcxMidenDomain =
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
-  await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
-  return dbTransaction.id;
+  if (!args.operation || !walletScope) {
+    await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+    return dbTransaction.id;
+  }
+  const operation = args.operation;
+  try {
+    return await Repo.db.transaction('rw', Repo.transactions, async () => {
+      dbTransaction.extraInputs.bridgeOperation = await prepareBridgeOperation(dbTransaction, operation, walletScope);
+      await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
+      return dbTransaction.id;
+    });
+  } catch (error) {
+    if (error instanceof BridgeOperationAlreadyAdmittedError) return error.rowId;
+    throw error;
+  }
 };
 
 /**
@@ -1117,7 +1398,7 @@ const resolveGuardianWalletAccount = async (
 
 /**
  * Queue a switch-guardian transaction for a Guardian account. The per-account
- * `guardianEndpoint` is NOT updated here — it's persisted only after the
+ * `guardianEndpoint` is NOT updated here - it's persisted only after the
  * on-chain proposal lands, in `completeSwitchGuardianTransaction`.
  *
  * Deduped against a rotation that is already in flight for this account. Unlike
@@ -1126,8 +1407,8 @@ const resolveGuardianWalletAccount = async (
  * only AFTER the first has committed and persisted the new endpoint, and it then
  * performs a whole second on-chain `update_guardian` to the guardian the account
  * already has. Returning the live id instead sends the caller to the rotation
- * that is actually running — the UI navigates to `/generating-transaction/:txId`
- * with whatever comes back — but only when the in-flight row targets the SAME
+ * that is actually running - the UI navigates to `/generating-transaction/:txId`
+ * with whatever comes back - but only when the in-flight row targets the SAME
  * operator; a request for a different one is refused rather than silently
  * redirected (see the check below).
  *
@@ -1154,7 +1435,7 @@ export const initiateSwitchGuardianTransaction = async (
   //
   // `filter` rather than an index lookup: `type` is not an indexed key path (see
   // the v1.5 schema in repo.ts), and `accountId` is indexed but only matches an
-  // exact string, whereas the same account can be spelled more than one way —
+  // exact string, whereas the same account can be spelled more than one way -
   // which is why `compareAccountIds` exists. A scan of the transaction table is
   // what `getAllUncompletedTransactions` already does per queue lap.
   return Repo.db.transaction('rw', Repo.transactions, async () => {
@@ -1168,7 +1449,7 @@ export const initiateSwitchGuardianTransaction = async (
       .toArray();
     const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, storedAccountId));
     if (inFlight) {
-      // Returning the live id is right only for a genuine duplicate — the same
+      // Returning the live id is right only for a genuine duplicate - the same
       // rotation, asked for twice. When the in-flight row targets a DIFFERENT
       // operator, handing back its id would navigate the user to a rotation to
       // an endpoint they did not choose and report it as theirs, and nothing
@@ -1177,7 +1458,7 @@ export const initiateSwitchGuardianTransaction = async (
       // holds the account, so the caller can say what is actually running.
       //
       // An in-flight row with NO recorded endpoint is refused too. `type` says
-      // it is always present, so an empty one means a corrupt or truncated row —
+      // it is always present, so an empty one means a corrupt or truncated row -
       // and "I cannot tell what that rotation targets" is not grounds for
       // claiming it is this one.
       const inFlightEndpoint = inFlight.extraInputs?.newGuardianEndpoint;
@@ -1228,7 +1509,7 @@ export const initiateReplaceHotKeyTransaction = async (
 // createGuardianAccount): changing the guardian requires both device keys.
 // Creation also pins `update_procedure_threshold` to 2 so this override can't be
 // lowered by one signer; that pairing is only reachable at build time, so this
-// self-heal — which repairs pre-0.17 accounts whose hardening tx was dropped —
+// self-heal - which repairs pre-0.17 accounts whose hardening tx was dropped -
 // still checks and raises the one procedure it was written for.
 const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 2 } as const;
 
@@ -1257,7 +1538,7 @@ const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 
  * `completeReplaceHotKeyTransaction`).
  *
  * Idempotent (gated on the on-chain threshold already being 2), so besides the
- * post-rotation call it's also invoked self-healingly from the guardian sync —
+ * post-rotation call it's also invoked self-healingly from the guardian sync -
  * closing the window where a migrated account is 3-key but `update_guardian` is
  * still threshold-1 because the original hardening tx was dropped.
  *
@@ -1265,7 +1546,7 @@ const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 
  * `undefined` when the account was already hardened or the check failed. The
  * `requestSWTransactionProcessing()` nudge below is EXTENSION-ONLY (it returns
  * immediately off-extension), and this function is deliberately kept free of any
- * frontend imports — pulling `lib/store` in here would drag Zustand into the
+ * frontend imports - pulling `lib/store` in here would drag Zustand into the
  * service-worker init chain. So a caller that runs off-extension and is not
  * itself inside `generateTransactionsLoop` must take the returned id as its cue
  * to start the loop (see `syncGuardianAccounts`); otherwise the row would sit
@@ -1305,7 +1586,7 @@ export const ensureGuardianProcedureThresholds = async (
     );
     // Nudge the processor to pick up the freshly-queued tx. Dynamic import to
     // avoid a static cycle with the activity barrel. Scoped catch: the row is
-    // already persisted at this point, so a failed nudge must not swallow its id —
+    // already persisted at this point, so a failed nudge must not swallow its id -
     // the caller needs it to start the loop off-extension. A row left un-nudged is
     // still picked up by the next processing cycle.
     try {

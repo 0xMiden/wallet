@@ -204,22 +204,23 @@ test('same controller enforces remote ownership after recovery provenance is acc
   const calls = [];
   const effects = {
     context: current,
+    environment: { CLOUDFLARE_ACCOUNT_ID: 'account-for-recovery' },
     providerAPI: async (path, init = {}) => {
       calls.push([path, init.method]);
-      if (path === '/user/tokens/verify')
-        return Response.json({ success: true, errors: [], result: { status: 'active' } });
+      if (path === '/account')
+        return Response.json({ success: true, errors: [], result: { id: 'account-for-recovery' } });
       return Response.json({ success: false, errors: [{ code: 10007 }], result: null }, { status: 404 });
     }
   };
   assert.deepEqual(await cleanupRecovery(prepared, manifest(), effects), { cleanup: 'absent', reason: 'complete' });
   assert.deepEqual(
     calls.map(call => call[0]),
-    ['/user/tokens/verify', '/workers/scripts/miden-elig-probe-10001-2/settings']
+    ['/account', '/workers/scripts/miden-elig-probe-10001-2/settings']
   );
   assert.ok(calls.every(call => call[1] === 'GET'));
   effects.providerAPI = async path =>
-    path === '/user/tokens/verify'
-      ? Response.json({ success: true, errors: [], result: { status: 'active' } })
+    path === '/account'
+      ? Response.json({ success: true, errors: [], result: { id: 'account-for-recovery' } })
       : Response.json({ success: true, errors: [], result: { bindings: [] } });
   assert.equal((await cleanupRecovery(prepared, manifest(), effects)).cleanup, 'blocked');
 });
@@ -371,3 +372,281 @@ for (const [failure, cleanup] of [
     });
   }
 }
+
+async function preflightEvidence(receipt, original = {}, manifestBytes) {
+  const root = await mkdtemp(join(tmpdir(), 'probe-preflight-evidence-'));
+  try {
+    if (manifestBytes !== undefined) {
+      await mkdir(join(root, 'feature-eligibility-probe'));
+      await writeFile(join(root, 'feature-eligibility-probe/manifest.json'), manifestBytes);
+    }
+    await writeFile(
+      join(root, 'probe-result.json'),
+      JSON.stringify({
+        ...result(),
+        reason: 'auth',
+        cleanup: 'absent',
+        ...original,
+        preflight: receipt
+      })
+    );
+    return await main(['evidence'], {
+      RUNNER_TEMP: root,
+      GITHUB_REPOSITORY: current.repository,
+      GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: current.runId,
+      GITHUB_RUN_ATTEMPT: current.runAttempt,
+      GITHUB_SHA: current.sourceSha,
+      GITHUB_REF: current.ref,
+      GITHUB_EVENT_NAME: current.eventName,
+      PROBE_OPERATION: 'probe'
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+const preflightReceipt = () => ({
+  identity: contextIdentityForTest(current),
+  stage: 'authentication',
+  manifest: 'absent',
+  deployment: 'not_attempted',
+  reason: 'auth'
+});
+test('preflight failure survives absent manifest and cleanup without claiming remote absence', async () => {
+  const receipt = preflightReceipt();
+  const received = await preflightEvidence(receipt);
+  assert.equal(received.reason, 'auth');
+  assert.equal(received.cleanup, 'blocked');
+  assert.equal(received.support, 'unknown');
+  assert.deepEqual(received.preflight, receipt);
+});
+for (const [name, patch] of [
+  ['other run', { identity: { ...contextIdentityForTest(current), runId: '99999' } }],
+  ['other source', { identity: { ...contextIdentityForTest(current), sourceSha: 'f'.repeat(40) } }],
+  ['attempted', { deployment: 'attempted' }],
+  ['registered', { manifest: 'registered' }],
+  ['unknown stage', { stage: 'secret-never-publish' }],
+  ['unknown reason', { reason: 'secret-never-publish' }],
+  ['extra field', { raw: 'secret-never-publish' }]
+])
+  test(`untrusted or ambiguous ${name} receipt cannot retain a preflight verdict`, async () => {
+    const received = await preflightEvidence({ ...preflightReceipt(), ...patch });
+    assert.equal(received.cleanup, 'blocked');
+    assert.equal(received.support, 'unknown');
+    assert.notEqual(received.reason, 'auth');
+    assert.doesNotMatch(JSON.stringify(received), /secret-never-publish/);
+  });
+
+test('malformed existing manifest cannot be treated as absent for preflight preservation', async () => {
+  const received = await preflightEvidence(preflightReceipt(), {}, '{"deploymentState":"deploying"');
+  assert.equal(received.cleanup, 'blocked');
+  assert.equal(received.reason, 'cleanup_failed');
+});
+
+test('strict evidence permits a closed failed cleanup check but rejects partial, injected and unrelated pairs', () => {
+  const failed = {
+    ...result(),
+    cleanup: 'blocked',
+    reason: 'ownership_mismatch',
+    ownershipCheck: { gate: 'observability_traces', form: 'missing' }
+  };
+  assert.deepEqual(sanitizeEvidence(manifest(), failed, workerBytes).result, failed);
+  for (const ownershipCheck of [
+    { gate: 'logpush' },
+    { form: 'missing' },
+    { gate: 'private-canary', form: 'missing' },
+    { gate: 'logpush', form: 'private-canary' },
+    { gate: 'logpush', form: 'missing', raw: 'private-canary' }
+  ])
+    assert.throws(() => sanitizeEvidence(manifest(), { ...failed, ownershipCheck }, workerBytes));
+  assert.throws(() => sanitizeEvidence(manifest(), { ...failed, cleanup: 'removed' }, workerBytes));
+  assert.throws(() => sanitizeEvidence(manifest(), { ...failed, reason: 'network' }, workerBytes));
+});
+
+test('failed exact recovery ownership check survives sanitizer and final retained evidence unchanged', async () => {
+  const f = fixture();
+  const prepared = await prepareRecovery({ runId: '10001', runAttempt: '2' }, f.effects);
+  const calls = [];
+  const outcome = await cleanupRecovery(prepared, manifest(), {
+    context: current,
+    environment: { CLOUDFLARE_ACCOUNT_ID: 'account-private-canary' },
+    providerAPI: async path => {
+      calls.push(path);
+      if (path === '/account')
+        return Response.json({ success: true, errors: [], result: { id: 'account-private-canary' } });
+      return Response.json({ success: true, errors: [], result: { bindings: [] } });
+    }
+  });
+  assert.deepEqual(outcome, {
+    cleanup: 'blocked',
+    reason: 'ownership_mismatch',
+    ownershipCheck: { gate: 'settings_binding_count', form: 'different_value' }
+  });
+  assert.deepEqual(calls, ['/account', '/workers/scripts/miden-elig-probe-10001-2/settings']);
+  const root = await mkdtemp(join(tmpdir(), 'probe-failed-recovery-'));
+  try {
+    await writeFile(join(root, 'probe-recovery.json'), JSON.stringify(prepared));
+    await mkdir(join(root, 'probe-recovered'));
+    await writeFile(join(root, 'probe-recovered/manifest.json'), JSON.stringify(manifest()));
+    await writeFile(join(root, 'probe-result.json'), JSON.stringify({ ...result(), ...outcome }));
+    const saved = await main(['evidence'], {
+      RUNNER_TEMP: root,
+      PROBE_OPERATION: 'cleanup',
+      GITHUB_REPOSITORY: current.repository,
+      GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: current.runId,
+      GITHUB_RUN_ATTEMPT: current.runAttempt,
+      GITHUB_SHA: current.sourceSha,
+      GITHUB_REF: current.ref,
+      GITHUB_EVENT_NAME: current.eventName
+    });
+    assert.deepEqual(saved.ownershipCheck, outcome.ownershipCheck);
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'probe-evidence/manifest.json'))), manifest());
+    const wire = await readFile(join(root, 'probe-evidence/result.json'), 'utf8');
+    assert.deepEqual(JSON.parse(wire), saved);
+    assert.doesNotMatch(wire, /account-private-canary|private-canary|workerBase64/);
+    assert.equal((await stat(join(root, 'probe-evidence/result.json'))).mode & 0o777, 0o600);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('cleanup removes the exact recovered Worker when script privacy settings are unreadable', async () => {
+  const f = fixture();
+  const prepared = await prepareRecovery({ runId: '10001', runAttempt: '2' }, f.effects);
+  const calls = [];
+  const recovered = manifest();
+  const prefix = `/workers/scripts/${recovered.scriptName}`;
+  const settings = {
+    compatibility_date: '2026-01-01',
+    compatibility_flags: [],
+    logpush: false,
+    tail_consumers: [],
+    bindings: [
+      { name: 'PROBE_SOURCE', type: 'plain_text', text: recovered.identity.sourceSha },
+      { name: 'PROBE_CONFIG_SHA', type: 'plain_text', text: recovered.configSha256 },
+      { name: 'PROBE_OWNER', type: 'plain_text', text: recovered.ownerMarker },
+      { name: 'PROBE_BEARER', type: 'secret_text' },
+      { name: 'PROBE_HASH_SECRET', type: 'secret_text' },
+      {
+        name: 'CALLER_PROBE',
+        type: 'ratelimit',
+        namespace_id: recovered.callerNamespaceId,
+        simple: { limit: 4, period: 60 }
+      },
+      {
+        name: 'COLO_PROBE',
+        type: 'ratelimit',
+        namespace_id: recovered.coloNamespaceId,
+        simple: { limit: 4, period: 10 }
+      }
+    ]
+  };
+  let deleted = false;
+  const outcome = await cleanupRecovery(prepared, recovered, {
+    context: current,
+    environment: { CLOUDFLARE_ACCOUNT_ID: 'account-private-canary' },
+    providerAPI: async (path, init = {}) => {
+      const method = init.method || 'GET';
+      calls.push([path, method]);
+      if (path === '/account')
+        return Response.json({ success: true, errors: [], result: { id: 'account-private-canary' } });
+      if (path === `${prefix}/settings` && method === 'GET') {
+        if (deleted)
+          return Response.json({ success: false, errors: [{ code: 10007 }], result: null }, { status: 404 });
+        return Response.json({ success: true, errors: [], result: settings });
+      }
+      if (path === `${prefix}/content/v2` && method === 'GET')
+        return new Response(workerBytes, {
+          headers: { 'content-type': 'application/javascript', 'cf-entrypoint': 'staging-probe.mjs' }
+        });
+      if (path === prefix && method === 'DELETE') {
+        deleted = true;
+        return Response.json({ success: true, errors: [], result: {} });
+      }
+      assert.fail(`unexpected provider call: ${method} ${path}`);
+    }
+  });
+  assert.deepEqual(outcome, { cleanup: 'removed', reason: 'complete' });
+  assert.equal(deleted, true);
+  assert.deepEqual(calls, [
+    ['/account', 'GET'],
+    [`${prefix}/settings`, 'GET'],
+    [`${prefix}/content/v2`, 'GET'],
+    [prefix, 'DELETE'],
+    [`${prefix}/settings`, 'GET']
+  ]);
+  const root = await mkdtemp(join(tmpdir(), 'probe-failed-recovery-'));
+  try {
+    await writeFile(join(root, 'probe-recovery.json'), JSON.stringify(prepared));
+    await mkdir(join(root, 'probe-recovered'));
+    await writeFile(join(root, 'probe-recovered/manifest.json'), JSON.stringify(manifest()));
+    await writeFile(join(root, 'probe-result.json'), JSON.stringify({ ...result(), ...outcome }));
+    const saved = await main(['evidence'], {
+      RUNNER_TEMP: root,
+      PROBE_OPERATION: 'cleanup',
+      GITHUB_REPOSITORY: current.repository,
+      GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: current.runId,
+      GITHUB_RUN_ATTEMPT: current.runAttempt,
+      GITHUB_SHA: current.sourceSha,
+      GITHUB_REF: current.ref,
+      GITHUB_EVENT_NAME: current.eventName
+    });
+    assert.equal(Object.hasOwn(saved, 'ownershipCheck'), false);
+    assert.deepEqual(saved, { ...result(), ...outcome });
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'probe-evidence/manifest.json'))), manifest());
+    const wire = await readFile(join(root, 'probe-evidence/result.json'), 'utf8');
+    assert.deepEqual(JSON.parse(wire), saved);
+    assert.doesNotMatch(wire, /account-private-canary|private-canary|workerBase64/);
+    assert.equal((await stat(join(root, 'probe-evidence/result.json'))).mode & 0o777, 0o600);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('blocked always-cleanup check survives consolidation without changing original verification preflight', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'probe-first-gate-'));
+  const bound = contextIdentityForTest(current);
+  const preflight = {
+    identity: bound,
+    stage: 'verification',
+    manifest: 'registered',
+    deployment: 'attempted',
+    reason: 'ownership_mismatch'
+  };
+  const check = { gate: 'observability_traces', form: 'missing' };
+  try {
+    await mkdir(join(root, 'feature-eligibility-probe'));
+    await writeFile(
+      join(root, 'feature-eligibility-probe/manifest.json'),
+      JSON.stringify(buildProbeManifest(bound, workerBytes, []))
+    );
+    await writeFile(
+      join(root, 'probe-result.json'),
+      JSON.stringify({ ...result(), cleanup: 'blocked', reason: 'ownership_mismatch', preflight })
+    );
+    await writeFile(
+      join(root, 'probe-cleanup-result.json'),
+      JSON.stringify({ ...result(), cleanup: 'blocked', reason: 'ownership_mismatch', ownershipCheck: check })
+    );
+    const saved = await main(['evidence'], {
+      RUNNER_TEMP: root,
+      PROBE_OPERATION: 'probe',
+      GITHUB_REPOSITORY: current.repository,
+      GITHUB_WORKFLOW_REF: `${current.repository}/${current.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: current.runId,
+      GITHUB_RUN_ATTEMPT: current.runAttempt,
+      GITHUB_SHA: current.sourceSha,
+      GITHUB_REF: current.ref,
+      GITHUB_EVENT_NAME: current.eventName
+    });
+    assert.deepEqual(saved.preflight, preflight);
+    assert.deepEqual(saved.ownershipCheck, check);
+    assert.equal(saved.reason, 'cleanup_failed');
+    assert.equal(saved.support, 'unknown');
+    assert.equal(saved.cleanup, 'blocked');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

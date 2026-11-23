@@ -65,6 +65,7 @@ import {
 } from '@miden/dapp-browser';
 import breadLogoSvg from 'app/icons/brand/new-bread.svg?raw';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
+import { DappIncomingTransferSheet } from 'app/pages/Browser/DappIncomingTransferSheet';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
 import { MidenDAppErrorType } from 'lib/adapter/types';
@@ -96,8 +97,10 @@ import { PRESENTATION_SCRIPT } from 'lib/dapp-browser/presentation-script';
 import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect, rectsEqual } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
 import { faucetNoTopInsetScript, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
+import { registerIncomingNoteTapHandler } from 'lib/mobile/native-notifications';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
@@ -404,6 +407,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // Read through the ref by listeners and effects of the commit that set it; `motion` is its rendered copy.
   const [motion, setMotion] = useState<DappMotion | null>(null);
   const flightRef = useRef<MorphFlight | null>(null);
+  const nativeMinimizeRequests = useRef(0);
   const landingCardRef = useRef<MorphCard | null>(null);
   const morphEventRef = useRef<(event: PresentationMorphEvent) => void>(() => undefined);
   const adoptCollapseRef = useRef<
@@ -485,10 +489,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const restoreWithIntentRef = useRef<((id: string, revision: number) => Promise<boolean>) | null>(null);
   const parkRef = useRef<((sessionId: string, guard?: ParkGuard) => Promise<void>) | null>(null);
   const nativeMinimizations = useRef(new Set<string>());
+  const [incomingOwner, setIncomingOwner] = useState<DappSessionState | null>(null);
+  const incomingOwnerRef = useRef<DappSessionState | null>(null);
+  const incomingOwnerScopeRef = useRef<string | null>(null);
+  const currentIncomingScopeRef = useRef('');
+  const walletShellActiveRef = useRef(false);
 
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
   }, [sessionStates]);
+  walletShellActiveRef.current = walletShellActive;
   useEffect(() => {
     foregroundIdRef.current = foregroundId;
   }, [foregroundId]);
@@ -497,6 +507,29 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   }, [slotRect]);
 
   const setActiveDappSession = useWalletStore(s => s.setActiveDappSession);
+
+  useEffect(
+    () =>
+      registerIncomingNoteTapHandler(() => {
+        if (!walletShellActiveRef.current) return false;
+        const foreground = sessionStatesRef.current.find(
+          state => state.session.id === foregroundIdRef.current && state.status === 'active' && state.instance
+        );
+        if (!foreground) return false;
+        if (incomingOwnerRef.current)
+          return (
+            incomingOwnerRef.current.session.id === foreground.session.id &&
+            incomingOwnerRef.current.session === foreground.session &&
+            incomingOwnerRef.current.instance === foreground.instance &&
+            incomingOwnerScopeRef.current === currentIncomingScopeRef.current
+          );
+        incomingOwnerRef.current = foreground;
+        incomingOwnerScopeRef.current = currentIncomingScopeRef.current;
+        setIncomingOwner(foreground);
+        return true;
+      }),
+    []
+  );
 
   // Mutation helper — updates a single session by id via a functional updater.
   const updateSession = useCallback((id: string, updater: (s: DappSessionState) => DappSessionState) => {
@@ -711,6 +744,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       });
       listenerRemovers.push(() => presentationL.remove());
       const minimizeL = await InAppBrowser.addListener('presentationMinimizeRequested', event => {
+        if (process.env.MIDEN_E2E_TEST === 'true') nativeMinimizeRequests.current += 1;
         const state = getSessionStateById(event.id);
         const lifetime = event.managedHostCloseToken;
         const instance = state?.instance;
@@ -794,6 +828,64 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         const id = (event as { id?: string })?.id ?? 'default';
         const state = getSessionStateById(id);
         if (!state?.instance) return;
+        // Only a platform-verified main frame can speak to the wallet bridge. A main-frame
+        // availability PING is answered while the session origin trails the document, so an
+        // origin mismatch does not stop it. Any other message from another origin stops here.
+        if (event.mainFrame !== true) {
+          console.debug('[DappBrowserProvider] Ignoring a bridge message that is not from the session main frame');
+          return;
+        }
+        // Same parse as the handler, before the try that writes session state: `detail` when
+        // present, otherwise the event; a string is JSON. A PING is a non-null object whose
+        // `type` and `reqId` are strings and whose `payload` is exactly `PING`.
+        let isAvailabilityPing = false;
+        let refusedRequestId: string | undefined;
+        try {
+          const eventData = (event as { detail?: unknown })?.detail ?? event;
+          const classified: unknown = typeof eventData === 'string' ? JSON.parse(eventData) : eventData;
+          isAvailabilityPing =
+            classified !== null &&
+            typeof classified === 'object' &&
+            typeof (classified as { type?: unknown }).type === 'string' &&
+            typeof (classified as { reqId?: unknown }).reqId === 'string' &&
+            (classified as { payload?: unknown }).payload === 'PING';
+          if (
+            !isAvailabilityPing &&
+            classified !== null &&
+            typeof classified === 'object' &&
+            typeof (classified as { type?: unknown }).type === 'string' &&
+            typeof (classified as { reqId?: unknown }).reqId === 'string' &&
+            !('__midenInternal' in classified)
+          ) {
+            refusedRequestId = (classified as { reqId: string }).reqId;
+          }
+        } catch {
+          // A parse failure is not an availability PING.
+        }
+        if (!isAvailabilityPing && event.frameOrigin !== state.origin) {
+          console.debug('[DappBrowserProvider] Ignoring or refusing a bridge message with a different frame origin');
+          if (refusedRequestId !== undefined) {
+            try {
+              await sendResponseToInstance(
+                state.instance,
+                {
+                  type: 'MIDEN_PAGE_ERROR_RESPONSE',
+                  payload: null,
+                  reqId: refusedRequestId,
+                  error: MidenDAppErrorType.NotGranted
+                },
+                null,
+                () => {
+                  const current = getSessionStateById(id);
+                  return current !== undefined && current.instance === state.instance;
+                }
+              );
+            } catch (error) {
+              console.error('[DappBrowserProvider] Error refusing WebView message:', error);
+            }
+          }
+          return;
+        }
         try {
           const eventData = (event as { detail?: unknown })?.detail ?? event;
           const parsed: unknown = typeof eventData === 'string' ? JSON.parse(eventData) : eventData;
@@ -2458,6 +2550,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
     return null;
   }, [currentAccount, accounts]);
+  const currentIncomingScope = `${accountId ?? ''}|${getEffectiveNetworkName()}|${getEffectiveRpcUrl()}`;
+  currentIncomingScopeRef.current = currentIncomingScope;
 
   // E2E-only observability. The dApp itself renders in a native webview that
   // CDP cannot see, so the suite needs the wallet's own view of the world to
@@ -2474,6 +2568,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).__TEST_DAPP_BROWSER__ = {
+      get nativeMinimizeRequestCount() {
+        return nativeMinimizeRequests.current;
+      },
       get pendingConfirmationCount() {
         return dappConfirmationStore.getAllPendingRequests().length;
       },
@@ -2505,6 +2602,32 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     };
   }, [foregroundId, switcherOpen, slotRect, sessionStates, motion]);
 
+  const stillOwnsIncomingSheet =
+    incomingOwner !== null &&
+    walletShellActive &&
+    foregroundId === incomingOwner.session.id &&
+    incomingOwnerScopeRef.current === currentIncomingScope &&
+    sessionStates.some(
+      state =>
+        state.session.id === incomingOwner.session.id &&
+        state.session === incomingOwner.session &&
+        state.instance === incomingOwner.instance &&
+        state.session.url === incomingOwner.session.url &&
+        state.status === 'active'
+    );
+  useEffect(() => {
+    if (incomingOwner && !stillOwnsIncomingSheet) {
+      incomingOwnerRef.current = null;
+      incomingOwnerScopeRef.current = null;
+      setIncomingOwner(null);
+    }
+  }, [incomingOwner, stillOwnsIncomingSheet]);
+  const closeIncomingSheet = useCallback(() => {
+    incomingOwnerRef.current = null;
+    incomingOwnerScopeRef.current = null;
+    setIncomingOwner(null);
+  }, []);
+
   return (
     <DappBrowserContext.Provider value={contextValue}>
       {children}
@@ -2527,6 +2650,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         {request && (
           <DappConfirmationModal key={request.id} request={request} accountId={accountId} onResolve={resolve} />
         )}
+        {stillOwnsIncomingSheet && !request && <DappIncomingTransferSheet onClose={closeIncomingSheet} />}
       </AnimatePresence>
     </DappBrowserContext.Provider>
   );

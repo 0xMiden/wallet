@@ -37,10 +37,15 @@ export default defineConfig({
         'components/NetworkModeBanner',
         'lib/mobile/useHideNavbarWhileOpen',
         'lib/telemetry/use-user-visible-error',
+        'lib/miden/metadata/fetch',
         'lib/token-list/useTokenLogoUri',
         'lib/miden-chain/effective-endpoints',
         'lib/mobile/haptics'
-      ].map(path => ({ find: new RegExp('^' + path + '$'), replacement: fixture })),
+      ].map(path => ({
+        find: new RegExp('^' + path + '$'),
+        replacement:
+          path === 'lib/miden/metadata/fetch' ? resolve(import.meta.dirname, 'transaction-metadata.ts') : fixture
+      })),
       ...['app', 'components', 'lib', 'utils', 'screens', 'shared'].map(path => ({
         find: new RegExp('^' + path + '/'),
         replacement: resolve(root, 'src', path) + '/'

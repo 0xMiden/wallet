@@ -9,7 +9,7 @@ import type { OfferedErc20 } from './deposit-token';
 // Kraken lists nothing, and a symbol is ruled out there only once the real feed has asked it.
 const LISTED = new Set<string>();
 // The nominal $1 a test network gives an unquoted token, which is no market price.
-const mockNominalQuote = { price: 1, change24h: 0, percentageChange24h: 0 };
+const mockNominalQuote = { price: 1, change24h: 0, percentageChange24h: 0, kind: 'nominal' as const };
 const mockPriceSymbolFor = jest.fn((_faucetId: string, symbol: string) => (symbol === 'NOSYM' ? undefined : symbol));
 jest.mock('lib/miden/swap/tokens', () => ({
   priceSymbolFor: (faucetId: string, symbol: string) => mockPriceSymbolFor(faucetId, symbol),
@@ -17,7 +17,6 @@ jest.mock('lib/miden/swap/tokens', () => ({
 }));
 jest.mock('lib/prices/binance', () => ({
   fetchTokenPrices: async () => ({}),
-  isNominalQuote: (quote: unknown) => quote === mockNominalQuote,
   quotedPrice: (prices: TokenPrices, symbol: string | undefined) => (symbol === undefined ? undefined : prices[symbol]),
   isListedSymbol: (symbol: string | undefined) => symbol !== undefined && LISTED.has(symbol)
 }));
@@ -118,7 +117,7 @@ describe('settledHeldUsd', () => {
     fiatPrice: 0,
     change24h: 0
   });
-  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0, kind: 'market' as const });
 
   afterEach(() => LISTED.clear());
 
@@ -163,7 +162,7 @@ describe('settledHeldUsd', () => {
 });
 
 describe('depositTokenPrice', () => {
-  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0, kind: 'market' as const });
   const offered = (symbol: string, delivery = true): OfferedErc20 => ({
     symbol,
     contractAddress: '0x00000000000000000000000000000000000000d1',
@@ -190,6 +189,16 @@ describe('depositTokenPrice', () => {
       pending: false
     });
     expect(mockPriceSymbolFor).toHaveBeenLastCalledWith('faucet-WBTC', 'WBTC');
+  });
+
+  it('weighs the Epoch USDC at par and another Epoch token at the quote for its Miden faucet', () => {
+    expect(depositTokenPrice({ kind: 'epoch', key: 'USDC' }, null, {})).toEqual({ priceUsd: 1, pending: false });
+    const pol = { symbol: 'POL', delivery: { midenFaucetId: 'faucet-POL' } };
+    expect(depositTokenPrice({ kind: 'epoch', key: 'POL' }, pol, { POL: quote(0.2) })).toEqual({
+      priceUsd: 0.2,
+      pending: false
+    });
+    expect(mockPriceSymbolFor).toHaveBeenLastCalledWith('faucet-POL', 'POL');
   });
 
   it('waits for an ERC-20 quote while its market is pending', () => {

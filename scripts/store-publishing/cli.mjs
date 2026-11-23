@@ -11,6 +11,8 @@ import { promisify } from 'node:util';
 import * as apple from './apple.mjs';
 import * as chrome from './chrome.mjs';
 import * as play from './play.mjs';
+import { screenshotJournalName, validateScreenshotJournal } from './screenshot-journal.mjs';
+import { screenshotDeadlineClient } from './screenshots.mjs';
 
 const origins = {
   chrome: 'https://chromewebstore.googleapis.com',
@@ -36,6 +38,7 @@ const values = new Map(
     'edit-id',
     'release-policy',
     'screenshots-root',
+    'screenshot-deadline-ms',
     'release-notes',
     'confirm'
   ].map(name => [name, name.replace(/-([a-z])/g, (_, char) => char.toUpperCase())])
@@ -84,6 +87,13 @@ export function parseArgs(argv) {
 function planFor(args, config) {
   const { platform, action } = args;
   const mutation = action !== 'status';
+  if (
+    args.screenshotDeadlineMs !== undefined &&
+    (platform !== 'ios' ||
+      !/^[1-9][0-9]*$/.test(args.screenshotDeadlineMs) ||
+      !Number.isSafeInteger(Number(args.screenshotDeadlineMs)))
+  )
+    throw new Error('A valid absolute iOS screenshot deadline is required');
   const releaseNotes = apple.validateReleaseNotes(args.releaseNotes);
   if (releaseNotes !== undefined && (platform !== 'ios' || action !== 'submit'))
     throw new Error('Release notes are only supported for iOS submit');
@@ -194,7 +204,8 @@ function planFor(args, config) {
     configPath: expand(args.config),
     version: args.version,
     network: args.network,
-    sourceSha: args.sourceSha?.toLowerCase()
+    sourceSha: args.sourceSha?.toLowerCase(),
+    ...(args.screenshotDeadlineMs !== undefined ? { screenshotDeadlineMs: Number(args.screenshotDeadlineMs) } : {})
   };
 }
 
@@ -383,8 +394,20 @@ async function persistJson(path, value) {
   await privateDirectory(dirname(path));
   const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
   try {
-    await writeFile(temporary, JSON.stringify(value, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    const file = await open(temporary, 'wx', 0o600);
+    try {
+      await file.writeFile(JSON.stringify(value, null, 2) + '\n');
+      await file.sync();
+    } finally {
+      await file.close();
+    }
     await rename(temporary, path);
+    const directory = await open(dirname(path), 'r');
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
   } finally {
     await rm(temporary, { force: true });
   }
@@ -632,7 +655,10 @@ async function screenshotPlan(args, plan, dependencies) {
     root,
     sets,
     baselineSets: manifest.baselineSets?.filter(set => set.platform === plan.platform && set.storeId === plan.storeId),
-    manifestSha256: manifest.manifestSha256
+    manifestSha256: manifest.manifestSha256,
+    ...(args.preserveLegacyScreenshots && plan.version === '1.17.7' && plan.action !== 'sync-screenshots'
+      ? { legacyPreserved: true }
+      : {})
   };
 }
 
@@ -742,22 +768,55 @@ export async function run(argv, dependencies = {}) {
       await verifyScreenshotEdit(plan, dependencies);
     const screenshotOperations =
       plan.action === 'sync-screenshots' ||
+      (plan.platform === 'ios' && plan.action === 'prepare' && !screenshots?.legacyPreserved) ||
       (plan.action === 'submit' && plan.platform !== 'chrome' && !screenshots?.legacyPreserved)
         ? (dependencies.screenshotOperations ?? (await import('./screenshots.mjs')))
         : undefined;
-    const screenshotOptions = { platform: plan.platform, ...plan.options, ...screenshots };
+    const screenshotOptions = {
+      platform: plan.platform,
+      ...plan.options,
+      ...screenshots,
+      sourceSha: plan.sourceSha,
+      network: plan.network,
+      ...(plan.screenshotDeadlineMs !== undefined
+        ? { deadlineMs: plan.screenshotDeadlineMs, now: dependencies.now ?? Date.now }
+        : {})
+    };
+    if (plan.platform === 'ios' && screenshotOperations && !screenshots?.legacyPreserved) {
+      const journalPath = join(plan.stateDir, screenshotJournalName(screenshotOptions));
+      const binding = Object.fromEntries(
+        ['appId', 'bundleId', 'version', 'network', 'sourceSha', 'manifestSha256'].map(key => [
+          key,
+          screenshotOptions[key]
+        ])
+      );
+      const previous = await (dependencies.loadScreenshotJournal ?? loadAttestation)(journalPath);
+      if (previous) screenshotOptions.screenshotJournal = validateScreenshotJournal(previous, binding);
+      screenshotOptions.persistScreenshotJournal = async value => {
+        await (dependencies.persistScreenshotJournal ?? persistJson)(
+          journalPath,
+          validateScreenshotJournal(value, binding)
+        );
+      };
+    }
     if (plan.platform === 'chrome' && plan.action === 'sync-screenshots')
       return screenshotSummary(
         await screenshotOperations.syncScreenshots(undefined, { ...screenshotOptions, allowWrites: true }),
         plan
       );
-    const client = await authenticatedClient(plan, artifact, dependencies);
+    const rawClient = await authenticatedClient(plan, artifact, dependencies);
+    const client =
+      screenshotOperations && plan.screenshotDeadlineMs !== undefined
+        ? screenshotDeadlineClient(rawClient, screenshotOptions)
+        : rawClient;
     if (plan.action === 'sync-screenshots')
       return screenshotSummary(
         await screenshotOperations.syncScreenshots(client, { ...screenshotOptions, allowWrites: true }),
         plan
       );
     if (plan.action === 'submit' && plan.platform !== 'chrome' && !screenshots?.legacyPreserved) {
+      if (plan.platform === 'ios')
+        await screenshotOperations.syncScreenshots(client, { ...screenshotOptions, allowWrites: true });
       const verified = await screenshotOperations.verifyScreenshots(client, screenshotOptions);
       if (verified.matches !== true)
         throw new Error(
@@ -833,6 +892,8 @@ export async function run(argv, dependencies = {}) {
         : {})
     };
     const result = await handler(client, options);
+    if (plan.platform === 'ios' && plan.action === 'prepare' && !screenshots?.legacyPreserved)
+      await screenshotOperations.syncScreenshots(client, { ...screenshotOptions, allowWrites: true });
     if (artifact && result?.uploadState !== 'IN_PROGRESS') {
       try {
         await (dependencies.persistAttestation ?? persistJson)(path, {

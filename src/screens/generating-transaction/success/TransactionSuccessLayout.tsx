@@ -7,15 +7,16 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
 import { FlowAccent } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
 import { TransactionHeroIcon } from '../components';
@@ -86,9 +87,14 @@ export const useReceiptFeeText = (transaction?: ITransaction) => {
   // The fee is always paid in the native asset, so it resolves against the native
   // faucet rather than the transaction's own token.
   const feeMetadata = resolveDisplayMetadata(transaction?.feeFaucetId, assetsMetadata, nativeFaucetId);
-  return transaction?.feeAmount !== undefined && hasKnownScale(feeMetadata)
-    ? `${formatAmount(transaction.feeAmount, feeMetadata.decimals)} ${feeMetadata.symbol}`
-    : undefined;
+  return transaction?.feeAmount !== undefined && hasKnownScale(feeMetadata) ? (
+    <TokenAmount
+      amount={transaction.feeAmount}
+      decimals={feeMetadata.decimals}
+      symbol={feeMetadata.symbol}
+      rounding="up"
+    />
+  ) : undefined;
 };
 
 export const useReceiptAmount = (transaction?: ITransaction) => {
@@ -107,11 +113,12 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   // Same rule as the in-progress badge this receipt replaces: a faucet whose
   // decimals were never resolved has no honest scale, so the asset is named
   // without a quantity instead of being shown at the placeholder's guess.
-  const amount =
-    transaction?.amount !== undefined && hasKnownScale(tokenMetadata)
-      ? formatAmount(transaction.amount, tokenMetadata.decimals)
-      : undefined;
-  const amountText = consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenLabel}` : undefined;
+  const amountText =
+    consumeParts.length > 0 ? (
+      consumeParts.join(', ')
+    ) : transaction?.amount !== undefined && hasKnownScale(tokenMetadata) ? (
+      <TokenAmount amount={transaction.amount} decimals={tokenMetadata.decimals} symbol={tokenLabel} rounding="up" />
+    ) : undefined;
 
   const feeText = useReceiptFeeText(transaction);
 
@@ -122,7 +129,7 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
 export const SuccessHero: FC = () => <TransactionHeroIcon state="success" />;
 
 /** Emphasized amount block ("12 MDN") with an optional sub-line below it. */
-export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }> = ({ amountText, subline }) => {
+export const SuccessAmountBlock: FC<{ amountText?: ReactNode; subline?: ReactNode }> = ({ amountText, subline }) => {
   if (!amountText) return null;
 
   return (
@@ -171,7 +178,7 @@ export const ReceiptRows: FC<{
     <DetailCard
       surface={surface}
       face={face}
-      className={classNames('w-full', surface === 'outline' && 'face-heading', className)}
+      className={classNames('tx-stage-list w-full', surface === 'outline' && 'face-heading', className)}
     >
       {rows.map(row => (
         <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
@@ -224,6 +231,8 @@ export interface TransactionSuccessLayoutProps {
   children?: ReactNode;
   /** Paragraph shown above the footer buttons. */
   footerDescription?: ReactNode;
+  /** Earn's Command receipt pins these same actions in the outer workbench footer. */
+  commandFooter?: boolean;
   /** Primary call to action. */
   primaryAction: SuccessAction;
   /** Optional secondary call to action. */
@@ -241,12 +250,14 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   accent = 'brand',
   children,
   footerDescription,
+  commandFooter,
   primaryAction,
   secondaryAction,
   secondaryFirst = false,
   onClose
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const titleRef = useRef<HTMLHeadingElement>(null);
 
   // The success view owns the whole screen — keep the bottom tab navbar
@@ -280,6 +291,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
       <FlowLayout
         title={headerTitle || t('success')}
         onClose={onClose}
+        commandFooter={command || commandFooter}
         footer={
           <div className="flex w-full flex-col items-center gap-3">
             {footerDescription && <p className="text-center text-sm text-gray">{footerDescription}</p>}
@@ -287,7 +299,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
           </div>
         }
       >
-        <section className="flex w-full flex-col items-center pt-6">
+        <section className="tx-stage-rise flex w-full flex-col items-center pt-6">
           {/* The moment's heading and the focus target on the view change, so the outcome is
               announced. `tabIndex={-1}` makes it focusable without joining the tab order. */}
           <Hero visual={hero ?? <SuccessHero />} name={title} nameRef={titleRef} nameProps={{ tabIndex: -1 }} />

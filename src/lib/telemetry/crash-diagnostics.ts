@@ -3,6 +3,7 @@ import {
   STARTUP_ELIGIBILITY_STAGES,
   STARTUP_ELIGIBILITY_REASONS,
   STARTUP_ELIGIBILITY_RETRIES,
+  retainedStartupRequestFailure,
   type StartupEligibilityDiagnostics
 } from 'lib/remote-config/geo';
 import { WalletMessageType } from 'lib/shared/types';
@@ -23,6 +24,31 @@ import {
   type BridgeOrphanCheck,
   type BridgeSourceRoute
 } from './bridge-receive-failure';
+import {
+  annotateGuardianProving,
+  snapshotGuardianProving,
+  type GuardianProvingDiagnostics
+} from './guardian-proving-diagnostics';
+import { snapshotOffscreenDeadlineForCrash, type OffscreenDeadlineDiagnostics } from './offscreen-deadline-diagnostics';
+import { snapshotProofWaitAvailability, type ProofWaitAvailability } from './proof-wait-availability-diagnostics';
+import {
+  clearProposalCreateDiagnostics,
+  snapshotProposalCreateDiagnostics,
+  type ProposalCreateDiagnostics
+} from './proposal-create-diagnostics';
+import { snapshotTerminalReport, type TerminalReportDiagnostics } from './terminal-report-diagnostics';
+import {
+  annotateTransactionExecution,
+  snapshotTransactionExecution,
+  EXECUTION_DIAGNOSTIC_KEYS,
+  type TransactionExecutionDiagnostics
+} from './transaction-execution-diagnostics';
+import {
+  annotateUiProducer,
+  snapshotUiProducer,
+  UI_PRODUCER_KEYS,
+  type UiProducerDiagnostics
+} from './ui-producer-diagnostics';
 import {
   USER_ERROR_SURFACES,
   isUserErrorId,
@@ -84,12 +110,19 @@ export const PROPOSAL_STEPS = [
   'chain_sync',
   'reclaim_build',
   'reclaim_persist',
+  'purchase_build',
+  'purchase_persist',
   'swap_request_build',
   'swap_request_persist',
   'rebase_build',
   'proposal_create',
   'rebased_request_persist',
   'signing_stage_write',
+  'sign_lock',
+  'proposal_sign',
+  'custom_advice',
+  'custom_request_build',
+  'proposal_request',
   'submit_serialize',
   'submit_pin',
   'client_build'
@@ -128,7 +161,15 @@ export const HOT_KEY_ROTATION_PENDING = ['yes', 'no'] as const;
 export type HotKeyRotationPending = (typeof HOT_KEY_ROTATION_PENDING)[number];
 
 export type StorageOwner = 'wallet_transactions' | 'wallet_limits' | 'wallet_database';
-export type StorageOperation = 'get' | 'query' | 'count' | 'cursor' | 'mutate' | 'transaction' | 'open';
+export type StorageOperation =
+  | 'get'
+  | 'query'
+  | 'count'
+  | 'cursor_open'
+  | 'cursor_iteration'
+  | 'mutate'
+  | 'transaction'
+  | 'open';
 export type PageVisibility = 'visible' | 'hidden' | 'unknown';
 
 export const STORAGE_OWNERS: readonly StorageOwner[] = ['wallet_transactions', 'wallet_limits', 'wallet_database'];
@@ -136,20 +177,30 @@ export const STORAGE_OPERATIONS: readonly StorageOperation[] = [
   'get',
   'query',
   'count',
-  'cursor',
+  'cursor_open',
+  'cursor_iteration',
   'mutate',
   'transaction',
   'open'
 ];
 export const PAGE_VISIBILITY: readonly PageVisibility[] = ['visible', 'hidden', 'unknown'];
 
-export type CrashDiagnostics = WasmStartupEvidence &
+export type CrashDiagnostics = Partial<
+  ProposalCreateDiagnostics &
+    GuardianProvingDiagnostics &
+    OffscreenDeadlineDiagnostics &
+    TerminalReportDiagnostics & { proofWaitAvailability: ProofWaitAvailability }
+> &
+  Partial<TransactionExecutionDiagnostics> &
+  UiProducerDiagnostics &
+  WasmStartupEvidence &
   Partial<StartupEligibilityDiagnostics> & {
     operation?: 'intercom_request' | 'confirm_payload' | 'sdk_initialize';
     requestType?: WalletMessageType | MidenMessageType;
     confirmationId?: 'missing' | 'empty';
     stage?: 'wasm_ready' | 'mock_import' | 'mock_create' | 'client_create';
     workerMode?: 'enabled' | 'disabled';
+    clientRole?: 'primary' | 'realm_reader';
     confirmationHandler?: ConfirmationHandlerState;
     confirmationRequestShape?: ConfirmationRequestShape;
     confirmationRegistry?: ConfirmationRegistryState;
@@ -247,7 +298,7 @@ function readConfirmationCode(code: unknown): ConfirmationDiagnostics {
   return { confirmationHandler, confirmationRequestShape, confirmationRegistry, backgroundAge };
 }
 
-const diagnosticsByError = new WeakMap<Error, CrashDiagnostics>();
+const diagnosticsByError = new WeakMap<object, CrashDiagnostics>();
 const requestTypes = [
   ...Object.entries(WalletMessageType)
     .filter(([key]) => key.endsWith('Request'))
@@ -258,15 +309,42 @@ const requestTypes = [
 ];
 
 export function annotateCrash(error: unknown, diagnostics: Record<string, unknown>): void {
+  annotateCrashAtBoundary(error, diagnostics);
+}
+
+function annotateCrashAtBoundary(
+  error: unknown,
+  diagnostics: Record<string, unknown>,
+  preserveInner = false,
+  refreshProposal = false
+): void {
   try {
-    if (!(error instanceof Error)) return;
+    if (typeof error !== 'object' || error === null) return;
+    if (!(error instanceof Error)) {
+      const { operation, stage, workerMode, clientRole } = diagnostics;
+      if (
+        operation === 'sdk_initialize' &&
+        stage === 'client_create' &&
+        (clientRole === 'primary' || clientRole === 'realm_reader')
+      ) {
+        diagnosticsByError.set(error, {
+          operation,
+          stage,
+          ...(workerMode === 'enabled' || workerMode === 'disabled' ? { workerMode } : {}),
+          clientRole
+        });
+      }
+      return;
+    }
     const safe: CrashDiagnostics = {};
+    if ('executionRoute' in diagnostics) annotateTransactionExecution(error, diagnostics);
     const {
       operation,
       requestType: suppliedRequestType,
       confirmationId,
       stage,
       workerMode,
+      clientRole: suppliedClientRole,
       sharedMemoryProbe: suppliedProbe,
       extensionViews: suppliedViews,
       confirmationHandler: suppliedCode,
@@ -287,8 +365,18 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       bridgeSourceRoute: suppliedSourceRoute,
       guardianSignerInSet: suppliedSignerInSet,
       guardianSigningKey: suppliedSigningKey,
-      hotKeyRotationPending: suppliedRotationPending
+      hotKeyRotationPending: suppliedRotationPending,
+      startupEligibilityRequestFailure: suppliedRequestFailure
     } = diagnostics;
+    if (!preserveInner && (suppliedStep !== undefined || suppliedCompletionStep !== undefined))
+      annotateGuardianProving(error, undefined);
+    if (
+      !preserveInner &&
+      (refreshProposal ||
+        (suppliedStep !== undefined && suppliedStep !== 'proposal_create') ||
+        suppliedCompletionStep !== undefined)
+    )
+      clearProposalCreateDiagnostics(error);
     if (operation === 'intercom_request' || operation === 'confirm_payload' || operation === 'sdk_initialize') {
       safe.operation = operation;
     }
@@ -298,6 +386,12 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     if (stage === 'wasm_ready' || stage === 'mock_import' || stage === 'mock_create' || stage === 'client_create')
       safe.stage = stage;
     if (workerMode === 'enabled' || workerMode === 'disabled') safe.workerMode = workerMode;
+    if (
+      operation === 'sdk_initialize' &&
+      stage === 'client_create' &&
+      (suppliedClientRole === 'primary' || suppliedClientRole === 'realm_reader')
+    )
+      safe.clientRole = suppliedClientRole;
     const sharedMemoryProbe = SHARED_MEMORY_PROBES.find(value => value === suppliedProbe);
     if (sharedMemoryProbe !== undefined) safe.sharedMemoryProbe = sharedMemoryProbe;
     const extensionViews = EXTENSION_VIEW_COUNTS.find(value => value === suppliedViews);
@@ -308,12 +402,19 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
     const consumeVerdict = CONSUME_VERDICTS.find(value => value === suppliedConsumeVerdict);
     if (consumeVerdict !== undefined) safe.consumeVerdict = consumeVerdict;
     if (typeof portReconnected === 'boolean') safe.portReconnected = portReconnected;
+    if (userErrorId !== undefined || suppliedSurface !== undefined)
+      annotateUiProducer(error, undefined, undefined, undefined);
     if (isUserErrorId(userErrorId)) safe.userErrorId = userErrorId;
     const userErrorSurface = USER_ERROR_SURFACES.find(surface => surface === suppliedSurface);
     if (userErrorSurface !== undefined) safe.userErrorSurface = userErrorSurface;
     const storageOwner = STORAGE_OWNERS.find(value => value === suppliedOwner);
     const storageOperation = STORAGE_OPERATIONS.find(value => value === suppliedStorageOperation);
     const previous = { ...diagnosticsByError.get(error) };
+    if (refreshProposal) {
+      delete previous.proposalStep;
+      delete previous.proposalGuard;
+      delete previous.securityChange;
+    }
     if (
       storageOwner !== undefined &&
       storageOperation !== undefined &&
@@ -325,7 +426,12 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
       safe.storageOwner = storageOwner;
       safe.storageOperation = storageOperation;
     }
-    const startupKeys = ['startupEligibilityStage', 'startupEligibilityReason', 'startupEligibilityRetry'] as const;
+    const startupKeys = [
+      'startupEligibilityStage',
+      'startupEligibilityReason',
+      'startupEligibilityRetry',
+      'startupEligibilityRequestFailure'
+    ] as const;
     if (startupKeys.some(key => key in diagnostics) || userErrorId !== undefined || suppliedSurface !== undefined) {
       startupKeys.forEach(key => {
         delete previous[key];
@@ -346,7 +452,16 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
         startupEligibilityReason &&
         startupEligibilityRetry
       ) {
-        Object.assign(safe, { startupEligibilityStage, startupEligibilityReason, startupEligibilityRetry });
+        const startupEligibilityRequestFailure = retainedStartupRequestFailure(
+          startupEligibilityReason,
+          suppliedRequestFailure
+        );
+        Object.assign(safe, {
+          startupEligibilityStage,
+          startupEligibilityReason,
+          startupEligibilityRetry,
+          ...(startupEligibilityRequestFailure ? { startupEligibilityRequestFailure } : {})
+        });
       }
     }
     // The innermost boundary names the step first; an outer one it propagates through only knows a broader one.
@@ -386,11 +501,35 @@ export function annotateCrash(error: unknown, diagnostics: Record<string, unknow
   }
 }
 
-async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: () => Promise<T>): Promise<T> {
+let proposalInvocation = 0n;
+const proposalInvocationByError = new WeakMap<Error, bigint>();
+
+async function annotatingRejection<T>(
+  diagnostics: CrashDiagnostics,
+  operation: () => Promise<T>,
+  onReject?: (error: unknown) => void,
+  invocation?: bigint
+): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    annotateCrash(error, diagnostics);
+    let preserveInner = false;
+    let refreshProposal = false;
+    try {
+      if (invocation !== undefined && error instanceof Error) {
+        const previousInvocation = proposalInvocationByError.get(error);
+        // An enclosing invocation starts earlier than the leaf that already observed this rejection.
+        preserveInner = previousInvocation !== undefined && previousInvocation > invocation;
+        if (!preserveInner) {
+          proposalInvocationByError.set(error, invocation);
+          refreshProposal = onReject !== undefined || snapshotProposalCreateDiagnostics(error) !== undefined;
+        }
+      }
+    } catch {}
+    annotateCrashAtBoundary(error, diagnostics, preserveInner, refreshProposal);
+    try {
+      if (!preserveInner) onReject?.(error);
+    } catch {}
     throw error;
   }
 }
@@ -402,11 +541,14 @@ async function annotatingRejection<T>(diagnostics: CrashDiagnostics, operation: 
 export function withProposalStep<T>(
   step: ProposalStep,
   operation: () => Promise<T>,
-  securityChange?: SecurityChangeAction
+  securityChange?: SecurityChangeAction,
+  onReject?: (error: unknown) => void
 ): Promise<T> {
   return annotatingRejection(
     securityChange === undefined ? { proposalStep: step } : { proposalStep: step, securityChange },
-    operation
+    operation,
+    onReject,
+    ++proposalInvocation
   );
 }
 
@@ -490,7 +632,8 @@ function storageDiagnosticsAt(error: Error): StorageCrashDiagnostics | undefined
 
 export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
   const snapshot: CrashDiagnostics = {};
-  for (const link of errorChain(error).reverse()) {
+  const chain = errorChain(error);
+  for (const link of chain.reverse()) {
     const stored = diagnosticsByError.get(link);
     const { storageOwner, storageOperation, ...other } = stored ?? {};
     clearNativeDiagnostics(other);
@@ -508,10 +651,15 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
       Object.assign(snapshot, storage);
     }
   }
+  if (chain.length === 0 && typeof error === 'object' && error !== null)
+    Object.assign(snapshot, diagnosticsByError.get(error));
+  for (const key of EXECUTION_DIAGNOSTIC_KEYS) delete snapshot[key];
+  Object.assign(snapshot, snapshotTransactionExecution(error));
   // Startup evidence belongs to this displayed attempt, never an earlier cause.
   delete snapshot.startupEligibilityStage;
   delete snapshot.startupEligibilityReason;
   delete snapshot.startupEligibilityRetry;
+  delete snapshot.startupEligibilityRequestFailure;
   const startup = typeof error === 'object' && error !== null ? diagnosticsByError.get(error as Error) : undefined;
   if (
     startup?.userErrorId === 'walletAccessUnavailableBody' &&
@@ -523,9 +671,41 @@ export function snapshotCrashDiagnostics(error: unknown): CrashDiagnostics {
     snapshot.startupEligibilityStage = startup.startupEligibilityStage;
     snapshot.startupEligibilityReason = startup.startupEligibilityReason;
     snapshot.startupEligibilityRetry = startup.startupEligibilityRetry;
+    const startupEligibilityRequestFailure = retainedStartupRequestFailure(
+      startup.startupEligibilityReason,
+      startup.startupEligibilityRequestFailure
+    );
+    if (startupEligibilityRequestFailure) snapshot.startupEligibilityRequestFailure = startupEligibilityRequestFailure;
   }
   // A name recorded on proposal creation must not survive onto a later step in the cause chain.
   if (snapshot.proposalStep !== 'proposal_create') delete snapshot.securityChange;
+  for (const key of [
+    'proofWaitAvailability',
+    'proposalCreateApi',
+    'proposalCreateFamily',
+    'guardianProvingSubstep',
+    'offscreenDeadlineMethod',
+    'offscreenDeadlineStage',
+    'queueAdmissionObservation',
+    'queueSighting',
+    'preflightSync',
+    'queueHidden',
+    'reapStartRelation',
+    'submitApproachHidden',
+    'proofWindow',
+    'submitHidden',
+    'submitLeg'
+  ] as const)
+    delete snapshot[key];
+  if (snapshot.proposalStep === 'proposal_create') Object.assign(snapshot, snapshotProposalCreateDiagnostics(error));
+  Object.assign(snapshot, snapshotGuardianProving(error));
+  Object.assign(snapshot, snapshotOffscreenDeadlineForCrash(error));
+  Object.assign(snapshot, snapshotTerminalReport(error));
+  for (const key of UI_PRODUCER_KEYS) delete snapshot[key];
+  const own = typeof error === 'object' && error !== null ? diagnosticsByError.get(error as Error) : undefined;
+  Object.assign(snapshot, snapshotUiProducer(error, own?.userErrorId, own?.userErrorSurface));
+  const proofWaitAvailability = snapshotProofWaitAvailability(error);
+  if (proofWaitAvailability !== undefined) snapshot.proofWaitAvailability = proofWaitAvailability;
   return snapshot;
 }
 

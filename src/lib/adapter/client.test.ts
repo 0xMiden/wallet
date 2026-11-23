@@ -252,7 +252,13 @@ describe('request-based functions', () => {
       ORIGIN
     );
     deliverPageResponse({ type: MidenDAppMessageType.SignResponse, signature: 'sig-123' });
-    await expect(p).resolves.toBe('sig-123');
+    await expect(p).resolves.toStrictEqual({ signature: 'sig-123', signedCommitment: undefined });
+  });
+
+  it('signBytes returns the signed commitment beside the signature', async () => {
+    const p = signBytes('acct-9', 'pk-5', 'hello', 'Message' as any);
+    deliverPageResponse({ type: MidenDAppMessageType.SignResponse, signature: 'sig-123', signedCommitment: 'cmt-456' });
+    await expect(p).resolves.toStrictEqual({ signature: 'sig-123', signedCommitment: 'cmt-456' });
   });
 
   it('requestLoginKey asks for the account alone and returns the login key', async () => {

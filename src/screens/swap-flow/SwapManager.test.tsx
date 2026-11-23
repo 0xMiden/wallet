@@ -2,16 +2,20 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { _resetNormalizedFaucetIdsForTest } from 'lib/miden/swap/faucet-ids';
 import { SwapPair } from 'lib/miden/swap/tokens';
-import { parseBridgeConfig, type BridgeConfig } from 'lib/remote-config/schema';
-import testnet from 'lib/remote-config/testing/testnet.json';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
+import { TokenPrices } from 'lib/prices/binance';
+import type { GeoLookup } from 'lib/remote-config/geo';
+import { type BridgeConfig } from 'lib/remote-config/schema';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 // Import after the mocks are registered.
 import { SwapFlow } from './SwapManager';
@@ -20,9 +24,9 @@ import { SwapFlow } from './SwapManager';
 // Fixture tokens. Prefixed `mock` so the hoisted jest.mock factories may close
 // over them. Default flow: offer = AAA (index 0), request = BBB (index 1).
 // ---------------------------------------------------------------------------
-const mockTokenA = { symbol: 'AAA', faucetId: 'faucet-A', decimals: 8, logoSymbol: 'MIDEN' };
-const mockTokenB = { symbol: 'BBB', faucetId: 'faucet-B', decimals: 8, logoSymbol: 'ETH' };
-const mockTokenC = { symbol: 'CCC', faucetId: 'faucet-C', decimals: 8, logoSymbol: 'BTC' };
+const mockTokenA = { symbol: 'AAA', faucetId: 'faucet-A', decimals: 8 };
+const mockTokenB = { symbol: 'BBB', faucetId: 'faucet-B', decimals: 8 };
+const mockTokenC = { symbol: 'CCC', faucetId: 'faucet-C', decimals: 8 };
 
 // Mutable module-level state driven per test (all `mock`-prefixed for hoisting).
 let mockRenderedRoutes: Array<{ name: string }>;
@@ -30,6 +34,7 @@ let mockPathname = '/swap';
 let mockNav: { navigateTo: jest.Mock; goBack: jest.Mock; cardStack: Array<{ name: string }> };
 let mockBackHandler: (() => boolean) | null;
 let mockWalletState: {
+  tokenPrices: TokenPrices;
   isTransactionModalOpen: boolean;
   lastCompletedTxHash: string | null;
   closeTransactionModal: jest.Mock;
@@ -104,8 +109,9 @@ const mockRequestSWProcessing = jest.fn();
 const mockIsExtension = jest.fn(() => true);
 const mockIsDelegateProof = jest.fn(() => false);
 const mockNavigate = jest.fn();
-const mockFetchOneClickAssets = jest.fn();
 let mockBridgeConfig: BridgeConfig | null;
+let mockGeo: GeoLookup | undefined;
+let mockSwapAvailabilityResult: { state: 'unavailable'; reason: string; detail: string } | undefined;
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -126,63 +132,72 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// `components/Navigator` — replace the animated stack with a controllable stub:
-// render `renderRoute` for each route in `mockRenderedRoutes` (so both flow
-// steps mount at once for a single SwapManager instance), and hand back a
-// controllable navigator context.
-jest.mock('components/Navigator', () => ({
-  useNavigator: () => mockNav,
-  NavigatorProvider: ({ children }: { children: React.ReactNode }) => children,
-  Navigator: ({ renderRoute }: { renderRoute: (route: { name: string }, index: number) => React.ReactNode }) =>
-    mockRenderedRoutes.map((route, index) => (
-      <div key={route.name} data-nav-route={route.name}>
-        {renderRoute(route, index)}
-      </div>
-    ))
-}));
+// Most controller tests expose both steps via a lightweight navigator; review Back uses the real stack.
+let mockRealNavigator = false;
+jest.mock('components/Navigator', () => {
+  const actual = jest.requireActual<typeof import('components/Navigator')>('components/Navigator');
+  return {
+    useNavigator: () => (mockRealNavigator ? actual.useNavigator() : mockNav),
+    NavigatorProvider: (props: React.ComponentProps<typeof actual.NavigatorProvider>) =>
+      mockRealNavigator ? <actual.NavigatorProvider {...props} /> : <>{props.children}</>,
+    Navigator: (props: React.ComponentProps<typeof actual.Navigator>) =>
+      mockRealNavigator ? (
+        <actual.Navigator {...props} />
+      ) : (
+        mockRenderedRoutes.map((route, index) => (
+          <div key={route.name} data-nav-route={route.name}>
+            {props.renderRoute({ ...route, animationIn: 'push', animationOut: 'pop' }, index)}
+          </div>
+        ))
+      )
+  };
+});
 
 // The three swap-flow children are exercised by their own suites; stub them to
 // thin harnesses that surface every prop and forward every callback.
 let mockRealSwapDisplays = false;
 let mockRealSwapAmounts = false;
+let mockLastSwapOfferChange: ((amount: string) => void) | undefined;
 jest.mock('./SwapAmounts', () => {
   const { AmountInput } = jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput');
   return {
-    SwapAmounts: (props: import('./SwapAmounts').SwapAmountsProps) => (
-      <div data-testid="swap-amounts">
-        {mockRealSwapAmounts &&
-          React.createElement(jest.requireActual<typeof import('./SwapAmounts')>('./SwapAmounts').SwapAmounts, props)}
-        <span data-testid="sa-offer-token">{props.offerToken.symbol}</span>
-        <span data-testid="sa-request-token">{props.requestToken.symbol}</span>
-        <span data-testid="sa-offer-balance">{String(props.offerBalance)}</span>
-        <span data-testid="sa-offer-amount">{props.offerAmount}</span>
-        <span data-testid="sa-request-amount">{props.requestAmount}</span>
-        <span data-testid="sa-can-proceed">{String(props.canProceed)}</span>
-        <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
-        <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
-        <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
-        <span data-testid="sa-offer-loading">{String(props.offerLoading)}</span>
-        <span data-testid="sa-one-click-networks">
-          {(props.oneClickNetworks ?? []).map(network => network.id).join(',')}
-        </span>
-        <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
-        <AmountInput
-          data-testid="sa-request-input"
-          value={props.requestAmount}
-          loading={props.requestLoading}
-          onValueChange={amount => props.onRequestAmountChange(amount ?? '')}
-        />
-        <button data-testid="sa-select-offer" onClick={props.onSelectOfferToken} />
-        <button data-testid="sa-select-request" onClick={props.onSelectRequestToken} />
-        <button data-testid="sa-swap-direction" onClick={props.onSwapDirection} />
-        <button data-testid="sa-confirm" onClick={props.onConfirm} />
-      </div>
-    )
+    SwapAmounts: (props: import('./SwapAmounts').SwapAmountsProps) => {
+      mockLastSwapOfferChange = props.onOfferAmountChange;
+      return (
+        <div data-testid="swap-amounts">
+          {mockRealSwapAmounts &&
+            React.createElement(jest.requireActual<typeof import('./SwapAmounts')>('./SwapAmounts').SwapAmounts, props)}
+          <span data-testid="sa-offer-token">{props.offerToken.symbol}</span>
+          <span data-testid="sa-request-token">{props.requestToken.symbol}</span>
+          <span data-testid="sa-offer-balance">{String(props.offerBalance)}</span>
+          <span data-testid="sa-offer-amount">{props.offerAmount}</span>
+          <span data-testid="sa-request-amount">{props.requestAmount}</span>
+          <span data-testid="sa-can-proceed">{String(props.canProceed)}</span>
+          <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
+          <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
+          <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
+          <span data-testid="sa-offer-loading">{String(props.offerLoading)}</span>
+          <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
+          <AmountInput
+            data-testid="sa-request-input"
+            value={props.requestAmount}
+            loading={props.requestLoading}
+            onValueChange={amount => props.onRequestAmountChange(amount ?? '')}
+          />
+          <button data-testid="sa-select-offer" onClick={props.onSelectOfferToken} />
+          <button data-testid="sa-select-request" onClick={props.onSelectRequestToken} />
+          <button data-testid="sa-swap-direction" onClick={props.onSwapDirection} />
+          <button data-testid="sa-confirm" onClick={props.onConfirm} />
+        </div>
+      );
+    }
   };
 });
 
 let mockReviewSubmit: () => void;
 jest.mock('./ReviewSwap', () => ({
+  swapReviewTermsChanged: (...args: Parameters<typeof import('./ReviewSwap').swapReviewTermsChanged>) =>
+    jest.requireActual<typeof import('./ReviewSwap')>('./ReviewSwap').swapReviewTermsChanged(...args),
   ReviewSwap: (props: import('./ReviewSwap').ReviewSwapProps) => {
     mockReviewSubmit = props.onSubmit;
     return (
@@ -197,6 +212,7 @@ jest.mock('./ReviewSwap', () => ({
         <span data-testid="rs-fill-seconds">{String(props.quote?.eta.estimatedSeconds)}</span>
         <span data-testid="rs-slippage">{String(props.slippageBps)}</span>
         <span data-testid="rs-request-edited">{String(props.requestEdited)}</span>
+        <button data-testid="rs-back" onClick={props.onGoBack} />
         <button data-testid="rs-set-slippage" onClick={() => props.onSlippageBpsChange(50)} />
         <input
           data-testid="rs-expiry"
@@ -274,6 +290,7 @@ let mockRealSwapRegistry = false;
 let mockDefaultPairOverride: SwapPair | undefined;
 // The solver's pairs, by faucet id; undefined means every two tokens of the registry are a pair.
 let mockSolverPairs: Array<[string, string]> | undefined;
+let mockQuotesBySymbol: Partial<TokenPrices> | undefined;
 const mockSwapPartners = (faucetId: string) =>
   mockGetSwapTokens().filter(
     token =>
@@ -282,10 +299,18 @@ const mockSwapPartners = (faucetId: string) =>
         mockSolverPairs.some(pair => pair.includes(faucetId) && pair.includes(token.faucetId)))
   );
 jest.mock('lib/miden/swap/tokens', () => ({
-  // These registry fixtures have no verified market quotes; amount and receipt UI must stay token-only.
-  tokenQuote: () => undefined,
+  tokenQuote: (prices: TokenPrices, _faucetId: string | undefined, symbol: string) =>
+    mockQuotesBySymbol === undefined ? prices.AAA : mockQuotesBySymbol[symbol],
   normalizedFaucetId:
     jest.requireActual<typeof import('lib/miden/swap/faucet-ids')>('lib/miden/swap/faucet-ids').normalizedFaucetId,
+  getSwapTokenByFaucetId: (faucetId?: string) =>
+    faucetId
+      ? mockRealSwapRegistry
+        ? jest
+            .requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens')
+            .getSwapTokenByFaucetId(faucetId)
+        : mockGetSwapTokens().find(token => token.faucetId === faucetId)
+      : undefined,
   getSwapTokens: () =>
     mockRealSwapRegistry
       ? jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens').getSwapTokens()
@@ -320,11 +345,12 @@ jest.mock('lib/miden/swap/use-swap-tokens', () => ({
           .useSwapTokens()
       : mockGetSwapTokens(),
   swapAvailability: (snapshot: unknown) =>
-    mockRealSwapRegistry
+    mockSwapAvailabilityResult ??
+    (mockRealSwapRegistry
       ? jest.requireActual('lib/miden/swap/use-swap-tokens').swapAvailability(snapshot)
       : mockGetSwapTokens().length >= 2
         ? { state: 'available' }
-        : { state: 'loading' }
+        : { state: 'loading' })
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useBridgeConfigSnapshot: () => ({
@@ -332,26 +358,9 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
     status: 'ready',
     config: mockBridgeConfig,
     derived: null,
-    lastFetch: null
+    lastFetch: null,
+    geo: mockGeo
   })
-}));
-jest.mock('lib/one-click/config', () => {
-  const actual = jest.requireActual<typeof import('lib/one-click/config')>('lib/one-click/config');
-  return {
-    ...actual,
-    useOneClickConfig: () =>
-      actual.getOneClickConfig({
-        network: 'mainnet',
-        status: 'ready',
-        config: mockBridgeConfig,
-        derived: null,
-        lastFetch: null
-      })
-  };
-});
-jest.mock('lib/one-click/client', () => ({
-  ...jest.requireActual<typeof import('lib/one-click/client')>('lib/one-click/client'),
-  fetchOneClickAssets: (...args: unknown[]) => mockFetchOneClickAssets(...args)
 }));
 
 jest.mock('./useSwapQuote', () => ({
@@ -362,7 +371,8 @@ jest.mock('./useSwapQuote', () => ({
 const mockQuoteSwap = jest.fn();
 jest.mock('lib/miden/swap/quote', () => ({
   ...jest.requireActual('lib/miden/swap/quote'),
-  quoteSwap: (...args: unknown[]) => mockQuoteSwap(...args)
+  quoteSwap: (...args: unknown[]) => mockQuoteSwap(...args),
+  quoteSwapForReceive: (...args: unknown[]) => mockQuoteSwap(...args)
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -485,6 +495,8 @@ const quoteAt = (
 
 beforeEach(() => {
   mockRealSwapRegistry = false;
+  mockRealNavigator = false;
+  mockLastSwapOfferChange = undefined;
   jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens')._setSwapTokensForTest(undefined);
   jest.clearAllMocks();
   mockVaultPreflight.mockReset().mockResolvedValue(undefined);
@@ -501,7 +513,11 @@ beforeEach(() => {
   mockBackHandler = null;
   mockAuthorizationAccountOverride = undefined;
   mockDefaultPairOverride = undefined;
+  mockQuotesBySymbol = undefined;
   mockWalletState = {
+    tokenPrices: {
+      AAA: { price: 1, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
+    },
     isTransactionModalOpen: false,
     lastCompletedTxHash: null,
     closeTransactionModal: jest.fn(),
@@ -522,7 +538,8 @@ beforeEach(() => {
   mockMetadata = { some: 'metadata' };
   mockAccountReturn = { publicKey: 'pk-1' };
   mockBridgeConfig = null;
-  mockFetchOneClickAssets.mockReset();
+  mockGeo = undefined;
+  mockSwapAvailabilityResult = undefined;
 
   mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenB, mockTokenC]);
   mockSolverPairs = undefined;
@@ -617,6 +634,351 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('SwapFlow / SwapManager', () => {
+  it('opens the Command token picker without installing a changing Back handler', () => {
+    render(
+      <CommandFlowBackProvider>
+        <FlowPresentationProvider value="command">
+          <SwapFlow />
+        </FlowPresentationProvider>
+      </CommandFlowBackProvider>
+    );
+    fireEvent.click(screen.getByTestId('sa-select-offer'));
+    expect(screen.getByTestId('swap-token-drawer')).toHaveAttribute('data-open', 'true');
+  });
+  it('holds the reviewed receive amount when a live Command quote rebuilds the ask', async () => {
+    mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+    const view = () => (
+      <FlowPresentationProvider value="command">
+        <SwapFlow />
+      </FlowPresentationProvider>
+    );
+    const { rerender } = render(view());
+    setOffer('10');
+    expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+    mockSwapQuoteResult = { loading: false, quote: quoteAt('3', 9n) };
+    rerender(view());
+    expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9');
+    expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
+    mockQuoteNow.mockResolvedValue(quoteAt('3', 9n));
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+    expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceMoved');
+    expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('9');
+    expect(mockVaultPreflight).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+    expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 9n, false, 120, true, 5);
+  });
+
+  it('requires a second review activation when fresh solver terms differ from the Command review', async () => {
+    mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+    render(
+      <FlowPresentationProvider value="command">
+        <SwapFlow />
+      </FlowPresentationProvider>
+    );
+    setOffer('10');
+    mockQuoteNow.mockResolvedValue(quoteAt('3', 5n));
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+    expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceMoved');
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
+  it('recovers exact unsigned offer and review settings after minimizing the Command flow', () => {
+    const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+    const TestShell = ({ shown }: { shown: boolean }) => (
+      <FlowPresentationProvider value="command">{shown && <SwapFlow />}</FlowPresentationProvider>
+    );
+    const { rerender } = render(
+      <CommandDraftProvider scope={scope}>
+        <TestShell shown />
+      </CommandDraftProvider>
+    );
+    setOffer('1.12345678');
+    fireEvent.click(screen.getByTestId('rs-set-slippage'));
+    fireEvent.click(screen.getByTestId('rs-auto-consume'));
+    rerender(
+      <CommandDraftProvider scope={scope}>
+        <TestShell shown={false} />
+      </CommandDraftProvider>
+    );
+    rerender(
+      <CommandDraftProvider scope={scope}>
+        <TestShell shown />
+      </CommandDraftProvider>
+    );
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.12345678');
+    expect(screen.getByTestId('rs-slippage')).toHaveTextContent('50');
+    expect(screen.getByTestId('rs-auto-consume')).toHaveTextContent('false');
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+  it('restores exact Command offer and settings after real review Back and minimize/reopen', async () => {
+    mockRealNavigator = true;
+    mockBalanceData = [...mockBalanceData, { tokenId: 'bech32-faucet-C', balance: 100 }];
+    mockAllBalancesReturn = { data: mockBalanceData };
+    const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+    const view = (shown: boolean) => (
+      <CommandDraftProvider scope={scope}>
+        <FlowPresentationProvider value="command">{shown && <SwapFlow />}</FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const { rerender } = render(view(true));
+    setOffer('10');
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+    await screen.findByTestId('rs-back');
+    fireEvent.click(screen.getByTestId('rs-set-slippage'));
+    fireEvent.click(screen.getByTestId('rs-auto-consume'));
+    fireEvent.click(screen.getByTestId('rs-back'));
+    await waitFor(() => expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10'));
+    expect(screen.queryByTestId('rs-back')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('sa-select-offer'));
+    act(() => mockDrawerProps.onSelect(mockTokenC));
+    expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('CCC');
+    expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
+    rerender(view(false));
+    rerender(view(true));
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
+    expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('CCC');
+    expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
+    expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+    mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 5n, {}, { slippageBps: 50 }) };
+    rerender(view(true));
+    expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+    await screen.findByTestId('rs-back');
+    expect(screen.getByTestId('rs-slippage')).toHaveTextContent('50');
+    expect(screen.getByTestId('rs-auto-consume')).toHaveTextContent('false');
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['account', { accountId: 'pk-2', network: 'testnet', rpcUrl: 'rpc' }],
+    ['network', { accountId: 'pk-1', network: 'devnet', rpcUrl: 'rpc' }],
+    ['effective RPC', { accountId: 'pk-1', network: 'testnet', rpcUrl: 'other-rpc' }]
+  ])('clears the real Command Swap draft on %s change and rejects a stale A-B-A input', (_reason, changedScope) => {
+    const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+    const view = (nextScope: typeof scope) => (
+      <CommandDraftProvider scope={nextScope}>
+        <FlowPresentationProvider value="command">
+          <SwapFlow key={JSON.stringify(nextScope)} />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const { rerender } = render(view(scope));
+    setOffer('1.12345678');
+    const staleAmountChange = mockLastSwapOfferChange;
+    expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('1.12345678');
+    if (_reason === 'account') mockAccountReturn = { publicKey: changedScope.accountId };
+    rerender(view(changedScope));
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    act(() => staleAmountChange?.('999'));
+    mockAccountReturn = { publicKey: 'pk-1' };
+    rerender(view(scope));
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    act(() => staleAmountChange?.('777'));
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
+  it('drops the real Command Swap draft and late input after lock/remount', () => {
+    const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+    const view = () => (
+      <CommandDraftProvider scope={scope}>
+        <FlowPresentationProvider value="command">
+          <SwapFlow />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    const root = render(view());
+    setOffer('1.12345678');
+    const staleAmountChange = mockLastSwapOfferChange;
+    root.rerender(null);
+    act(() => staleAmountChange?.('999'));
+    root.rerender(view());
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    act(() => staleAmountChange?.('777'));
+    expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
+  it('does not query below $1 and starts at exactly $1', async () => {
+    jest.useFakeTimers();
+    try {
+      const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+      const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      mockUseSwapQuote.mockImplementation(useSwapQuote);
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      mockQuoteSwap.mockResolvedValue(quoteAt('2', 5n, {}, { offeredAmount: 1n }));
+      renderFlow();
+      setOffer('0.99');
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+      await act(async () => jest.advanceTimersByTime(1000));
+      expect(mockQuoteSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapBelowMinimum');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      setOffer('1');
+      await act(async () => jest.advanceTimersByTime(500));
+      expect(mockQuoteSwap).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+      jest.useRealTimers();
+    }
+  });
+
+  it('blocks quotes and the receive skeleton when the USD price is unavailable', () => {
+    const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+    const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    mockUseSwapQuote.mockImplementation(useSwapQuote);
+    mockStringToBigInt.mockImplementation(stringToBigInt);
+    mockWalletState.tokenPrices = {};
+    renderFlow();
+    setOffer('10');
+    expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(screen.getByTestId('sa-status')).toHaveTextContent('swapMinimumPriceUnavailable');
+    expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+  });
+
+  it('quotes a sub-$1 receive target when the derived offer meets the minimum', async () => {
+    jest.useFakeTimers();
+    try {
+      const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+      const { stringToBigInt, formatBigInt } =
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      mockFormatBigInt.mockImplementation(formatBigInt);
+      mockUseSwapQuote.mockImplementation(useSwapQuote);
+      mockQuoteSwap.mockResolvedValue(
+        quoteAt('2', 50_000_000n, {}, { offeredAmount: 200_000_000n, builtAsk: false, slippageBps: 5 })
+      );
+      renderFlow();
+      setRequest('0.5');
+
+      await act(async () => jest.advanceTimersByTime(500));
+
+      expect(mockQuoteSwap).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('2');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      expect(screen.getByTestId('sa-status')).toBeEmptyDOMElement();
+    } finally {
+      cleanup();
+      jest.useRealTimers();
+    }
+  });
+
+  it('blocks a receive-derived offer that is under $1', async () => {
+    jest.useFakeTimers();
+    try {
+      const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+      const { stringToBigInt, formatBigInt } =
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      mockFormatBigInt.mockImplementation(formatBigInt);
+      mockUseSwapQuote.mockImplementation(useSwapQuote);
+      mockQuoteSwap.mockResolvedValue(
+        quoteAt('2', 40_000_000n, {}, { offeredAmount: 50_000_000n, builtAsk: false, slippageBps: 5 })
+      );
+      renderFlow();
+      setRequest('0.4');
+
+      await act(async () => jest.advanceTimersByTime(500));
+
+      expect(mockQuoteSwap).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('0.5');
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapBelowMinimum');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapBelowMinimum');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not quote a receive amount while the offer price is unavailable', async () => {
+    jest.useFakeTimers();
+    try {
+      const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+      mockUseSwapQuote.mockImplementation(useSwapQuote);
+      mockWalletState.tokenPrices = {};
+      renderFlow();
+      setRequest('2');
+
+      await act(async () => jest.advanceTimersByTime(500));
+
+      expect(mockQuoteSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('swapMinimumPriceUnavailable');
+      expect(screen.getByTestId('sa-offer-loading')).toHaveTextContent('false');
+    } finally {
+      cleanup();
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not calculate the receive side of an unlisted pair', () => {
+    const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+    const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    mockUseSwapQuote.mockImplementation(useSwapQuote);
+    mockStringToBigInt.mockImplementation(stringToBigInt);
+    mockSolverPairs = [['faucet-C', 'faucet-D']];
+    renderFlow();
+    setOffer('10');
+
+    expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(screen.getByTestId('sa-status')).toHaveTextContent('swapPairNotListed');
+    expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+  });
+
+  it('does not calculate the pay side of an unlisted pair', () => {
+    const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+    const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+    mockUseSwapQuote.mockImplementation(useSwapQuote);
+    mockStringToBigInt.mockImplementation(stringToBigInt);
+    mockSolverPairs = [['faucet-C', 'faucet-D']];
+    renderFlow();
+    setRequest('2');
+
+    expect(mockUseSwapQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+    expect(screen.getByTestId('sa-status')).toHaveTextContent('swapPairNotListed');
+    expect(screen.getByTestId('sa-offer-loading')).toHaveTextContent('false');
+  });
+
+  it('quotes an unpriced receive token when the derived offer meets the minimum', async () => {
+    jest.useFakeTimers();
+    try {
+      const { useSwapQuote } = jest.requireActual<typeof import('./useSwapQuote')>('./useSwapQuote');
+      const { stringToBigInt, formatBigInt } =
+        jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      mockStringToBigInt.mockImplementation(stringToBigInt);
+      mockFormatBigInt.mockImplementation(formatBigInt);
+      mockQuotesBySymbol = { AAA: mockWalletState.tokenPrices.AAA };
+      mockUseSwapQuote.mockImplementation(useSwapQuote);
+      mockQuoteSwap.mockResolvedValue(
+        quoteAt('2', 200_000_000n, {}, { offeredAmount: 200_000_000n, builtAsk: false, slippageBps: 5 })
+      );
+      renderFlow();
+      setRequest('2');
+
+      await act(async () => jest.advanceTimersByTime(500));
+
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('2');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    } finally {
+      cleanup();
+      jest.useRealTimers();
+    }
+  });
+
+  it('blocks submission when the offer price falls below the minimum', async () => {
+    const view = renderFlow();
+    setOffer('10');
+    mockWalletState.tokenPrices = {
+      AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
+    };
+    view.rerender(<SwapFlow />);
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+    expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapBelowMinimum');
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+  });
+
   it('opens an already-mounted unavailable form when real registry override tokens arrive', async () => {
     mockRealSwapRegistry = true;
     const registry = jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens');
@@ -685,67 +1047,76 @@ describe('SwapFlow / SwapManager', () => {
     expect(drawer).toHaveAttribute('data-current', 'faucet-A');
   });
 
-  it('keeps configured 1Click networks hidden and does not fetch its catalog while the rollout switch is off', () => {
-    mockBridgeConfig = parseBridgeConfig(
-      {
-        ...testnet,
-        network: 'mainnet',
-        features: { ...testnet.features, nearIntents: false },
-        swap: {
-          ...testnet.swap,
-          oneClick: {
-            serviceUrl: 'https://one-click.example',
-            midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
-          }
-        }
-      },
-      'mainnet'
-    );
-    if (!mockBridgeConfig) throw new Error('The disabled-feature fixture must remain a valid wallet config');
+  it('shows no network picker on the amounts step', () => {
     mockRealSwapAmounts = true;
     renderFlow();
 
-    expect(screen.queryByTestId('one-click-pay-network-picker')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('one-click-receive-network-picker')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('one-click-connect-origin-wallet')).not.toBeInTheDocument();
-    expect(mockFetchOneClickAssets).not.toHaveBeenCalled();
+    expect(screen.getByTestId('swap-pay-side')).toBeInTheDocument();
+    expect(screen.getByTestId('swap-receive-side')).toBeInTheDocument();
   });
 
-  it('keeps one-click routes available from the surviving provider catalog mappings', async () => {
-    mockBridgeConfig = parseBridgeConfig(
-      {
-        ...testnet,
-        network: 'mainnet',
-        features: { ...testnet.features, nearIntents: true },
-        swap: {
-          ...testnet.swap,
-          oneClick: {
-            serviceUrl: 'https://one-click.example',
-            midenAssets: [
-              { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 },
-              { assetId: 'miden:other', faucetId: '0x637c15a622074e91188aa894456c52', decimals: 6 }
-            ]
-          }
-        }
-      },
-      'mainnet'
-    );
-    if (!mockBridgeConfig) throw new Error('The enabled-feature fixture must remain a valid wallet config');
-    mockFetchOneClickAssets.mockResolvedValue([
-      {
-        assetId: 'miden:usdc',
-        blockchain: 'miden',
-        symbol: 'USDC',
-        decimals: 6,
-        faucetId: '0x537c15a622074e91188aa894456c52'
-      },
-      { assetId: 'eth:token', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
-    ]);
-
+  it('keeps Swap closed when the DEX has no pair to offer', async () => {
+    mockGetSwapTokens.mockReturnValue([]);
     renderFlow();
+    await act(async () => undefined);
 
-    await waitFor(() => expect(screen.getByTestId('sa-one-click-networks')).toHaveTextContent('miden,eth'));
-    expect(mockFetchOneClickAssets).toHaveBeenCalledTimes(1);
+    // The registry stand-in reads as loading without a pair, so the frame shows no form.
+    expect(screen.getByTestId('swap-flow')).toBeInTheDocument();
+    expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+  });
+
+  describe('startup eligibility', () => {
+    const decision = (swap: boolean): GeoLookup => ({
+      state: 'ready',
+      network: 'mainnet',
+      version: 1,
+      allowed: { wallet: true, earn: true, swap }
+    });
+
+    it.each<[string, GeoLookup, string, string, string]>([
+      ['pending', { state: 'loading' }, 'pending', 'bridgeFeatureUnavailableTitle', 'bridgeFeatureUnavailableBody'],
+      ['failed', { state: 'failed' }, 'service-down', 'bridgeFeatureUnavailableTitle', 'bridgeFeatureUnavailableBody'],
+      ['restricted', decision(false), 'restricted', 'geoRestrictedTitle', 'geoRestrictedBody']
+    ])('keeps the form closed while the decision is %s', (_label, geo, reason, title, body) => {
+      mockGeo = geo;
+      renderFlow();
+      const notice = screen.getByTestId('swap-unavailable-notice');
+      expect(notice).toHaveAttribute('data-reason', reason);
+      expect(notice).toHaveTextContent(title);
+      expect(notice).toHaveTextContent(body);
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+    });
+
+    it('keeps the genuine empty-registry notice copy', () => {
+      mockGetSwapTokens.mockReturnValue([]);
+      mockSwapAvailabilityResult = { state: 'unavailable', reason: 'not-configured', detail: 'no swap pairs' };
+      renderFlow();
+
+      const notice = screen.getByTestId('swap-unavailable-notice');
+      expect(notice).toHaveAttribute('data-reason', 'not-configured');
+      expect(notice).toHaveTextContent('swapUnavailableTitle');
+      expect(notice).toHaveTextContent('swapUnavailableBody');
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+    });
+
+    it('uses temporary-unavailability copy when the pair registry read failed', () => {
+      mockGetSwapTokens.mockReturnValue([]);
+      mockSwapAvailabilityResult = { state: 'unavailable', reason: 'service-down', detail: 'registry read failed' };
+      renderFlow();
+
+      const notice = screen.getByTestId('swap-unavailable-notice');
+      expect(notice).toHaveAttribute('data-reason', 'service-down');
+      expect(notice).toHaveTextContent('bridgeFeatureUnavailableTitle');
+      expect(notice).toHaveTextContent('bridgeFeatureUnavailableBody');
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+    });
+
+    it('opens the solver-pair form once the decision allows Swap', () => {
+      mockGeo = decision(true);
+      renderFlow();
+      expect(screen.getByTestId('swap-amounts')).toBeInTheDocument();
+      expect(screen.queryByTestId('swap-unavailable-notice')).not.toBeInTheDocument();
+    });
   });
 
   it('renders nothing for an unknown route (renderStep default branch)', () => {
@@ -1108,6 +1479,13 @@ describe('SwapFlow / SwapManager', () => {
         jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       const lowPrecisionRequest = { ...mockTokenC, decimals: 2 };
       mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, lowPrecisionRequest]);
+      mockWalletState.tokenPrices = {
+        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
+      };
+      mockSwapQuoteResult = {
+        loading: false,
+        quote: quoteAt('2', 5n, {}, { offeredAmount: 61_500_000n })
+      };
       mockStringToBigInt.mockImplementation(stringToBigInt);
       mockFormatBigInt.mockImplementation(formatBigInt);
       renderFlow();
@@ -1377,8 +1755,7 @@ describe('SwapFlow / SwapManager', () => {
     it.each([
       { change: 'faucet', token: { ...mockTokenC, faucetId: 'replacement-C' } },
       { change: 'precision', token: { ...mockTokenC, decimals: 0 } },
-      { change: 'symbol', token: { ...mockTokenC, symbol: 'CC2' } },
-      { change: 'logo', token: { ...mockTokenC, logoSymbol: 'ETH' } }
+      { change: 'symbol', token: { ...mockTokenC, symbol: 'CC2' } }
     ])('resets a selected third-token draft after its $change changes', ({ token }) => {
       const { rerender } = renderFlow();
       selectThirdOffer();
@@ -1526,7 +1903,7 @@ describe('SwapFlow / SwapManager', () => {
     });
 
     it('resets an idle draft when the default pair changes within stable effective tokens', () => {
-      const nativeToken = { ...mockTokenC, symbol: 'MIDEN', logoSymbol: 'MIDEN' };
+      const nativeToken = { ...mockTokenC, symbol: 'MIDEN' };
       mockGetSwapTokens.mockReturnValue([nativeToken, mockTokenA, mockTokenB]);
       mockDefaultPairOverride = { offer: mockTokenA, request: mockTokenB };
       const { rerender } = renderFlow();
@@ -1759,6 +2136,9 @@ describe('SwapFlow / SwapManager', () => {
       mockFormatBigInt.mockImplementation((amount, decimals) => String(Number(amount) / 10 ** decimals));
       mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 20n, {}, { offeredAmount: 5n }) };
       mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 1 }, { ...mockTokenB, decimals: 1 }, mockTokenC]);
+      mockWalletState.tokenPrices = {
+        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
+      };
       renderFlow();
       setOffer('0.5');
       setRequest('3');
@@ -1945,6 +2325,7 @@ describe('SwapFlow / SwapManager', () => {
 
   it('navigates to the review step from the amounts CTA', () => {
     renderFlow();
+    setOffer('10');
     fireEvent.click(screen.getByTestId('sa-confirm'));
     expect(mockNav.navigateTo).toHaveBeenCalledWith('ReviewSwap');
   });
@@ -2703,6 +3084,23 @@ describe('SwapFlow / SwapManager', () => {
   describe('an open spending-limit challenge holds the review still', () => {
     const breach = breachAssessment();
 
+    const authorizeAfterMinimumQuoteChanges = async (price: number, observedAt: number, expectedError: string) => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breach);
+      renderFlow();
+      setOffer('10');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+      mockWalletState.tokenPrices = {
+        AAA: { price, change24h: 0, percentageChange24h: 0, observedAt, kind: 'market' as const }
+      };
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent(expectedError);
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    };
+
     const openChallengeThenMoveMarket = async () => {
       mockWalletState.assessSpendingLimit.mockResolvedValue(breach);
       const view = renderFlow();
@@ -2715,6 +3113,16 @@ describe('SwapFlow / SwapManager', () => {
       view.rerender(<SwapFlow />);
       return view;
     };
+
+    it('rechecks the offer minimum when spending-limit authorization follows a price drop', async () => {
+      expect.assertions(4);
+      await authorizeAfterMinimumQuoteChanges(0.09, Date.now(), 'swapBelowMinimum');
+    });
+
+    it('reports an unavailable minimum when the quote expires during spending-limit authorization', async () => {
+      expect.assertions(4);
+      await authorizeAfterMinimumQuoteChanges(1, Date.now() - USD_QUOTE_MAX_AGE_MS - 1, 'swapMinimumPriceUnavailable');
+    });
 
     it('sends the amount the press reviewed when the challenge is approved after the market moves', async () => {
       await openChallengeThenMoveMarket();
@@ -2837,6 +3245,115 @@ describe('SwapFlow / SwapManager', () => {
         mockWalletState.assessSpendingLimit.mock.invocationCallOrder[0]!
       );
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true, 5);
+    });
+
+    it('requires renewed Command review when a partial fill becomes settlement-delayed at the same price', async () => {
+      mockRealSwapDisplays = true;
+      mockNav.cardStack = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+      const reviewed = quoteAt('2', 5n, { fillStatus: 'partial', reason: null, estimatedSeconds: 60 });
+      const delayed = quoteAt('2', 5n, {
+        fillStatus: 'partial',
+        reason: null,
+        estimatedSeconds: 60,
+        settlementsRunning: false
+      });
+      mockSwapQuoteResult = { loading: false, quote: reviewed };
+      render(
+        <FlowPresentationProvider value="command">
+          <SwapFlow />
+        </FlowPresentationProvider>
+      );
+      setOffer('10');
+      expect(screen.getByTestId('swap-verdict-row')).toHaveTextContent('swapVerdictPartial');
+      quoteNowAnswers(delayed);
+
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceMoved');
+      expect(screen.getByTestId('swap-verdict-row')).toHaveTextContent('swapVerdictSettlementDelayed');
+      expect(mockVaultPreflight).not.toHaveBeenCalled();
+      expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(mockConfirmSensitive).not.toHaveBeenCalled();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockVaultPreflight).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true, 5);
+    });
+
+    it('keeps a Command partial review valid when only invisible solver quantities and timestamps change', async () => {
+      mockRealSwapDisplays = true;
+      const reviewed = quoteAt('2', 5n, {
+        fillStatus: 'partial',
+        reason: null,
+        estimatedSeconds: 120,
+        fillableRequestedAmount: '2'
+      });
+      const fresh = {
+        ...quoteAt('2', 5n, {
+          fillStatus: 'partial',
+          reason: null,
+          estimatedSeconds: 121,
+          median24hSeconds: 500,
+          fillableRequestedAmount: '3'
+        }),
+        fetchedAt: 123
+      };
+      mockSwapQuoteResult = { loading: false, quote: reviewed };
+      render(
+        <FlowPresentationProvider value="command">
+          <SwapFlow />
+        </FlowPresentationProvider>
+      );
+      setOffer('10');
+      expect(screen.getByTestId('swap-verdict-row')).toHaveTextContent('swapVerdictPartial');
+      expect(screen.getByTestId('swap-fills-in-row')).toHaveTextContent('swapEtaMinutes');
+      quoteNowAnswers(fresh);
+
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('rs-submit-error')).toBeEmptyDOMElement();
+      expect(mockVaultPreflight).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps an advisory settlement delay eligible in compact Swap', async () => {
+      quoteNowAnswers(quoteAt('2', 5n, { fillStatus: 'partial', reason: null, settlementsRunning: false }));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
+    });
+
+    it('rechecks the offer minimum after the fresh quote resolves', async () => {
+      let resolveQuote!: (quote: NonNullable<typeof mockSwapQuoteResult.quote>) => void;
+      mockQuoteNow.mockImplementationOnce(
+        () =>
+          new Promise<NonNullable<typeof mockSwapQuoteResult.quote>>(resolve => {
+            resolveQuote = resolve;
+          })
+      );
+      renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      expect(screen.getByTestId('rs-submit-error')).toBeEmptyDOMElement();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+        await Promise.resolve();
+      });
+
+      expect(mockQuoteNow).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toBeEmptyDOMElement();
+      mockWalletState.tokenPrices = {
+        AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
+      };
+
+      await act(async () => resolveQuote(mockSwapQuoteResult.quote!));
+
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapBelowMinimum');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
     });
 
     it('refuses an ask the price has moved past, shows the fresh quote and rebuilds the wallet-built amount', async () => {

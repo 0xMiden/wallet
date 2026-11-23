@@ -1,5 +1,7 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { TxAssetView } from 'app/confirm/decode';
+import type { NoteFlow } from 'app/confirm/note-flow';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -12,6 +14,7 @@ import type {
   SpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
@@ -49,6 +52,8 @@ export interface WalletSlice {
 export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
   balancesLoading: Record<string, boolean>;
+  balanceReadFailed: Record<string, boolean>;
+  balanceReadInFlight: Record<string, boolean>;
   balancesLastFetched: Record<string, number>;
   /**
    * The display faucet id each account's last landed read built its MIDEN row for. No override
@@ -141,6 +146,9 @@ export interface NoteToastSlice {
   noteToastShownAt: number | null;
 }
 
+/** A refresh after an acknowledged create-account or seed removal. */
+export type PostActionRefreshOutcome = 'synced' | 'pending';
+
 /**
  * Actions for wallet mutations
  */
@@ -169,12 +177,13 @@ export interface WalletActions {
     importedAccounts: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
+  platformUnlock: (command: PlatformUnlockCommand) => Promise<PlatformUnlockResult>;
 
   // Account actions
-  createAccount: (walletType: WalletType, name?: string) => Promise<void>;
+  createAccount: (walletType: WalletType, name?: string) => Promise<PostActionRefreshOutcome>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
-  removeSeedPhrase: (password?: string) => Promise<void>;
+  removeSeedPhrase: (password?: string) => Promise<PostActionRefreshOutcome>;
   provideRecoverySeed: (transactionId: string, mnemonic: string, action: GuardianRecoveryAction) => Promise<void>;
   prepareRecoveryTransaction: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization: (transactionId: string) => Promise<void>;
@@ -201,7 +210,6 @@ export interface WalletActions {
   verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
 
   // Signing actions
-  signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
@@ -241,7 +249,8 @@ export interface WalletActions {
 
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
-  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; executedBytes?: string; error?: string }>;
+  /** The background's dry run of a dApp custom request, decoded there; amounts back as bigints. */
+  simulateCustomTransaction: (id: string) => Promise<{ view?: TxAssetView; noteFlow?: NoteFlow; error?: string }>;
   /** Native-asset base units a USDCx burn needs for its cost, from a dry run, or why it was not measured. */
   estimateUsdcxBurnFee: (accountPublicKey: string, destinationChainId: number) => Promise<UsdcxBurnFeeEstimate>;
   confirmDAppPermission: (
@@ -278,7 +287,10 @@ export interface WalletActions {
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
-  /** Drops every address's balances, loading flag and last fetch, so each reader waits for a new read. */
+  /**
+   * Drops every address's balances, loading flag, last fetch, balanceReadFailed and balanceReadInFlight,
+   * so each reader waits for a new read.
+   */
   clearBalances: () => void;
 }
 

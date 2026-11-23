@@ -3,6 +3,7 @@ import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { useForm } from 'react-hook-form';
+import { v4 as uuid } from 'uuid';
 import * as yup from 'yup';
 
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
@@ -10,6 +11,7 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
@@ -27,11 +29,17 @@ import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import {
+  snapshotRecipientValidation,
+  validateUiEvidence,
+  type RecipientValidationStage
+} from 'lib/telemetry/ui-producer-diagnostics';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
 import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
+import { useOptionalCommandDrafts, type CommandDrafts } from 'screens/command/command-drafts';
 import {
   detectAddressChain,
   isValidEthereumAddress,
@@ -53,13 +61,15 @@ import {
   sendBridgeNetworks,
   usdcxBridgeNetworks
 } from './bridge-networks';
+import { CommandSendComposer } from './CommandSendComposer';
 import { ScanQrDrawer } from './ScanQrDrawer';
-import { SelectRecipient } from './SelectRecipient';
+import { SelectRecipient, type SelectRecipientProps } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
-import { consumeSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { consumeSendDraft, setSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
-import { SendAmount } from './SendAmount';
-import { SendRoute } from './SendRoute';
+import { canSendTokenToChain, sendTokenRoutes } from './send-token-routes';
+import { SendAmount, type SendAmountProps } from './SendAmount';
+import { SendRoute, type SendRouteProps } from './SendRoute';
 import {
   BridgeRoute,
   Contact,
@@ -73,6 +83,7 @@ import {
 import { sameUIToken, uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
 import { useRecentRecipients } from './useRecentRecipients';
+import { useSendRouteEligibility } from './useSendRouteEligibility';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
@@ -113,7 +124,7 @@ export interface SendManagerProps {
   isLoading: boolean;
   preselectedTokenId?: string | null;
   /** Values restored when the user backs out of the full-screen review page. */
-  draft?: SendDraft | null;
+  draft?: CommandDrafts['send'] | null;
   /** Recipient handed over by a contact's page, with its saved network for a `0x` contact. */
   preselectedRecipient?: string | null;
   preselectedNetwork?: string | null;
@@ -127,6 +138,18 @@ export const SendManager: React.FC<SendManagerProps> = ({
   preselectedNetwork
 }) => {
   const { navigateTo, goBack, cardStack } = useNavigator();
+  const command = useFlowPresentation() === 'command';
+  const commandDrafts = useOptionalCommandDrafts();
+  const restoredSendIntent = draft?.reviewId
+    ? JSON.stringify([
+        draft.reviewId,
+        draft.amount,
+        draft.recipientAddress,
+        draft.tokenId,
+        draft.bridgeNetwork,
+        draft.bridgeRoute
+      ])
+    : undefined;
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
@@ -136,6 +159,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // Token picker is a bottom sheet over the Amount step, not a Navigator step.
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+  const tokenAnchorRef = useRef<HTMLButtonElement>(null);
   // Contact picker is likewise a bottom sheet over the recipient step.
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
@@ -331,6 +355,25 @@ export const SendManager: React.FC<SendManagerProps> = ({
     register('bridgeRoute');
   }, [register]);
 
+  const saveCommandDraft = useCallback(
+    (changes: Partial<CommandDrafts['send']>) => {
+      const admission = commandDrafts?.readSendAdmission();
+      if (!commandDrafts || (admission && (admission.status === 'pending' || admission.intent === restoredSendIntent)))
+        return;
+      const previous = commandDrafts.readDraft('send');
+      commandDrafts.writeDraft('send', {
+        ...previous,
+        amount: getValues('amount') ?? '',
+        recipientAddress: getValues('recipientAddress') ?? '',
+        tokenId: getValues('token')?.id ?? previous?.tokenId ?? '',
+        bridgeNetwork: getValues('bridgeNetwork'),
+        bridgeRoute: getValues('bridgeRoute'),
+        ...changes
+      });
+    },
+    [commandDrafts, getValues, restoredSendIntent]
+  );
+
   const amount = watch('amount');
   const recipientAddress = watch('recipientAddress');
   const token = watch('token');
@@ -346,6 +389,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       : 'miden'
     : recipientNetwork;
   const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const destinationChainId = offeredNetworks.find(network => network.id === displayedNetwork)?.chainId;
   const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
@@ -394,11 +438,36 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
   }, [token, amount]);
 
-  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id);
+  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id, destinationChainId);
+  const routeEligibility = useSendRouteEligibility(
+    token?.id ?? '',
+    destinationChainId,
+    bridgeRoute ?? 'epoch',
+    usdcxAvailable,
+    pathname === '/send' && isBridge && (command || currentStep === SendFlowStep.Route)
+  );
+  // Set while the effect below, not the user, moved the route off Epoch, so it can move back once Epoch recovers.
+  const routeMovedOffEpochRef = useRef(false);
   useEffect(() => {
     if (usdcxAvailable && bridgeRoute !== 'usdcx') setValue('bridgeRoute', 'usdcx');
-    if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
-  }, [usdcxAvailable, bridgeRoute, setValue]);
+    if (!usdcxAvailable && bridgeRoute === 'usdcx' && destinationChainId === undefined) {
+      setValue('bridgeRoute', 'epoch');
+    }
+    if (!usdcxAvailable && token && destinationChainId !== undefined) {
+      const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
+      const selected = bridgeRoute ?? 'epoch';
+      if (routeMovedOffEpochRef.current && selected === 'agglayer' && routes.epoch) {
+        routeMovedOffEpochRef.current = false;
+        setValue('bridgeRoute', 'epoch');
+        return;
+      }
+      const nextRoute = routes.epoch ? 'epoch' : 'agglayer';
+      if (routes[nextRoute] && !routes[selected] && (!command || selected !== 'usdcx')) {
+        routeMovedOffEpochRef.current = nextRoute === 'agglayer';
+        setValue('bridgeRoute', nextRoute);
+      }
+    }
+  }, [usdcxAvailable, bridgeRoute, setValue, token, destinationChainId, bridgeConfig, command]);
 
   // The destination chain of a USDCx burn, or undefined when this send is not one.
   const usdcxChainId = useMemo(
@@ -489,7 +558,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const tokenScope = `${publicKey}:${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
   const previousTokenScopeRef = useRef(tokenScope);
   const automaticTokenIdRef = useRef<string | null>(null);
-  const defaultCandidates = useMemo(() => {
+  // The held tokens a send could spend, before the destination's routes are applied.
+  const sendableHoldings = useMemo(() => {
     if (isLoading || balancesLoading || !hiddenTokensLoaded || !publicKey || !balanceData) return [];
     if (hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee)) return [];
     return balanceData.filter(row => {
@@ -499,7 +569,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
         isNewTransferTokenHeld(bridgeConfig, row.tokenId, nativeFaucetId)
       )
         return false;
-      if (usdcxOnly && !isUsdcxWithdrawalAvailable(row.tokenId)) return false;
       const available =
         row.tokenId === nativeFaucetId
           ? maxSendableNative(row.balance, verificationBaseFee, row.metadata.decimals)
@@ -515,9 +584,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     nativeFaucetId,
     verificationBaseFee,
     isHidden,
-    usdcxOnly,
     bridgeConfig
   ]);
+  const defaultCandidates = useMemo(
+    () => sendableHoldings.filter(row => canSendTokenToChain(bridgeConfig, row.tokenId, destinationChainId)),
+    [sendableHoldings, bridgeConfig, destinationChainId]
+  );
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
   // Rebuilding the whole token lets a placeholder scale recover once the real metadata lands.
@@ -538,7 +610,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       const held = draft
         ? isRetiredTransferToken(bridgeConfig, preselectedTokenId, nativeFaucetId)
         : isNewTransferTokenHeld(bridgeConfig, preselectedTokenId, nativeFaucetId);
-      if (match && !held) {
+      if (match && !held && canSendTokenToChain(bridgeConfig, preselectedTokenId, destinationChainId)) {
         appliedPreselectionRef.current = preselectedTokenId;
         automaticTokenIdRef.current = null;
         setValue('token', uiTokenFromBalance(match, tokenPrices));
@@ -562,7 +634,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
       !isLoading &&
       !balancesLoading &&
       hiddenTokensLoaded &&
-      !defaultCandidates.some(row => row.tokenId === current?.id)
+      // Holdings, not route-filtered candidates: a route the destination loses clears the token only through the
+      // destination check below, so a config refresh alone keeps it.
+      !sendableHoldings.some(row => row.tokenId === current?.id)
     ) {
       automaticTokenIdRef.current = null;
       setValue('token', undefined);
@@ -604,6 +678,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     isLoading,
     hiddenTokensLoaded,
     defaultCandidates,
+    sendableHoldings,
     balanceData,
     balancesLoading,
     tokenPrices,
@@ -611,7 +686,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     nativeFaucetId,
     setValue,
     getValues,
-    bridgeConfig
+    bridgeConfig,
+    destinationChainId
   ]);
 
   // Only the token Continue would send: the chosen one, else a link not yet applied. The picker explains the rows it
@@ -621,10 +697,21 @@ export const SendManager: React.FC<SendManagerProps> = ({
     isNewTransferTokenHeld(bridgeConfig, sendingTokenId, nativeFaucetId) &&
     !isRetiredTransferToken(bridgeConfig, sendingTokenId, nativeFaucetId);
 
-  // Clear a token that the selected destination cannot receive.
+  // Clear a token that the selected destination cannot receive. Only a new destination or a new token clears it: a
+  // config refresh whose read failed for a moment keeps the user's token and amount, and Continue stays blocked.
+  const checkedSelectionRef = useRef<{ chainId?: number; tokenId?: string }>({});
   useEffect(() => {
-    if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
-  }, [usdcxOnly, token, usdcxAvailable, setValue]);
+    const checked = checkedSelectionRef.current;
+    // A destination the config stops offering for a moment reads as no destination; it is not a new one, so its return
+    // is not a change either.
+    const chainId = destinationChainId ?? checked.chainId;
+    if (checked.chainId === chainId && checked.tokenId === token?.id) return;
+    checkedSelectionRef.current = { chainId, tokenId: token?.id };
+    if (token && !canSendTokenToChain(bridgeConfig, token.id, destinationChainId)) {
+      setValue('token', undefined);
+      setValue('amount', '');
+    }
+  }, [bridgeConfig, destinationChainId, token, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -757,8 +844,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
       automaticTokenIdRef.current = null;
       appliedPreselectionRef.current = preselectedTokenId ?? null;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } });
+      saveCommandDraft({ tokenId: selectedToken.id });
     },
-    [preselectedTokenId, onAction]
+    [preselectedTokenId, onAction, saveCommandDraft]
   );
 
   // Hand off to the full-screen review page, which owns the transaction
@@ -768,8 +856,49 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A cross-chain send carries its network + route along, so the review page
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
-    if (!token || !amount || !recipientAddress || isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId))
+    if (reviewHandoffRef.current) return;
+    const admission = commandDrafts?.readSendAdmission();
+    if (command && admission?.status === 'admitted' && admission.intent === restoredSendIntent && admission.txId) {
+      reviewHandoffRef.current = true;
+      navigate(`/generating-transaction-full/${encodeURIComponent(admission.txId)}`);
       return;
+    }
+    if (commandDrafts && admission?.status === 'pending') {
+      const original = commandDrafts.readDraft('send');
+      if (!original?.reviewId) return;
+      reviewHandoffRef.current = true;
+      const params = new URLSearchParams({
+        amount: original.amount,
+        to: original.recipientAddress,
+        tokenId: original.tokenId,
+        commandReviewId: original.reviewId
+      });
+      if (original.bridgeNetwork) params.set('network', original.bridgeNetwork);
+      if (original.bridgeRoute) params.set('route', original.bridgeRoute);
+      navigate(`/send/review?${params.toString()}`);
+      return;
+    }
+    if (
+      !token ||
+      !amount ||
+      !recipientAddress ||
+      (command &&
+        (!isValidRecipient ||
+          !!errors.amount ||
+          !!payoutFeeShortfall ||
+          !validations.amount.isValidSync(amount) ||
+          !token.scaleIsKnown ||
+          typedAmountExceedsBalance(amount, spendableBalance, token.decimals) ||
+          (isBridge && destinationChainId === undefined))) ||
+      isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
+      !canSendTokenToChain(bridgeConfig, token.id, destinationChainId) ||
+      (isBridge && routeEligibility.blocked)
+    )
+      return;
+    if (isBridge && destinationChainId !== undefined) {
+      const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
+      if (!routes[bridgeRoute ?? 'epoch']) return;
+    }
     // Precision is decided before the balance comparison, and the typed string is left unchanged.
     if (amountExceedsTokenDecimals(amount, token.decimals)) {
       setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
@@ -785,14 +914,20 @@ export const SendManager: React.FC<SendManagerProps> = ({
       return;
     }
     reviewHandoffRef.current = true;
-    setSendDraft({
+    // A route the user confirmed is theirs: a later Epoch recovery no longer moves it, as for a restored draft.
+    routeMovedOffEpochRef.current = false;
+    const reviewDraft = {
       amount,
       recipientAddress,
       tokenId: token.id,
       bridgeNetwork: isBridge ? bridgeNetwork : undefined,
       bridgeRoute: isBridge ? bridgeRoute : undefined
-    });
+    };
+    const commandReviewId = command ? uuid() : undefined;
+    if (command) saveCommandDraft({ ...reviewDraft, reviewId: commandReviewId });
+    else setSendDraft(reviewDraft);
     const params = new URLSearchParams({ amount, to: recipientAddress, tokenId: token.id });
+    if (commandReviewId) params.set('commandReviewId', commandReviewId);
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);
@@ -811,7 +946,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
     currentStep,
     goBack,
     bridgeConfig,
-    nativeFaucetId
+    nativeFaucetId,
+    destinationChainId,
+    isValidRecipient,
+    errors.amount,
+    payoutFeeShortfall,
+    command,
+    commandDrafts,
+    restoredSendIntent,
+    saveCommandDraft,
+    routeEligibility.blocked
   ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
@@ -826,9 +970,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   const onRouteChange = useCallback(
     (route: BridgeRoute) => {
+      routeMovedOffEpochRef.current = false;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeRoute: route } });
+      saveCommandDraft({ bridgeRoute: route });
     },
-    [onAction]
+    [onAction, saveCommandDraft]
   );
 
   // Chain-aware address validation: 0x → Ethereum (hex + EIP-55), otherwise a
@@ -836,23 +982,23 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // chain, and a well-formed address for a different Miden network gets its own
   // message instead of failing later in the transaction pipeline.
   const recipientErrorKey = useCallback(
-    (raw: string): string | null => {
+    (raw: string): { key: string; stage?: RecipientValidationStage } | null => {
       const trimmed = raw.trim();
       if (!trimmed) return null;
       if (detectAddressChain(trimmed) === 'ethereum') {
-        return isValidEthereumAddress(trimmed) ? null : 'invalidEthereumAddress';
+        return isValidEthereumAddress(trimmed) ? null : { key: 'invalidEthereumAddress' };
       }
       // Self-send guard: a P2IDE to yourself consumes through the kernel's
       // target branch, so recall semantics are meaningless and auto-consume
       // would claim it right back. Block it at entry, before the decode check —
       // it's the more specific message for the account's own address.
-      if (sameWalletAccountId(trimmed, publicKey)) return 'cannotSendToSelf';
+      if (sameWalletAccountId(trimmed, publicKey)) return { key: 'cannotSendToSelf' };
       try {
         isValidMidenAddress(trimmed);
       } catch (error) {
         return error instanceof MidenAddressError && error.reason === 'wrong-network'
-          ? 'midenAddressWrongNetwork'
-          : 'invalidMidenAccountId';
+          ? { key: 'midenAddressWrongNetwork' }
+          : { key: 'invalidMidenAccountId', stage: snapshotRecipientValidation(error) ?? 'validator_exception' };
       }
       return null;
     },
@@ -861,9 +1007,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   const applyRecipientValidation = useCallback(
     (address: string) => {
-      const errorKey = recipientErrorKey(address);
-      if (errorKey) {
-        setError('recipientAddress', { type: 'manual', message: errorKey });
+      const result = recipientErrorKey(address);
+      if (result) {
+        setError('recipientAddress', {
+          type: 'manual',
+          message: result.key,
+          types: result.stage ? { recipientValidationStage: result.stage } : {}
+        });
       } else {
         clearErrors('recipientAddress');
       }
@@ -871,37 +1021,32 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [recipientErrorKey, setError, clearErrors]
   );
 
-  const onAddressChange = useCallback(
-    (event: ChangeEvent<HTMLTextAreaElement>) => {
-      const address = event.target.value;
-      onAction({
-        id: SendFlowActionId.SetFormValues,
-        payload: { recipientAddress: address }
-      });
-      applyRecipientValidation(address);
-    },
-    [onAction, applyRecipientValidation]
-  );
-
-  // Apply a scanned recipient address. Shared by the mobile native scanner and
-  // the extension webcam drawer so both go through the same validation — scanning
-  // your own receive QR is the easy way to self-send, and a QR from another
-  // network's wallet should surface the wrong-network message here.
-  const applyScannedAddress = useCallback(
+  const setRecipientAddress = useCallback(
     (address: string) => {
       onAction({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
       applyRecipientValidation(address);
+      saveCommandDraft({ recipientAddress: address, bridgeNetwork: undefined, bridgeRoute: 'epoch' });
     },
-    [onAction, applyRecipientValidation]
+    [onAction, applyRecipientValidation, saveCommandDraft]
   );
+  const onAddressChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => setRecipientAddress(event.target.value),
+    [setRecipientAddress]
+  );
+
+  // Apply a scanned recipient address. Shared by the mobile native scanner and
+  // the extension webcam drawer so both go through the same validation — scanning
+  // your own receive QR is the easy way to self-send, and a QR from another
+  // network's wallet should surface the wrong-network message here.
+  const applyScannedAddress = useCallback((address: string) => setRecipientAddress(address), [setRecipientAddress]);
 
   // Surface a scan error (from either scan path) on the recipient field.
   const applyScanError = useCallback(
     (errorKey: string) => {
-      setError('recipientAddress', { type: 'manual', message: errorKey });
+      setError('recipientAddress', { type: 'manual', message: errorKey, types: {} });
     },
     [setError]
   );
@@ -951,8 +1096,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
       if (contact.network) setRecipientNetwork(contact.network);
       // A saved contact can be the account's own address — same guard as typed entry.
       applyRecipientValidation(contact.id);
+      saveCommandDraft({ recipientAddress: contact.id, bridgeNetwork: contact.network, bridgeRoute: 'epoch' });
     },
-    [onAction, applyRecipientValidation]
+    [onAction, applyRecipientValidation, saveCommandDraft]
   );
 
   // Opened from a contact's page (`/send?to=…&network=…`): start with that contact as the recipient.
@@ -967,6 +1113,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     });
     if (network) setRecipientNetwork(network);
     applyRecipientValidation(preselectedRecipient);
+    saveCommandDraft({ recipientAddress: preselectedRecipient, bridgeNetwork: network });
     // Once per contact opened, not on every change of the callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preselectedRecipient, preselectedNetwork]);
@@ -976,8 +1123,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     (network: BridgeNetworkId) => {
       setRecipientNetwork(network);
       onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: network } });
+      saveCommandDraft({ bridgeNetwork: network });
     },
-    [onAction]
+    [onAction, saveCommandDraft]
   );
 
   // Keep an offered destination the user chose. Select the effective network's default when there is none, or when a
@@ -993,13 +1141,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
     (recipient: RecentRecipient) => {
-      onAction({
-        id: SendFlowActionId.SetFormValues,
-        payload: { recipientAddress: recipient.address }
-      });
-      applyRecipientValidation(recipient.address);
+      setRecipientAddress(recipient.address);
     },
-    [onAction, applyRecipientValidation]
+    [setRecipientAddress]
   );
 
   const onAmountChange = useCallback(
@@ -1008,6 +1152,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         id: SendFlowActionId.SetFormValues,
         payload: { amount: amountString }
       });
+      saveCommandDraft({ amount: amountString });
 
       if (!validations.amount.isValidSync(amountString)) {
         setError('amount', { type: 'manual', message: 'invalidAmount' });
@@ -1037,6 +1182,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     },
     [
       onAction,
+      saveCommandDraft,
       token,
       setError,
       clearErrors,
@@ -1062,123 +1208,98 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  const renderStep = useCallback(
-    (route: Route) => {
-      switch (route.name) {
-        case SendFlowStep.SelectRecipient:
-          return (
-            <SelectRecipient
-              networks={offeredNetworks}
-              address={recipientAddress || ''}
-              isValidAddress={isValidRecipient}
-              error={errors.recipientAddress?.message?.toString()}
-              chain={chain}
-              network={displayedNetwork}
-              recipientName={selectedContact?.name}
-              recents={recents}
-              canAddContact={canAddContact}
-              onAddressChange={onAddressChange}
-              onAddressBook={() => setShowContactsDrawer(true)}
-              onAddContact={() => setShowAddContactDrawer(true)}
-              onSelectRecent={onSelectRecent}
-              onSelectNetwork={onSelectNetwork}
-              onScan={isScanAvailable() ? onScan : undefined}
-              onPaste={isMobile() ? onPaste : undefined}
-              onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
-            />
-          );
-        case SendFlowStep.SelectAmount:
-          return (
-            <SendAmount
-              token={spendableToken}
-              amount={amount || ''}
-              isValidAmount={!errors.amount && !payoutFeeShortfall && validations.amount.isValidSync(amount)}
-              error={errors.amount?.message?.toString() ?? (payoutFeeShortfall && 'usdcxSendMoreThanPayoutFee')}
-              errorValues={errors.amount ? undefined : payoutFeeShortfall}
-              recipientAddress={recipientAddress || ''}
-              recipientName={selectedContact?.name}
-              network={displayedNetwork}
-              maxDisabled={burnFeeUnmeasured}
-              tokenHeld={tokenHeld}
-              onAmountChange={onAmountChange}
-              onSelectToken={() => setShowTokenDrawer(true)}
-              onReceive={onReceive}
-              onBack={onStepBack}
-              onConfirm={onConfirmAmount}
-            />
-          );
-        case SendFlowStep.Route:
-          return (
-            <SendRoute
-              destinationChainId={getBridgeNetwork(bridgeNetwork)?.chainId}
-              usdcxAvailable={usdcxAvailable}
-              usdcxPayout={usdcxPayout}
-              faucetId={spendableToken?.id ?? ''}
-              route={bridgeRoute ?? 'epoch'}
-              onRouteChange={onRouteChange}
-              fastFeeUsd={fastFeeUsd}
-              fastQuoteLoading={epochQuote.loading}
-              onBack={onStepBack}
-              onConfirm={goToReview}
-            />
-          );
-        default:
-          return <></>;
-      }
-    },
-    [
-      // Rendered as the Amount step's quoted balance. Omitted, the step keeps the
-      // first-render cap -- the full balance, before the fee resolved. `token` itself
-      // is no longer a dependency: it reaches the render only through this value.
-      spendableToken,
-      bridgeNetwork,
-      recipientAddress,
-      isValidRecipient,
-      recents,
-      canAddContact,
-      onSelectRecent,
-      onPaste,
-      errors.recipientAddress,
-      errors.amount,
-      payoutFeeShortfall,
-      burnFeeUnmeasured,
-      tokenHeld,
-      onAddressChange,
-      onScan,
-      amount,
-      onAmountChange,
-      goToStep,
-      onConfirmAmount,
-      onStepBack,
-      onSelectNetwork,
-      onReceive,
-      chain,
-      displayedNetwork,
-      offeredNetworks,
-      selectedContact?.name,
-      bridgeRoute,
-      usdcxAvailable,
-      usdcxPayout,
-      onRouteChange,
-      fastFeeUsd,
-      epochQuote.loading,
-      goToReview
-    ]
-  );
+  const recipientProps: SelectRecipientProps = {
+    networks: offeredNetworks,
+    address: recipientAddress || '',
+    isValidAddress: isValidRecipient,
+    error: errors.recipientAddress?.message?.toString(),
+    errorDiagnostics: validateUiEvidence(errors.recipientAddress?.message, 'inline', {
+      kind: 'recipient_validation',
+      recipientValidationStage: errors.recipientAddress?.types?.recipientValidationStage
+    }),
+    chain,
+    network: displayedNetwork,
+    recipientName: selectedContact?.name,
+    recents,
+    canAddContact,
+    onAddressChange,
+    onAddressBook: () => setShowContactsDrawer(true),
+    onAddContact: () => setShowAddContactDrawer(true),
+    onSelectRecent,
+    onSelectNetwork,
+    onScan: isScanAvailable() ? onScan : undefined,
+    onPaste: isMobile() ? onPaste : undefined,
+    onConfirm: () => goToStep(SendFlowStep.SelectAmount)
+  };
+  const amountProps: SendAmountProps = {
+    token: spendableToken,
+    amount: amount || '',
+    isValidAmount: !errors.amount && !payoutFeeShortfall && validations.amount.isValidSync(amount),
+    error: errors.amount?.message?.toString() ?? (payoutFeeShortfall ? 'usdcxSendMoreThanPayoutFee' : undefined),
+    errorValues: errors.amount ? undefined : payoutFeeShortfall,
+    errorDiagnostics: validateUiEvidence(errors.amount?.message, 'field', {
+      kind: 'burn_fee',
+      burnFeeFailure: burnFee.failure
+    }),
+    recipientAddress: recipientAddress || '',
+    recipientName: selectedContact?.name,
+    network: displayedNetwork,
+    maxDisabled: burnFeeUnmeasured,
+    tokenHeld,
+    onAmountChange,
+    onSelectToken: () => setShowTokenDrawer(true),
+    tokenAnchorRef: command ? tokenAnchorRef : undefined,
+    onReceive,
+    onBack: onStepBack,
+    onConfirm: onConfirmAmount
+  };
+  const routeProps: SendRouteProps = {
+    eligibility: routeEligibility,
+    usdcxAvailable,
+    usdcxPayout,
+    route: bridgeRoute ?? 'epoch',
+    onRouteChange,
+    fastFeeUsd,
+    fastQuoteLoading: epochQuote.loading,
+    onBack: onStepBack,
+    onConfirm: goToReview
+  };
 
-  return (
-    // The shared home-group pane box. SendManager is rendered inside TabLayout >
-    // HomeSwipeContainer and inherits its size from that chain: hardcoded heights
-    // (h-[600px]/h-[640px]) overflow the parent, which loses ~50px to the top action bar, and
-    // clip the bottom CTA.
-    <HomeGroupPaneRoot testId="send-flow">
-      <Navigator renderRoute={renderStep} />
+  const renderStep = (route: Route) => {
+    switch (route.name) {
+      case SendFlowStep.SelectRecipient:
+        return <SelectRecipient {...recipientProps} />;
+      case SendFlowStep.SelectAmount:
+        return <SendAmount {...amountProps} />;
+      case SendFlowStep.Route:
+        return <SendRoute {...routeProps} />;
+      default:
+        return <></>;
+    }
+  };
+
+  const content = (
+    <>
+      {command ? (
+        <CommandSendComposer
+          recipient={recipientProps}
+          onRecipientChange={setRecipientAddress}
+          amount={amountProps}
+          onReview={goToReview}
+          routeBlocked={isBridge && routeEligibility.blocked}
+          route={isBridge ? <SendRoute {...routeProps} embedded /> : null}
+        />
+      ) : (
+        <Navigator renderRoute={renderStep} />
+      )}
 
       <SelectTokenDrawer
         open={showTokenDrawer}
         onOpenChange={setShowTokenDrawer}
+        anchorRef={command ? tokenAnchorRef : undefined}
         onSelect={onSelectToken}
         usdcxOnly={usdcxOnly}
+        destinationChainId={destinationChainId}
       />
 
       <AccountsListDrawer
@@ -1203,7 +1324,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
         onDetected={applyScannedAddress}
         onError={applyScanError}
       />
-    </HomeGroupPaneRoot>
+    </>
+  );
+  // Compact owns the home pane frame; Command's workbench already supplies its only frame.
+  return command ? (
+    <div data-testid="send-flow">{content}</div>
+  ) : (
+    <HomeGroupPaneRoot testId="send-flow">{content}</HomeGroupPaneRoot>
   );
 };
 
@@ -1212,7 +1339,8 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   // One-shot: a draft exists only when the user backed out of /send/review.
   // Restore their values and reopen on the Amount step; the token restores
   // through the preselect effect via its id.
-  const [draft] = useState(consumeSendDraft);
+  const commandDrafts = useOptionalCommandDrafts();
+  const [draft] = useState(() => (commandDrafts ? (commandDrafts.readDraft('send') ?? null) : consumeSendDraft()));
   const params = new URLSearchParams(search);
   const preselectedTokenId = draft?.tokenId ?? params.get('tokenId');
   // A restored draft already carries its recipient.

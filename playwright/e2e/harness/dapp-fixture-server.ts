@@ -112,14 +112,14 @@ export function fixtureDapp(id: string): FixtureDapp {
  * track the VISUAL viewport exactly, so a stale layout shows up as a
  * wrong-sized colour block rather than being masked by the body stretching.
  */
-function pageHtml(dapp: FixtureDapp): string {
+function pageHtml(dapp: FixtureDapp, fullscreen: boolean): string {
   const [r, g, b] = dapp.rgb;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>${dapp.name}</title>
+${fullscreen ? '<meta name="bread-display" content="fullscreen">\n' : ''}<title>${dapp.name}</title>
 <style>
   html, body { margin: 0; padding: 0; background: rgb(${r}, ${g}, ${b}); }
   #fill {
@@ -244,6 +244,8 @@ export interface StartFixtureServerOpts {
   deviceHost: string;
   /** Fixed port, or 0 for an ephemeral one (default). */
   port?: number;
+  /** Opt into the real native capsule for gesture acceptance; ordinary fixtures stay in browser mode. */
+  fullscreen?: boolean;
 }
 
 export async function startDappFixtureServer(opts: StartFixtureServerOpts): Promise<DappFixtureServer> {
@@ -301,7 +303,7 @@ export async function startDappFixtureServer(opts: StartFixtureServerOpts): Prom
         // Every open must be a real load, not a cache replay — the suite counts loads.
         'cache-control': 'no-store, no-cache, must-revalidate'
       });
-      res.end(pageHtml(dapp));
+      res.end(pageHtml(dapp, opts.fullscreen === true));
       return;
     }
 

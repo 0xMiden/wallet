@@ -473,7 +473,7 @@ describe('fetchBalances', () => {
         [TEST_TOKEN_IETH.faucetId]: { name: 'IETH', symbol: 'IETH', decimals: 8 },
         'bech32-other-faucet': { name: 'Other Token', symbol: 'OTH', decimals: 6 }
       },
-      { tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2 } } }
+      { tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2, kind: 'market' as const } } }
     ))!;
 
     const priceOf = (slug: string) => {

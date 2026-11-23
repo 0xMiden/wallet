@@ -1,5 +1,7 @@
-import { expect, test } from '../../fixtures/hermetic-bridge';
-import { bridgeOutFast, fundBridgeToken, inspectSentNote, readBridgedSendRows } from '../../helpers/bridge';
+import { expect, test as base } from '../../fixtures/hermetic-bridge';
+import { waitForPendingNoteTotal, waitForVaultBalance } from '../../helpers/balance-truth';
+import { inspectSentNote, readBridgedSendRows } from '../../helpers/bridge';
+import { localnetEpochDocument } from '../../helpers/fake-bridge-config';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { readTransactionRows } from '../../helpers/history';
 import { newEvmDestination } from '../../helpers/sepolia';
@@ -49,7 +51,24 @@ const ALLOCATOR_PORT = 8548;
 const COMPLETED = 2;
 
 const TOKEN_SYMBOL = 'GBRDG';
+const BRIDGE_FUNDING = 1_000_000_000n;
 const BRIDGE_AMOUNT = '1'; // small, 6dp — a ~1-USDC-equivalent solver fill
+
+const test = base.extend<{ bridgeFaucetHex: string }>({
+  bridgeFaucetHex: [
+    async ({ midenCli, bridgeConfig }, use) => {
+      await midenCli.init();
+      const faucetHex = await midenCli.createFaucet(TOKEN_SYMBOL, 6);
+      const document = localnetEpochDocument(faucetHex);
+      document.version = 2;
+      document.features.fastBridge = true;
+      bridgeConfig.setDocument(document);
+      await use(faucetHex);
+    },
+    // The config must name the generated faucet before either wallet starts.
+    { auto: true }
+  ]
+});
 
 test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
   test.describe.configure({ mode: 'serial' });
@@ -75,13 +94,21 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
   test('guardian bridges a token out; the collateral note is a PUBLIC recallable P2IDE', async ({
     walletA,
     midenCli,
-    timeline
+    bridgeFaucetHex
   }) => {
     // Guardian co-signed proposal + prove/submit on top of funding. 12 min.
     test.setTimeout(720_000);
 
     await walletA.createGuardianWallet(GUARDIAN_URL);
-    await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
+    await midenCli.mint(bridgeFaucetHex, await walletA.getAccountAddress(), BRIDGE_FUNDING, 'public');
+    await midenCli.sync();
+    await waitForPendingNoteTotal(walletA.page, TOKEN_SYMBOL, BRIDGE_FUNDING, {
+      timeoutMs: 150_000,
+      decimals: 6
+    });
+    await walletA.claimAllNotes(150_000);
+    await walletA.refreshBalancesLanded(60_000);
+    await waitForVaultBalance(walletA.page, TOKEN_SYMBOL, BRIDGE_FUNDING, { timeoutMs: 60_000, decimals: 6 });
 
     // Arm smallocator PR #38 binding validation on POST /compact: the fake reads
     // the submitted collateral note's attachment felts from the wallet SW (the
@@ -98,11 +125,92 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
     );
 
     // The Sepolia leg isn't settled by the fake, so a fresh 0x recipient is fine.
-    await bridgeOutFast(walletA, {
-      destAddress: newEvmDestination(),
-      tokenSymbol: TOKEN_SYMBOL,
-      amount: BRIDGE_AMOUNT
+    const destination = newEvmDestination();
+    const commandUrl = `${walletA.page.url().split('#')[0]}#/bridge/deposit`;
+    await walletA.page.goto(commandUrl, { waitUntil: 'domcontentloaded' });
+    const shell = walletA.page.getByTestId('command-shell');
+    const workbench = shell.getByTestId('command-workbench');
+    const bridge = workbench.getByTestId('command-bridge');
+    await expect(bridge).toBeVisible();
+    await bridge.getByRole('radio', { name: 'Bridge in', exact: true }).click();
+    await expect(
+      bridge.getByText(
+        'Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in.'
+      )
+    ).toBeVisible();
+    await expect(
+      workbench.getByTestId('command-footer').getByRole('button', { name: 'Review Details' })
+    ).toBeDisabled();
+    await bridge.getByRole('radio', { name: 'Bridge out', exact: true }).click();
+    await bridge.getByRole('combobox', { name: 'From', exact: true }).selectOption({
+      label: `${TOKEN_SYMBOL} · miden-localnet`
     });
+    await bridge.getByRole('combobox', { name: 'To', exact: true }).selectOption({
+      label: 'USDC · sepolia · Epoch'
+    });
+    const amount = bridge.getByRole('textbox', { name: 'Amount', exact: true });
+    await amount.fill(BRIDGE_AMOUNT);
+    await bridge.getByRole('textbox', { name: 'External account', exact: true }).fill(destination);
+    const form = bridge.locator('form');
+    await expect(form).toHaveCount(1);
+    const formId = await form.getAttribute('id');
+    if (!formId) throw new Error('Missing original Command Bridge form');
+    const footer = workbench.getByTestId('command-footer');
+    const review = footer.getByRole('button', { name: 'Review Details', exact: true });
+    await expect(review).toHaveAttribute('type', 'submit');
+    await expect(review).toHaveAttribute('form', formId);
+    await expect(review).toBeEnabled();
+    const beforeReview = await readTransactionRows(walletA.page);
+    expect(await readBridgedSendRows(walletA.page)).toHaveLength(0);
+
+    await amount.press('Enter');
+    const confirm = footer.getByRole('button', { name: 'Confirm', exact: true });
+    await expect(confirm).toBeEnabled();
+    await expect(confirm).toHaveAttribute('type', 'submit');
+    await expect(confirm).toHaveAttribute('form', formId);
+    await expect(amount).toHaveCount(0);
+    await expect(form.getByText(`${BRIDGE_AMOUNT} ${TOKEN_SYMBOL}`, { exact: true })).toBeVisible();
+    await expect(form.getByText(destination, { exact: true })).toBeVisible();
+    const details = workbench.getByTestId('command-details');
+    await details.locator('summary').click();
+    await expect(details.getByText('Epoch', { exact: true })).toBeVisible();
+    expect((await readTransactionRows(walletA.page)).map(row => row.id)).toEqual(beforeReview.map(row => row.id));
+    expect(await readBridgedSendRows(walletA.page)).toHaveLength(0);
+
+    await confirm.focus();
+    await expect(confirm).toBeFocused();
+    await confirm.press('Enter');
+    await walletA.page.keyboard.press('Enter');
+    const status = footer.getByRole('button', { name: 'View transfer status', exact: true });
+    await expect(status).toBeVisible({ timeout: 60_000 });
+    await expect(status).toHaveAttribute('type', 'button');
+    await expect(footer.locator('button[type="submit"]')).toHaveCount(0);
+    await expect(bridge).toBeVisible();
+    await expect(walletA.page).toHaveURL(commandUrl);
+    const admittedRows = (await readTransactionRows(walletA.page)).filter(row => row.type === 'bridged-send');
+    expect(admittedRows).toHaveLength(1);
+    const admitted = admittedRows[0];
+    if (!admitted) throw new Error('Missing original admitted Bridge row');
+    const originalOperation = admitted.extraInputs?.bridgeOperation;
+    expect(originalOperation).toMatchObject({
+      version: 1,
+      owner: 'wallet',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      revision: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      walletScope: { network: 'localnet', rpcUrl: expect.stringMatching(/^http:\/\/(localhost|127\.0\.0\.1):/) },
+      review: {
+        amount: BRIDGE_AMOUNT,
+        accounts: { midenAccount: admitted.accountId, evmAddress: destination },
+        route: {
+          provider: 'epoch',
+          mode: 'send',
+          source: { kind: 'miden', faucetId: bridgeFaucetHex },
+          destination: { network: 'sepolia', symbol: 'USDC' }
+        },
+        quote: { kind: 'epoch' }
+      }
+    });
+    expect(admitted.amount).toBe('1000000');
 
     // Miden leg: the guardian bridged-send row reaches Completed once the note
     // commits (guardian co-sign → prove → submit → completeBridgedSendTransaction).
@@ -133,7 +241,15 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
       );
     }
 
-    const [row] = await readBridgedSendRows(walletA.page);
+    const completedRows = await readBridgedSendRows(walletA.page);
+    expect(completedRows).toHaveLength(1);
+    const [row] = completedRows;
+    expect(row?.id).toBe(admitted.id);
+    expect(row?.transactionId, 'real original Miden source transaction').toMatch(/^0x[0-9a-fA-F]+$/);
+    const originalRow = (await readTransactionRows(walletA.page)).find(item => item.id === admitted.id);
+    expect(originalRow?.extraInputs?.bridgeOperation).toEqual(originalOperation);
+    await expect(bridge).toBeVisible();
+    await expect(walletA.page).toHaveURL(commandUrl);
     expect(row?.extraInputs?.provider, 'Fast route uses the epoch provider').toBe('epoch');
     const noteId = row?.outputNoteIds?.[0];
     expect(noteId, 'committed collateral note id').toBeTruthy();
@@ -147,5 +263,13 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
       true
     );
     expect(note.isP2id, 'collateral note is NOT a plain P2ID').toBe(false);
+
+    // A fullpage reload opens the original row, not a fresh source action. This fake has
+    // acknowledged the Miden note but has never reported a Sepolia payout.
+    await walletA.navigateTo(`/history-details/${admitted.id}`);
+    const receipt = walletA.page.getByTestId('command-shell').getByTestId('command-workbench');
+    await expect(receipt.getByTestId('history-status-pill')).toHaveText('Pending', { timeout: 30_000 });
+    expect((await readBridgedSendRows(walletA.page)).map(item => item.id)).toEqual([admitted.id]);
+    await expect(receipt.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0);
   });
 });

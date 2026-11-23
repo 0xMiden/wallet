@@ -118,6 +118,198 @@ const matchingItem = () => ({
   relationships: { appStoreVersion: ref('appStoreVersions', 'version-1') }
 });
 
+function lostSubmitAcknowledgement(error = new Error('Store API request failed'), change = () => {}) {
+  let submitted = false;
+  const f = fixture();
+  f.state.respond = (method, url, init) => {
+    if (method === 'PATCH' && url.pathname === '/v1/reviewSubmissions/review-1') {
+      submitted = true;
+      f.state.reviews[0].attributes.state = 'WAITING_FOR_REVIEW';
+      f.version.attributes.appStoreState = 'WAITING_FOR_REVIEW';
+      f.state.items[0].attributes = { state: 'READY_FOR_REVIEW' };
+      change(f);
+      throw error;
+    }
+    if (submitted && method === 'GET' && url.pathname === '/v1/reviewSubmissions/review-1')
+      return { data: f.state.reviews[0] };
+    if (submitted && f.afterSubmit) return f.afterSubmit(method, url, init);
+  };
+  return { ...f, error };
+}
+
+test('lost final submit acknowledgement is reconciled by exact persisted review without mutation replay', async () => {
+  const f = lostSubmitAcknowledgement();
+  const result = await submit(f.client, { ...options, releasePolicy: 'after-approval' });
+  assert.equal(result.state, 'WAITING_FOR_REVIEW');
+  assert.equal(result.reviewSubmissionId, 'review-1');
+  assert.equal(result.submissionRequested, true);
+  assert.equal(result.submissionReconciled, true);
+  assert.equal(result.autoReleaseAfterApproval, true);
+  assert.equal(result.published, false);
+  const finalPatch = f.calls.findIndex(c => c.path === '/v1/reviewSubmissions/review-1' && c.method === 'PATCH');
+  assert.ok(finalPatch >= 0);
+  assert.ok(f.calls.slice(finalPatch + 1).length > 0);
+  assert.ok(f.calls.slice(finalPatch + 1).every(c => c.method === 'GET'));
+  assert.equal(f.calls.filter(c => c.method === 'PATCH' && c.path === '/v1/reviewSubmissions/review-1').length, 1);
+});
+
+test('ambiguous server errors can reconcile an exact review already in review with the preserved manual policy', async () => {
+  const error = Object.assign(new Error('Store API request failed'), { status: 503 });
+  const f = lostSubmitAcknowledgement(error, f => {
+    f.state.reviews[0].attributes.state = 'IN_REVIEW';
+    f.version.attributes.appStoreState = 'IN_REVIEW';
+    f.state.items[0].attributes.state = 'ACCEPTED';
+  });
+  const result = await submit(f.client, options);
+  assert.equal(result.state, 'IN_REVIEW');
+  assert.equal(result.releaseType, 'MANUAL');
+  assert.equal(result.autoReleaseAfterApproval, false);
+  assert.equal(result.submissionReconciled, true);
+});
+
+test('definitive HTTP rejection preserves the original error and performs no recovery reads', async () => {
+  for (const status of [400, 401, 403, 404, 408, 409, 422, 429]) {
+    const error = Object.assign(new Error('Store API request failed'), { status, appleCodes: ['STATE_ERROR'] });
+    const f = lostSubmitAcknowledgement(error);
+    await assert.rejects(submit(f.client, options), e => e === error && e.stage === 'apple-review-submit');
+    assert.equal(f.calls.at(-1).method, 'PATCH');
+    assert.equal(f.calls.at(-1).path, '/v1/reviewSubmissions/review-1');
+  }
+});
+
+test('reconciliation refuses incomplete, rejected or mismatched persisted submission evidence', async t => {
+  const changes = {
+    'wrong review id': f => {
+      f.state.reviews[0].id = 'other-review';
+    },
+    'wrong review app': f => {
+      f.state.reviews[0].relationships.app.data.id = '987654321';
+    },
+    'wrong review platform': f => {
+      f.state.reviews[0].attributes.platform = 'MAC_OS';
+    },
+    'ready review': f => {
+      f.state.reviews[0].attributes.state = 'READY_FOR_REVIEW';
+    },
+    'unresolved review': f => {
+      f.state.reviews[0].attributes.state = 'UNRESOLVED_ISSUES';
+    },
+    'canceling review': f => {
+      f.state.reviews[0].attributes.state = 'CANCELING';
+    },
+    'complete review': f => {
+      f.state.reviews[0].attributes.state = 'COMPLETE';
+    },
+    'wrong version id': f => {
+      f.version.id = 'other-version';
+    },
+    'wrong marketing version': f => {
+      f.version.attributes.versionString = '1.0';
+    },
+    'wrong version platform': f => {
+      f.version.attributes.platform = 'MAC_OS';
+    },
+    'ready version': f => {
+      f.version.attributes.appStoreState = 'READY_FOR_REVIEW';
+    },
+    'rejected version': f => {
+      f.version.attributes.appStoreState = 'REJECTED';
+    },
+    'wrong version build': f => {
+      f.version.relationships.build.data.id = 'other-build';
+    },
+    'changed release policy': f => {
+      f.version.attributes.releaseType = 'AFTER_APPROVAL';
+    },
+    'wrong app bundle': f => {
+      f.app.attributes.bundleId = 'com.other.app';
+    },
+    'wrong build id': f => {
+      f.build.id = 'other-build';
+    },
+    'wrong build number': f => {
+      f.build.attributes.version = '200';
+    },
+    'invalid build': f => {
+      f.build.attributes.processingState = 'FAILED';
+    },
+    'expired build': f => {
+      f.build.attributes.expired = true;
+    },
+    'ineligible build': f => {
+      f.build.attributes.buildAudienceType = 'INTERNAL_ONLY';
+    },
+    'wrong build app': f => {
+      f.state.buildApp = { ...f.app, id: '987654321' };
+    },
+    'wrong build marketing version': f => {
+      f.state.preRelease.attributes.version = '1.0';
+    },
+    'wrong item version': f => {
+      f.state.items[0].relationships.appStoreVersion.data.id = 'other-version';
+    },
+    'rejected item': f => {
+      f.state.items[0].attributes.state = 'REJECTED';
+    },
+    'removed item': f => {
+      f.state.items[0].attributes.state = 'REMOVED';
+    },
+    'unknown item state': f => {
+      delete f.state.items[0].attributes.state;
+    },
+    'extra review item': f => {
+      f.state.items.push({ ...matchingItem(), id: 'item-2' });
+    },
+    'missing review item': f => {
+      f.state.items = [];
+    },
+    'unavailable readback': f => {
+      f.afterSubmit = () => {
+        throw new Error('Readback unavailable');
+      };
+    }
+  };
+  for (const [name, change] of Object.entries(changes)) {
+    await t.test(name, async () => {
+      const f = lostSubmitAcknowledgement(undefined, change);
+      await assert.rejects(submit(f.client, options), e => e === f.error && e.stage === 'apple-review-submit');
+      const finalPatch = f.calls.findIndex(c => c.path === '/v1/reviewSubmissions/review-1' && c.method === 'PATCH');
+      assert.ok(f.calls.slice(finalPatch + 1).every(c => c.method === 'GET'));
+    });
+  }
+});
+
+test('read-only reconciliation caps pagination work and retains the original failure', async () => {
+  let page = 0;
+  const f = lostSubmitAcknowledgement(undefined, f => {
+    f.afterSubmit = (method, url) => {
+      if (url.pathname === '/v1/reviewSubmissions/review-1/items') {
+        page += 1;
+        return { data: [], links: { next: `/v1/reviewSubmissions/review-1/items?page=${page}` } };
+      }
+    };
+  });
+  await assert.rejects(submit(f.client, options), e => e === f.error);
+  const finalPatch = f.calls.findIndex(c => c.path === '/v1/reviewSubmissions/review-1' && c.method === 'PATCH');
+  assert.ok(f.calls.slice(finalPatch + 1).length <= 10);
+  assert.ok(page > 0);
+});
+
+test('read-only reconciliation shares one time budget across requests', async t => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const f = lostSubmitAcknowledgement(undefined, f => {
+    f.afterSubmit = (method, url) => {
+      if (url.pathname === `/v1/apps/${options.appId}`) now += 30001;
+    };
+  });
+  await assert.rejects(submit(f.client, options), e => e === f.error);
+  const finalPatch = f.calls.findIndex(c => c.path === '/v1/reviewSubmissions/review-1' && c.method === 'PATCH');
+  const reads = f.calls.slice(finalPatch + 1);
+  assert.ok(reads.length > 0 && reads.length <= 2);
+  assert.ok(reads.every(c => c.timeoutMs > 0 && c.timeoutMs <= 30000));
+});
+
 test('status validates the app identity and reports actual version/build state without mutations', async () => {
   const { client, calls } = fixture();
   const result = await status(client, options);

@@ -23,10 +23,17 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
+import { configureGuardianAccount, ecdsaCosigners } from './configure';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operator-map';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import {
+  GUARDIAN_RETRY_MAX_ATTEMPTS,
+  guardianRegisterBackoffMs,
+  isGuardianStateNotOnChain,
+  isNewGuardianAnswer,
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
+} from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { requireRequestBoundBlockNum } from './tip-execution';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -40,6 +47,7 @@ import {
 } from '../sdk/miden-client';
 import { isKilledPipeline } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { monotonicNowMs } from '../sync-backoff';
 import { syncBeforeVerdict } from '../sync-lock';
 
 export const HOT_KEY_ROTATED_OUT = 'HotKeyRotatedOutError';
@@ -174,15 +182,13 @@ export const isGuardianAccountReleased = (err: unknown): boolean => {
  * path is unavailable and the direct on-chain path needs nothing the operator
  * could have supplied.
  *
- * Both arms read `code` and ONLY `code`, which is a deliberate narrowing rather
- * than an oversight. A response whose body is not the operator's JSON error
- * envelope — a proxy's HTML 404, a gateway's bare 409 — arrives with `code`
- * undefined and is classified neither unknown nor released, so it does NOT reach
- * the direct path. Matching on status instead would widen the trigger for a
- * unilateral on-chain rotation to include any intermediary that happens to answer
- * 404 or 409 for an unrelated reason, and this escape hatch is one whose false
- * positives rotate a live guardian away. The narrow reading fails safe: the
- * coordinated path errors visibly and the user can still rotate deliberately.
+ * Both arms read `code` and ONLY `code`. A response whose body is not the
+ * operator's JSON error envelope — a proxy's HTML 404, a gateway's bare 409 —
+ * arrives with `code` undefined and is classified neither unknown nor released
+ * here. That reply still reaches the direct path: `isGuardianRefusal` reads the
+ * status, so `directSwitchTriggerFor` returns `refused the request` for it. The
+ * code-only reading here only selects the more specific reason label
+ * (`cannot co-sign for this account`) for a reply that carries a code.
  */
 export const isGuardianAccountUnusable = (err: unknown): boolean =>
   isGuardianAccountUnknown(err) || isGuardianAccountReleased(err);
@@ -190,9 +196,10 @@ export const isGuardianAccountUnusable = (err: unknown): boolean =>
 /**
  * Is this error the outgoing guardian being UNREACHABLE (connection refused,
  * DNS, timeout, TLS, or a proxy 5xx with no guardian body) — as opposed to a
- * semantic guardian rejection? Only unreachability triggers the direct-switch
- * fallback: a reachable guardian that answers with a real error (401, 409, …)
- * keeps the normal proposal flow's error handling.
+ * semantic guardian rejection? A reachable guardian that answers with a real
+ * error (401, 409, …) is not unreachable. The sync loop and the requeue rules
+ * read this difference; the switch pipeline does not, because a refusal also
+ * starts the direct switch (`directSwitchTriggerFor`).
  */
 export const isGuardianUnreachableError = (err: unknown): boolean => {
   // A local realm KILL is not evidence about the guardian, and it must never
@@ -246,6 +253,58 @@ export const isGuardianUnreachableError = (err: unknown): boolean => {
   // No status: a transport failure that never reached an HTTP response, which is
   // the only case where the message is the sole evidence available.
   return isLikelyNetworkError(err);
+};
+
+/**
+ * The Guardian answered and refused the request: an HTTP 4xx (a 401 for a signer it
+ * does not accept, a 403, a 409 conflict that did not clear, a 429).
+ *
+ * Only the numeric `status` is read, never the message, for the same reason as in
+ * `isGuardianUnreachableError`. An error without a status (a local failure, a
+ * rejected signature prompt, a node error) is not a Guardian answer and is not a
+ * refusal. A local kill is not a Guardian answer either.
+ *
+ * Only the OUTGOING Guardian's answer is a refusal. The NEW Guardian's key fetch is marked
+ * (`markNewGuardianAnswer`), and its 4xx is not a reason to leave the outgoing Guardian.
+ */
+export const isGuardianRefusal = (err: unknown): boolean => {
+  if (isKilledPipeline(err)) return false;
+  if (isNewGuardianAnswer(err)) return false;
+  if (typeof err !== 'object' || err === null) return false;
+  return 'status' in err && typeof err.status === 'number' && err.status >= 400 && err.status <= 499;
+};
+
+export type DirectSwitchTrigger = 'unreachable' | 'cannot co-sign for this account' | 'refused the request';
+
+/**
+ * Why a failed outgoing-Guardian step of a `switch-guardian` row starts the direct
+ * on-chain switch, or `undefined` when the failure must not start it.
+ *
+ * The user asked to leave this Guardian, and `update_guardian` needs only the hot
+ * and cold signatures. Thus no answer from the outgoing Guardian can block the
+ * switch: an operator that is down, one that holds no state for the account, and
+ * one that refuses the request for any reason all go to the direct path. Before
+ * this rule a persistent 401 had no exit, because the service load failed and the
+ * row has no requeue and no Retry.
+ *
+ * The first match gives the recorded reason, so a released account (a 409 with its
+ * code) keeps the more specific reason.
+ *
+ * A marked error (`markNewGuardianAnswer`) is the new Guardian's answer to its key fetch. It has
+ * no trigger unless it is unreachable (a 5xx or a network failure), so any other marked error
+ * fails the row with its own error.
+ *
+ * Three callers apply this before any chain submit: the service load and proposal
+ * push, the cold co-sign and the final co-sign. The reconcile in
+ * `reconcileStructuralApplyFailure` applies it AFTER the submit succeeded, and only
+ * to decide that the old operator can be skipped.
+ */
+export const directSwitchTriggerFor = (err: unknown): DirectSwitchTrigger | undefined => {
+  if (isGuardianUnreachableError(err)) return 'unreachable';
+  if (isNewGuardianAnswer(err)) return undefined;
+  if (isGuardianAccountUnusable(err)) return 'cannot co-sign for this account';
+  if (isGuardianRefusal(err)) return 'refused the request';
+  return undefined;
 };
 
 const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex);
@@ -664,6 +723,31 @@ export const readChainAccountCommitment = async (accountId: string, timeoutMs: n
   }
 };
 
+/** How long a registration of a state past nonce 0 waits for the node to hold it, and how often it asks. */
+export const STATE_ON_CHAIN_WAIT_MS = 60_000;
+export const STATE_ON_CHAIN_POLL_MS = 3_000;
+
+/**
+ * Whether the node holds `commitmentHex` as the account's current commitment within `boundMs`. A Guardian 0.19 stores
+ * a `/configure` state past nonce 0 only when it is the chain's current one, and answers a retryable
+ * `409 state_not_on_chain` otherwise. Each read is `readChainAccountCommitment`'s, so the wait takes no WASM lock: the
+ * caller reads the commitment in the hold that serialized the state and waits after that hold ends.
+ */
+export const waitForStateOnChain = async (
+  accountId: string,
+  commitmentHex: string,
+  boundMs: number = STATE_ON_CHAIN_WAIT_MS
+): Promise<boolean> => {
+  const deadline = monotonicNowMs() + boundMs;
+  for (let remaining = boundMs; remaining > 0; remaining = deadline - monotonicNowMs()) {
+    const onChain = await readChainAccountCommitment(accountId, remaining);
+    if (onChain !== undefined && sameCommitment(onChain, commitmentHex)) return true;
+    const left = deadline - monotonicNowMs();
+    if (left > 0) await delay(Math.min(STATE_ON_CHAIN_POLL_MS, left));
+  }
+  return false;
+};
+
 export const GUARDIAN_SWITCH_DISCARDED = 'GuardianSwitchDiscardedError';
 
 /**
@@ -751,6 +835,21 @@ export const isGuardianKeyMismatchRefusal = (error: unknown): boolean =>
   error.endpointCheck === 'mismatch';
 
 /**
+ * The `'require'` refusal: one node read did not show the state this device would register, so a Guardian 0.19 would
+ * not store it yet. A preflight error by name, so callers refund it like any other.
+ */
+export class GuardianStateOffChainRefusal extends GuardianRegistrationPreflightError {
+  readonly stateOffChain = true;
+}
+
+/** Name-based, like its siblings. */
+export const isGuardianStateOffChainRefusal = (error: unknown): boolean =>
+  error instanceof Error &&
+  error.name === GUARDIAN_REGISTRATION_PREFLIGHT &&
+  'stateOffChain' in error &&
+  error.stateOffChain === true;
+
+/**
  * Tag EVERYTHING raised before the first `/configure` as preflight, rather than
  * enumerating throw sites.
  *
@@ -829,7 +928,16 @@ export const finalizeDirectGuardianSwitch = async (
    * Not called at all when this function throws before the loop below, which is
    * precisely the signal: no call, no request, refund.
    */
-  onBeforeRegister?: () => void
+  onBeforeRegister?: () => void,
+  /**
+   * What to do when the node may not hold the serialized state yet, which a Guardian 0.19 refuses to store.
+   * `'await'`, the completion path's and the landed reconcile's: wait up to `STATE_ON_CHAIN_WAIT_MS`, then post
+   * anyway, which a 0.18 Guardian accepts and whose 0.19 refusal leaves `registerFailed` for the self-heal.
+   * `'require'`, the cadence self-heal's: one read, and a refusal as preflight unless it shows the state, so the
+   * attempt is refunded and a later lap asks again.
+   * 'require-landed', for cold-auth recovery: require that same proof even for a local nonce-zero state.
+   */
+  stateOnChain: 'await' | 'require' | 'require-landed' = 'await'
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
@@ -839,7 +947,7 @@ export const finalizeDirectGuardianSwitch = async (
   }
   const hotPublicKey = walletAccount.hotPublicKey;
 
-  const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, guardianCommitment } =
+  const { accountIdHex, stateBase64, stateCommitment, firstState, signerCommitments, guardianCommitment } =
     await asPreflight(() =>
       withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
@@ -867,15 +975,22 @@ export const finalizeDirectGuardianSwitch = async (
         if (!account) {
           throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
         }
-        const detected = AccountInspector.fromAccount(account);
+        // `AccountInspector.fromAccount` skips what it cannot read, and this
+        // allowlist becomes the new operator's authorization policy for the account.
+        // A partial read of a 2-of-3 account (the hot key alone, cold's slot
+        // unreadable) would install an allowlist without the COLD key, the key every
+        // recovery path signs with, on the path whose premise is that the previous
+        // operator is gone. `ecdsaCosigners` refuses a read shorter than the count
+        // storage declares, and any signer or guardian not read as ECDSA, the only
+        // policy `/configure` sends; `asPreflight` makes that refusal a refunded one.
+        const signerCommitments = ecdsaCosigners(AccountInspector.fromAccount(account));
         return {
           accountIdHex: account.id().toString(),
           stateBase64: u8ToB64(account.serialize()),
-          detectedSigners: detected.signerCommitments.length,
-          // Storage's own count, so the completeness check below compares the read
-          // against what the account SAYS it holds rather than against a constant.
-          declaredSigners: detected.numSigners,
-          signerCommitments: detected.signerCommitments,
+          // The commitment of these bytes, which the node has to hold before a 0.19 Guardian stores them.
+          stateCommitment: account.to_commitment().toHex(),
+          firstState: account.nonce().asInt() === 0n,
+          signerCommitments,
           // Read from the SAME account as the bytes below, because the check it
           // feeds is about those bytes.
           guardianCommitment: getGuardianCommitmentFromAccount(account)
@@ -883,29 +998,6 @@ export const finalizeDirectGuardianSwitch = async (
       }, lockOptions)
     );
 
-  // `AccountInspector.fromAccount` swallows per-slot read failures, so a set
-  // SHORTER than the count storage declares is a truncated read — and this
-  // allowlist becomes the new operator's authorization policy for the account.
-  //
-  // The empty case alone is not enough. A partial read of a 2-of-3 guardian
-  // account — say the hot key alone, cold's slot unreadable — passes a length
-  // check, and `/configure` then installs an allowlist the COLD key is not in.
-  // Cold is the key the recovery paths sign with (`buildColdMultisigService`,
-  // `reRegisterCurrentStateOnGuardian`), so the account would be left unable to
-  // repair its own registration on the operator it just rotated to, on the path
-  // whose whole premise is that the previous operator is gone. The inspector's
-  // own docs say a truncated read must not be stored as authoritative config;
-  // `assertCompleteDetectedConfig` is the library's check for exactly this, and
-  // it additionally requires the guardian commitment a guarded multisig always
-  // has. Failing here costs nothing — nothing has been written yet, and the
-  // rotation itself has already committed, so the row completes with
-  // `registerFailed` and the self-heal retries against a later, complete read.
-  if (declaredSigners === 0 || detectedSigners !== declaredSigners) {
-    throw new GuardianRegistrationPreflightError(
-      `Refusing to register on the new guardian with an incomplete signer allowlist: storage declares ` +
-        `${declaredSigners} signers, read ${detectedSigners} (truncated read)`
-    );
-  }
   // And THIS DEVICE has to be in the policy it is installing.
   //
   // Note what the comparison is between. Deriving the left-hand side from the
@@ -957,6 +1049,23 @@ export const finalizeDirectGuardianSwitch = async (
         'nothing to check the operator against'
     );
   }
+  // Read the node outside the WASM hold. Ordinary registration accepts a first state for an unused account.
+  if (stateOnChain === 'require-landed' || (!firstState && stateOnChain === 'require')) {
+    const onChain = await readChainAccountCommitment(accountIdHex, LANDED_COMMITMENT_READ_TIMEOUT_MS);
+    if (onChain === undefined || !sameCommitment(onChain, stateCommitment)) {
+      throw new GuardianStateOffChainRefusal(
+        `Not registering on ${newGuardianEndpoint} yet: the node ` +
+          `${onChain === undefined ? 'could not be read' : 'does not hold this state'}, and automatic recovery ` +
+          'requires the node to confirm the state'
+      );
+    }
+  } else if (!firstState && !(await waitForStateOnChain(accountIdHex, stateCommitment))) {
+    console.warn(
+      `The node did not show account ${accountIdHex}'s switched state within ${STATE_ON_CHAIN_WAIT_MS} ms; ` +
+        `registering on ${newGuardianEndpoint} anyway`
+    );
+  }
+
   // On the tick budget this probe would be 5s, which is right for a caller that
   // repeats every ~3s and wrong here: this fires ONCE, past the on-chain commit,
   // in front of a retry loop that allows the very same operator 30s per attempt.
@@ -1001,29 +1110,14 @@ export const finalizeDirectGuardianSwitch = async (
       // write, with the rotation screen spinning and `registerFailed`, the very
       // flag whose self-heal exists to finish this registration later, unrecorded.
       // The tighter deadline converts silence into an attempt failure the loop can
-      // consume sooner.
-      const response = await withTimeout(
-        guardian.configure({
-          accountId: accountIdHex,
-          auth: { MidenEcdsa: { cosigner_commitments: signerCommitments } },
-          initialState: { data: stateBase64, accountId: accountIdHex }
-        }),
+      // consume sooner. A rejection that answers is a failure too, and its message
+      // never reaches the thrown error (`configureGuardianAccount`): past the commit
+      // it is persisted on the row and rendered as wallet copy.
+      await withTimeout(
+        configureGuardianAccount(guardian, { accountIdHex, stateBase64, signerCommitments }),
         DIRECT_REGISTER_TIMEOUT_MS,
         `New guardian ${newGuardianEndpoint} registration`
       );
-      // `!== true`, not `!response.success`: `fromServerConfigureResponse`
-      // copies the field straight off `response.json()`, so a body of
-      // `{"success":"false"}` is a truthy STRING and would read as a successful
-      // registration. And the server's own `message` is logged rather than
-      // interpolated — by the time this throws, the on-chain rotation has
-      // already committed, so this message is persisted on the transaction row
-      // and rendered as wallet copy on the rotation screen. That makes an
-      // endpoint-supplied string a phishing surface; the guardian client keeps
-      // raw bodies off `Error.message` for exactly this reason.
-      if (response.success !== true) {
-        console.warn('New guardian rejected the direct-switch registration:', response.message);
-        throw new Error('The new guardian rejected the account registration');
-      }
       return;
     } catch (error) {
       // The operator already holds this account. That is the goal state, so it
@@ -1046,6 +1140,8 @@ export const finalizeDirectGuardianSwitch = async (
       }
       lastError = error;
       console.warn(`Direct guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
+      // The Guardian stored nothing, and the self-heal's next lap asks again.
+      if (stateOnChain !== 'await' && isGuardianStateNotOnChain(error)) break;
       if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
         await delay(guardianRegisterBackoffMs(error, attempt));
       }

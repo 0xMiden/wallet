@@ -1,5 +1,20 @@
 import type { CompactResponse } from '@epoch-protocol/epoch-intents-sdk';
 
+import type { QuoteValidity } from 'lib/bridge/core/quote';
+import type { AccountScope } from 'lib/miden-chain/account-scope';
+
+export interface EpochReviewedQuote {
+  validity: QuoteValidity;
+  outputTokenAddress: `0x${string}`;
+  outputTokenDecimals: number;
+}
+
+export interface EpochReviewedOutput extends EpochReviewedQuote {
+  minimumOutputBaseUnits: string;
+  /** Compact's original wallet endpoint; owned Command rows already carry this in bridgeOperation. */
+  walletScope?: Pick<AccountScope, 'network' | 'rpcUrl'>;
+}
+
 export interface MidenAccount {
   id: string;
   label: string;
@@ -49,6 +64,11 @@ export interface EVMToMidenIntentParams {
   destinationChainId: number;
   evmSourceAddress: string;
   evmTokenAddress: string;
+  /**
+   * True when the deposit is the source chain's native coin (`evmTokenAddress` is the zero address): the SDK then
+   * deposits it with `depositNativeAndRegister`, sending the amount as the call's value, with no approval.
+   */
+  isNative?: boolean;
   midenRecipientId: string;
   midenFaucetId: string;
   /**
@@ -86,4 +106,18 @@ export interface IntentResult {
   intentNonce?: string;
   /** Chain id the compact deposit landed on (= source EVM chain). */
   depositChainId?: number;
+  /** Solved compact expiry (`intentRequestData.compact.expires`), when the solve included one. */
+  compactExpires?: string;
+  /**
+   * EVM→Miden: the solve failed after its deposit landed in The Compact, for example when the allocator refused the
+   * allocation (#2120). The funds are in the sponsor's resource lock and the row can recover them.
+   */
+  strandedDeposit?: StrandedCompactDeposit;
+}
+
+/** A Compact deposit that has no allocation. `amount` is in base units, `lockId` is a decimal string. */
+export interface StrandedCompactDeposit {
+  lockId: string;
+  amount: string;
+  tokenAddress: string;
 }

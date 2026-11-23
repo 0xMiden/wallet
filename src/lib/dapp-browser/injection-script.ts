@@ -399,7 +399,10 @@ export const INJECTION_SCRIPT = `
         kind
       });
 
-      return { signature: b64ToU8(res.signature) };
+      const signature = b64ToU8(res.signature);
+      return typeof res.signedCommitment === 'string'
+        ? { signature, signedCommitment: b64ToU8(res.signedCommitment) }
+        : { signature };
     }
 
     async requestLoginKey() {

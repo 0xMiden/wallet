@@ -24,7 +24,9 @@ import { EmulatorControl } from '../helpers/emulator-control';
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
-const APK_PATH = path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
+const APK_PATH =
+  process.env.ANDROID_E2E_APK_PATH ??
+  path.join(ROOT_DIR, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
 const PACKAGE_NAME = 'com.miden.wallet';
 const ACTIVITY_NAME = '.MainActivity';
 

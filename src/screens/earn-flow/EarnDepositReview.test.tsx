@@ -1,16 +1,34 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
+import {
+  CommandFlowBackProvider,
+  FlowPresentationProvider,
+  useCommandFlowBack
+} from 'components/flow/FlowPresentation';
+import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnMarketForVault, openEarnPosition } from 'lib/epoch';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import { EARN_DATA } from './data';
 import EarnDepositReview from './EarnDepositReview';
+
+const commandFallbackBack = jest.fn();
+const EarnCommandReview = ({ vaultId }: { vaultId: string }) => {
+  const back = useCommandFlowBack()?.activeBack;
+  return (
+    <WorkbenchLayout title="Earn" onBack={back ?? commandFallbackBack}>
+      <EarnDepositReview vaultId={vaultId} />
+    </WorkbenchLayout>
+  );
+};
 
 // --- react-i18next: echo the key back, and fold interpolation options into the
 //     returned string so we can assert the interpolated route/reward values
@@ -30,6 +48,11 @@ let mockLoadState: { isLoading: boolean; vaultsPending?: boolean; error?: string
 };
 const mockRefetch = jest.fn();
 
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -43,8 +66,10 @@ jest.mock('react-i18next', () => ({
 const mockLocation = { search: '' };
 const mockNavigate = jest.fn();
 
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => commandFallbackBack }));
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
+  goBack: jest.fn(),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">{to}</div>,
   useLocation: () => mockLocation
 }));
@@ -203,8 +228,8 @@ jest.mock('recharts', () => ({
 
 // --- Presentational children: keep just enough to assert the wiring.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} />
   )
 }));
 
@@ -212,15 +237,32 @@ jest.mock('components/Button', () => ({
   Button: ({
     title,
     onClick,
+    type,
+    form,
     disabled,
+    iconLeft,
+    'aria-busy': busy,
     accent
   }: {
     title?: string;
     onClick?: () => void;
+    type?: 'button' | 'submit';
+    form?: string;
     disabled?: boolean;
+    iconLeft?: React.ReactNode;
+    'aria-busy'?: boolean;
     accent?: string;
   }) => (
-    <button data-testid="open-position-btn" data-accent={accent} onClick={onClick} disabled={disabled}>
+    <button
+      aria-busy={busy}
+      type={type ?? 'button'}
+      form={form}
+      data-testid="open-position-btn"
+      data-accent={accent}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {iconLeft}
       {title}
     </button>
   ),
@@ -243,11 +285,11 @@ jest.mock('./components', () => {
         'data-network': network,
         'data-decorative': String(Boolean(decorative))
       }),
-    EarnAmountUnit: ({ symbol }: { symbol: string }) =>
+    EarnAmountUnit: ({ symbol, faucetId }: { symbol: string; faucetId: string | undefined }) =>
       R.createElement(
         'span',
         null,
-        R.createElement('span', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': 'md' }),
+        R.createElement('span', { 'data-testid': 'token-logo', 'data-faucet-id': faucetId, 'data-size': 'md' }),
         symbol
       ),
     EarnHero: ({
@@ -259,7 +301,7 @@ jest.mock('./components', () => {
       figureClassName
     }: {
       labelId: string;
-      value: string;
+      value: React.ReactNode;
       unit?: React.ReactNode;
       label: string;
       labelClassName?: string;
@@ -310,6 +352,68 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('EarnDepositReview', () => {
+  it('submits the original deposit review form once on keyboard Enter in the real Command footer', async () => {
+    mockLocation.search = `?amount=1&collateral=${encodeURIComponent(USDC.faucetId)}`;
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            <EarnDepositReview vaultId={AAVE_VAULT.id} />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    expect(screen.getByRole('heading', { level: 2, name: AAVE_VAULT.protocol })).toBeVisible();
+    const footer = screen.getByTestId('command-footer');
+    const confirm = within(footer).getByTestId('open-position-btn');
+    const form = document.getElementById('earn-deposit-review-form');
+    expect(form).toBeInstanceOf(HTMLFormElement);
+    expect(confirm).toHaveAttribute('form', 'earn-deposit-review-form');
+    expect(confirm).toHaveAttribute('type', 'submit');
+    expect(confirm).toBeEnabled();
+    expect(screen.getAllByTestId('open-position-btn')).toHaveLength(1);
+    expect(screen.getByTestId('earn-deposit-review-page').querySelector('[data-slot="footer"]')).toBeNull();
+    if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn deposit review form');
+    confirm.focus();
+    expect(confirm).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not submit a disabled Command deposit review button on keyboard Enter', async () => {
+    mockLocation.search = `?amount=1&collateral=${encodeURIComponent(USDC.faucetId)}`;
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            <EarnDepositReview vaultId={CLOSED_VAULT.id} />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const confirm = within(screen.getByTestId('command-footer')).getByTestId('open-position-btn');
+    expect(confirm).toBeDisabled();
+    confirm.focus();
+    expect(confirm).not.toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+  });
+
+  it('uses the visible workbench Back for the actual deposit review instead of a fallback', () => {
+    mockLocation.search = '?amount=1&collateral=0x537c15a622074e91188aa894456c52';
+    commandFallbackBack.mockClear();
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <EarnCommandReview vaultId={AAVE_VAULT.id} />
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    expect(screen.getByRole('button', { name: 'earnOpenPosition' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(jest.requireMock<{ goBack: jest.Mock }>('lib/woozie').goBack).toHaveBeenCalledTimes(1);
+    expect(commandFallbackBack).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     mockAuthorizationAccountOverride = undefined;
@@ -348,9 +452,9 @@ describe('EarnDepositReview', () => {
       // Amount from the query string, as typed: never padded.
       expect(within(screen.getByTestId('earn-hero')).getByText('1000')).toBeInTheDocument();
 
-      // The deposit asset is always USDC (Epoch Earn is USDC-only).
+      // The deposit asset is always USDC (Epoch Earn is USDC-only); the collateral faucet keys its logo.
       const logo = screen.getByTestId('token-logo');
-      expect(logo).toHaveAttribute('data-symbol', 'USDC');
+      expect(logo).toHaveAttribute('data-faucet-id', USDC.faucetId);
       expect(logo).toHaveAttribute('data-size', 'md');
       expect(screen.getAllByText('USDC').length).toBeGreaterThan(0);
     });
@@ -361,7 +465,11 @@ describe('EarnDepositReview', () => {
       const hero = screen.getByTestId('earn-hero');
       expect(within(hero).getByText('earnDepositAmountTitle')).toHaveClass('amount-caption-sentinel');
       // Sized by the figure as shown, not the raw query value.
-      expect(within(hero).getByText('1000.5')).toHaveClass('amount-figure-sentinel-1000.5', 'mt-3', 'text-ink');
+      expect(within(hero).getByText('1000.5').parentElement).toHaveClass(
+        'amount-figure-sentinel-1000.5',
+        'mt-3',
+        'text-ink'
+      );
     });
 
     it('names no vault in the header when the vaultId matches nothing', () => {
@@ -431,6 +539,9 @@ describe('EarnDepositReview', () => {
       expect(cta).toBeEnabled();
 
       fireEvent.click(cta);
+      expect(cta).toBeDisabled();
+      expect(cta).toHaveAttribute('aria-busy', 'true');
+      expect(cta.querySelector('svg circle')).not.toBeNull();
 
       // No haptic of its own: the shared `Button` fires the tap haptic, and a second call buzzed twice.
       // `Button` is mocked here, so this pins only that the screen adds no call; Button's own tests pin its haptic.
@@ -969,6 +1080,7 @@ describe('EarnDepositReview after a failed load', () => {
     mockLoadState = { isLoading: true };
     renderReview('no-such-vault', '?amount=10');
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnOpenPosition' })).toBeNull();
     expect(screen.queryByText('earnDepositAmountTitle')).toBeNull();

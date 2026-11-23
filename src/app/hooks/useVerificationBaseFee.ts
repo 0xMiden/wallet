@@ -1,36 +1,64 @@
 import { useEffect, useState } from 'react';
 
-import { getVerificationBaseFee, getVerificationBaseFeeSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
+import {
+  FEE_PROBE_RETRY_COOLDOWN_MS,
+  getClaimFloorBaseFee,
+  getClaimFloorBaseFeeSync,
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  onNativeAssetChanged
+} from 'lib/miden-chain/native-asset';
 
 /**
- * Returns the chain's per-transaction verification base fee, in the fee asset's
- * smallest unit.
- *
- * Returns `null` until it is known. `null` and `0` are different answers and must
- * stay that way at every layer: `0` is a chain that charges nothing (testnet),
- * while `null` is "not discovered yet". A caller that reserved against `null` as
- * if it were `0` would hold nothing back on a chain that does charge.
- *
- * Seeds from the synchronous cache so an already-discovered fee is available on
- * first render, avoiding a frame of fee-less UI.
+ * A fee seeded from `readSync` on first render, so an already-discovered fee shows without a frame of fee-less UI,
+ * then read from `readAsync` at mount and on every native-asset change. `hook` names the caller in the warning a
+ * failed read logs. `retryWhileUnknown` (the claim floor only) reads again after `FEE_PROBE_RETRY_COOLDOWN_MS` while
+ * the fee is null or the read rejects; a resolved number, including zero, clears that retry.
  */
-function useVerificationBaseFee(): number | null {
-  const [baseFee, setBaseFee] = useState<number | null>(getVerificationBaseFeeSync());
+function useBaseFee(
+  hook: string,
+  readSync: () => number | null,
+  readAsync: () => Promise<number | null>,
+  retryWhileUnknown = false
+): number | null {
+  const [baseFee, setBaseFee] = useState<number | null>(readSync());
 
   useEffect(() => {
     let cancelled = false;
     let generation = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    // Never rejects: a discovery failure has to leave the fee `null` (guards fail
-    // open) rather than surface as an unhandled rejection, and the subscription
-    // below is what repairs it once discovery succeeds.
+    const clearRetry = () => {
+      if (retryTimer === undefined) return;
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+    };
+
+    // Never rejects: a failed read keeps the last fee (null until one lands) rather than surface as an unhandled
+    // rejection, and each caller reads null its own way: the verification fee's guards fail open, the claim floor
+    // refuses. The subscription below repairs it once discovery succeeds. The claim floor also asks again after the
+    // probe cooldown while the fee is null or the read rejected; a resolved number, including zero, clears that.
     const read = async () => {
       const request = ++generation;
+      // A native-asset change reads immediately, so a pending retry must not also fire.
+      clearRetry();
+      const retryIfStillUnknown = () => {
+        if (cancelled || request !== generation || !retryWhileUnknown) return;
+        clearRetry();
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          read();
+        }, FEE_PROBE_RETRY_COOLDOWN_MS);
+      };
       try {
-        const fee = await getVerificationBaseFee();
-        if (!cancelled && request === generation) setBaseFee(fee);
+        const fee = await readAsync();
+        if (cancelled || request !== generation) return;
+        setBaseFee(fee);
+        if (fee === null) retryIfStillUnknown();
+        else clearRetry();
       } catch (err) {
-        console.warn('useVerificationBaseFee: base fee read failed', err);
+        console.warn(`${hook}: base fee read failed`, err);
+        retryIfStillUnknown();
       }
     };
 
@@ -47,11 +75,33 @@ function useVerificationBaseFee(): number | null {
 
     return () => {
       cancelled = true;
+      clearRetry();
       unsub();
     };
-  }, []);
+  }, [hook, readAsync, retryWhileUnknown]);
 
   return baseFee;
+}
+
+/**
+ * Returns the chain's per-transaction verification base fee, in the fee asset's
+ * smallest unit.
+ *
+ * Returns `null` until it is known. `null` and `0` are different answers and must
+ * stay that way at every layer: `0` is a chain that charges nothing (testnet),
+ * while `null` is "not discovered yet". A caller that reserved against `null` as
+ * if it were `0` would hold nothing back on a chain that does charge.
+ */
+function useVerificationBaseFee(): number | null {
+  return useBaseFee('useVerificationBaseFee', getVerificationBaseFeeSync, getVerificationBaseFee);
+}
+
+/**
+ * The fee the claim floor measures against: 0 once the chain is known to report none, null while unknown.
+ * An unknown fee is read again after the probe cooldown; a known fee, including zero, is not.
+ */
+export function useClaimFloorBaseFee(): number | null {
+  return useBaseFee('useClaimFloorBaseFee', getClaimFloorBaseFeeSync, getClaimFloorBaseFee, true);
 }
 
 export default useVerificationBaseFee;

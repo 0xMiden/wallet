@@ -47,9 +47,8 @@ jest.mock('screens/onboarding/common/CreatePassword', () => ({
   )
 }));
 
-// A strong, mutually-consistent password: len 9 (>= MIN 8, < STRONG 12),
-// mixed case, letters+numbers, special char => 4 validation checks (> 1).
-const VALID_PASSWORD = 'Abcdef12!';
+// len 12 (the new-password floor), mixed case, letters+numbers, special char => all 5 checks.
+const VALID_PASSWORD = 'Abcdef12345!';
 
 // A harness that owns `passwordValue` and `fileName` (which the SUT treats as
 // controlled props) so typing actually round-trips through the component.
@@ -167,8 +166,7 @@ describe('ExportFilePassword', () => {
     setPassword(VALID_PASSWORD);
     const strength = screen.getByTestId('password-strength');
     expect(strength).toHaveAttribute('data-password', VALID_PASSWORD);
-    // minChar + cases + number + specialChar = 4 (strongPasswordLength is false at len 9).
-    expect(strength).toHaveAttribute('data-valid-count', '4');
+    expect(strength).toHaveAttribute('data-valid-count', '5');
   });
 
   it('toggles password field visibility and swaps the eye icon', () => {
@@ -322,6 +320,14 @@ describe('ExportFilePassword', () => {
     expect(continueBtn).toBeDisabled();
   });
 
+  it('keeps Continue disabled for an 11-character file password', () => {
+    const { setName, setPassword, setVerify, continueBtn } = renderHarness();
+    setName('My Wallet');
+    setPassword('Abcdef1234!');
+    setVerify('Abcdef1234!');
+    expect(continueBtn).toBeDisabled();
+  });
+
   it('accepts initial props for password and file name', () => {
     const { passwordInput, nameInput } = renderHarness({
       initialPassword: VALID_PASSWORD,
@@ -329,8 +335,7 @@ describe('ExportFilePassword', () => {
     });
     expect(passwordInput).toHaveValue(VALID_PASSWORD);
     expect(nameInput).toHaveValue('Preset');
-    // strongPasswordLength branch: seed a >=12 char password to flip it true.
-    expect(screen.getByTestId('password-strength')).toHaveAttribute('data-valid-count', '4');
+    expect(screen.getByTestId('password-strength')).toHaveAttribute('data-valid-count', '5');
   });
 });
 
@@ -345,7 +350,7 @@ describe('user-visible error reporting', () => {
   });
 
   it('reports export password mismatch without sending the filename or password', () => {
-    render(<Harness initialPassword="Abcdef12!" initialFileName={privateErrorFixture} />);
+    render(<Harness initialPassword={VALID_PASSWORD} initialFileName={privateErrorFixture} />);
     fireEvent.change(screen.getByPlaceholderText('enterPasswordAgain'), { target: { value: privateErrorFixture } });
     expect(screen.getByText('passwordsDoNotMatch')).toBeVisible();
     expect(reportUserVisibleError).not.toHaveBeenCalled();

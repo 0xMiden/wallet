@@ -75,6 +75,7 @@ const args: GaslessEarnWithdrawalArgs = {
   evmAddress: PREPARED_OWNER,
   marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
   underlyingAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+  underlyingSymbol: 'USDC',
   amount: '10',
   underlyingDecimals: 18,
   protocol: 'dummy-lending'

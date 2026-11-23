@@ -1,0 +1,133 @@
+#dashboard-stage {
+  --control-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m7 10 5 5 5-5' fill='none' stroke='%23d7b18b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+#dashboard-stage .dock {
+  background-color: rgba(25, 25, 23, .88);
+}
+
+#dashboard-stage .icon-button,
+#dashboard-stage .reverse-pair {
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+#dashboard-stage .icon-button svg,
+#dashboard-stage .reverse-pair svg {
+  display: block;
+}
+
+/* Native select chrome ignores author padding on some platforms. */
+#workbench select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: var(--control-caret);
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+  background-position: right 14px center;
+  padding-right: 40px;
+  line-height: 1.4;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+#workbench input.input,
+#workbench select.input,
+#picker .picker-search .input {
+  min-height: 48px;
+  height: 48px;
+  padding: 12px 14px;
+}
+#workbench select.input {
+  padding-right: 40px;
+}
+#workbench select.bridge-environment {
+  min-width: 172px;
+  min-height: 42px;
+  height: 42px !important;
+  padding: 9px 40px 9px 14px !important;
+}
+#workbench .send-options select,
+#workbench .receive-controls select,
+#workbench .demo-tools select {
+  min-height: 36px;
+  padding: 7px 36px 7px 12px;
+  border-radius: 8px;
+  background-position: right 10px center;
+  font-size: 12px;
+}
+#workbench .bridge-asset-select {
+  min-width: 88px;
+  min-height: 38px;
+  padding: 8px 32px 8px 10px;
+  background-position: right 8px center;
+}
+#workbench .chain-endpoint:has(.bridge-wallet-row) > .row:first-child {
+  min-height: 28px;
+}
+#workbench .chain-endpoint:has(.bridge-wallet-row) > .row > select {
+  width: auto;
+  max-width: 200px;
+  min-height: 28px;
+  padding: 3px 26px 3px 0;
+  text-align: right;
+  text-align-last: right;
+  background-position: right 0 center;
+  border-radius: 6px;
+}
+#workbench .bridge-wallet-row select {
+  min-height: 32px;
+  padding: 6px 28px 6px 0;
+  background-position: right 4px center;
+}
+#workbench .bridge-wallet-row .text-button {
+  min-height: 32px;
+}
+#workbench .receive-controls .small {
+  margin-top: 0;
+}
+#workbench .ledger > div {
+  align-items: baseline;
+}
+
+#work-scroll:has(.review-pair) .review-value {
+  padding-block: 20px;
+}
+#work-scroll:has(.review-pair) .terms-details,
+#work-scroll:has(.status-card) .terms-details {
+  margin-top: 20px;
+  padding-top: 14px;
+}
+#workbench .status-card + .settlement {
+  margin-top: 20px;
+}
+#work-scroll:has(.review-pair) .ledger > div {
+  padding-block: 8px;
+}
+#work-scroll:has(.review-pair) .check-line {
+  margin-top: 18px;
+}
+
+#palette .palette-head input {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  outline-offset: 2px;
+}
+#dashboard-stage .search-inline input {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+@media (forced-colors: active) {
+  #workbench select {
+    -webkit-appearance: auto;
+    appearance: auto;
+    background-image: none;
+  }
+}

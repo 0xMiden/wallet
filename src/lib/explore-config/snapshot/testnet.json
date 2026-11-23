@@ -1,6 +1,6 @@
 {
   "network": "testnet",
-  "version": 2,
+  "version": 4,
   "items": [
     {
       "id": "faucet",
@@ -44,31 +44,31 @@
       "isExchange": false
     },
     {
-      "id": "where-legends-grow",
+      "id": "port0",
       "name": {
-        "en": "Where Legends Grow"
+        "en": "port0.sh"
       },
       "tagline": {
-        "en": "Build a football club, train your squad and play matches",
-        "de": "Fußballverein aufbauen, Kader trainieren und Spiele bestreiten",
-        "en_GB": "Build a football club, train your squad and play matches",
-        "es": "Crea un club de fútbol, entrena a tu plantilla y juega partidos",
-        "fr": "Créez un club de football, entraînez votre effectif et jouez des matchs",
-        "ja": "サッカークラブを作り、選手を育てて試合に挑む",
-        "ko": "축구 클럽을 만들고 선수단을 훈련시켜 경기하기",
-        "pl": "Zbuduj klub piłkarski, trenuj kadrę i rozgrywaj mecze",
-        "pt": "Crie um clube de futebol, treine seu elenco e dispute partidas",
-        "ru": "Создайте футбольный клуб, тренируйте команду и проводите матчи",
-        "tr": "Bir futbol kulübü kurun, kadronuzu çalıştırın ve maçlara çıkın",
-        "uk": "Створіть футбольний клуб, тренуйте команду та проводьте матчі",
-        "zh_CN": "组建足球俱乐部，训练球队并参加比赛",
-        "zh_TW": "組建足球俱樂部，訓練球隊並參加比賽"
+        "en": "The first exchange on Miden where anyone can trade and open a pool.",
+        "de": "Die erste Exchange auf Miden, auf der jeder handeln und einen Pool eröffnen kann.",
+        "en_GB": "The first exchange on Miden where anyone can trade and open a pool.",
+        "es": "El primer exchange en Miden donde cualquiera puede operar y abrir un pool.",
+        "fr": "La première place d'échange sur Miden où chacun peut trader et ouvrir un pool.",
+        "ja": "Miden 初の、誰でも取引とプールの開設ができる取引所。",
+        "ko": "누구나 거래하고 풀을 열 수 있는 Miden 최초의 거래소.",
+        "pl": "Pierwsza giełda na Miden, na której każdy może handlować i otworzyć pulę.",
+        "pt": "A primeira exchange na Miden onde qualquer pessoa pode negociar e abrir um pool.",
+        "ru": "Первая биржа на Miden, где любой может торговать и открыть пул.",
+        "tr": "Miden'de herkesin işlem yapıp havuz açabileceği ilk borsa.",
+        "uk": "Перша біржа на Miden, де кожен може торгувати й відкрити пул.",
+        "zh_CN": "Miden 上首个任何人都能交易并创建资金池的交易平台。",
+        "zh_TW": "Miden 上首個任何人都能交易並建立資金池的交易平台。"
       },
-      "url": "https://wherelegendsgrow.com/",
-      "category": "games",
-      "icon": "icons/where-legends-grow.png",
-      "brandColor": "#07101F",
-      "isExchange": false
+      "url": "https://testnet.port0.sh/",
+      "category": "defi",
+      "icon": "icons/port0.png",
+      "brandColor": "#F200B9",
+      "isExchange": true
     }
   ],
   "sections": [
@@ -115,25 +115,12 @@
       "itemIds": ["faucet", "forkchoice-faucet"]
     },
     {
-      "id": "games",
+      "id": "defi",
       "kind": "list",
       "title": {
-        "en": "Games",
-        "de": "Spiele",
-        "en_GB": "Games",
-        "es": "Juegos",
-        "fr": "Jeux",
-        "ja": "ゲーム",
-        "ko": "게임",
-        "pl": "Gry",
-        "pt": "Jogos",
-        "ru": "Игры",
-        "tr": "Oyunlar",
-        "uk": "Ігри",
-        "zh_CN": "游戏",
-        "zh_TW": "遊戲"
+        "en": "DeFi"
       },
-      "itemIds": ["where-legends-grow"]
+      "itemIds": ["port0"]
     }
   ]
 }

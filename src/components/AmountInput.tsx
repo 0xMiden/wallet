@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input-field';
@@ -6,8 +6,9 @@ import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input
 import { Icon, IconName } from 'app/icons/v2';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { ClearFieldButton } from 'components/ui/ClearFieldButton';
-import { Skeleton } from 'components/ui/Skeleton';
+import { Skeleton, SkeletonTone } from 'components/ui/Skeleton';
 import { getCurrentLocale } from 'lib/i18n/core';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { clearFieldValue } from 'lib/ui/clear-field';
@@ -67,9 +68,17 @@ export function normalizeDecimalInput(rawValue: string): string {
   return rawValue.replace(/,/g, '.');
 }
 
+export function normalizeLeadingZeroes(value: string): string {
+  return value
+    .replace(/^(-?)\.(?=\d)/, '$10.')
+    .replace(/^(-?)0+(?=\d)/, '$1')
+    .replace(/^(-?)0+(?=\.|$)/, '$10');
+}
+
 export interface AmountInputProps {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
   errorId?: UserErrorId | null;
+  errorDiagnostics?: UiEvidenceInput;
   value?: string;
   /** Display-only estimate while unfocused; callbacks always retain the exact value. */
   unfocusedDisplayValue?: string;
@@ -108,6 +117,8 @@ export interface AmountInputProps {
   disabled?: boolean;
   /** Show a skeleton in place of the value while the amount is being computed. */
   loading?: boolean;
+  /** The skeleton's tone: `onFill` when the field sits on a `fill` card. Defaults to `fill`. */
+  skeletonTone?: SkeletonTone;
   /** A unit drawn before the number (e.g. "$"), outside the input so the value stays bare digits. */
   prefix?: React.ReactNode;
   /**
@@ -115,6 +126,11 @@ export interface AmountInputProps {
    * raised, like a price. Defaults to `left`, the send and swap layout.
    */
   align?: 'left' | 'center';
+  /**
+   * `compact` draws a smaller figure with less space above it, for a field that shares a card with other rows.
+   * Defaults to `default`, the send and swap size.
+   */
+  size?: 'default' | 'compact';
   'aria-label'?: string;
   className?: string;
   'data-testid'?: string;
@@ -139,6 +155,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   label,
   error,
   errorId,
+  errorDiagnostics,
   invalid = false,
   helper,
   secondary,
@@ -149,27 +166,46 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   autoFocus,
   disabled,
   loading,
+  skeletonTone,
   prefix,
   align = 'left',
+  size = 'default',
   'aria-label': ariaLabel,
   className,
   'data-testid': dataTestId
 }) => {
-  useUserVisibleError(error ? errorId : null, 'field');
+  useUserVisibleError(error ? errorId : null, 'field', undefined, errorDiagnostics);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingSelection = useRef<{ value: string; start: number; end: number } | null>(null);
   const [focused, setFocused] = useState(false);
+  useLayoutEffect(() => {
+    const selection = pendingSelection.current;
+    const input = inputRef.current;
+    if (selection && input?.value === selection.value) {
+      input.setSelectionRange(selection.start, selection.end);
+      pendingSelection.current = null;
+    }
+  }, [value]);
   const showEstimate = unfocusedDisplayValue !== undefined && unfocusedDisplayValue !== '' && !focused;
   const figureValue = showEstimate ? unfocusedDisplayValue : value;
   const centered = align === 'center';
   const showClear = Boolean(value) && !disabled && !loading;
   // Reserve the unit choice and clear target on narrow screens before the figure grows.
-  const figureSize = unitControl
-    ? (figureValue?.length ?? 0) >= 6
-      ? 'text-3xl'
-      : (figureValue?.length ?? 0) >= 4
-        ? 'text-4xl'
-        : 'text-5xl'
-    : amountTextSize(figureValue);
+  const compact = size === 'compact';
+  const figureLength = figureValue?.length ?? 0;
+  const figureSize = compact
+    ? figureLength >= 10
+      ? 'text-xl'
+      : figureLength >= 6
+        ? 'text-2xl'
+        : 'text-3xl'
+    : unitControl
+      ? figureLength >= 6
+        ? 'text-3xl'
+        : figureLength >= 4
+          ? 'text-4xl'
+          : 'text-5xl'
+      : amountTextSize(figureValue);
   const amountClasses = classNames(
     'font-heading font-extrabold leading-none',
     figureSize,
@@ -193,10 +229,33 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         )}
         value={value ?? ''}
         onChange={event => {
-          const normalized = normalizeDecimalInput(event.target.value);
+          const raw = event.target.value;
+          const decimalNormalized = normalizeDecimalInput(raw);
+          const normalized = normalizeLeadingZeroes(decimalNormalized);
           const pattern = allowNegativeValue ? /^-?\d*(?:\.\d*)?$/ : /^\d*(?:\.\d*)?$/;
           const fractionalDigits = normalized.split('.')[1]?.replace(/0+$/, '').length ?? 0;
           if (!pattern.test(normalized) || fractionalDigits > decimalsLimit) return;
+          const removedZeroes = decimalNormalized.length - normalized.length;
+          if (normalized !== raw && event.target.selectionStart !== null && event.target.selectionEnd !== null) {
+            const map = (position: number) => {
+              const withoutCommas = raw.includes('.')
+                ? position - (raw.slice(0, position).match(/,/g)?.length ?? 0)
+                : position;
+              return position === 0 ? 0 : Math.max(raw.startsWith('-') ? 1 : 0, withoutCommas - removedZeroes);
+            };
+            const selection = {
+              value: normalized,
+              start: map(event.target.selectionStart),
+              end: map(event.target.selectionEnd)
+            };
+            pendingSelection.current = selection;
+            queueMicrotask(() => {
+              if (pendingSelection.current === selection && inputRef.current?.value === selection.value) {
+                inputRef.current.setSelectionRange(selection.start, selection.end);
+                pendingSelection.current = null;
+              }
+            });
+          }
           onValueChange?.(normalized || undefined);
         }}
         onFocus={() => setFocused(true)}
@@ -272,7 +331,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       <div
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
-          'flex cursor-text mt-3',
+          'flex cursor-text',
+          compact ? 'mt-1' : 'mt-3',
           centered ? classNames('items-start justify-center', amountTextSize(figureValue)) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
@@ -290,7 +350,10 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           </span>
         )}
         {loading ? (
-          <Skeleton className="h-14 w-40 rounded-xl" />
+          // Left-aligned, the skeleton takes the input's free width, so the unit control stays where it was.
+          <div className={classNames('self-center', !centered && 'min-w-0 flex-1')}>
+            <Skeleton tone={skeletonTone} className={classNames('rounded-xl', compact ? 'h-9 w-28' : 'h-14 w-40')} />
+          </div>
         ) : centered ? (
           // An invisible copy of the value sizes the grid cell, so the input is exactly as wide as
           // what it holds and the prefix + number centre as one.

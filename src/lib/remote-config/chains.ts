@@ -9,6 +9,10 @@ export function evmChainSlug(chainId: number): string | undefined {
       return 'base';
     case 42161:
       return 'arbitrum';
+    case 137:
+      return 'polygon';
+    case 4663:
+      return 'robinhood';
     case 5042:
       return 'arc';
     case 11155111:

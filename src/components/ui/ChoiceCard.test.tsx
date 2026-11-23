@@ -106,13 +106,13 @@ describe('ChoiceCardGroup', () => {
     expect(ChoiceCardGroupDefault).toBe(ChoiceCardGroup);
   });
 
-  it('renders a labelled radiogroup of flat fill cards with no border', () => {
+  it('renders a labelled radiogroup of flat fill cards without a layout border', () => {
     renderGroup();
     const group = screen.getByRole('radiogroup', { name: 'Guardians' });
     expect(group).toHaveClass('grid', 'auto-rows-fr', 'gap-3');
     const card = screen.getByTestId('choice-oz');
     expect(card).toHaveClass('rounded-2xl', 'bg-fill');
-    expect(card.className).not.toMatch(/\bborder\b/);
+    expect(card).not.toHaveClass('border');
   });
 
   it('renders labelled sections in one radiogroup and navigates across them', () => {
@@ -168,17 +168,23 @@ describe('ChoiceCardGroup', () => {
     expect(radio('Kodax, offline')).toBeInTheDocument();
   });
 
-  it('marks the chosen card with aria-checked, the accent ring and a check', () => {
+  it('marks the chosen card with a continuous border and a separate inset keyboard focus outline', () => {
     renderGroup();
     const oz = radio('OpenZeppelin');
     expect(oz).toHaveAttribute('aria-checked', 'true');
     expect(oz).toHaveAttribute('data-state', 'checked');
-    expect(oz).toHaveClass('ring-2', 'ring-inset', 'ring-accent-primary');
+    expect(oz).toHaveClass('before:border-2', 'before:border-accent-primary');
+    expect(oz).toHaveClass(
+      'focus-visible:outline-solid',
+      'focus-visible:outline-2',
+      'focus-visible:-outline-offset-[5px]'
+    );
     expect(oz.querySelector('svg:not([data-testid])')).not.toBeNull();
 
     const gateway = radio('Gateway');
     expect(gateway).toHaveAttribute('aria-checked', 'false');
-    expect(gateway).not.toHaveClass('ring-accent-primary');
+    expect(gateway).not.toHaveClass('before:border-accent-primary');
+    expect(gateway).toHaveClass('focus-visible:-outline-offset-[5px]');
   });
 
   it('selects on tap with one selection haptic, and a tap on the chosen card is silent', () => {

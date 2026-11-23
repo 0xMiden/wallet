@@ -12,15 +12,18 @@
 // reap the document under memory pressure; the next `ensureOffscreenDocument`
 // recreates it. Cold start re-pays WASM init + thread-pool spawn (~1-3s).
 
+import { isOffscreenDocumentSender } from 'lib/intercom/sender';
+
+import { OFFSCREEN_URL } from './offscreen-codec';
 import { isInOffscreenDocument } from './offscreen-realm';
 
 // Re-exported so every existing importer of `isInOffscreenDocument` from here —
 // and every test that mocks this module wholesale — is unchanged by the split.
 // Modules that need ONLY the realm check should import `./offscreen-realm`
-// directly; see that file for why the two are separate.
-export { isInOffscreenDocument };
-
-const OFFSCREEN_URL = 'offscreen.html';
+// directly; see that file for why the two are separate. `OFFSCREEN_URL` lives in
+// the codec for the same reason: the service worker's sender check reads it, and a
+// partial mock of this module must not turn it into `undefined`.
+export { isInOffscreenDocument, OFFSCREEN_URL };
 
 // Lifecycle queue for create+close serialization. The offscreen API throws
 // "Only a single offscreen document may be created" if create races with
@@ -154,21 +157,38 @@ export async function ensureOffscreenDocument(): Promise<void> {
 }
 
 /**
- * Unconditionally tear down the offscreen document (OS-level kill) via
- * `closeDocument()`: the deadline / heal-alarm kill path (design §3.2), whose
- * whole purpose is to kill a wedged realm. Serialized through
- * `withLifecycleLock` so the close can't race a concurrent create.
+ * Tear down the offscreen document (OS-level kill) via `closeDocument()`: the
+ * deadline / heal-alarm kill path (design §3.2), whose whole purpose is to kill
+ * a wedged realm. Serialized through `withLifecycleLock` so the close can't
+ * race a concurrent create.
  *
- * Callers that must not kill a healthy critical op should gate on
- * {@link isCriticalOpInFlight} first; this function itself does not.
+ * The no-argument call is unconditional. This function does not read
+ * {@link isCriticalOpInFlight}; a caller that must not kill a healthy critical
+ * op gates on that itself. It returns true after `closeDocument` and false when
+ * no document exists.
  *
- * Returns true if a document was actually closed; false if none existed.
+ * A predicate is run once, synchronously, inside that lock after
+ * `hasOffscreenDocument` resolves and before `closeDocument`, with no await
+ * between the check and the close. `blocked` means the predicate returned
+ * false; `absent` means it returned true and no document exists; `closed`
+ * means `closeDocument` ran.
  */
-export async function forceCloseOffscreenDocument(): Promise<boolean> {
+export function forceCloseOffscreenDocument(): Promise<boolean>;
+export function forceCloseOffscreenDocument(mayClose: () => boolean): Promise<'closed' | 'absent' | 'blocked'>;
+export async function forceCloseOffscreenDocument(
+  mayClose?: () => boolean
+): Promise<boolean | 'closed' | 'absent' | 'blocked'> {
   return await withLifecycleLock(async () => {
-    if (!(await hasOffscreenDocument())) return false;
+    const present = await hasOffscreenDocument();
+    if (mayClose === undefined) {
+      if (!present) return false;
+      await chrome.offscreen.closeDocument();
+      return true;
+    }
+    if (!mayClose()) return 'blocked';
+    if (!present) return 'absent';
     await chrome.offscreen.closeDocument();
-    return true;
+    return 'closed';
   });
 }
 
@@ -178,12 +198,13 @@ function waitForOffscreenReady(): Promise<void> {
       chrome.runtime.onMessage.removeListener(handler);
       reject(new Error('Offscreen prover ready signal timed out (>30s)'));
     }, 30_000);
-    const handler = (msg: { type?: string }) => {
-      if (msg?.type === 'OFFSCREEN_READY') {
-        clearTimeout(timeout);
-        chrome.runtime.onMessage.removeListener(handler);
-        resolve();
-      }
+    const handler = (msg: { type?: string }, sender?: { id?: string; url?: string; tab?: unknown }) => {
+      // A page, the worker, a content script, or a missing sender leaves this listener in place.
+      if (msg?.type !== 'OFFSCREEN_READY') return;
+      if (!isOffscreenDocumentSender(sender, chrome.runtime.id, chrome.runtime.getURL(OFFSCREEN_URL))) return;
+      clearTimeout(timeout);
+      chrome.runtime.onMessage.removeListener(handler);
+      resolve();
     };
     chrome.runtime.onMessage.addListener(handler);
   });

@@ -1,15 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { useTapUnlock } from 'app/hooks/useTapUnlock';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { Button, ButtonVariant } from 'components/Button';
-import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
 
 import { NoCodeSheet } from './NoCodeSheet';
@@ -31,23 +28,6 @@ export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTML
  */
 export type Actions = 'mainnet-access' | 'select-wallet-type' | 'select-import-type';
 
-/**
- * The maximum time the actions stay hidden while the remote config loads, so that the variant the
- * config sets does not replace the other one under the user's finger.
- */
-const CONFIG_WAIT_MS = 3_000;
-
-/** True when the remote config has loaded, or the wait for it has ended. */
-function useConfigSettled(loading: boolean): boolean {
-  const [waitEnded, setWaitEnded] = useState(false);
-  useEffect(() => {
-    if (!loading) return undefined;
-    const timer = setTimeout(() => setWaitEnded(true), CONFIG_WAIT_MS);
-    return () => clearTimeout(timer);
-  }, [loading]);
-  return !loading || waitEnded;
-}
-
 export const WelcomeScreen = ({
   onSubmit,
   inviteOnly = false,
@@ -55,11 +35,7 @@ export const WelcomeScreen = ({
   recoverOnly = false
 }: WelcomeScreenProps) => {
   const { t } = useTranslation();
-  const snapshot = useBridgeConfigSnapshot();
-  const settled = useConfigSettled(snapshot.status === 'loading');
   const [noCodeOpen, setNoCodeOpen] = useState(false);
-  // Hidden, not removed, so the hero does not move when the actions show.
-  const actionClassName = cn('max-w-none', !settled && 'invisible');
 
   // Seven logo taps unlock the invite-only Welcome, or open Developer Settings.
   const handleLogoTap = useTapUnlock(() => {
@@ -74,14 +50,21 @@ export const WelcomeScreen = ({
     <>
       <Button
         tabIndex={0}
-        className={actionClassName}
+        className="max-w-none"
         data-testid="onboarding-have-code"
         title={t('iHaveACode')}
         onClick={() => onSubmit?.('mainnet-access')}
       />
-      {/* No code: Bread is invite-only, and the sheet says so (TextAction brings the haptic). */}
+      <Button
+        id="import-link"
+        className="max-w-none"
+        variant={ButtonVariant.Secondary}
+        data-testid="onboarding-recover-account"
+        title={t('recoverYourAccount')}
+        onClick={() => onSubmit?.('select-import-type')}
+      />
       <TextAction
-        className={cn('self-center underline decoration-1 underline-offset-[3px]', !settled && 'invisible')}
+        className="self-center underline decoration-1 underline-offset-[3px]"
         data-testid="onboarding-no-code"
         onClick={() => setNoCodeOpen(true)}
       >
@@ -93,7 +76,7 @@ export const WelcomeScreen = ({
       {!recoverOnly && (
         <Button
           tabIndex={0}
-          className={actionClassName}
+          className="max-w-none"
           data-testid="onboarding-get-started"
           title={t('getStarted')}
           onClick={() => onSubmit?.('select-wallet-type')}
@@ -102,7 +85,7 @@ export const WelcomeScreen = ({
       {/* Recover: secondary under Get started, or the primary when it is alone (Button brings the haptic). */}
       <Button
         id="import-link"
-        className={actionClassName}
+        className="max-w-none"
         variant={recoverOnly ? ButtonVariant.Primary : ButtonVariant.Secondary}
         data-testid="onboarding-recover-account"
         title={t('recoverYourAccount')}
@@ -111,22 +94,7 @@ export const WelcomeScreen = ({
     </>
   );
 
-  // While the remote config loads, the hidden actions keep their room and a spinner shows in it.
-  const footer = (
-    <div className="relative flex flex-col gap-2.5">
-      {!settled && (
-        <div
-          role="status"
-          aria-label={t('loading')}
-          data-testid="onboarding-config-loading"
-          className="absolute inset-0 flex items-center justify-center"
-        >
-          <Spinner size="lg" />
-        </div>
-      )}
-      {actions}
-    </div>
-  );
+  const footer = <div className="flex flex-col gap-2.5">{actions}</div>;
 
   return (
     <SubPageLayout data-testid="onboarding-welcome" footerLayout="stack" footer={footer}>
@@ -149,14 +117,7 @@ export const WelcomeScreen = ({
           {t('breadWalletDescription')}
         </p>
       </div>
-      <NoCodeSheet
-        open={noCodeOpen}
-        onOpenChange={setNoCodeOpen}
-        onRecover={() => {
-          setNoCodeOpen(false);
-          onSubmit?.('select-import-type');
-        }}
-      />
+      <NoCodeSheet open={noCodeOpen} onOpenChange={setNoCodeOpen} />
     </SubPageLayout>
   );
 };

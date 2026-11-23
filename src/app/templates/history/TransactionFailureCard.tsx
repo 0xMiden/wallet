@@ -14,7 +14,7 @@ import { DetailSection } from './DetailSection';
  * revealed on demand. Shared by the generic detail body and the swap receipt so
  * a failed or cancelled swap explains itself the way every other type does.
  *
- * `isUnconfirmed` (`isOutcomeUnconfirmed`) wins over `isCancelled`: the row's outcome is
+ * `isUnconfirmed` (`readsAsNotConfirmed`) wins over `isCancelled`: the row's outcome is
  * unknown rather than a completed failure, so it is titled like the not-confirmed status and
  * its body is the hint that the wallet cannot yet rule the transfer out. The row's reason is
  * not shown there, since classifier copy can claim a failure ("No funds moved"); its own text

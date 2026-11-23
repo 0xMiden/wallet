@@ -1,9 +1,14 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
-import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
-import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
-import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
+import { IMPORTED_WALLET_PASSWORD, importWallet } from '../e2e/helpers/import-wallet';
 import { expect, test } from '../fixtures/extension';
+import {
+  NATIVE_ASSET_ID_CACHE,
+  NATIVE_ASSET_META_CACHE,
+  NATIVE_ASSET_SYNCED_ID_CACHE
+} from '../../src/lib/miden-chain/native-asset-cache-keys';
+import { TEST_TOKEN_IETH } from '../../src/lib/miden/swap/testing/registry';
+import type { SyncData } from '../../src/lib/shared/types';
 
 /**
  * Home names no network any more: the pill above its balance card (which used to be a ribbon across
@@ -17,42 +22,13 @@ import { expect, test } from '../fixtures/extension';
  * popup's size, reporting the tab as the popup view so the app keeps it and lays out as the popup.
  */
 
-const PASSWORD = 'Password123!';
-const SEED = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ');
-
-async function importWallet(extensionContext: BrowserContext, extensionId: string): Promise<void> {
-  const page = await extensionContext.newPage();
-  await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
-  await page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-  await page.locator('#import-link').click();
-  await acknowledgeNetworkNotice(page, 15_000);
-  await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
-  await page.getByTestId('import-type-seed-phrase').click();
-  await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
-  for (let i = 0; i < SEED.length; i++) {
-    await page.locator(`#seed-phrase-input-${i}`).fill(SEED[i]!);
-  }
-  await page.getByRole('button', { name: /continue/i }).click();
-  await expect(page).toHaveURL(/create-password/);
-  await page.locator('input[placeholder="Enter password"]').first().fill(PASSWORD);
-  await page.locator('input[placeholder="Enter password again"]').first().fill(PASSWORD);
-  await page.getByRole('button', { name: /continue/i }).click();
-  await page.getByTestId('import-recovery-method').waitFor({ timeout: 15_000 });
-  await page.getByText(/import public account/i).click();
-  // A public import creates an account when none exists, so it waits for the reused-phrase acknowledgement.
-  await page.getByTestId('reused-phrase-acknowledge').click();
-  await page.getByRole('button', { name: /continue/i }).click();
-  await passImportConfirmation(page, 30_000);
-  // Onboarding gained a consent screen between the confirmation and the handoff, so this
-  // driver has to clear it before waiting for a post-onboarding surface.
-  await dismissTelemetryConsent(page, { timeoutMs: 30_000 });
-  // The wallet is Ready once the side-panel handoff offers to open it; this test drives the popup
-  // instead, so it stops here.
-  await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30_000 });
-  await page.close();
-}
-
-async function openPopup(extensionContext: BrowserContext, extensionId: string, locale: string): Promise<Page> {
+async function openPopup(
+  extensionContext: BrowserContext,
+  extensionId: string,
+  locale: string,
+  snapshot?: SyncData,
+  surface: 'popup' | 'sidepanel' = 'popup'
+): Promise<Page> {
   const page = await extensionContext.newPage();
   // The extension fixture launches with no viewport (Playwright's 1280x720), and test.use({ viewport })
   // does not reach it.
@@ -68,12 +44,36 @@ async function openPopup(extensionContext: BrowserContext, extensionId: string, 
     // src/i18n.ts reads the saved 'locale' before the language detector.
     await page.addInitScript(value => localStorage.setItem('locale', value), locale);
   }
-  await page.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: 'domcontentloaded' });
+  if (snapshot) {
+    await page.addInitScript(syncData => {
+      const storage = chrome.storage.local;
+      storage.get = new Proxy(storage.get, {
+        apply: (target, receiver, args) => {
+          if (args[0] !== 'miden_sync_data' || typeof args[1] !== 'function') {
+            return Reflect.apply(target, receiver, args);
+          }
+          // Keep the persisted vault steady while a separate service-worker refresh could replace it.
+          setTimeout(() => args[1]({ miden_sync_data: syncData }), 250);
+          return undefined;
+        }
+      });
+      requestAnimationFrame(function sample() {
+        const label = document.querySelector('[data-testid="balance-card-label"]');
+        if (label?.getBoundingClientRect().height) {
+          const amount = document.querySelector('[data-testid="balance-card-currency"]')?.previousElementSibling;
+          document.documentElement.dataset.firstBalance = amount?.textContent ?? '(skeleton)';
+        } else {
+          requestAnimationFrame(sample);
+        }
+      });
+    }, snapshot);
+  }
+  await page.goto(`chrome-extension://${extensionId}/${surface}.html`, { waitUntil: 'domcontentloaded' });
   const card = page.getByTestId('balance-card-label');
   const unlock = page.getByTestId('unlock-password');
   await card.or(unlock).first().waitFor({ timeout: 30_000 });
   if (await unlock.isVisible().catch(() => false)) {
-    await page.locator('#unlock-password').fill(PASSWORD);
+    await page.locator('#unlock-password').fill(IMPORTED_WALLET_PASSWORD);
     await page.locator('#unlock-password').press('Enter');
   }
   await card.waitFor({ timeout: 30_000 });
@@ -82,6 +82,112 @@ async function openPopup(extensionContext: BrowserContext, extensionId: string, 
 
 test.describe('Home network naming', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension UI only runs in Chromium');
+
+  test('reopens Home with the last synced balance in the first card frame', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    test.setTimeout(330_000);
+    await importWallet(extensionContext, extensionId);
+    const worker = extensionContext.serviceWorkers()[0] ?? (await extensionContext.waitForEvent('serviceworker'));
+    const readSnapshot = () =>
+      worker.evaluate(async () => (await chrome.storage.local.get('miden_sync_data')).miden_sync_data as SyncData);
+    await expect
+      .poll(async () => (await readSnapshot())?.balanceSnapshot?.accountNonce, { timeout: 30_000 })
+      .toBeDefined();
+    const snapshot = await readSnapshot();
+    const scope = `${snapshot.balanceSnapshot?.rpcUrl}|${snapshot.balanceSnapshot?.effectiveNetwork}`;
+    const syncedKey = `${NATIVE_ASSET_SYNCED_ID_CACHE}:${scope}`;
+    // The mock chain uses its own native faucet. Declare its cached display metadata as USDCx
+    // so the real fixed-quote path is exercised without relying on a live token list or feed.
+    await expect
+      .poll(() => worker.evaluate(async key => (await chrome.storage.local.get(key))[key], syncedKey))
+      .toEqual(expect.any(String));
+    const faucetId: string = await worker.evaluate(async key => (await chrome.storage.local.get(key))[key], syncedKey);
+    const metadata = { symbol: 'USDCX', name: 'USDCx', decimals: 6 };
+    await worker.evaluate(values => chrome.storage.local.set(values), {
+      [`${NATIVE_ASSET_ID_CACHE}:${scope}`]: faucetId,
+      [`${NATIVE_ASSET_META_CACHE}:${scope}`]: { ...metadata, faucetId }
+    });
+    const page = await openPopup(extensionContext, extensionId, 'en', {
+      ...snapshot,
+      vaultAssets: [{ faucetId, amountBaseUnits: '7250000', metadata }]
+    });
+    await expect(page.getByTestId('balance-card-currency')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-first-balance', '7.25');
+  });
+
+  test('renders the same cached market balance in Sidebar and Command without a price feed', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    test.setTimeout(330_000);
+    await extensionContext.route('https://raw.githubusercontent.com/0xMiden/token-list/main/*.json', route =>
+      route.abort()
+    );
+    await extensionContext.route(/https:\/\/(data-api\.binance\.vision|api\.kraken\.com)\//, route => route.abort());
+    await importWallet(extensionContext, extensionId);
+    const worker = extensionContext.serviceWorkers()[0] ?? (await extensionContext.waitForEvent('serviceworker'));
+    const readSnapshot = () =>
+      worker.evaluate(async () => (await chrome.storage.local.get('miden_sync_data')).miden_sync_data as SyncData);
+    await expect.poll(async () => (await readSnapshot())?.balanceSnapshot?.accountNonce).toBeDefined();
+    const snapshot = await readSnapshot();
+    // Use a non-native faucet: native metadata is independently refreshed by the SDK.
+    const { faucetId, symbol, decimals } = TEST_TOKEN_IETH;
+    const metadata = { symbol, name: 'Ether', decimals };
+    const network = snapshot.balanceSnapshot?.effectiveNetwork;
+    expect(network).toBe('testnet');
+    await worker.evaluate(values => chrome.storage.local.set(values), {
+      [`token_list_cache_v2:${network}`]: {
+        fetchedAt: Date.now(),
+        body: {
+          tokens: [{ network, faucetId, symbol: metadata.symbol, decimals: metadata.decimals, binanceAsset: 'ETH' }]
+        }
+      },
+      usd_price_cache: { ETH: { priceMicro: '2000000', fetchedAt: Math.floor(Date.now() / 1000) } }
+    });
+    const fixture = { ...snapshot, vaultAssets: [{ faucetId, amountBaseUnits: '725000000', metadata }] };
+    const sidebar = await openPopup(extensionContext, extensionId, 'en', fixture, 'sidepanel');
+    await expect(sidebar.locator('html'))
+      .toHaveAttribute('data-first-balance', /^14\.5(?:0)?$/)
+      .catch(async error => {
+        const amount = sidebar.getByTestId('balance-card-currency');
+        const current = await amount.evaluate(node => node.previousElementSibling?.textContent).catch(() => null);
+        const assetVisible = await sidebar.getByText(metadata.name, { exact: true }).first().isVisible();
+        throw new Error(
+          `Sidebar cached balance: current=${current ?? 'missing'}, fixture asset visible=${assetVisible}`,
+          {
+            cause: error
+          }
+        );
+      });
+    await sidebar.close();
+    const command = await extensionContext.newPage();
+    await command.addInitScript(syncData => {
+      const storage = chrome.storage.local;
+      storage.get = new Proxy(storage.get, {
+        apply: (target, receiver, args) => {
+          if (args[0] !== 'miden_sync_data' || typeof args[1] !== 'function')
+            return Reflect.apply(target, receiver, args);
+          args[1]({ miden_sync_data: syncData });
+        }
+      });
+      requestAnimationFrame(function sample() {
+        const label = Array.from(document.querySelectorAll('section[aria-label="Portfolio"] p')).find(
+          node => node.textContent === 'Wallet balance'
+        );
+        const amount = label?.nextElementSibling;
+        if (amount?.getBoundingClientRect().height) {
+          document.documentElement.dataset.firstBalance = amount.textContent ?? '';
+        } else {
+          requestAnimationFrame(sample);
+        }
+      });
+    }, fixture);
+    await command.goto(`chrome-extension://${extensionId}/fullpage.html#/`);
+    await expect(command.locator('html')).toHaveAttribute('data-first-balance', /^14\.5(?:0)? USD$/);
+    await command.close();
+  });
 
   for (const locale of ['en', 'de'] as const) {
     test(`shows no network pill or banner above the balance card in a 360x600 popup (${locale})`, async ({

@@ -351,6 +351,31 @@ test.describe('dApp provider', () => {
     expect(sent.transactionId).toBe(sendRow.id);
   });
 
+  test('the connect prompt names an internationalized host by its ASCII form', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    test.setTimeout(540_000);
+
+    const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
+    const walletPage = await extensionContext.newPage();
+    await completeSeedImportOnboarding(walletPage, fullpageUrl);
+
+    // The browser hands the extension the ASCII serialization of the origin it navigated to.
+    const idnOrigin = `https://miden-d${String.fromCharCode(0x430)}pp-fixture.invalid`;
+    const dapp = await openFixtureDapp(extensionContext, 30_000, idnOrigin);
+
+    const connectPopupPromise = waitForConfirmPopup(extensionContext, 20_000);
+    const connectCall = dapp.evaluate(pageConnect);
+    const connectPopup = await waitForConfirmForm(await connectPopupPromise, CONFIRM_TESTID.connectApprove, 15_000);
+
+    await expect(connectPopup.getByTestId('connect-origin')).toHaveText('https://xn--miden-dpp-fixture-y4n.invalid');
+    await connectPopup.screenshot({ path: test.info().outputPath('posture-connect-idn.png') });
+
+    await clickConfirmAction(connectPopup, CONFIRM_TESTID.connectApprove, 15_000);
+    await connectCall;
+  });
+
   /**
    * Budget, itemised (same rule as above — the timeout must exceed the sum):
    *
@@ -409,14 +434,13 @@ test.describe('dApp provider', () => {
     await expect(signPopup.getByTestId('confirm-request-origin')).toHaveText(FIXTURE_DAPP_ORIGIN);
 
     // The digest on screen must be the digest the dApp asked to have signed.
-    // Expanded from the "Raw value" disclosure; the expected hex is computed
+    // Shown open under "Raw value"; the expected hex is computed
     // here from the same bytes the page sent, via the SDK directly, so a
     // wallet-side mix-up (wrong payload rendered, or a stale request's digest
     // shown for this one) fails.
     const sdk = await loadMidenSdk();
     const expectedWordHex = sdk.Word.deserialize(new Uint8Array(SIGN_WORD_BYTES)).toHex();
-    await signPopup.getByTestId('advanced-details-toggle').click({ timeout: 15_000 });
-    await expect(signPopup.getByTestId('advanced-details-content')).toHaveText(expectedWordHex);
+    await expect(signPopup.getByTestId('confirm-sign-raw-value')).toHaveText(expectedWordHex, { timeout: 15_000 });
 
     await clickConfirmAction(signPopup, CONFIRM_TESTID.signDecline, 15_000);
     const declined = await declinedCall;

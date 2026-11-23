@@ -7,7 +7,11 @@ export type AvatarSize = 24 | 36 | 40 | 88;
 
 const avatarVariants = cva('flex items-center justify-center overflow-hidden rounded-full font-heading font-bold', {
   variants: {
-    tone: { custom: 'text-pure-white', brand: 'bg-accent-tint text-accent-tint-ink' },
+    tone: {
+      custom: 'text-pure-white',
+      brand: 'bg-accent-tint text-accent-tint-ink',
+      neutral: 'bg-fill text-accent-tint-ink'
+    },
     size: {
       24: 'h-6 w-6 text-[10px]',
       36: 'h-9 w-9 text-sm',
@@ -32,7 +36,8 @@ const avatarBadgeVariants = cva('absolute flex items-center justify-center round
 
 export interface AvatarProps {
   size?: AvatarSize;
-  tone?: 'custom' | 'brand';
+  /** `neutral`: the brand ink on the grey the Settings group icons sit on. */
+  tone?: 'custom' | 'brand' | 'neutral';
   /** An image URL. Takes priority over `initials` and `icon`. */
   image?: string;
   /** Accessible name for `image`. Omit for a decorative image (e.g. a token's own mark). */

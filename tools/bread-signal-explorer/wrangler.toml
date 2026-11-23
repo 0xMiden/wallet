@@ -1,0 +1,12 @@
+name = "bread-signal"
+main = "worker.js"
+compatibility_date = "2026-10-27"
+workers_dev = true
+preview_urls = false
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[kv_namespaces]]
+binding = "SIGNAL"
+id = "fc3cbea5566d4f528ebd2972572d3c9e"

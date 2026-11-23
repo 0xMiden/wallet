@@ -18,6 +18,11 @@ const AVAILABLE: FeatureAvailability = { state: 'available' };
 const LOADING: FeatureAvailability = { state: 'loading' };
 const DOWN: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: 503' };
 const RESTRICTED: FeatureAvailability = { state: 'unavailable', reason: 'restricted', detail: 'blocked by a geo rule' };
+const PENDING: FeatureAvailability = {
+  state: 'unavailable',
+  reason: 'pending',
+  detail: 'startup feature eligibility is pending'
+};
 
 describe('FeatureUnavailableNotice', () => {
   it('says the built-in copy as a warning, never the cause', () => {
@@ -30,6 +35,23 @@ describe('FeatureUnavailableNotice', () => {
     expect(notice).toHaveTextContent('bridgeFeatureUnavailableTitle');
     expect(notice).toHaveTextContent('bridgeFeatureUnavailableBody');
     expect(notice).not.toHaveTextContent('allocator');
+  });
+
+  it.each([
+    [DOWN, 'service-down'],
+    [RESTRICTED, 'restricted'],
+    [PENDING, 'pending']
+  ])('names the reason of %o for the e2e harness', (availability, reason) => {
+    render(<FeatureUnavailableNotice availability={availability} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveAttribute('data-reason', reason);
+  });
+
+  it('shows the generic copy while the startup decision is pending', () => {
+    render(<FeatureUnavailableNotice availability={PENDING} />);
+    const notice = screen.getByTestId('feature-unavailable-notice');
+    expect(notice).toHaveTextContent('bridgeFeatureUnavailableTitle');
+    expect(notice).not.toHaveTextContent('geoRestrictedTitle');
+    expect(notice).not.toHaveTextContent('startup feature eligibility');
   });
 
   it.each([AVAILABLE, LOADING])('renders nothing for %o', availability => {
@@ -89,10 +111,22 @@ describe('user-visible unavailable-feature errors', () => {
     act(() => jest.advanceTimersByTime(999));
     expect(mockReport.mock.calls).toEqual([]);
     act(() => jest.advanceTimersByTime(1));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
     view.rerender(<FeatureUnavailableNotice availability={{ ...DOWN, detail: 'another private cause' }} />);
     act(() => jest.advanceTimersByTime(1000));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
   });
 
   it.each([AVAILABLE, LOADING])('does not report hidden %o state', availability => {
@@ -105,6 +139,13 @@ describe('user-visible unavailable-feature errors', () => {
   it('keeps a visible geographic restriction quiet', () => {
     render(<FeatureUnavailableNotice availability={RESTRICTED} />);
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('geoRestrictedBody');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('keeps a pending startup decision quiet', () => {
+    render(<FeatureUnavailableNotice availability={PENDING} />);
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('Visible bridgeFeatureUnavailableBody');
     act(() => jest.advanceTimersByTime(5000));
     expect(mockReport.mock.calls).toEqual([]);
   });
@@ -127,7 +168,13 @@ describe('user-visible unavailable-feature errors', () => {
     act(() => jest.advanceTimersByTime(999));
     expect(mockReport.mock.calls).toEqual([]);
     act(() => jest.advanceTimersByTime(1));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
   });
 
   it.each([AVAILABLE, LOADING])('drops an unavailable episode cleared at 999 ms by %o', availability => {
@@ -139,4 +186,20 @@ describe('user-visible unavailable-feature errors', () => {
     act(() => jest.advanceTimersByTime(1000));
     expect(mockReport.mock.calls).toEqual([]);
   });
+});
+
+it('defaults a composite feature to unknown without rerunning availability or restarting the outage dwell', () => {
+  jest.useFakeTimers();
+  mockReport.mockClear();
+  const view = render(<FeatureUnavailableNotice availability={DOWN} />);
+  act(() => jest.advanceTimersByTime(500));
+  view.rerender(<FeatureUnavailableNotice availability={{ ...DOWN, detail: 'private-other' }} />);
+  act(() => jest.advanceTimersByTime(500));
+  expect(mockReport).toHaveBeenCalledTimes(1);
+  expect(mockReport).toHaveBeenCalledWith('bridgeFeatureUnavailableBody', 'notice', {
+    kind: 'feature_unavailable',
+    featureUnavailableFeature: 'unknown',
+    featureUnavailableReason: 'service-down'
+  });
+  jest.useRealTimers();
 });

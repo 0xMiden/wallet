@@ -1,0 +1,21 @@
+# Workflow actions are pinned to commit SHAs (playwright/e2e/harness/action-pins.test.ts), so they move only when this
+# opens a pull request: once a month, every minor and patch update in one group. A major version is a manual upgrade.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: monthly
+    # A pin bump changes only CI, so its pull request takes the changelog waiver (scripts/check-changelog.test.sh).
+    labels:
+      - no changelog
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major

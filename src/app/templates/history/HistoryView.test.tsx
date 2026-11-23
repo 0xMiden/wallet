@@ -212,7 +212,7 @@ jest.mock('./transactionUtils', () => ({
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
   bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
+  hasOwnBridgeBadge: jest.requireActual('./transactionUtils').hasOwnBridgeBadge,
   // Smart Withdraw rows: mirror the real predicate so the earn branch of
   // `buildRowProps` is exercised with realistic values.
   isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),
@@ -456,7 +456,15 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     render(
       <HistoryView
         {...baseProps}
-        entries={[makeEntry({ key: 'bridge-failed', txType: 'bridged-send', txId: 'bridge-tx' })]}
+        entries={[
+          makeEntry({
+            key: 'bridge-failed',
+            txType: 'bridged-send',
+            txId: 'bridge-tx',
+            bridgeProvider: 'agglayer',
+            bridgeClaimStatus: 'failed'
+          })
+        ]}
         fullHistory
       />
     );
@@ -465,6 +473,30 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(iconNameIn(row)).toBe('Close');
     expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
     expect(row).toHaveAttribute('data-status', 'failed');
+  });
+
+  it('greys an expired bridge row: nothing failed', () => {
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      inLabel: 'USDC',
+      outLabel: 'USDCx',
+      outAmount: '10',
+      providerLabel: '1Click',
+      network: 'Miden',
+      status: 'expired'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[makeEntry({ key: 'bridge-expired', txType: 'bridged-send', txId: 'bridge-tx' })]}
+        fullHistory
+      />
+    );
+
+    const row = rowByTitle('bridgeRowTitle');
+    expect(iconNameIn(row)).toBe('Close');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-gray-400');
   });
 
   // The money helper already formatted both amounts; the symbol inside the value must not be what keeps the row

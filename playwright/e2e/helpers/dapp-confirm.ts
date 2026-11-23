@@ -19,7 +19,7 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
 import { CONFIRM_ACTIONS } from './confirm-actions';
-import { acknowledgeNetworkNotice } from './network-notice';
+import { openImportTypeScreen } from './onboarding-entry';
 import { passImportConfirmation } from './onboarding-confirmation';
 import { dismissTelemetryConsent } from './telemetry-consent';
 
@@ -73,13 +73,18 @@ const ACTION_TIMEOUT = 10_000;
 const HANDOFF_SELECTOR = '[data-testid="finish-side-panel"]';
 
 /**
- * Serves a minimal dApp page at {@link FIXTURE_DAPP_ORIGIN} and waits until the
+ * Serves a minimal dApp page at `origin` (default {@link FIXTURE_DAPP_ORIGIN}) and waits until the
  * extension has injected the provider. Resolving `window.midenWallet` here (and
  * not in every spec) means a spec that later times out is failing on ITS OWN
  * step, not on injection.
  */
-export async function openFixtureDapp(context: BrowserContext, timeoutMs = 30_000): Promise<Page> {
-  await context.route(`${FIXTURE_DAPP_ORIGIN}/**`, route =>
+export async function openFixtureDapp(
+  context: BrowserContext,
+  timeoutMs = 30_000,
+  origin = FIXTURE_DAPP_ORIGIN
+): Promise<Page> {
+  // `new URL(...).origin` is the ASCII form the browser requests, so a Unicode `origin` still matches.
+  await context.route(`${new URL(origin).origin}/**`, route =>
     route.fulfill({
       status: 200,
       contentType: 'text/html',
@@ -88,7 +93,7 @@ export async function openFixtureDapp(context: BrowserContext, timeoutMs = 30_00
   );
 
   const page = await context.newPage();
-  await page.goto(`${FIXTURE_DAPP_ORIGIN}/`, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+  await page.goto(`${origin}/`, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
   // contentScript.js runs at document_start and appends addToWindow.js, which
   // defines window.midenWallet asynchronously.
@@ -161,12 +166,7 @@ export async function clickConfirmAction(popup: Page, testId: string, timeoutMs 
 export async function completeSeedImportOnboarding(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<void> {
   await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
-  await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
-  await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
-  // The network notice (#875) precedes the import flow.
-  await acknowledgeNetworkNotice(page, ACTION_TIMEOUT);
-  // Import now asks WHICH credential first; this helper drives the seed-phrase one.
-  await page.getByTestId('import-select-type').waitFor({ timeout: timeoutMs });
+  await openImportTypeScreen(page, timeoutMs, ACTION_TIMEOUT);
   await page.getByTestId('import-type-seed-phrase').click({ timeout: ACTION_TIMEOUT });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: timeoutMs });
 

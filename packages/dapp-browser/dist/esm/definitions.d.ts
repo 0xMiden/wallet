@@ -797,9 +797,15 @@ export interface InAppBrowserPlugin {
      * Your object has to be serializable to JSON, no functions or other non-JSON-serializable types are allowed.
      *
      * This method is inject at runtime in the webview
+     *
+     * The iOS script handler and Android WebMessageListener add `frameOrigin` and
+     * `mainFrame` from platform frame information. The Android JavaScript-interface
+     * fallback forwards page messages without those fields.
      */
     addListener(eventName: 'messageFromWebview', listenerFunc: (event: {
         detail: Record<string, any>;
+        frameOrigin?: string;
+        mainFrame?: boolean;
     }) => void): Promise<PluginListenerHandle>;
     /**
      * Will be triggered when page is loaded. Miden patch (PR-4 chunk 9):

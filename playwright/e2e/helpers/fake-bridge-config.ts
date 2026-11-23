@@ -20,19 +20,51 @@ const FAKE_ALLOCATOR_URL = 'http://127.0.0.1:8548';
 const FAKE_POSITIONS_URL = 'http://127.0.0.1:8549';
 const SEPOLIA_CHAIN_ID = 11155111;
 
-export type BridgeConfigDocument = import('../../../src/lib/remote-config/schema').BridgeConfig;
+type ParsedBridgeConfig = import('../../../src/lib/remote-config/schema').BridgeConfig;
+type NearIntentsAddressKind = import('../../../src/lib/one-click/types').NearIntentsAddressKind;
 
 /**
- * Earn and Guardian Fast bridge-out on the local node. No `midenUsdcFaucet`: each test creates its
- * collateral faucet and hands it over with `__TEST_SET_EARN_FAUCET__`. No `agglayer` section: the
- * local node's bridge account is not one the harness uses, so the Slow routes read "not configured".
+ * The `nearIntents` section as the document writes it: keyed maps, not the parsed lists. The key of a Miden asset is
+ * the id that a chain token names in `miden`; the key of a chain is the 1Click blockchain name; the key of a token is
+ * its symbol. The order of the keys is the display order.
  */
-export function localnetEpochDocument(): BridgeConfigDocument {
+export interface NearIntentsDocumentSection {
+  serviceUrl: string;
+  midenAssets: Record<string, { assetId: string; faucetId: string; decimals: number }>;
+  chains: Record<
+    string,
+    {
+      name: string;
+      addressKind: NearIntentsAddressKind;
+      tokens: Record<string, { assetId: string; decimals: number; contractAddress?: string; miden: string[] }>;
+    }
+  >;
+}
+
+/**
+ * The document as served. The parsed type describes the other sections well enough for the suites, but the written
+ * `nearIntents` section is keyed maps, so it has its own type.
+ */
+export type BridgeConfigDocument = Omit<ParsedBridgeConfig, 'nearIntents'> & {
+  nearIntents?: NearIntentsDocumentSection;
+};
+
+/**
+ * Epoch routes on the local node. A bridge test supplies its collateral faucet before the wallet starts.
+ * Earn tests can use `__TEST_SET_EARN_FAUCET__` instead. No AggLayer route is configured.
+ */
+export function localnetEpochDocument(collateralFaucetId?: string): BridgeConfigDocument {
   return {
     network: 'localnet',
     version: 1,
     'bridge-providers': {
-      epoch: { allocatorUrl: FAKE_ALLOCATOR_URL, positionsUrl: FAKE_POSITIONS_URL },
+      epoch: {
+        allocatorUrl: FAKE_ALLOCATOR_URL,
+        positionsUrl: FAKE_POSITIONS_URL,
+        ...(collateralFaucetId === undefined
+          ? {}
+          : { outputs: { 'usdc-localnet-output': { faucetId: collateralFaucetId } } })
+      },
       agglayer: {},
       usdcx: {}
     },
@@ -43,7 +75,12 @@ export function localnetEpochDocument(): BridgeConfigDocument {
           epoch: {
             depositEnabled: true,
             withdrawalEnabled: true,
-            tokens: { USDC: { contractAddress: MOCK_USDC_ADDRESS, outputs: [] } }
+            tokens: {
+              USDC: {
+                contractAddress: MOCK_USDC_ADDRESS,
+                outputs: collateralFaucetId === undefined ? [] : ['usdc-localnet-output']
+              }
+            }
           }
         }
       }

@@ -9,6 +9,7 @@ const mockDbDelete = jest.fn();
 const mockDbOpen = jest.fn();
 const mockTransactionsClear = jest.fn();
 const mockSpendingLimitsClear = jest.fn();
+const mockPortfolioObservationsClear = jest.fn();
 jest.mock('lib/miden/repo', () => ({
   db: {
     delete: () => mockDbDelete(),
@@ -19,6 +20,9 @@ jest.mock('lib/miden/repo', () => ({
   },
   spendingLimits: {
     clear: () => mockSpendingLimitsClear()
+  },
+  portfolioObservations: {
+    clear: () => mockPortfolioObservationsClear()
   }
 }));
 
@@ -89,10 +93,16 @@ jest.mock(
 
 import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { CARRIED_MAINNET_CODE_STORAGE_KEY } from 'lib/carried-mainnet-code';
+import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { inStorageTurn, putToStorage } from 'lib/miden/front/storage';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
+import {
+  PLATFORM_CREDENTIALS_STORAGE_KEY,
+  PLATFORM_RESET_STORAGE_KEY,
+  PLATFORM_UNLOCK_STORAGE_KEY
+} from 'lib/platform-auth/types';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 import { onStorageCleared } from 'lib/storage-cleared';
 
@@ -122,6 +132,7 @@ beforeEach(() => {
     mockDbOpen,
     mockTransactionsClear,
     mockSpendingLimitsClear,
+    mockPortfolioObservationsClear,
     mockBrowserStorageRemove,
     mockForgetDeveloperNetworkChoice,
     _g.__resetTest.prefStub.remove
@@ -130,9 +141,70 @@ beforeEach(() => {
   }
   _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: [] });
   mockBrowserStorageGet.mockResolvedValue({});
+  mockBrowserStorageSet.mockReset().mockResolvedValue(undefined);
 });
 
+const extensionWipes: Array<[string, () => Promise<void>]> = [
+  ['setup', () => clearStorage(false)],
+  ['options', () => resetStorageDestructive()],
+  ['developer', () => resetStorageDestructive({ keepEndpointOverride: false })]
+];
+it.each(extensionWipes)(
+  'journals credential IDs before the %s wipe without reentering its account turn',
+  async (_name, wipe) => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    const data: Record<string, unknown> = {
+      vault_key_password: 'fixture protector',
+      [PLATFORM_UNLOCK_STORAGE_KEY]: {
+        version: 1,
+        credentialId: 'AQIDBA',
+        prfSalt: 'A'.repeat(43),
+        wrappedKey: 'A'.repeat(80),
+        backupEligible: false
+      },
+      [PLATFORM_RESET_STORAGE_KEY]: { nonce: 'A'.repeat(43) },
+      [PLATFORM_CREDENTIALS_STORAGE_KEY]: {
+        pending: [
+          {
+            enrollmentId: 'old',
+            binding: 'old',
+            credential: {
+              credentialId: 'BQYHCA',
+              prfSalt: 'A'.repeat(43),
+              backupEligible: true
+            }
+          }
+        ],
+        toSignal: []
+      }
+    };
+    mockBrowserStorageGet.mockImplementation(async (keys: string[] | null) =>
+      keys === null ? { ...data } : Object.fromEntries(keys.map(key => [key, data[key]]))
+    );
+    mockBrowserStorageSet.mockImplementation(async (items: Record<string, unknown>) => Object.assign(data, items));
+    mockBrowserStorageRemove.mockImplementation(async (keys: string[]) => {
+      for (const key of keys) delete data[key];
+    });
+    await getAccountsWriteQueue().add(wipe);
+    expect(data[PLATFORM_UNLOCK_STORAGE_KEY]).toBeUndefined();
+    expect(data[PLATFORM_CREDENTIALS_STORAGE_KEY]).toEqual({ pending: [], toSignal: ['AQIDBA', 'BQYHCA'] });
+    expect(data[PLATFORM_RESET_STORAGE_KEY]).toEqual({ nonce: 'A'.repeat(43) });
+  }
+);
+
 describe('clearStorage', () => {
+  it('still drops observations if a transaction-table clear rejects after the vault wipe', async () => {
+    mockTransactionsClear.mockRejectedValueOnce(new Error('transaction table blocked'));
+    await expect(clearStorage()).rejects.toThrow('transaction table blocked');
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops observations on both soft and key-value-only wallet wipes', async () => {
+    await clearStorage(false);
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    await clearStorage();
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(2);
+  });
   it('clears the transactions table by default and never deletes the DB', async () => {
     await clearStorage();
     expect(mockTransactionsClear).toHaveBeenCalled();
@@ -429,7 +501,7 @@ describe('resetStorageDestructive', () => {
     expect(mockDbDelete).not.toHaveBeenCalled();
   });
 
-  it('clears the transactions and spending limits when the delete rejects', async () => {
+  it('clears the transactions, spending limits and observations when the delete rejects', async () => {
     const deleteError = new Error('delete blocked');
     mockDbDelete.mockRejectedValueOnce(deleteError);
 
@@ -437,6 +509,7 @@ describe('resetStorageDestructive', () => {
 
     expect(mockTransactionsClear).toHaveBeenCalledTimes(1);
     expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
   });
 
   it('still drops the developer network choice, and rejects with the delete error, when the delete rejects', async () => {
@@ -549,6 +622,7 @@ describe('clearClientStorage', () => {
     sessionStorage.setItem('draft', 'd');
 
     await clearClientStorage();
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
 
     expect(Object.keys(localStorage)).toEqual(['miden_wallet_endpoint_overrides']);
     expect(sessionStorage.getItem('open-link:taken')).toBe(
@@ -850,9 +924,9 @@ describe('the bridge config version floor', () => {
 describe('the bridge config documents', () => {
   const DOCUMENTS = [
     'bridge_config_v1:testnet',
-    'bridge_config_derived_v1:testnet',
+    'bridge_config_derived_v2:testnet',
     'bridge_config_v1:devnet',
-    'bridge_config_derived_v1:devnet'
+    'bridge_config_derived_v2:devnet'
   ];
   const onExtension = () => {
     jest.mocked(isExtension).mockReturnValue(true);

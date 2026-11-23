@@ -28,7 +28,8 @@ import {
 } from './dapp-command-server';
 import { registryOf } from './dapp-known-bugs';
 import { mobileOffchainAxis } from './dapp-mobile-axis';
-import { androidDevice, iosDevice, type MobileDevice } from './dapp-mobile-device';
+import { androidDevice, iosDevice, type MobileDevice, type NativeKeyboardControls } from './dapp-mobile-device';
+import { runNativeKeyboardJourney } from './dapp-mobile-keyboard';
 import {
   AUTO_DECLINE_MS,
   coverageOf,
@@ -45,6 +46,7 @@ import {
 } from './dapp-mobile-journey';
 import { answerSheet, denyOpenSheet } from './dapp-mobile-sheet';
 import {
+  accountAddressAfterCreate,
   accountRows,
   createAccount,
   foregroundOrigin,
@@ -84,6 +86,7 @@ jest.mock('./dapp-command-server', () => ({
   ...jest.requireActual<typeof import('./dapp-command-server')>('./dapp-command-server'),
   startCommandServer: jest.fn()
 }));
+jest.mock('./dapp-mobile-keyboard', () => ({ runNativeKeyboardJourney: jest.fn(async () => undefined) }));
 jest.mock('./dapp-mobile-wallet', () => ({
   ...jest.requireActual<typeof import('./dapp-mobile-wallet')>('./dapp-mobile-wallet'),
   accountRows: jest.fn(),
@@ -465,7 +468,7 @@ describe('mobile journey hooks and setup', () => {
   let directory: string;
   let timeline: TimelineRecorder;
   let fetchLog: FetchLogEntry[];
-  let device: MobileDevice;
+  let device: MobileDevice & NativeKeyboardControls;
   const nodeCall = (status: number, options: Partial<FetchLogEntry> = {}): FetchLogEntry => ({
     url: 'https://rpc.testnet.miden.io/tip',
     method: 'POST',
@@ -621,6 +624,14 @@ describe('mobile journey hooks and setup', () => {
     });
   });
 
+  it('invokes the native keyboard check for the opened mobile dApp', async () => {
+    const { journey } = await prepare();
+
+    expect(runNativeKeyboardJourney).toHaveBeenCalledWith(
+      expect.objectContaining({ surface: 'ios', device, page: journey.server, wallet: journey.walletA })
+    );
+  });
+
   it.each<{ wanted: MobileSession; returned: string; expected: string }>([
     { wanted: 'auto', returned: 'UPON_REQUEST', expected: 'AUTO' },
     { wanted: 'upon-request', returned: 'AUTO', expected: 'UPON_REQUEST' }
@@ -633,6 +644,18 @@ describe('mobile journey hooks and setup', () => {
       })
     );
     expect(journey.memo.size).toBe(0);
+  });
+
+  it('classifies a created account and a stale list after createAccount', () => {
+    const before = ['mtst1old'];
+    const stale = [{ publicKey: 'mtst1old' }];
+    expect(accountAddressAfterCreate(before, [{ publicKey: 'mtst1old' }, { publicKey: 'mtst1new' }], 'synced')).toEqual(
+      { address: 'mtst1new' }
+    );
+    expect(accountAddressAfterCreate(before, stale, 'pending')).toBe('wait');
+    expect(accountAddressAfterCreate(before, stale, 'synced')).toBe('missing');
+    expect(source('playwright/e2e/helpers/wallet-page.ts')).toContain('account list has not landed');
+    expect(source('playwright/e2e/helpers/dapp-mobile-wallet.ts')).toContain('account list has not landed');
   });
 
   it('does not select an account after creation outlives the quiesce deadline', async () => {

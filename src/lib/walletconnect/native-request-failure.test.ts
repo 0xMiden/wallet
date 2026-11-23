@@ -76,13 +76,29 @@ it('requires exact prefix and mandatory enums', () => {
   expect(REOWN_NATIVE_ORIGINS).toEqual([
     'argument_validation',
     'unconfigured',
+    'request_construction_error',
+    'request_call_error',
     'publish_error',
     'wallet_error',
     'request_expired',
     'session_deleted',
     'other'
   ]);
-  expect(REOWN_WALLET_RESPONSE_CODES).toEqual(['user_rejected', 'invalid_params', 'internal_error', 'other']);
+  expect(REOWN_WALLET_RESPONSE_CODES).toEqual([
+    'user_rejected',
+    'invalid_params',
+    'internal_error',
+    'provider_unauthorized',
+    'method_unsupported',
+    'provider_disconnected',
+    'chain_disconnected',
+    'chain_switch_failed',
+    'request_invalid',
+    'rpc_unavailable',
+    'transaction_rejected',
+    'rpc_limited',
+    'other'
+  ]);
   expect(REOWN_REQUEST_AGES).toEqual(['under_30s', '30_to_120s', '120_to_300s', 'over_300s', 'unknown']);
   expect(REOWN_PUBLICATIONS).toEqual(['confirmed', 'unobserved']);
   expect(REOWN_BACKGROUND_ANSWERS).toEqual(['yes', 'no']);
@@ -366,5 +382,104 @@ it('reads each named field once and never reads unknown fields', () => {
     walletResponseCode: 'other',
     requestAge: '120_to_300s',
     published: 'confirmed'
+  });
+});
+
+it.each(['request_construction_error', 'request_call_error'])(
+  'accepts iOS fixed call origin %s without a wallet response',
+  origin => {
+    const { validateReownNativeFailure } = jest.requireActual<BoundaryModule>('./native-request-failure');
+    expect(
+      validateReownNativeFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' })
+    ).toEqual({
+      nativeOrigin: origin,
+      requestAge: 'unknown',
+      published: 'unobserved'
+    });
+  }
+);
+
+it('decodes the iOS code of each origin with the observations of its kind and nothing else', () => {
+  const { decodeReownIOSFailureCode, isReownIOSFailure } =
+    jest.requireActual<typeof import('./native-request-failure')>('./native-request-failure');
+  const callOrigins = [
+    'unconfigured',
+    'argument_validation',
+    'request_construction_error',
+    'request_call_error'
+  ] as const;
+  for (const origin of callOrigins) {
+    const failure = decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}`);
+    expect(failure).toEqual({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' });
+    expect(failure !== undefined && isReownIOSFailure(failure)).toBe(true);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'confirmed' })).toBe(false);
+  }
+  const publishedOrigins = ['request_expired', 'session_deleted'] as const;
+  for (const origin of publishedOrigins) {
+    const failure = decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}`);
+    expect(failure).toEqual({ nativeOrigin: origin, requestAge: 'unknown', published: 'confirmed' });
+    expect(failure !== undefined && isReownIOSFailure(failure)).toBe(true);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' })).toBe(true);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'under_30s', published: 'confirmed' })).toBe(false);
+    expect(isReownIOSFailure({ nativeOrigin: origin, requestAge: 'under_30s', published: 'unobserved' })).toBe(false);
+    const unpublished = decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}_unpublished`);
+    expect(unpublished).toEqual({ nativeOrigin: origin, requestAge: 'unknown', published: 'unobserved' });
+    expect(unpublished !== undefined && isReownIOSFailure(unpublished)).toBe(true);
+  }
+  for (const origin of [
+    'publish_error',
+    'wallet_error',
+    'other',
+    '',
+    'request_expired ',
+    'session_deleted_unpublished ',
+    'wallet_error_unpublished',
+    '_unpublished',
+    'unconfigured_unpublished',
+    'request_call_error_unpublished'
+  ]) {
+    expect(decodeReownIOSFailureCode(`REOWN_IOS_REQUEST_FAILURE:${origin}`)).toBeUndefined();
+  }
+  expect(
+    isReownIOSFailure({
+      nativeOrigin: 'wallet_error',
+      walletResponseCode: 'other',
+      requestAge: 'unknown',
+      published: 'confirmed'
+    })
+  ).toBe(false);
+  expect(isReownIOSFailure({ nativeOrigin: 'publish_error', requestAge: 'unknown', published: 'unobserved' })).toBe(
+    false
+  );
+});
+
+it.each([
+  'provider_unauthorized',
+  'method_unsupported',
+  'provider_disconnected',
+  'chain_disconnected',
+  'chain_switch_failed',
+  'request_invalid',
+  'rpc_unavailable',
+  'transaction_rejected',
+  'rpc_limited'
+])('retains the closed native wallet response category %s without raw fields', category => {
+  const { decodeReownNativeFailureCode } =
+    jest.requireActual<typeof import('./native-request-failure')>('./native-request-failure');
+  const envelope =
+    'REOWN_NATIVE_REQUEST_FAILURE:' +
+    JSON.stringify({
+      nativeOrigin: 'wallet_error',
+      walletResponseCode: category,
+      requestAge: 'unknown',
+      published: 'unobserved',
+      rawCode: -32003,
+      message: 'private'
+    });
+  expect(decodeReownNativeFailureCode(envelope)).toEqual({
+    nativeOrigin: 'wallet_error',
+    walletResponseCode: category,
+    requestAge: 'unknown',
+    published: 'unobserved'
   });
 });

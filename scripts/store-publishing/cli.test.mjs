@@ -898,6 +898,9 @@ function screenshotContext(platform = 'ios') {
       }
     ]
   };
+  manifest.manifestSha256 = 'b'.repeat(64);
+  c.deps.loadScreenshotJournal = async () => undefined;
+  c.deps.persistScreenshotJournal = async () => {};
   c.deps.verifyScreenshotSource = async request => {
     c.calls.push(['screenshotSource', request]);
   };
@@ -1237,5 +1240,75 @@ test('iOS submit uses the exact notes fallback when omitted or empty', async () 
     const c = context('ios');
     await run(['ios', 'submit', ...common, '--build-number', '19', '--confirm', '1.17.7', ...extra], c.deps);
     assert.equal(c.calls.find(call => call[0] === 'operation')[3].releaseNotes, 'Various Fixes & Improvements');
+  }
+});
+
+test('future iOS prepare and submit synchronize canonical screenshots in mutation order', async () => {
+  for (const action of ['prepare', 'submit']) {
+    const c = screenshotContext();
+    c.deps.operations.ios.prepare = async () => {
+      c.calls.push(['prepare']);
+      return { state: 'PREPARE_FOR_SUBMISSION' };
+    };
+    c.deps.loadScreenshotJournal = async () => undefined;
+    c.deps.persistScreenshotJournal = async () => {};
+    await run(['ios', action, ...screenshotArgs, ...(action === 'submit' ? ['--build-number', '19'] : [])], c.deps);
+    const sync = c.calls.findIndex(call => call[0] === 'screenshotSync');
+    assert.ok(sync >= 0, 'normal future publication must apply canonical assets');
+    if (action === 'prepare') assert.ok(c.calls.findIndex(call => call[0] === 'prepare') < sync);
+    else assert.ok(sync < c.calls.findIndex(call => call[0] === 'screenshotVerify'));
+    assert.equal(c.calls[sync][1].sourceSha, sha);
+    assert.equal(typeof c.calls[sync][1].persistScreenshotJournal, 'function');
+  }
+});
+
+test('automatic screenshot failure prevents submission and legacy present-manifest routes never sync', async () => {
+  const c = screenshotContext();
+  c.deps.screenshotOperations.syncScreenshots = async () => {
+    throw new Error('screenshot drift');
+  };
+  await assert.rejects(run(['ios', 'submit', ...screenshotArgs, '--build-number', '19'], c.deps), /screenshot drift/);
+  assert.equal(
+    c.calls.some(call => call[0] === 'operation'),
+    false
+  );
+  for (const action of ['prepare', 'submit']) {
+    const legacy = screenshotContext();
+    legacy.attestation.version = '1.17.7';
+    legacy.deps.operations.ios.prepare = async () => ({ state: 'PREPARE_FOR_SUBMISSION' });
+    await run(
+      [
+        'ios',
+        action,
+        ...common,
+        '--confirm',
+        '1.17.7',
+        '--screenshots-root',
+        '/release/source',
+        '--preserve-legacy-screenshots',
+        ...(action === 'submit' ? ['--build-number', '19'] : [])
+      ],
+      legacy.deps
+    );
+    assert.equal(
+      legacy.calls.some(call => ['screenshotSync', 'screenshotVerify'].includes(call[0])),
+      false
+    );
+  }
+});
+test('dry-run prepare and screenshot synchronization cannot load or persist mutation journals', async () => {
+  for (const action of ['prepare', 'sync-screenshots']) {
+    const c = screenshotContext();
+    c.deps.loadScreenshotJournal = async () => {
+      throw new Error('unexpected journal read');
+    };
+    c.deps.persistScreenshotJournal = async () => {
+      throw new Error('unexpected journal mutation');
+    };
+    assert.equal((await run(['ios', action, ...screenshotArgs, '--dry-run'], c.deps)).dryRun, true);
+    assert.equal(
+      c.calls.some(call => ['screenshotSync', 'client', 'appleToken'].includes(call[0])),
+      false
+    );
   }
 });

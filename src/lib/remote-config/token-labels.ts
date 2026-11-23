@@ -5,7 +5,7 @@ import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import type { BridgeConfigSnapshot } from './runtime';
-import { selectMidenUsdcFaucetId, selectSwapTokenFaucetId } from './values';
+import { selectEpochToken, selectMidenUsdcFaucetId, selectSwapTokenFaucetId } from './values';
 
 /** What testnet calls the bridge's own USDC, on Sepolia and on Miden alike (#1247). A token name: never translated. */
 export const TEST_EPOCH_USDC_LABEL = 'Test Epoch USDC';
@@ -89,9 +89,33 @@ export function evmUsdcLabel(snapshot: BridgeConfigSnapshot, symbol: string): st
 }
 
 /**
+ * Whether an Epoch output is the bridge's own USDC, the only symbol `evmUsdcLabel` may rename. `USDC` is that token.
+ * On a chain, so is the route USDC's read symbol, and an `address` whose lowercase form equals that token's address.
+ * With no chain, the USDC read symbol of every Epoch route is compared.
+ */
+export function epochOutputIsBridgeUsdc(
+  snapshot: BridgeConfigSnapshot,
+  chainId: number | undefined,
+  symbol: string,
+  address?: string
+): boolean {
+  if (symbol === 'USDC') return true;
+  if (chainId !== undefined) {
+    const token = selectEpochToken(snapshot, chainId, 'USDC');
+    return (
+      symbol === token?.symbol || (address !== undefined && address.toLowerCase() === token?.address.toLowerCase())
+    );
+  }
+  return Object.values(snapshot.config?.supportedEvmChains ?? {}).some(
+    chain => symbol === selectEpochToken(snapshot, chain.chainId, 'USDC')?.symbol
+  );
+}
+
+/**
  * The name a bridge-in's EVM source is shown under. ETH and Circle's USDC keep their symbol. An AggLayer row that saved
  * the ERC-20 it deposited (`sourceToken`) takes the bridge USDC's label only when that token is the document's EVM
- * USDC; any other ERC-20 keeps its symbol. A row with no saved token is ETH or the bridge's own USDC.
+ * USDC; any other ERC-20 keeps its symbol. A row with no saved token takes that label only when its symbol is the
+ * bridge USDC, so a Fast deposit of POL or WETH keeps its symbol.
  */
 export function bridgeInSourceLabel(
   snapshot: BridgeConfigSnapshot,
@@ -104,6 +128,8 @@ export function bridgeInSourceLabel(
       chain => chain.bridges.epoch?.tokens.USDC?.contractAddress.toLowerCase() === token
     );
     if (!isBridgeUsdc) return source.symbol;
+  } else if (!epochOutputIsBridgeUsdc(snapshot, undefined, source.symbol)) {
+    return source.symbol;
   }
   return evmUsdcLabel(snapshot, source.symbol);
 }

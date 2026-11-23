@@ -5,9 +5,9 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
+  ClaimEvidenceLookup,
   getUncompletedTransactions,
   isCancellableTransaction,
-  isOutcomeUnconfirmed,
   isUserCancelledTransaction,
   supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
@@ -37,7 +37,7 @@ import {
   readLinkedSwapOrderRows,
   type CompletedHistoryCursor
 } from 'lib/miden/transaction/get';
-import { submissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { readsAsNotConfirmed } from 'lib/miden/transaction/submission-feedback';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -797,9 +797,7 @@ async function readLoadedActivityStatus(ids: readonly string[]): Promise<Map<str
 
 const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> => {
   const isCancelled = isUserCancelledTransaction(tx.error);
-  const submission = submissionFeedback(tx);
-  const isUnconfirmed =
-    submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx);
+  const isUnconfirmed = readsAsNotConfirmed(tx);
   const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
   const bridgedReceive =
     tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
@@ -822,15 +820,33 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeEpochStatus: bridge?.epochStatus,
     bridgeFillTxHash: bridge?.fillTxHash,
     bridgeFillChainId: bridge?.fillChainId,
+    outputNoteIds: tx.outputNoteIds,
     bridgeReclaimHeight: bridge?.reclaimHeight,
+    bridgeReclaimNoteId: bridge?.reclaimNoteId,
+    bridgeSubmitClaimed: bridge?.submitClaimed,
     bridgeInPhase: bridgedReceive?.phase,
+    bridgeInStoppedBeforeSource:
+      !tx.restoredFromBackup &&
+      !tx.recovered &&
+      !bridgedReceive?.evmTxHash &&
+      !bridgedReceive?.intentNonce &&
+      !bridgedReceive?.bridgeOperation?.approvals?.length &&
+      bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
+    bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+    oneClickTracking: bridgedReceive?.oneClick,
     earnWithdrawPhase: earnWithdraw?.phase,
     earnDepositStatus: earnDeposit?.epochStatus
   };
 };
 
-const patchLoadedActivityStatus = (
+// IndexedDB returns a fresh copy of an array field (outputNoteIds) on every read, so it is equal by its elements.
+const sameLoadedField = (shown: unknown, fresh: unknown): boolean =>
+  Array.isArray(shown) && Array.isArray(fresh)
+    ? shown.length === fresh.length && shown.every((value, index) => value === fresh[index])
+    : shown === fresh;
+
+export const patchLoadedActivityStatus = (
   state: ScopedEntries,
   key: string,
   ids: ReadonlySet<string>,
@@ -843,7 +859,14 @@ const patchLoadedActivityStatus = (
     const row = fresh.get(entry.txId);
     if (row === undefined) return entry;
     const fields = loadedActivityStatusFields(row);
-    if (Object.entries(fields).every(([field, value]) => entry[field as keyof IHistoryEntry] === value)) return entry;
+    // Every read gives a new tracking object. Every tracking write moves `updatedAt`, so an equal stamp keeps the
+    // shown object and the row does not render again.
+    if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
+      fields.oneClickTracking = entry.oneClickTracking;
+    }
+    if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
+      return entry;
+    }
     changed = true;
     return { ...entry, ...fields };
   });
@@ -950,9 +973,7 @@ async function fetchTransactionsAsHistoryEntries(
   const { swapProgress, paybackStates } = await enrichCompletedSwapHistory(visibleTransactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
-    const submission = submissionFeedback(tx);
-    const isUnconfirmed =
-      submission?.kind === 'rejected' ? false : submission !== undefined ? true : isOutcomeUnconfirmed(tx);
+    const isUnconfirmed = readsAsNotConfirmed(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
@@ -1043,6 +1064,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeAgglayerRoute: bridge?.agglayerRoute,
       bridgeClaimStatus: bridge?.claimStatus,
       bridgeOutputAmount: bridge?.outputAmount,
       bridgeOutputSymbol: bridge?.outputSymbol,
@@ -1052,9 +1074,14 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeEpochStatus: bridge?.epochStatus,
       usdcxBurn: bridge?.usdcxBurn,
       bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
+      outputNoteIds: tx.outputNoteIds,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      bridgeReclaimNoteId: bridge?.reclaimNoteId,
+      bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+      // A NEAR Intents deposit reads Expired from its tracking deadline (`bridgeBadgeStatusOf`).
+      oneClickTracking: bridgedReceive?.oneClick,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -1062,6 +1089,14 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInSourceToken: bridgedReceive?.agglayerDelivery?.originToken ?? bridgeIn?.sourceToken,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
+      bridgeInStoppedBeforeSource:
+        !tx.restoredFromBackup &&
+        !tx.recovered &&
+        !bridgedReceive?.evmTxHash &&
+        !bridgedReceive?.intentNonce &&
+        !bridgedReceive?.bridgeOperation?.approvals?.length &&
+        bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
+      bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
@@ -1192,6 +1227,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeAgglayerRoute: bridge?.agglayerRoute,
       bridgeClaimStatus: bridge?.claimStatus,
       bridgeOutputAmount: bridge?.outputAmount,
       bridgeOutputSymbol: bridge?.outputSymbol,
@@ -1201,7 +1237,10 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeEpochStatus: bridge?.epochStatus,
       usdcxBurn: bridge?.usdcxBurn,
       bridgeSettledAt: (tx.completedAt ?? tx.initiatedAt) * 1000,
+      outputNoteIds: tx.outputNoteIds,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      bridgeReclaimNoteId: bridge?.reclaimNoteId,
+      bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus
     } as IHistoryEntry;
@@ -1226,10 +1265,13 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * fetches and the tab's unread mark (`useHasUnreadActivity`) reads through
  * this as well, so neither shows or counts a row this feed hides.
  */
-export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+export async function suppressLinkedConsumes<T extends ITransaction>(
+  transactions: T[],
+  lookup?: ClaimEvidenceLookup
+): Promise<T[]> {
   const [linked, superseded] = await Promise.all([
     suppressedLinkedConsumeIds(transactions),
-    supersededFailedConsumeIds(transactions)
+    supersededFailedConsumeIds(transactions, lookup)
   ]);
   return transactions.filter(tx => !linked.has(tx.id) && !superseded.has(tx.id));
 }
