@@ -5255,3 +5255,141 @@ it.each(['newTransaction', 'guardianPipeline'])(
     expect(snapshotCrashDiagnostics(error)).toEqual({});
   }
 );
+
+describe('MidenClientProxy - a deadline re-armed while its probe runs (#2148)', () => {
+  const parkOnProbe = async () => {
+    const loaded = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+    let finishProbe!: () => void;
+    G.__px.probeGate = new Promise<void>(resolve => {
+      finishProbe = resolve;
+    });
+    const p = loaded.midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    await wait(40); // the first deadline fires and parks on the probe
+    const [op_id] = loaded.__test.inFlightOpIds();
+    return { ...loaded, p, op_id: op_id!, finishProbe };
+  };
+
+  it('leaves the realm alone when the start signal re-armed the op during the probe', async () => {
+    const { __test, markOpStarted, op_id, finishProbe, p } = await parkOnProbe();
+    markOpStarted(op_id);
+    finishProbe();
+    await flush();
+
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(1);
+
+    // The fresh deadline is still live: let it fire so no timer outlives the test.
+    await wait(60);
+    await p;
+  });
+
+  it('leaves the realm alone when a sign pause and resume re-armed the op during the probe', async () => {
+    const { __test, handleOffscreenSignRequest, op_id, finishProbe, p } = await parkOnProbe();
+    const release = __test.allowDefaultSigner(op_id);
+    await handleOffscreenSignRequest(signRequestFor(op_id), async () => new Uint8Array([0x7]));
+    release();
+    finishProbe();
+    await flush();
+
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(1);
+
+    // The fresh deadline is still live: let it fire so no timer outlives the test.
+    await wait(60);
+    await p;
+  });
+});
+
+describe('MidenClientProxy - a deadline re-armed or blocked while its close waits on the document', () => {
+  /** Holds the next document check, which the close makes after the storage probe; later checks answer as usual. */
+  const holdNextDocumentCheck = () => {
+    let finishCheck!: () => void;
+    fakeChrome.offscreen.hasDocument.mockImplementationOnce(
+      () =>
+        new Promise<boolean>(resolve => {
+          finishCheck = () => resolve(true);
+        })
+    );
+    return () => finishCheck();
+  };
+
+  const parkOnClose = async () => {
+    const loaded = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockReturnValue(new Promise(() => {}));
+    const p = loaded.midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    const finishCheck = holdNextDocumentCheck();
+    await wait(40); // the deadline fires, passes the probe and parks on the close's document check
+    const [op_id] = loaded.__test.inFlightOpIds();
+    return { ...loaded, p, op_id: op_id!, finishCheck };
+  };
+
+  it('leaves the realm alone when the start signal re-armed the op while the close waited', async () => {
+    const { __test, markOpStarted, op_id, finishCheck, p } = await parkOnClose();
+    markOpStarted(op_id);
+    finishCheck();
+    await flush();
+
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(1);
+
+    // The fresh deadline is still live: let it fire and its reopen come up, so nothing outlives the test.
+    await wait(60);
+    fireReady();
+    await p;
+  });
+
+  it('leaves the realm alone when a sign pause and resume re-armed the op while the close waited', async () => {
+    const { __test, handleOffscreenSignRequest, op_id, finishCheck, p } = await parkOnClose();
+    const release = __test.allowDefaultSigner(op_id);
+    await handleOffscreenSignRequest(signRequestFor(op_id), async () => new Uint8Array([0x7]));
+    release();
+    finishCheck();
+    await flush();
+
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(1);
+
+    // The fresh deadline is still live: let it fire and its reopen come up, so nothing outlives the test.
+    await wait(60);
+    fireReady();
+    await p;
+  });
+
+  it('fails only the read when a write takes the document while the close waits', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const { OperationAbortedError } = await import('./offscreen-codec');
+    const prover = await import('./offscreen-prover');
+    const sent = new Map<string, { method: string; resolve: (resp: unknown) => void }>();
+    fakeChrome.runtime.sendMessage.mockImplementation(
+      (env: { op_id: string; method: string }) =>
+        new Promise(resolve => sent.set(env.op_id, { method: env.method, resolve }))
+    );
+    const pRead = midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 20 }).catch((e: Error) => e);
+    const pOther = midenClientProxy.call('syncState', [], { deadlineMs: 100_000 }).catch((e: Error) => e);
+    await flush();
+    fireReady();
+    await flush();
+    const finishCheck = holdNextDocumentCheck();
+    await wait(40); // the read's deadline fires, passes the probe and parks on the close's document check
+    prover.incrementCriticalOp(); // a write takes the document while the close waits
+    finishCheck();
+    const err = await pRead;
+
+    expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    expect(err).toBeInstanceOf(OperationAbortedError);
+    expect((err as any).reason).toBe('deadline-no-kill');
+    const otherId = [...sent].find(([, send]) => send.method === 'syncState')![0];
+    expect(__test.inFlightOpIds()).toEqual([otherId]);
+
+    prover.decrementCriticalOp();
+    sent.get(otherId)!.resolve({ ok: true, op_id: otherId, resultB64: null, durationMs: 0 });
+    expect(await pOther).toBeNull();
+  });
+});

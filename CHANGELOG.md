@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] A deadline no longer closes the background document when its operation was re-armed with a fresh deadline while storage was being checked or while the close was waiting on the document, and a read deadline in that wait no longer tears down a write that has taken the document.
 - [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
 - [FIX][all] Match equivalent hex and bech32 account and faucet IDs across activity, badge, and recovered swap history with bounded canonical ID caching.
 - [FIX][mobile] Open incoming-note claims over the active dApp without closing or navigating away from its session.
