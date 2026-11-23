@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Read recent Activity history in bounded batches for the unread indicator, preserving History's newest 50 visible rows across timestamp ties and reusing claim checks within each scan (#2202).
 - [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
 - [CHORE][ci] Simplify wallet nightly reporting and generate example reports on demand.
 - [FIX][extension] Use recent cached market prices to show the last synced balance when opening Sidebar or Command, and make optional passkey setup discoverable during onboarding and in Security settings.
@@ -105,7 +106,6 @@
 
 - [FIX][ci] Observe an early NEAR quote-response rejection while the nightly waits for Review, preserving the original error on await without changing requests, amounts, timeouts or authorization.
 
-- [FIX][all] Read recent Activity history in bounded batches for the unread indicator, preserving History's newest 50 visible rows across timestamp ties and reusing claim checks within each scan (#2202).
 - [FIX][all] A Fast bridge-in whose deposit landed in The Compact while Epoch refused its allocation now reads Deposit locked, and its Activity details let the depositing EVM wallet retry the bridge over the locked balance or withdraw the whole lock back after the lock's reset period; Settings > Advanced > Recover locked bridge funds scans The Compact for every Fast bridge-in address and the connected EVM wallet and offers the same withdraw, cancel and retry per lock; the Fast bridge-in flow lets the EVM wallet disable a forced withdrawal and continues with a fresh quote after confirmation (#2120).
 - [FIX][ci] Retain the first Epoch return solve-failure as a keyed fingerprint and finite SDK kind/HTTP status without exporting private errors or changing transaction, retry, timeout or authorization behavior.
 
