@@ -17,7 +17,7 @@ export const USD_SCALE = 1_000_000n;
  */
 export const PRICE_MAX_AGE_SECONDS = 600;
 
-const PRICE_CACHE_STORAGE_KEY = 'usd_price_cache';
+export const PRICE_CACHE_STORAGE_KEY = 'usd_price_cache';
 const CANONICAL_PRICE = /^(0|[1-9]\d*)$/;
 
 interface CachedUsdPrice {

@@ -3,6 +3,7 @@
 ## 1.18.2 (TBD)
 
 - [CHORE][ci] Simplify wallet nightly reporting and generate example reports on demand.
+- [FIX][extension] Use recent cached market prices to show the last synced balance when opening Sidebar or Command, and make optional passkey setup discoverable during onboarding and in Security settings.
 - [FIX][all] A deadline no longer closes the background document when its operation was re-armed with a fresh deadline while storage was being checked or while the close was waiting on the document, and a read deadline in that wait no longer tears down a write that has taken the document.
 - [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
 - [FIX][all] Match equivalent hex and bech32 account and faucet IDs across activity, badge, and recovered swap history with bounded canonical ID caching.

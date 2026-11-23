@@ -35,6 +35,7 @@ import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
@@ -392,7 +393,9 @@ export async function shouldShowDevEndpointsRow(): Promise<boolean> {
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
   const { state: platformState, loading: platformLoading } = usePlatformUnlock();
-  const platformAvailable = platformState.available && platformState.hasPassword;
+  const showPasskeySettings =
+    (process.env.TARGET_BROWSER === 'chrome' && isExtension()) ||
+    (platformState.available && platformState.hasPassword);
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
   const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
@@ -408,10 +411,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       if (tab.standardOnly && isGuardianAccount) return false;
       if (tab.requiresFileBackup && !walletNeedsFileBackup) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
-      if (tab.requiresPlatformUnlock && !platformAvailable) return false;
+      if (tab.requiresPlatformUnlock && !showPasskeySettings) return false;
       return true;
     },
-    [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey, platformAvailable]
+    [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey, showPasskeySettings]
   );
 
   // Whether the MENU offers it. The seed gate is only about the row: see allTabs.
