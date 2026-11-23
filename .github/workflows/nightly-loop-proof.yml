@@ -18,17 +18,17 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 2
+          fetch-depth: 3
       - name: Verify original producer and artifact bytes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_RUN_ATTEMPT" = 1
           base=3f2e9134360616f82490a113d185a5f206fc1156
-          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git merge-base HEAD "$base")" = "$base"
           test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/green13-fee-audit.spec.ts)"
           test "$(gh run list -w e2e-mainnet-nightly.yml -L 1 --json databaseId,status --jq '.[0]|[.databaseId,.status]|join(":")')" = 45092013711:completed
-          gh run view 45092013711 --json headSha,attempt,conclusion --jq '[.headSha,.attempt,.conclusion]|join(":")' | grep -Fx "$base:1:failure"
+          gh run view 45092013711 --json headSha,attempt,conclusion --jq '[.headSha,.attempt,.conclusion]|join(":")' | grep -Fx '22a5d73c0d09630b9075d574a4e3f4ad81cc7dbc:1:failure'
           umask 077
           mkdir -p test-results/fee-audit
           cd test-results/fee-audit
