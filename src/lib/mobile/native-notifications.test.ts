@@ -11,7 +11,8 @@ import {
   showNoteReceivedNotification,
   clearNoteReceivedNotification,
   setupNotificationTapListener,
-  initNativeNotifications
+  initNativeNotifications,
+  registerIncomingNoteTapHandler
 } from './native-notifications';
 
 jest.mock('@capacitor/local-notifications', () => ({
@@ -199,6 +200,63 @@ describe('native-notifications', () => {
         'localNotificationActionPerformed',
         expect.any(Function)
       );
+    });
+
+    it('acknowledged received-note tap preserves browsers and route', async () => {
+      jest.useFakeTimers();
+      let capturedCallback: ((action: any) => Promise<void>) | null = null;
+      (LocalNotifications.addListener as jest.Mock).mockImplementation((_event, callback) => {
+        capturedCallback = callback;
+        return Promise.resolve();
+      });
+      const cleanup = registerIncomingNoteTapHandler(() => true);
+      try {
+        await setupNotificationTapListener();
+        await capturedCallback!({ notification: { extra: { type: 'note_received', navigateTo: '/history' } } });
+        jest.advanceTimersByTime(200);
+        expect(InAppBrowser.closeAll).not.toHaveBeenCalled();
+        expect(navigate).not.toHaveBeenCalled();
+      } finally {
+        cleanup();
+        jest.useRealTimers();
+      }
+    });
+
+    it('generic notification ignores incoming handler', async () => {
+      let capturedCallback: ((action: any) => Promise<void>) | null = null;
+      (LocalNotifications.addListener as jest.Mock).mockImplementation((_event, callback) => {
+        capturedCallback = callback;
+        return Promise.resolve();
+      });
+      const handler = jest.fn(() => true);
+      const cleanup = registerIncomingNoteTapHandler(handler);
+      try {
+        await setupNotificationTapListener();
+        await capturedCallback!({ notification: { extra: { type: 'generic', navigateTo: '/settings' } } });
+        expect(handler).not.toHaveBeenCalled();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('cleanup cannot remove a newer handler', () => {
+      const first = jest.fn(() => false);
+      const second = jest.fn(() => true);
+      const cleanupFirst = registerIncomingNoteTapHandler(first);
+      const cleanupSecond = registerIncomingNoteTapHandler(second);
+      cleanupFirst();
+      // Registration identity is observed through the tap path.
+      let capturedCallback: ((action: any) => Promise<void>) | null = null;
+      (LocalNotifications.addListener as jest.Mock).mockImplementation((_event, callback) => {
+        capturedCallback = callback;
+        return Promise.resolve();
+      });
+      return setupNotificationTapListener().then(async () => {
+        await capturedCallback!({ notification: { extra: { type: 'note_received', navigateTo: '/history' } } });
+        expect(second).toHaveBeenCalledTimes(1);
+        expect(first).not.toHaveBeenCalled();
+        cleanupSecond();
+      });
     });
 
     it('handles notification tap and navigates', async () => {

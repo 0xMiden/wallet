@@ -2,6 +2,10 @@
 
 ## 1.18.2 (TBD)
 
+- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
+- [FIX][all] Match equivalent hex and bech32 account and faucet IDs across activity, badge, and recovered swap history with bounded canonical ID caching.
+- [FIX][mobile] Open incoming-note claims over the active dApp without closing or navigating away from its session.
+
 - [FIX][extension] Retain timeout ownership and validated offscreen deadline facts in saved transaction errors and local exports.
 
 - [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
