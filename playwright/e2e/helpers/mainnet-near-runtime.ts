@@ -20,6 +20,7 @@ import {
 } from './mainnet-near-checkpoint';
 import { verifyRetiredNearReturnAbsence } from './mainnet-near-return-absence';
 import { nearNativeRequestDiagnostic } from './mainnet-near-native-request-diagnostic';
+import { armRecallBlocks } from './recall';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 import { realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
@@ -93,7 +94,8 @@ const auditedUnspentNearNonce = new Map([
   ['43999834254', 84],
   ['44970377919', 85],
   ['45055827591', 87],
-  ['45072272341', 87]
+  ['45072272341', 87],
+  ['45092013711', 87]
 ]);
 
 export async function runMainnetNearStage(
@@ -535,12 +537,15 @@ export async function runMainnetNearForward(
   };
   await persist();
   recordNearForwardStage('review');
+  // NEAR's exact deposit authorization accepts plain P2ID, not the ordinary Send reclaim default.
+  await armRecallBlocks(wallet.page, null);
   await wallet.prepareSendReview({
     recipientAddress: quote.quote.depositAddress,
     amount: fromBaseUnits(BigInt(state.principal), 6),
     isPrivate: false,
     tokenSymbol: 'USDCX'
   });
+  await expect(wallet.page.getByTestId('review-recall-note')).toHaveCount(0);
   recordNearForwardStage('arm');
   const handle = await armMainnetSendAuthorization(wallet.page, {
     accountId: state.accountHex,

@@ -62,16 +62,19 @@ export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, au
   const attempt08 = checkpointDigest === 'e0bf79730133f18a5c96629ce54edeb8fbbf322b99199f6e0c58259daf3767c4';
   const attempt11 = checkpointDigest === '82aa24b5e2ca2c999103d2bda5482dfb2ba21645d9089d4043199a66fe701847';
   const attempt12 = checkpointDigest === 'b3c2a1e3068644497325cbb3d39bbdccdeba04876bcff6e781f01ecc794405c4';
-  const auditedPreAck = attempt08 || attempt11 || attempt12;
-  const expiredAfter = attempt12
-    ? '2026-11-22T21:47:08.669Z'
-    : attempt11
-      ? '2026-11-22T18:54:40.441Z'
-      : attempt08
-        ? '2026-11-22T01:33:58.869Z'
-        : attempt01
-          ? '2026-11-17T02:21:33.561Z'
-          : '2026-11-16T05:57:46.601Z';
+  const attempt13 = checkpointDigest === '5c71be7ebac3e379684182de9d120994193d0a7d1ba7cee5dc503bf0e214fa1e';
+  const auditedPreAck = attempt08 || attempt11 || attempt12 || attempt13;
+  const expiredAfter = attempt13
+    ? '2026-11-23T01:20:02.008Z'
+    : attempt12
+      ? '2026-11-22T21:47:08.669Z'
+      : attempt11
+        ? '2026-11-22T18:54:40.441Z'
+        : attempt08
+          ? '2026-11-22T01:33:58.869Z'
+          : attempt01
+            ? '2026-11-17T02:21:33.561Z'
+            : '2026-11-16T05:57:46.601Z';
   if (
     (!attempt01 &&
       !auditedPreAck &&
@@ -97,7 +100,8 @@ export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, au
     run_attempt: 1,
     status: 'completed',
     conclusion: 'failure',
-    ...(attempt12 && { id: 45072272341, head_sha: '239ada789a8f2fc06ce2afdec8896d4f2dbcd977' })
+    ...(attempt12 && { id: 45072272341, head_sha: '239ada789a8f2fc06ce2afdec8896d4f2dbcd977' }),
+    ...(attempt13 && { id: 45092013711, head_sha: '22a5d73c0d09630b9075d574a4e3f4ad81cc7dbc' })
   };
   const reviewed = {
     id: attempt11 ? 45059426340 : attempt08 ? 44972260190 : attempt01 ? 44005625246 : 43925502671,
@@ -124,6 +128,11 @@ export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, au
       id: 45075171185,
       head_sha: 'd0d014848aba5f291855fdd605e6e523e81b3f42',
       head_branch: 'wiktor/green12-near-readonly'
+    }),
+    ...(attempt13 && {
+      id: 45095113595,
+      head_sha: 'da07676ad625c2b1fb604b7df065377eea54cc8f',
+      head_branch: 'wiktor/green13-near-readonly'
     })
   };
   if (
@@ -426,7 +435,8 @@ async function main() {
           43999834254: '44005625246',
           44970377919: '44972260190',
           45055827591: '45059426340',
-          45072272341: '45075171185'
+          45072272341: '45075171185',
+          45092013711: '45095113595'
         }[id];
         if (auditRunId) {
           const audit = await github(`actions/runs/${auditRunId}`);
