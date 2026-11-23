@@ -3242,7 +3242,7 @@ describe('user-visible bridge deposit producers', () => {
     act(() => publishSnapshot({ ...mockSnapshot }));
     await flushBridgePromises();
   };
-  const ethQuote = { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } };
+  const ethQuote = { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
 
   it('reports a ceiling the typed deposit passes by its own copy on the amount field', async () => {
     mockTokenPrices = ethQuote;
@@ -4051,7 +4051,7 @@ describe('user-visible bridge deposit producers', () => {
 
   it('holds an ERC-20 deposit its own quote takes past the ceiling, though it would clear at par', async () => {
     mockPriceSymbols.set(WBTC_FAUCET, 'BTC');
-    mockTokenPrices = { BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } };
+    mockTokenPrices = { BTC: { price: 60000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
     mockBridgeInCapUsd = 100;
     mockDepositTokens = [WBTC_LISTING];
     await typeErc20Amount();
@@ -4073,7 +4073,7 @@ describe('user-visible bridge deposit producers', () => {
     mockTokenApiUrl = 'https://tokens.test';
     mockHeldErc20s = [{ contractAddress: WBTC_LISTING.contractAddress, symbol: 'WBTC', decimals: 8, value: FUNDED }];
     mockPendingUsdMarkets.add('WBTC');
-    mockTokenPrices = { WBTC: { price: 1, change24h: 0, percentageChange24h: 0 } };
+    mockTokenPrices = { WBTC: { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
     mockBridgeInCapUsd = 100;
     await typeErc20Amount();
     expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();

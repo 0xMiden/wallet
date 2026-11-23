@@ -4227,6 +4227,14 @@
     "message": "Guardian’ı değiştir",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "Tarayıcı depolama alanı yanıt vermiyor",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Cüzdan verileriniz kaybolmamıştır, ancak tarayıcı bu verilere yönelik istekleri yanıtlamayı durdurmuştur. Tarayıcıyı tamamen kapatıp yeniden açarak durumu düzeltin.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Günlük anahtarı göster",
     "englishSource": "Reveal everyday key"
@@ -8088,6 +8096,10 @@
   "bridgeConnectWalletAction": {
     "message": "Cüzdanı bağla",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "Cüzdan seçici açılamadı. Lütfen tekrar deneyin.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "Cüzdanınız",

@@ -61,8 +61,8 @@ jest.mock('./dapp-mobile-writes', () => ({
 const source = (file: string): string => fs.readFileSync(path.resolve(__dirname, '../../..', file), 'utf8');
 
 describe('the mobile slim set', () => {
-  // Building the cells reads only the network; every other journey field is read when a cell runs.
-  const cells = mobileCells({ network: 'testnet' } as unknown as MobileJourney);
+  // Building the cells reads only the network and the axis; every other journey field is read when a cell runs.
+  const cells = mobileCells({ network: 'testnet', axis: mobileOffchainAxis } as unknown as MobileJourney);
 
   it.each(['offchain', 'guardian'] as const)('implements exactly the in-app browser cells on the %s axis', axis => {
     expect(Object.keys(cells).sort()).toEqual([...cellIdsFor('PL', axis)].sort());
@@ -554,5 +554,16 @@ describe('mobile cell assertions', () => {
     const record = await f.record();
     expect(record.error).toContain('the write failed');
     expect(record.error).not.toContain('sheet-effects:');
+  });
+
+  it.each([
+    { label: 'offchain', gated: false },
+    { label: 'guardian', gated: true }
+  ] as const)('G1 on the $label axis is refused before any sheet only when gated', async ({ label, gated }) => {
+    const f = fixture('G1', { name: 'WalletTransactionError', message: 'unused' });
+    const cell = mobileCells({ ...f.j, axis: { ...f.j.axis, label } })['G1'];
+    await cell?.run(f.ctx).catch(() => undefined);
+    expect(jest.mocked(expectNoSheet)).toHaveBeenCalledTimes(gated ? 1 : 0);
+    expect(jest.mocked(answerSheet)).toHaveBeenCalledTimes(gated ? 0 : 1);
   });
 });

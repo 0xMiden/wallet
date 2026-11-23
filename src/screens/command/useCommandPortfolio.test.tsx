@@ -14,7 +14,7 @@ let rows: TokenBalanceData[] = [];
 const mockUseAllBalances = jest.fn();
 let hidden = false;
 let hiddenReady = true;
-const quote = { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() };
+const quote = { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const };
 
 jest.mock('lib/miden/front', () => ({
   useAllBalances: () => mockUseAllBalances(),
@@ -26,10 +26,6 @@ jest.mock('app/hooks/useHiddenTokens', () => ({
 jest.mock('lib/miden/swap/tokens', () => ({
   tokenQuote: (prices: Record<string, typeof quote>, id: string) =>
     id === 'fixed' ? jest.requireActual('lib/prices/fixed').fixedQuote('USDCX') : prices[id]
-}));
-jest.mock('lib/prices/binance', () => ({
-  isNominalQuote: (price: { price: number }) =>
-    price.price === 1 && !jest.requireActual('lib/prices/fixed').isFixedQuote(price)
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
@@ -231,7 +227,7 @@ it('allocates only current, proven priced wallet holdings from the valued subtot
       beta: quote,
       hidden: quote,
       unknown: quote,
-      nominal: { ...quote, price: 1 }
+      nominal: { ...quote, price: 1, kind: 'nominal' as const }
     },
     tokenPricesStatus: 'ready'
   });
@@ -310,7 +306,10 @@ it('does not record a partial USD figure when holdings have unknown scale, missi
 
 it('refuses nominal or stale quotes and a balance proof from an old read', () => {
   rows = [row('priced', 3)];
-  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: { priced: { ...quote, price: 1 } } });
+  useWalletStore.setState({
+    balances: { 'account-a': rows },
+    tokenPrices: { priced: { ...quote, price: 1, kind: 'nominal' as const } }
+  });
   tagBalanceSnapshot(
     rows,
     {

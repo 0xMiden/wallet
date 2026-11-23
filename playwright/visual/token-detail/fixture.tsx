@@ -25,7 +25,7 @@ const token = {
   }
 };
 
-const priceInfo = { price: 1234.5678, change24h: -29.6296, percentageChange24h: -2.4 };
+const priceInfo = { price: 1234.5678, change24h: -29.6296, percentageChange24h: -2.4, kind: 'market' as const };
 const storeState = {
   tokenPrices: { ETH: priceInfo },
   tokenMetadataOverrides: {},

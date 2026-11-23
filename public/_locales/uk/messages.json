@@ -4227,6 +4227,14 @@
     "message": "Змінити Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "Сховище браузера не відповідає",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Дані вашого гаманця не втрачено, але браузер перестав відповідати на запити щодо них. Щоб відновити роботу, повністю закрийте та знову відкрийте браузер.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Розкрити щоденний ключ",
     "englishSource": "Reveal everyday key"
@@ -8089,6 +8097,10 @@
   "bridgeConnectWalletAction": {
     "message": "Підключити гаманець",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "Не вдалося відкрити вікно вибору гаманця. Спробуйте ще раз.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "Ваш гаманець",

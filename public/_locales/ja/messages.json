@@ -4227,6 +4227,14 @@
     "message": "Guardian を切り替える",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "ブラウザのストレージが応答しません",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "ウォレットのデータが失われたわけではありませんが、ブラウザがそのデータに対するリクエストに応答しなくなっています。ブラウザを完全に終了してから再起動することで復旧します。",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "日常キーを公開する",
     "englishSource": "Reveal everyday key"
@@ -8087,6 +8095,10 @@
   "bridgeConnectWalletAction": {
     "message": "ウォレットを接続する",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "ウォレットピッカーを開くことができませんでした。もう一度お試しください。",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "ウォレット",

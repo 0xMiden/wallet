@@ -4227,6 +4227,14 @@
     "message": "Guardian 전환",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "브라우저 저장소가 응답하지 않습니다",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "지갑 데이터가 손실된 것은 아니지만, 브라우저가 해당 데이터에 대한 요청에 응답하지 않는 상태입니다. 브라우저를 완전히 종료했다가 다시 실행하여 복구하십시오.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "일일 키 공개",
     "englishSource": "Reveal everyday key"
@@ -8087,6 +8095,10 @@
   "bridgeConnectWalletAction": {
     "message": "지갑 연결",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "지갑 선택기가 열리지 않았습니다. 다시 시도해 주세요.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "귀하의 지갑",

@@ -1,7 +1,8 @@
 /** @jest-environment node */
 import {
   readMainnetMidenOutputCandidates,
-  readMainnetMidenOwnNoteCreator
+  readMainnetMidenOwnNoteCreator,
+  waitForMainnetMidenOwnNoteCreator
 } from '../playwright/e2e/helpers/mainnet-miden-indexer';
 jest.mock('@miden-sdk/miden-sdk', () => ({
   Address: { fromBech32: () => ({ accountId: () => ({ toString: () => '0x593c167bec26769178dcbd1f9bcb40' }) }) }
@@ -149,6 +150,22 @@ it('keeps original source-note recovery blocked when its maker submitted two tra
     .mockResolvedValueOnce(json({ data: { note: { note_id: noteId, sender, block_number: '828100' } } }))
     .mockResolvedValueOnce(json(changed));
   await expect(readMainnetMidenOwnNoteCreator(noteId, senderHex, fetcher)).rejects.toThrow();
+});
+it('waits for exact indexer note absence, then verifies the original creator', async () => {
+  fetcher
+    .mockReset()
+    .mockResolvedValueOnce(json({ data: null, errors: [{ message: 'note not found', path: ['note'] }] }))
+    .mockResolvedValueOnce(json({ data: { note: { note_id: noteId, sender, block_number: '828100' } } }))
+    .mockResolvedValueOnce(json(reply()));
+  await expect(waitForMainnetMidenOwnNoteCreator(noteId, senderHex, new AbortController().signal, fetcher))
+    .resolves.toMatchObject({ transactionId: txId, noteIds: [noteId] });
+  expect(fetcher).toHaveBeenCalledTimes(3);
+});
+it('does not poll a non-absence indexer failure', async () => {
+  fetcher.mockReset().mockResolvedValueOnce(json({ data: null, errors: [{ message: 'indexer failed', path: ['note'] }] }));
+  await expect(waitForMainnetMidenOwnNoteCreator(noteId, senderHex, new AbortController().signal, fetcher))
+    .rejects.toThrow('Public mainnet maker lookup failed');
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 it('refuses invalid provider fingerprints without contacting an indexer', async () => {
   await expect(readMainnetMidenOutputCandidates('not-a-hash', self, fetcher)).rejects.toThrow();

@@ -4227,6 +4227,14 @@
     "message": "Переключить Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "Хранилище браузера не отвечает",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Данные вашего кошелька не утеряны, но браузер перестал отвечать на запросы о них. Чтобы восстановить доступ, полностью закройте и снова откройте браузер.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Раскрыть повседневный ключ",
     "englishSource": "Reveal everyday key"
@@ -8091,6 +8099,10 @@
   "bridgeConnectWalletAction": {
     "message": "Подключить кошелек",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "Не удалось открыть окно выбора кошелька. Попробуйте ещё раз.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "Ваш кошелек",

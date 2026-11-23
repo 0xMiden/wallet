@@ -4227,6 +4227,14 @@
     "message": "Cambia Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "El almacenamiento del navegador no responde",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Los datos de tu monedero no se han perdido, pero el navegador ha dejado de responder a las solicitudes relacionadas con ellos. Cierra y vuelve a abrir el navegador por completo para restablecerlos.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Revelar la clave diaria",
     "englishSource": "Reveal everyday key"
@@ -8093,6 +8101,10 @@
   "bridgeConnectWalletAction": {
     "message": "Conectar monedero",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "No se ha podido abrir el selector de monederos. Inténtalo de nuevo.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "Tu monedero",

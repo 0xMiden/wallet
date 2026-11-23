@@ -1,10 +1,27 @@
 # Changelog
 
-## 1.18.1 (TBD)
+## 1.18.2 (TBD)
 
 - [FIX][mobile] Open incoming-note claims over the active dApp without closing or navigating away from its session.
 
+- [FIX][extension] Retain timeout ownership and validated offscreen deadline facts in saved transaction errors and local exports.
+
+- [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
+
+- [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
+- [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
+- [FIX][ci] Reconcile the exact cancelled nightly Swap checkpoint after verifying that custody did not change.
+
+## 1.18.1 (2026-11-23)
+
+- [FIX][ci] Bound nightly NEAR return authorization by both the original checkpoint allowance and the current dispatch allowance.
+
+- [FIX][ios][android][extension] Show the USD value of USDT, SOL, NEAR and PAXG in the Swap token picker, priced from the verified token list like home, not only ETH and WBTC.
+- [FIX][extension] Tell the user to restart the browser when its IndexedDB storage stops answering, instead of showing an empty wallet, restarting the offscreen document in a loop, piling up sync retries until memory runs out, or reporting a node outage.
+- [FIX][ci] Use the authorized plain P2ID note for nightly NEAR deposits and reconcile the exact unused Green13 quote.
+- [FIX][ci] Reconcile the exact expired Green12 NEAR quote without renewing its authority.
 - [FIX][ci] Report the last NEAR forward stage without uploading private worker logs.
+- [FIX][ci] Report bounded queue diagnostics when NEAR forward authorization fails.
 - [FIX][ci] Reconcile the exact expired Green11 NEAR quote without renewing it or funding a new loop.
 - [FIX][ci] Reconcile the exact expired Green08 NEAR quote without renewing it or funding a new loop.
 

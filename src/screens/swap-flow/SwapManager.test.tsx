@@ -515,7 +515,9 @@ beforeEach(() => {
   mockDefaultPairOverride = undefined;
   mockQuotesBySymbol = undefined;
   mockWalletState = {
-    tokenPrices: { AAA: { price: 1, change24h: 0, percentageChange24h: 0, observedAt: Date.now() } },
+    tokenPrices: {
+      AAA: { price: 1, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
+    },
     isTransactionModalOpen: false,
     lastCompletedTxHash: null,
     closeTransactionModal: jest.fn(),
@@ -969,7 +971,7 @@ describe('SwapFlow / SwapManager', () => {
     const view = renderFlow();
     setOffer('10');
     mockWalletState.tokenPrices = {
-      AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+      AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
     };
     view.rerender(<SwapFlow />);
     await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
@@ -1478,7 +1480,7 @@ describe('SwapFlow / SwapManager', () => {
       const lowPrecisionRequest = { ...mockTokenC, decimals: 2 };
       mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, lowPrecisionRequest]);
       mockWalletState.tokenPrices = {
-        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
       };
       mockSwapQuoteResult = {
         loading: false,
@@ -2135,7 +2137,7 @@ describe('SwapFlow / SwapManager', () => {
       mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 20n, {}, { offeredAmount: 5n }) };
       mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 1 }, { ...mockTokenB, decimals: 1 }, mockTokenC]);
       mockWalletState.tokenPrices = {
-        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
       };
       renderFlow();
       setOffer('0.5');
@@ -3090,7 +3092,7 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
 
       mockWalletState.tokenPrices = {
-        AAA: { price, change24h: 0, percentageChange24h: 0, observedAt }
+        AAA: { price, change24h: 0, percentageChange24h: 0, observedAt, kind: 'market' as const }
       };
       await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
 
@@ -3345,7 +3347,7 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockInitiateSwap).not.toHaveBeenCalled();
       expect(screen.getByTestId('rs-submit-error')).toBeEmptyDOMElement();
       mockWalletState.tokenPrices = {
-        AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+        AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
       };
 
       await act(async () => resolveQuote(mockSwapQuoteResult.quote!));
