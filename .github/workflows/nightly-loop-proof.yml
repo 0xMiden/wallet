@@ -1,0 +1,60 @@
+name: NEAR settlement cost audit (read only)
+on:
+  push:
+    branches: [wiktor/green14-near-cost-audit]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: e2e-mainnet-nightly
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Verify exact settlement archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          base=3cee0599e419a7288c3b4ee17a74686222722dda
+          test "$(git rev-parse HEAD^)" = "$base"
+          test "$(git diff --name-only "$base" HEAD)" = "$(printf '%s\n' .github/workflows/nightly-loop-proof.yml playwright/e2e/tests/mainnet/near-claim-cost-audit.spec.ts)"
+          umask 077
+          gh api repos/0xMiden/wallet/actions/artifacts/14790528730/zip > "$RUNNER_TEMP/near.zip"
+          printf '%s  %s\n' 7372459ca07d57e8014e2be910c5db15c8cbbfc86fc299a9e6a0eda621242eb7 "$RUNNER_TEMP/near.zip" | sha256sum --check --status
+          test "$(unzip -Z1 "$RUNNER_TEMP/near.zip")" = roundtrip.json
+          mkdir -p test-results/near-claim-audit
+          unzip -p "$RUNNER_TEMP/near.zip" roundtrip.json > test-results/near-claim-audit/roundtrip.json
+          printf '%s  %s\n' c2c9f2a068ea72f59290547d7854a838b5c6e399700b5cf082e0aebd5ea10f99 test-results/near-claim-audit/roundtrip.json | sha256sum --check --status
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - uses: ./.github/actions/install-miden-client-cli
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/start-eligibility-fixture
+      - run: yarn test:e2e:blockchain:build
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+      - name: Audit canonical fees and restored custody without spending
+        shell: bash
+        env:
+          E2E_MAINNET_GUARDIAN_KEY_PAIR: ${{ secrets.E2E_MAINNET_GUARDIAN_KEY_PAIR }}
+        run: |
+          umask 077
+          rc=0
+          E2E_PLAYWRIGHT_OUTPUT_DIR="$RUNNER_TEMP/near-audit-private" xvfb-run -a yarn playwright test near-claim-cost-audit.spec.ts --config playwright.mainnet.config.ts --workers=1 --retries=0 > "$RUNNER_TEMP/near-audit-private.log" 2>&1 || rc=$?
+          if test -f test-results/near-claim-audit-result.json; then
+            jq -c '{stage,failed,custodyVerified,forwardFee,claimFee}' test-results/near-claim-audit-result.json
+          fi
+          exit "$rc"
