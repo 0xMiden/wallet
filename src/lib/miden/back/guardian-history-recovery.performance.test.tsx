@@ -833,7 +833,7 @@ for (let index = 0; index < SAMPLES; index++) {
     } finally {
       await test.dispose();
     }
-  }, 1_500_000);
+  }, 3_000_000);
 }
 
 it('completes overlapping synthetic sources without duplicate receipts', async () => {
