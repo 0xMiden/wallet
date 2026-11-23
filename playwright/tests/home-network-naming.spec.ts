@@ -7,6 +7,7 @@ import {
   NATIVE_ASSET_META_CACHE,
   NATIVE_ASSET_SYNCED_ID_CACHE
 } from '../../src/lib/miden-chain/native-asset-cache-keys';
+import { TEST_TOKEN_IETH } from '../../src/lib/miden/swap/testing/registry';
 import type { SyncData } from '../../src/lib/shared/types';
 
 /**
@@ -131,17 +132,12 @@ test.describe('Home network naming', () => {
       worker.evaluate(async () => (await chrome.storage.local.get('miden_sync_data')).miden_sync_data as SyncData);
     await expect.poll(async () => (await readSnapshot())?.balanceSnapshot?.accountNonce).toBeDefined();
     const snapshot = await readSnapshot();
-    const scope = `${snapshot.balanceSnapshot?.rpcUrl}|${snapshot.balanceSnapshot?.effectiveNetwork}`;
-    const syncedKey = `${NATIVE_ASSET_SYNCED_ID_CACHE}:${scope}`;
-    const readFaucetId = () => worker.evaluate(async key => (await chrome.storage.local.get(key))[key], syncedKey);
-    await expect.poll(readFaucetId).toEqual(expect.any(String));
-    const faucetId: string = await readFaucetId();
-    const metadata = { symbol: 'TST', name: 'Test', decimals: 6 };
+    // Use a non-native faucet: native metadata is independently refreshed by the SDK.
+    const { faucetId, symbol, decimals } = TEST_TOKEN_IETH;
+    const metadata = { symbol, name: 'Ether', decimals };
     const network = snapshot.balanceSnapshot?.effectiveNetwork;
     expect(network).toBe('testnet');
     await worker.evaluate(values => chrome.storage.local.set(values), {
-      [`${NATIVE_ASSET_ID_CACHE}:${scope}`]: faucetId,
-      [`${NATIVE_ASSET_META_CACHE}:${scope}`]: { ...metadata, faucetId },
       [`token_list_cache_v2:${network}`]: {
         fetchedAt: Date.now(),
         body: {
@@ -150,9 +146,21 @@ test.describe('Home network naming', () => {
       },
       usd_price_cache: { ETH: { priceMicro: '2000000', fetchedAt: Math.floor(Date.now() / 1000) } }
     });
-    const fixture = { ...snapshot, vaultAssets: [{ faucetId, amountBaseUnits: '7250000', metadata }] };
+    const fixture = { ...snapshot, vaultAssets: [{ faucetId, amountBaseUnits: '725000000', metadata }] };
     const sidebar = await openPopup(extensionContext, extensionId, 'en', fixture, 'sidepanel');
-    await expect(sidebar.locator('html')).toHaveAttribute('data-first-balance', /^14\.5(?:0)?$/);
+    await expect(sidebar.locator('html'))
+      .toHaveAttribute('data-first-balance', /^14\.5(?:0)?$/)
+      .catch(async error => {
+        const amount = sidebar.getByTestId('balance-card-currency');
+        const current = await amount.evaluate(node => node.previousElementSibling?.textContent).catch(() => null);
+        const assetVisible = await sidebar.getByText(metadata.name, { exact: true }).first().isVisible();
+        throw new Error(
+          `Sidebar cached balance: current=${current ?? 'missing'}, fixture asset visible=${assetVisible}`,
+          {
+            cause: error
+          }
+        );
+      });
     await sidebar.close();
     const command = await extensionContext.newPage();
     await command.addInitScript(syncData => {
