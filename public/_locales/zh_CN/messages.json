@@ -895,6 +895,14 @@
     "message": "抵押品note必须使用已审核的代币、已审核的金额以及已配置的分配器。未发送任何内容。请返回并重试。",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "桥接术语已变更。请先查看“活动”记录，然后再继续操作。",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "发送前已停止",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "总收益",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "有效期",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "估计",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "已审核的到期时间已更改。发送前请再次审核。",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "如果到那时仍未被接受，$amount$ 将作为待接受的转账退回，由您接受。资金不会丢失。",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3155,8 +3171,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "您的恢复短语可恢复您的密钥，并结合您的Guardian备份，恢复您的账户。请妥善保管该短语。",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "您的助记词和您的Guardian备份可恢复您的账户。请妥善保管助记词。",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "您的资金始终归您所有",
@@ -3175,8 +3191,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "关于Guardians的更多信息",
-    "englishSource": "More about Guardians"
+    "message": "了解有关Guardian的更多信息",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "继续处理 $name$",
@@ -3374,6 +3390,245 @@
   "openWallet": {
     "message": "打开钱包",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "钱包",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "搜索钱包操作",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "钱包操作",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "交易",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "桥接",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "方向",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "桥接",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Miden 网络",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "更换网络",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "提供商",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "纪元",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "来源：",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "至",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "资产、网络和提供商",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ 至 $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "外部账户",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Miden 账户",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "预计收到",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "源金额总计",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "服务商费用",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "切换源网络",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch 无法通过已安装的提供商报价固定来源金额。请选择另一家提供商进行桥接。",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "当前钱包网络暂无可用桥接路径。",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "在继续操作之前，收款账户余额必须充足且允许进行此次存款。",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "此笔转账已记录在“活动”中。钱包授权或结算可能仍在处理中。请勿重复发起该操作。",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "查看转账状态",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "详情",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "打开全屏模式",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "在新标签页中打开您的钱包。",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "无法进入全屏模式。请重试。",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "投资组合",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "分配",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "已定价的钱包资产",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "您的钱包是空的。",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "无定价资产可显示。",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "近期操作",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "无近期操作可显示",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "钱包余额",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "按当前价格计算的持仓24小时市场价格变动：$change$美元（$percentage$%）",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "隐藏余额",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "显示余额",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "隐藏",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "余额不可用",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "价格不可用",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "部分估值——部分资产尚无经核实的美元价格",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "观察到的钱包交易记录",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "历史范围",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "目前观察数据尚不充分",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "部分时间间隔或估值范围存在缺失",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandHistoryObservationsOnly": {
+    "message": "仅限记录观察结果",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "“Earn”的新存款功能已暂停。您仍可查看并提取现有头寸。",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
+  "commandInspectHistory": {
+    "message": "检查已观察到的历史数据",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "仅针对本设备进行说明。未填补的空缺不予补全。",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "开始使用",
@@ -3971,6 +4226,14 @@
   "connectivityGuardianCta": {
     "message": "切换 Guardian",
     "englishSource": "Switch Guardian"
+  },
+  "storageStalledTitle": {
+    "message": "浏览器存储无响应",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "您的钱包数据并未丢失，只是浏览器已停止响应相关请求。请完全退出并重新打开浏览器以恢复数据。",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
   },
   "revealHotKey": {
     "message": "显示日常密钥",
@@ -4713,6 +4976,19 @@
   "signBlindCommitment": {
     "message": "签署《盲人承诺书》？",
     "englishSource": "Sign the Blind commitment?"
+  },
+  "signMessageTitle": {
+    "message": "消息签名请求",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "本网站要求您签署一条包含 $count$ 个字段元素的消息。钱包无法显示该消息的具体含义。仅当您完全信任本网站时，才可继续操作。",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "connectToWebsite": {
     "message": "连接到网站",
@@ -5625,6 +5901,10 @@
     "message": "代币信息",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "成分",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "描述",
     "englishSource": "Description"
@@ -5907,6 +6187,10 @@
     "message": "重获",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "已过期",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet 请求",
     "englishSource": "Faucet Request"
@@ -5918,6 +6202,10 @@
   "receiveShareCaption": {
     "message": "发送您的地址",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "无法复制此地址。请在下方选中该地址以手动复制。",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "来自另一个网络",
@@ -6461,16 +6749,21 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "不透明签名请求",
-    "englishSource": "Opaque signature request"
+    "message": "Bread 无法预览此内容",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureNotATransaction": {
     "message": "此签名无法授权从您的账户发起交易。",
     "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
-    "message": "该网站要求您对原始值进行签名。钱包无法显示其授权的内容。请仅在您完全信任该网站的情况下继续操作。",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$要求您对原始值进行签名。Bread无法显示该操作的授权内容，因此请仅在您完全信任该网站的情况下继续操作。",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",
@@ -7442,6 +7735,10 @@
     "message": "接收地址",
     "englishSource": "Receive at"
   },
+  "receiveNoPendingTransfers": {
+    "message": "无待审核的入账转账",
+    "englishSource": "No incoming transfers to review"
+  },
   "earnTitle": {
     "message": "您的收益",
     "englishSource": "Your Earnings"
@@ -7798,6 +8095,10 @@
   "bridgeConnectWalletAction": {
     "message": "连接钱包",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "无法打开钱包选择器。请重试。",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "您的钱包",
@@ -8432,6 +8733,343 @@
     "message": "Arc",
     "englishSource": "Arc"
   },
+  "receiveMethod": {
+    "message": "接收方法",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "Near Intents",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "您发送",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "您将收到",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "在$chain$上",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "选择要发送的代币（$symbol$）",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "选择要接收的代币（$symbol$）",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "退款地址",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "您的 $chain$ 地址",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "如果转账失败，您的$symbol$将退回至该地址。",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "请输入有效的$chain$地址。",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "约 $minutes$ 分钟",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "获取充值地址",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "请从您自己的钱包中发送。",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "无存款地址",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "钱包无法获取存款地址。请重试。",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Near Intents 目前不可用",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "钱包无法加载您可以发送的代币。请稍后再试。",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "待发送的代币",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "查找要发送的代币",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "按网络筛选",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "没有代币符合您的搜索条件。",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "您在 Miden 上收到",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "$symbol$在$chain$上可用",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "存款",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "直接从",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "使用$wallet$支付",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "无法打开钱包。请复制地址和金额以发送您的存款。",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "彩虹",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Phantom",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "准确发送",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "复制金额",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "充值地址",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "复制存款地址",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "备注",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "复制备注",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "请将此备忘录随存款一并提交。未附备忘录的存款可能会丢失。",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ $amount$ $symbol$ 在 Miden 上",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "发送前",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · 剩余 $countdown$",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "退款至",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "返回“接收”页面以获取新的存款地址。",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "仅在$chain$上发送$symbol$。您可以关闭此页面；该转账记录将显示在“活动”中。",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "等待您的存款",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "存款金额小于该金额",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "处理您的存款",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "发布于 Miden",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "您的存款已确认。转账至 Miden 的操作正在进行中。您可以关闭此页面。",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "您的$symbol$已在Miden上。下次同步后，该note将发送到您的钱包。请在“活动”中领取。",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "您的$symbol$存放在您的钱包中。",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "已收到",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "退款",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "转账失败",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "该地址已过期。请勿向其发送资金。",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "显示存款地址",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "目标交易",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "该金额的流动性不足。请尝试其他金额。",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
+  },
   "availableAmount": {
     "message": "可用：$amount$ $symbol$",
     "englishSource": "Available: $amount$ $symbol$",
@@ -8843,5 +9481,404 @@
   "epochReturnUnavailable": {
     "message": "无法查询资金状态。请重试。",
     "englishSource": "Unable to check the funds status. Try again."
+  },
+  "epochDepositLocked": {
+    "message": "锁定存款",
+    "englishSource": "Deposit locked"
+  },
+  "epochDepositWithdrawn": {
+    "message": "存款已提取",
+    "englishSource": "Deposit withdrawn"
+  },
+  "epochDepositLockedTitle": {
+    "message": "您的存款是安全的",
+    "englishSource": "Your deposit is safe"
+  },
+  "epochDepositLockedBody": {
+    "message": "您的 $amount$ 存款已存入 $network$ 上的 The Compact，但 Epoch 尚未启动跨链桥。请重试跨链桥，或将存款提回至 $address$。",
+    "englishSource": "Your $amount$ deposit is in The Compact on $network$, but Epoch did not start the bridge. Retry the bridge, or withdraw the deposit back to $address$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      },
+      "address": {
+        "content": "$3"
+      }
+    }
+  },
+  "epochDepositConnectSponsor": {
+    "message": "连接 EVM 钱包 $address$ 以找回这笔存款。",
+    "englishSource": "Connect the EVM wallet $address$ to recover this deposit.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWrongWallet": {
+    "message": "此次存款并非由已连接的钱包完成。请连接 $address$ 以找回资金。",
+    "englishSource": "The connected wallet did not make this deposit. Connect $address$ to recover it.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositRetry": {
+    "message": "重试桥",
+    "englishSource": "Retry bridge"
+  },
+  "epochDepositRetrying": {
+    "message": "重试中……",
+    "englishSource": "Retrying…"
+  },
+  "epochDepositWithdraw": {
+    "message": "提现/存款",
+    "englishSource": "Withdraw deposit"
+  },
+  "epochDepositWithdrawing": {
+    "message": "提取……",
+    "englishSource": "Withdrawing…"
+  },
+  "epochDepositWithdrawStarted": {
+    "message": "$time$ 起可提现。",
+    "englishSource": "Withdrawal available in $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWithdrawStartedUnknown": {
+    "message": "已提交提现申请。申请提交后约一小时即可提现。",
+    "englishSource": "Withdrawal requested. It becomes available about one hour after the request."
+  },
+  "epochDepositWithdrawReady": {
+    "message": "该提现功能已开放。",
+    "englishSource": "The withdrawal is available."
+  },
+  "epochDepositWithdrawnBody": {
+    "message": "该笔存款已退还至$address$。",
+    "englishSource": "The deposit went back to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotRecoverable": {
+    "message": "此笔存款无法从该钱包中取回。",
+    "englishSource": "This deposit cannot be recovered from this wallet."
+  },
+  "epochDepositErrorWrongChain": {
+    "message": "将您的 EVM 钱包切换至 $network$ 并重试。",
+    "englishSource": "Switch your EVM wallet to $network$ and try again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotStarted": {
+    "message": "请先开始提现操作。",
+    "englishSource": "Start the withdrawal first."
+  },
+  "epochDepositErrorNotDue": {
+    "message": "目前尚无法进行提现。",
+    "englishSource": "The withdrawal is not available yet."
+  },
+  "epochDepositErrorMissing": {
+    "message": "该契约不再持有此笔存款。",
+    "englishSource": "The Compact no longer holds this deposit."
+  },
+  "epochDepositErrorLockMismatch": {
+    "message": "Epoch 为本次存款返回了一个不同的锁定值。请改为提取该存款。",
+    "englishSource": "Epoch returned a different lock for this deposit. Withdraw the deposit instead."
+  },
+  "recoverLockedFunds": {
+    "message": "恢复被锁定的桥接资金",
+    "englishSource": "Recover locked bridge funds"
+  },
+  "recoverFundsOpenLock": {
+    "message": "在“设置”中管理此锁定功能",
+    "englishSource": "Manage this lock in Settings"
+  },
+  "recoverFundsDescription": {
+    "message": "当 Epoch 未启动桥接时，快速桥入操作可将押金保留在 The Compact 中。本页面会检查从该钱包桥入的每个 EVM 钱包在 The Compact 中的状态，以及其关联钱包的状态。",
+    "englishSource": "A Fast bridge-in can leave its deposit in The Compact when Epoch does not start the bridge. This page checks The Compact for each EVM wallet that bridged in from this wallet, and for the connected wallet."
+  },
+  "recoverFundsConnectedWallet": {
+    "message": "联网钱包",
+    "englishSource": "Connected wallet"
+  },
+  "recoverFundsNothingLocked": {
+    "message": "该钱包中没有任何内容会被锁定。",
+    "englishSource": "Nothing is locked for this wallet."
+  },
+  "recoverFundsCouldNotCheck": {
+    "message": "无法在$network$上验证$tokens$。请稍后重试。",
+    "englishSource": "Could not check $tokens$ on $network$. Try again later.",
+    "placeholders": {
+      "tokens": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "recoverFundsConnectAnother": {
+    "message": "连接另一个钱包",
+    "englishSource": "Connect another wallet"
+  },
+  "recoverFundsNoAddressesTitle": {
+    "message": "无需检查钱包",
+    "englishSource": "No wallets to check"
+  },
+  "recoverFundsNoAddressesBody": {
+    "message": "连接进行过存款的 EVM 钱包，以检查其中是否有被锁定的资金。",
+    "englishSource": "Connect the EVM wallet that made the deposit to check it for locked funds."
+  },
+  "recoverFundsLockTitle": {
+    "message": "锁定的资金",
+    "englishSource": "Locked funds"
+  },
+  "recoverFundsLockInvalidTitle": {
+    "message": "此链接无效",
+    "englishSource": "This link is not valid"
+  },
+  "recoverFundsLockInvalidBody": {
+    "message": "从“恢复被锁定的桥接资金”中再次解锁。",
+    "englishSource": "Open the lock again from Recover locked bridge funds."
+  },
+  "recoverFundsLockEmpty": {
+    "message": "此处没有任何内容被锁定",
+    "englishSource": "Nothing is locked here"
+  },
+  "recoverFundsChecking": {
+    "message": "正在检查……",
+    "englishSource": "Checking…"
+  },
+  "recoverFundsCouldNotCheckShort": {
+    "message": "无法核对",
+    "englishSource": "Could not check"
+  },
+  "recoverFundsWallet": {
+    "message": "钱包",
+    "englishSource": "Wallet"
+  },
+  "recoverFundsLocked": {
+    "message": "已锁定",
+    "englishSource": "Locked"
+  },
+  "recoverFundsWithdrawal": {
+    "message": "提现",
+    "englishSource": "Withdrawal"
+  },
+  "recoverFundsWithdrawOff": {
+    "message": "未要求",
+    "englishSource": "Not requested"
+  },
+  "recoverFundsCancelWithdrawal": {
+    "message": "禁用提现功能",
+    "englishSource": "Disable withdrawal"
+  },
+  "recoverFundsCancelling": {
+    "message": "禁用……",
+    "englishSource": "Disabling…"
+  },
+  "recoverFundsWithdrawBlocksBridge": {
+    "message": "强制提现将阻止从$address$地址进行新的$token$快速跨链转入。在您取回资金后，请禁用提现功能以恢复跨链转入。",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "查看 Fast Bridge 访问权限",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "正在查询该代币和钱包的提现状态。",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "无法检查提现状态。请在使用 Fast bridge 之前重试。",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "$token$在$network$上已启用强制提现。在您取回资金后，请禁用提现功能，以便再次进行跨链转账。",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "禁用提现功能",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "禁用……",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "这将关闭该锁的强制提现功能。已恢复的资金仍保留在您的钱包中。新的恢复请求将开始新的等待期。此交易需要支付网络手续费。",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "打开您已连接的 EVM 钱包，并在 $network$ 上批准该交易。请在此处等待确认。",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "请改用 Circle",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "请改用“Slow bridge”",
+    "englishSource": "Use Slow bridge instead"
+  },
+  "connectFactsTitle": {
+    "message": "本网站将能够",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "查看您的余额和交易记录",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "未经许可读取私人数据",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "将授予对$scopes$的访问权限",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "在读取私人数据前请先征得同意",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "向您发送交易请求",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "您需逐一批准",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "切勿自行转移资金",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "资金仅在您批准后才会流出",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "您的请求仍保留在此，您可以重试。",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "无法连接",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "不同的网络",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "请求来自",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "代币faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "回溯区块",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "接收",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "来自 faucet 的 Note",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "你",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "您支付",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "您收到",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "从您的账户中移出",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "到账至您的账户",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "自定义交易",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "交易摘要",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "您的请求仍保留在此，您可以重试。",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "无法确认",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "未经验证",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureTitle": {
+    "message": "这仅用于登录",
+    "englishSource": "This only signs you in"
   }
 }

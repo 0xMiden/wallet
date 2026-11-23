@@ -1,6 +1,7 @@
 import { TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import { summaryToView } from 'app/confirm/decode';
+import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   cacheScope,
@@ -23,7 +24,8 @@ import {
   EarnDepositTransaction,
   IApprovedCustomEffects,
   ITransaction,
-  ITransactionStatus
+  ITransactionStatus,
+  IUsdcxBurn
 } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
@@ -50,14 +52,26 @@ jest.mock('lib/shared/helpers', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   cacheScope: jest.fn(() => 'rpc-a|testnet'),
   getNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
   getVerificationBaseFeeSync: jest.fn(() => 2),
   getVerificationBaseFee: jest.fn(async () => 2),
   refreshVerificationBaseFee: jest.fn(async () => 2),
   isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
 // By the path the guard imports: a root manual mock shadows the `lib/` spelling of this module.
+let mockWithinHold = false;
 jest.mock('../sdk/miden-client', () => ({
-  withWasmClientLock: jest.fn(async (fn: (hold: object) => unknown) => fn({}))
+  withWasmClientLock: jest.fn(async (fn: (hold: object) => unknown) => {
+    mockWithinHold = true;
+    try {
+      return await fn({});
+    } finally {
+      mockWithinHold = false;
+    }
+  })
+}));
+jest.mock('lib/miden/sdk/fee-sponsorship', () => ({
+  canonicalFeeSponsorshipNoteId: jest.fn(() => 'sponsorship-note')
 }));
 jest.mock('lib/i18n/core', () => ({
   getMessage: jest.fn((key: string) => `copy:${key}`)
@@ -219,6 +233,7 @@ const givenSummary = (ts: Summary) => jest.mocked(TransactionSummary.deserialize
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(canonicalFeeSponsorshipNoteId).mockReset().mockReturnValue('sponsorship-note');
   jest.mocked(TransactionSummary.deserialize).mockReset();
   jest.mocked(getVerificationBaseFee).mockReset();
   jest.mocked(getVerificationBaseFee).mockImplementation(async () => 2);
@@ -359,7 +374,20 @@ describe('bridged-send and earn-deposit', () => {
     [
       'usdcx bridged-send',
       'usdcx',
-      () => new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true)
+      () => {
+        const tx = new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true);
+        tx.extraInputs.usdcxBurn = {
+          noteId: BUILT,
+          destinationDomain: 6,
+          phase: 'pending',
+          networkFeeBudget: {
+            faucetId: 'bech32:usdcx',
+            maxAmount: '60',
+            scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+          }
+        };
+        return tx;
+      }
     ],
     [
       'epoch bridged-send',
@@ -463,6 +491,90 @@ describe('bridged-send and earn-deposit', () => {
       await expect(refused).rejects.toThrow(ProposalEffectRefusedError);
       await expect(refused).rejects.toThrow('the transaction has no recorded note of its own');
     });
+  });
+});
+
+describe('reviewed USDCx network fee budget', () => {
+  const budgeted = (
+    maxAmount = '2',
+    faucetId = 'bech32:usdcx',
+    scope = '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+  ) => {
+    const tx = new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true);
+    const burn: IUsdcxBurn = {
+      noteId: BUILT,
+      destinationDomain: 6,
+      phase: 'pending',
+      networkFeeBudget: { faucetId, maxAmount, scope }
+    };
+    tx.extraInputs.usdcxBurn = burn;
+    tx.approvedOutputNoteIds = [BUILT];
+    return tx;
+  };
+  const paid = () =>
+    viewOf(
+      summary({
+        removed: [fa('usdcx', 102n)],
+        outputs: [note([fa('usdcx', 100n)], [], BUILT), feeNote(2n)]
+      })
+    );
+
+  const sponsored = (companionId = 'sponsorship-note') =>
+    summary({
+      removed: [fa('usdcx', 105n)],
+      outputs: [note([fa('usdcx', 100n)], [], BUILT), note([fa('usdcx', 3n)], [], companionId), feeNote(2n)]
+    });
+
+  it('partitions the canonical companion inside the existing Guardian decode hold', async () => {
+    givenSummary(sponsored());
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
+      expect(mockWithinHold).toBe(true);
+      return 'sponsorship-note';
+    });
+    await expect(assertProposalEffectApproved(budgeted('5'), 'sum')).resolves.toBeUndefined();
+    expect(withWasmClientLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an unrecognized companion subject to the unchanged principal and exact-note checks', async () => {
+    givenSummary(sponsored('not-canonical'));
+    await expect(assertProposalEffectApproved(budgeted('1000'), 'sum')).rejects.toThrow(ProposalEffectRefusedError);
+  });
+
+  it('propagates a sponsorship reconstruction trap through the existing decode hold', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    givenSummary(sponsored());
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
+      throw trap;
+    });
+    const refused = assertProposalEffectApproved(budgeted('5'), 'sum');
+    await expect(refused).rejects.toMatchObject({ cause: trap });
+    await expect(jest.mocked(withWasmClientLock).mock.results[0]?.value).rejects.toBe(trap);
+  });
+
+  it('keeps the reviewed principal allowance when total native fees fit the cap', () => {
+    expect(proposalEffectRefusal(budgeted(), paid())).toBeUndefined();
+  });
+
+  it.each(['0', '1', '-1', '', '1.5', 'NaN', '0002'])('refuses a native fee budget of %s', maximum => {
+    expect(proposalEffectRefusal(budgeted(maximum), paid())).toBeDefined();
+  });
+
+  it('does not invent fee approval for a previously queued row', () => {
+    const tx = budgeted();
+    const burn = tx.extraInputs.usdcxBurn;
+    if (!burn) throw new Error('missing test burn');
+    Reflect.deleteProperty(burn, 'networkFeeBudget');
+    expect(proposalEffectRefusal(tx, paid())).toBeDefined();
+  });
+
+  it('refuses a fee budget for another asset or source scope', () => {
+    expect(proposalEffectRefusal(budgeted('2', 'bech32:other'), paid())).toBeDefined();
+    expect(
+      proposalEffectRefusal(
+        budgeted('2', 'bech32:usdcx', 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4'),
+        paid()
+      )
+    ).toBeDefined();
   });
 });
 

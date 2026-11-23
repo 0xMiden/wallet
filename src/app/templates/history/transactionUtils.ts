@@ -2,6 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import type { Status } from 'components/ui/StatusBadge';
+import { epochLockedDepositState, type EpochLockedDepositState } from 'lib/epoch/bridge-in-lock';
 import { getDateFnsLocale } from 'lib/i18n';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
@@ -21,6 +22,7 @@ import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { isNearIntentsDepositShownExpired } from 'lib/one-click/expiry';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import {
   bridgeInSourceLabel,
@@ -269,20 +271,32 @@ export const creditedAmount = (amount: bigint | undefined, metadata: AssetMetada
     ? formatMoneyAmount(formatAmount(amount, metadata?.decimals), 'receives', metadata?.symbol)
     : undefined;
 
-export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
+/** `expired`: a NEAR Intents deposit that got no funds before its deadline. Nothing failed, so it is not `failed`. */
+export type BridgeStatus = 'pending' | 'confirmed' | 'failed' | 'expired';
+
+/**
+ * A NEAR Intents deposit into Miden that got no deposit before its funding deadline. The reconciler records the
+ * expiry only after its next status read, so the row also reads expired when the deadline is past now.
+ */
+const isNearIntentsEntryExpired = (entry: IHistoryEntry, now: number): boolean =>
+  entry.txType === 'bridged-receive' &&
+  entry.oneClickTracking !== undefined &&
+  isNearIntentsDepositShownExpired(entry.oneClickTracking, now);
 
 /**
  * Normalize a `bridged-send` row to a single Pending/Confirmed/Failed status
  * across both routes: Agglayer derives it from the L1 claim lifecycle, Epoch from
  * the polled intent fill status.
  */
-export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
+export const bridgeStatusOf = (entry: IHistoryEntry, now = Date.now()): BridgeStatus => {
   // A failed Miden transaction never created a bridge deposit. Its terminal
   // transaction status must win over the initial route metadata (Agglayer
   // rows are born with `claimStatus: pending`).
   if (entry.status === ITransactionStatus.Failed) return 'failed';
 
   if (entry.txType === 'bridged-receive') {
+    // Before the phase check: the reconciler stores an expired deposit's row phase as `failed`.
+    if (isNearIntentsEntryExpired(entry, now)) return 'expired';
     if (entry.bridgeInPhase === 'ready' || entry.bridgeInPhase === 'received') return 'confirmed';
     if (entry.bridgeInPhase === 'failed') return 'failed';
     return 'pending';
@@ -305,19 +319,50 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
 export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' | 'bridgeInProvider'>): boolean =>
   entry.bridgeProvider === 'usdcx' || entry.bridgeInProvider === 'usdcx';
 
+/** The state of an Epoch deposit in The Compact without an allocation, for a row that is not restored. */
+export const lockedDepositStateOf = (
+  entry: Pick<IHistoryEntry, 'bridgeInLockedDeposit' | 'bridgeInPhase' | 'restoredFromBackup'>
+): EpochLockedDepositState | undefined =>
+  epochLockedDepositState(entry.bridgeInLockedDeposit, entry.bridgeInPhase, entry.restoredFromBackup === true);
+
+/** A bridge row whose badge is `bridgeBadgeStatusOf` and not the plain Pending/Confirmed/Failed status. */
+export const hasOwnBridgeBadge = (entry: IHistoryEntry): boolean =>
+  isUsdcxBridgeEntry(entry) ||
+  entry.bridgeInProvider === 'near-intents' ||
+  entry.bridgeInStoppedBeforeSource === true ||
+  lockedDepositStateOf(entry) !== undefined;
+
 /**
- * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
+ * The badge of a bridge row. An unpaid NEAR Intents deposit past its deadline reads Expired. A USDCx deposit reads Confirmed once Circle attested it and
  * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
  * as a confirmed destination payout: it reads Confirmed once the payout mint is recorded, and Payout delayed when
- * none arrives within 2 hours.
+ * none arrives within 2 hours. An Epoch deposit that is in The Compact without an allocation reads Deposit locked
+ * until a retry or a withdrawal recovers it.
  */
 export function bridgeBadgeStatusOf(entry: IHistoryEntry, now = Date.now()): Status {
+  if (
+    entry.txType === 'bridged-receive' &&
+    (entry.bridgeInProvider === 'agglayer' || entry.bridgeInProvider === 'usdcx') &&
+    entry.bridgeInPhase === 'submitting' &&
+    entry.bridgeInStoppedBeforeSource &&
+    !entry.restoredFromBackup &&
+    entry.status !== ITransactionStatus.Failed
+  )
+    return 'stoppedBeforeSource';
+  switch (lockedDepositStateOf(entry)) {
+    case 'locked':
+      return 'depositLocked';
+    case 'withdrawn':
+      return 'depositWithdrawn';
+    default:
+      break;
+  }
   if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
   if (entry.bridgeInProvider === 'usdcx') {
     const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';
-    return received ? 'completed' : bridgeStatusOf(entry);
+    return received ? 'completed' : bridgeStatusOf(entry, now);
   }
-  if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
+  if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry, now);
   switch (entry.usdcxBurn?.phase) {
     case 'confirmed':
       if (isUsdcxPayoutConfirmed(entry.usdcxBurn)) return 'confirmed';

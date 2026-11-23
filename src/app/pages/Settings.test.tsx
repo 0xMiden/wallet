@@ -27,6 +27,7 @@ const mockWalletState: {
   seedPhraseStatus: 'stored'
 };
 let mockIsMobile = false;
+let mockIsExtension = false;
 let mockHistoryPosition = 1;
 let mockReduceMotion: boolean | null = false;
 let mockPlatformState: PlatformUnlockState = { available: false, hasPassword: false, credential: null };
@@ -97,7 +98,8 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile
+  isMobile: () => mockIsMobile,
+  isExtension: () => mockIsExtension
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -306,6 +308,10 @@ jest.mock('./Networks', () => ({
   __esModule: true,
   default: mockLayoutPage('networks-settings')
 }));
+jest.mock('./RecoverLockedFunds', () => ({
+  __esModule: true,
+  default: mockLayoutPage('recover-locked-funds')
+}));
 
 const mockNavigate = navigate as jest.Mock;
 const mockGoBack = goBack as jest.Mock;
@@ -321,6 +327,7 @@ function setAccount(account: MockAccount) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsMobile = false;
+  mockIsExtension = false;
   mockHistoryPosition = 1;
   mockReduceMotion = false;
   mockShowDevEndpoints.value = false;
@@ -339,6 +346,18 @@ afterEach(() => {
 });
 
 describe('Settings passkey availability', () => {
+  it('keeps the settings entry discoverable on Chromium extensions even if capability detection fails', () => {
+    const target = process.env.TARGET_BROWSER;
+    process.env.TARGET_BROWSER = 'chrome';
+    mockIsExtension = true;
+    try {
+      render(<Settings />);
+      expect(screen.getByRole('button', { name: 'passkeyUnlock' })).toBeVisible();
+    } finally {
+      if (target === undefined) delete process.env.TARGET_BROWSER;
+      else process.env.TARGET_BROWSER = target;
+    }
+  });
   it('offers the passkey settings route for an eligible password wallet', () => {
     mockPlatformState = { available: true, hasPassword: true, credential: null };
     render(<Settings />);
@@ -963,6 +982,13 @@ describe('Settings page — active tab routing', () => {
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('exportAccountFile');
     expect(screen.getByTestId('export-account-file')).toBeInTheDocument();
+  });
+
+  it('renders the hidden recover-funds tab under its own title', () => {
+    render(<Settings tabSlug="recover-funds" />);
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('recoverLockedFunds');
+    expect(screen.getByTestId('recover-locked-funds')).toBeInTheDocument();
   });
 
   it('resolves the hidden dapps slug to the connected-dApps list page', () => {

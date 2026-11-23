@@ -19,6 +19,17 @@ import { tokenValueUsdMicro } from './mainnet-one-click-plan';
 import type { EpochEvmRecoveryEvidence } from './mainnet-epoch-evm';
 import type { MainnetOneClickEvmSenderInput } from './mainnet-one-click-evm';
 
+// 1Click can report the committed Miden output note rather than its creator transaction.
+export function matchesMainnetNearMidenSource(
+  origins: readonly { hash: string }[] | undefined,
+  provedCreator: string,
+  provedOutputNote: string
+): boolean {
+  const origin = origins?.[0]?.hash.toLowerCase();
+  return origins?.length === 1 && !!origin && isHash(provedCreator) && isHash(provedOutputNote) &&
+    (origin === provedCreator.toLowerCase() || origin === provedOutputNote.toLowerCase());
+}
+
 export function inspectMainnetNearForwardReceipt(
   state: MainnetNearCheckpoint,
   expectedHash: Hash,

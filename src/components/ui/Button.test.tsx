@@ -109,6 +109,21 @@ describe('Button', () => {
       expect(screen.getByRole('button')).toHaveClass('bg-accent-primary', 'text-accent-brand-on');
     });
 
+    it('launcher: raised high-contrast fill and reduced-motion-aware hover, with no CTA width cap', () => {
+      render(<Button variant={ButtonVariant.Launcher} title="Open fullscreen" />);
+      const button = screen.getByRole('button', { name: 'Open fullscreen' });
+      expect(button).toHaveClass('h-12', 'w-full', 'bg-launcher-fill', 'text-launcher-ink');
+      expect(button).not.toHaveClass('max-w-92.5');
+      expect(button.className).not.toMatch(/(?:hover|active|focus):bg-/);
+      expect(button).toHaveClass(
+        'bg-linear-to-br',
+        'shadow-md',
+        'motion-safe:hover:-translate-y-0.5',
+        'motion-reduce:transition-none',
+        'focus-visible:ring-2'
+      );
+    });
+
     it('secondary: fill, ink label', () => {
       render(<Button variant={ButtonVariant.Secondary} />);
 

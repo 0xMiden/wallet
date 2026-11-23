@@ -34,6 +34,8 @@ import {
   savePlain,
   STORAGE_ITEM_NOT_FOUND
 } from 'lib/miden/back/safe-storage';
+import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
@@ -2485,7 +2487,21 @@ export class Vault {
     const account = accountId
       ? (await this.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountId))
       : undefined;
-    if (account?.type === WalletType.Guardian) return this.signDataWithHotKey(account, publicKey, data, signKind);
+    if (account?.type === WalletType.Guardian) {
+      // A Guardian account signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. The
+      // dApp request path refuses all other requests before the prompt; this refuses them again at sign time, before
+      // any key is read. A single-key account below is not subject to the rule. Only `signingInputs` needs the SDK.
+      let signable = false;
+      if (signKind === 'signingInputs') {
+        await getWasmOrThrow();
+        signable =
+          (await withWasmClientLock(async () => signableArbitraryElements(signKind, data), {
+            label: 'dapp-sign-rule'
+          })) !== undefined;
+      }
+      if (!signable) throw new PublicError(DAPP_SIGN_RULE);
+      return this.signDataWithHotKey(account, publicKey, data, signKind);
+    }
 
     // Decoded before the key is loaded, so a refused payload never deserializes it.
     const word = signBytesInputs(b64ToU8(data), signKind);

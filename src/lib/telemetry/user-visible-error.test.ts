@@ -30,6 +30,32 @@ describe('user-visible error reports', () => {
     expect(isUserErrorId('earnBalanceLoadError')).toBe(true);
   });
 
+  it('recognizes the localized fullscreen tab creation failure as a closed error id', () => {
+    expect(isUserErrorId('commandFullscreenOpenFailed')).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(en, 'commandFullscreenOpenFailed')).toBe(true);
+  });
+
+  it('reports the fixed bridge review identity without rendered text or arbitrary bridge details', () => {
+    expect(isUserErrorId('bridgeReviewChanged')).toBe(true);
+    expect(en.bridgeReviewChanged).toBe('The bridge terms changed. Check Activity before continuing.');
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'bridgeReviewChanged',
+      'review',
+      {
+        message: 'private rendered refusal',
+        rpcUrl: 'https://wallet.example/private',
+        recipient: '0xprivate',
+        quote: { amount: '123.45', bytes: new Uint8Array([81, 82]) }
+      }
+    ]);
+    const error = jest.mocked(captureCrash).mock.calls[0]?.[0];
+    if (!(error instanceof Error)) throw new Error('Missing bridge review report');
+    expect(error.message).toBe('User-visible error: bridgeReviewChanged; surface review');
+    expect(error.stack).toBeUndefined();
+    expect(error.cause).toBeUndefined();
+    expect(snapshotCrashDiagnostics(error)).toEqual({ userErrorId: 'bridgeReviewChanged', userErrorSurface: 'review' });
+  });
+
   it('reports a known id and surface once as WalletUserVisibleError', () => {
     reportUserVisibleError('usdcxFaucetUnavailable', 'review');
 

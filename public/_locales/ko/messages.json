@@ -895,6 +895,14 @@
     "message": "담보 note에는 검토된 토큰, 검토된 금액 및 구성된 할당기를 사용해야 합니다. 아무것도 전송되지 않았습니다. 돌아가서 다시 시도하십시오.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "브리지 용어가 변경되었습니다. 계속하기 전에 활동 내역을 확인하십시오.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "전송 전에 중단됨",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "총 수익",
     "englishSource": "Total earned"
@@ -2591,6 +2599,14 @@
     "message": "유효기간",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "추정",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "검토된 만료일이 변경되었습니다. 전송하기 전에 다시 한 번 검토하십시오.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "그때까지 수락되지 않으면 $amount$는 보류 중인 이체로 돌아오며, 직접 수락하면 됩니다. 자금이 사라지지 않습니다.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3155,8 +3171,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "복구 문구를 통해 키를 복원할 수 있으며, ‘Guardian’의 백업과 함께 계정도 복원할 수 있습니다. 이 문구를 안전하게 보관하십시오.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "귀하의 문구와 귀하의 ‘Guardian’ 백업으로 계정을 복구할 수 있습니다. 문구를 안전하게 보관하십시오.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "자금은 여전히 귀하의 소유입니다",
@@ -3175,8 +3191,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Guardians에 대한 추가 정보",
-    "englishSource": "More about Guardians"
+    "message": "Guardian에 대해 더 알아보기",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "$name$로 계속 진행하세요",
@@ -3374,6 +3390,245 @@
   "openWallet": {
     "message": "지갑 열기",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "지갑",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "지갑 작업 검색",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "지갑 관련 작업",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "거래",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "브리지",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "방향",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "브리지 아웃",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Miden 네트워크",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "네트워크 변경",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "제공자",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "에포크",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "출처:",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "To",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "자산, 네트워크 및 제공자",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$에서 $destination$로 · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "외부 계정",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Miden 계정",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "예상 수령액",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "원본 총 금액",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "제공자 수수료",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "소스 네트워크 전환",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch는 설치된 제공업체를 통해 고정된 출처 금액을 제시할 수 없습니다. 연결할 다른 제공업체를 선택하십시오.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "현재 지갑 네트워크에는 사용 가능한 브리지 경로가 없습니다.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "계속 진행하기 전에 수취 잔액 한도가 충분해야 하며, 이 입금을 허용해야 합니다.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "이 전송 내역은 ‘활동 내역(Activity)’에 기록됩니다. 지갑 승인 또는 정산이 아직 진행 중일 수 있습니다. 다시 시작하지 마십시오.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "이체 상태 확인",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "세부 사항",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "전체 화면으로 열기",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "새 탭에서 지갑을 엽니다.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "전체 화면으로 열 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "포트폴리오",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "할당",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "가격이 책정된 지갑 자산",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "지갑이 비어 있습니다.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "표시할 가격 책정된 자산이 없습니다.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "최근 활동",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "표시할 최근 작업이 없습니다",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "지갑 잔액",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "현재 가격 기준 보유 자산의 24시간 시세 변동: $change$ USD ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "잔액 숨기기",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "잔액 표시",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "숨김",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "잔액 조회 불가",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "가격 미제공",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "부분 평가 - 일부 자산은 검증된 USD 가격이 없습니다",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "관찰된 지갑 내역",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "내역 범위",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "아직 충분한 관찰 결과가 없습니다",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "일부 간격이나 평가 범위가 누락되어 있습니다.",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandHistoryObservationsOnly": {
+    "message": "기록된 관찰 사항만",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "새로운 'Earn' 예치 기능이 일시 중단되었습니다. 기존 포지션은 여전히 조회 및 인출이 가능합니다.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
+  "commandInspectHistory": {
+    "message": "관찰된 내역 확인",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "이 장치에 대한 관찰 사항만 해당됩니다. 빈칸은 채워지지 않습니다.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "시작하기",
@@ -3971,6 +4226,14 @@
   "connectivityGuardianCta": {
     "message": "Guardian 전환",
     "englishSource": "Switch Guardian"
+  },
+  "storageStalledTitle": {
+    "message": "브라우저 저장소가 응답하지 않습니다",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "지갑 데이터가 손실된 것은 아니지만, 브라우저가 해당 데이터에 대한 요청에 응답하지 않는 상태입니다. 브라우저를 완전히 종료했다가 다시 실행하여 복구하십시오.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
   },
   "revealHotKey": {
     "message": "일일 키 공개",
@@ -4713,6 +4976,19 @@
   "signBlindCommitment": {
     "message": "‘블라인드’ 서약에 서명하시겠습니까?",
     "englishSource": "Sign the Blind commitment?"
+  },
+  "signMessageTitle": {
+    "message": "메시지 서명 요청",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "이 사이트는 $count$개의 필드 요소로 구성된 메시지에 서명하도록 요청했습니다. 지갑에서는 이 메시지의 의미를 확인할 수 없습니다. 이 사이트를 전적으로 신뢰하는 경우에만 계속 진행하십시오.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "connectToWebsite": {
     "message": "웹사이트에 접속하기",
@@ -5625,6 +5901,10 @@
     "message": "토큰 정보",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "구성",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "설명",
     "englishSource": "Description"
@@ -5907,6 +6187,10 @@
     "message": "회수된",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "만료됨",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet 요청",
     "englishSource": "Faucet Request"
@@ -5918,6 +6202,10 @@
   "receiveShareCaption": {
     "message": "주소 보내기",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "이 주소를 복사할 수 없습니다. 아래에서 선택하여 수동으로 복사하십시오.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "다른 네트워크에서",
@@ -6461,16 +6749,21 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "비공개 서명 요청",
-    "englishSource": "Opaque signature request"
+    "message": "Bread에서는 이 내용을 미리 볼 수 없습니다.",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureNotATransaction": {
     "message": "이 서명만으로는 귀하의 계좌에서 거래를 승인할 수 없습니다.",
     "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
-    "message": "이 사이트에서 원시 값에 서명할 것을 요청했습니다. 지갑에서는 승인 내역을 확인할 수 없습니다. 이 사이트를 전적으로 신뢰하는 경우에만 계속 진행하십시오.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$에서 원시 값에 서명하도록 요청했습니다. Bread는 승인 내용을 표시할 수 없으므로, 이 사이트를 전적으로 신뢰하는 경우에만 진행하십시오.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",
@@ -7442,6 +7735,10 @@
     "message": "받는 주소",
     "englishSource": "Receive at"
   },
+  "receiveNoPendingTransfers": {
+    "message": "검토할 입금 내역 없음",
+    "englishSource": "No incoming transfers to review"
+  },
   "earnTitle": {
     "message": "내 수익",
     "englishSource": "Your Earnings"
@@ -7798,6 +8095,10 @@
   "bridgeConnectWalletAction": {
     "message": "지갑 연결",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "지갑 선택기가 열리지 않았습니다. 다시 시도해 주세요.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "귀하의 지갑",
@@ -8432,6 +8733,343 @@
     "message": "Arc",
     "englishSource": "Arc"
   },
+  "receiveMethod": {
+    "message": "수신 방법",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "Near 인텐트",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "귀하는 다음을 전송합니다",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "귀하는",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "$chain$에서",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "보낼 토큰($symbol$)을 선택하세요",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "수령할 토큰을 선택하세요 ($symbol$)",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "환불 주소",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "귀하의 $chain$ 주소",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "이체가 실패할 경우, 귀하의 $symbol$는 이 주소로 반환됩니다.",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "유효한 $chain$ 주소를 입력하십시오.",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "$minutes$분 정도",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "입금 주소 받기",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "본인의 지갑에서 송금하십시오.",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "입금 주소 없음",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "지갑에서 입금 주소를 가져올 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Near Intents는 사용할 수 없습니다.",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "지갑에서 전송할 수 있는 토큰을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "전송할 토큰",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "보낼 토큰 찾기",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "네트워크별로 필터링",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "검색 조건에 맞는 토큰이 없습니다.",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "Miden에서 수신합니다",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "$symbol$에서 $chain$로 이용 가능",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "입금",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "다음에서 직접 결제하세요",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "$wallet$로 결제하기",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "지갑을 열 수 없습니다. 입금할 주소와 금액을 복사하십시오.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "팬텀",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "정확히 전송하십시오",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "복사 금액",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "입금 주소",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "입금 주소 복사",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "메모",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "메모 복사",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "입금 시 이 메모를 반드시 동봉하십시오. 메모가 없는 입금은 분실될 수 있습니다.",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ Miden의 $amount$ $symbol$",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "보내기 전",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · $countdown$ 남음",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "환불 대상:",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "'수신'으로 돌아가 새로운 입금 주소를 확인하십시오.",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "$chain$에서만 $symbol$을 전송하십시오. 이 페이지를 닫으셔도 됩니다. 전송 내역은 ‘활동 내역’에 표시됩니다.",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "입금 대기 중",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "입금액은 금액보다 적습니다",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "입금 처리",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "Miden을 통해 제공됨",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "입금이 확인되었습니다. Miden으로의 이체가 진행 중입니다. 이 페이지를 닫으셔도 됩니다.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "귀하의 $symbol$가 Miden에 있습니다. 다음 동기화 후 해당 note가 귀하의 지갑에 도착합니다. ‘활동(Activity)’에서 수령하십시오.",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "$symbol$는 귀하의 지갑에 있습니다.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "수신됨",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "환불됨",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "이체 실패",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "이 주소는 만료되었습니다. 자금을 송금하지 마십시오.",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "입금 주소 표시",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "목적지 거래",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "이 금액에 대한 유동성이 부족합니다. 다른 금액을 시도해 보세요.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
+  },
   "availableAmount": {
     "message": "사용 가능: $amount$ $symbol$",
     "englishSource": "Available: $amount$ $symbol$",
@@ -8843,5 +9481,404 @@
   "epochReturnUnavailable": {
     "message": "자금 상태를 확인할 수 없습니다. 다시 시도해 주십시오.",
     "englishSource": "Unable to check the funds status. Try again."
+  },
+  "epochDepositLocked": {
+    "message": "예치금 잠금",
+    "englishSource": "Deposit locked"
+  },
+  "epochDepositWithdrawn": {
+    "message": "입금 인출",
+    "englishSource": "Deposit withdrawn"
+  },
+  "epochDepositLockedTitle": {
+    "message": "귀하의 예금은 안전합니다",
+    "englishSource": "Your deposit is safe"
+  },
+  "epochDepositLockedBody": {
+    "message": "$amount$ 예치금은 $network$의 The Compact에 있지만, Epoch가 브리지를 시작하지 않았습니다. 브리지를 다시 시도하거나, 예치금을 $address$로 인출하십시오.",
+    "englishSource": "Your $amount$ deposit is in The Compact on $network$, but Epoch did not start the bridge. Retry the bridge, or withdraw the deposit back to $address$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      },
+      "address": {
+        "content": "$3"
+      }
+    }
+  },
+  "epochDepositConnectSponsor": {
+    "message": "이 예치금을 복구하려면 EVM 지갑 $address$을 연결하십시오.",
+    "englishSource": "Connect the EVM wallet $address$ to recover this deposit.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWrongWallet": {
+    "message": "연결된 지갑에서 이 입금이 이루어진 것이 아닙니다. 자금을 복구하려면 $address$를 연결하세요.",
+    "englishSource": "The connected wallet did not make this deposit. Connect $address$ to recover it.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositRetry": {
+    "message": "브리지 재시도",
+    "englishSource": "Retry bridge"
+  },
+  "epochDepositRetrying": {
+    "message": "다시 시도 중…",
+    "englishSource": "Retrying…"
+  },
+  "epochDepositWithdraw": {
+    "message": "인출 및 입금",
+    "englishSource": "Withdraw deposit"
+  },
+  "epochDepositWithdrawing": {
+    "message": "인출…",
+    "englishSource": "Withdrawing…"
+  },
+  "epochDepositWithdrawStarted": {
+    "message": "$time$에 출금이 가능합니다.",
+    "englishSource": "Withdrawal available in $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWithdrawStartedUnknown": {
+    "message": "인출 요청이 접수되었습니다. 요청 후 약 1시간 후에 인출이 가능해집니다.",
+    "englishSource": "Withdrawal requested. It becomes available about one hour after the request."
+  },
+  "epochDepositWithdrawReady": {
+    "message": "인출이 가능합니다.",
+    "englishSource": "The withdrawal is available."
+  },
+  "epochDepositWithdrawnBody": {
+    "message": "입금액은 $address$로 반환되었습니다.",
+    "englishSource": "The deposit went back to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotRecoverable": {
+    "message": "이 예치금은 해당 지갑에서 복구할 수 없습니다.",
+    "englishSource": "This deposit cannot be recovered from this wallet."
+  },
+  "epochDepositErrorWrongChain": {
+    "message": "EVM 지갑을 $network$로 전환한 후 다시 시도해 보세요.",
+    "englishSource": "Switch your EVM wallet to $network$ and try again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotStarted": {
+    "message": "먼저 인출을 시작하십시오.",
+    "englishSource": "Start the withdrawal first."
+  },
+  "epochDepositErrorNotDue": {
+    "message": "인출 기능은 아직 이용하실 수 없습니다.",
+    "englishSource": "The withdrawal is not available yet."
+  },
+  "epochDepositErrorMissing": {
+    "message": "이 계약서는 더 이상 해당 예금을 보유하지 않습니다.",
+    "englishSource": "The Compact no longer holds this deposit."
+  },
+  "epochDepositErrorLockMismatch": {
+    "message": "Epoch는 이 예치금에 대해 다른 잠금 코드를 반환했습니다. 대신 예치금을 인출하십시오.",
+    "englishSource": "Epoch returned a different lock for this deposit. Withdraw the deposit instead."
+  },
+  "recoverLockedFunds": {
+    "message": "잠긴 브리지 자금 복구",
+    "englishSource": "Recover locked bridge funds"
+  },
+  "recoverFundsOpenLock": {
+    "message": "설정에서 이 잠금 기능을 관리하세요",
+    "englishSource": "Manage this lock in Settings"
+  },
+  "recoverFundsDescription": {
+    "message": "Fast 브리지-인(bridge-in)은 Epoch가 브리지를 시작하지 않을 경우, The Compact에 예치금을 남겨둘 수 있습니다. 이 페이지는 이 지갑에서 브리지-인된 각 EVM 지갑과 연결된 지갑에 대해 The Compact를 확인합니다.",
+    "englishSource": "A Fast bridge-in can leave its deposit in The Compact when Epoch does not start the bridge. This page checks The Compact for each EVM wallet that bridged in from this wallet, and for the connected wallet."
+  },
+  "recoverFundsConnectedWallet": {
+    "message": "연동된 지갑",
+    "englishSource": "Connected wallet"
+  },
+  "recoverFundsNothingLocked": {
+    "message": "이 지갑에서는 어떤 것도 잠겨 있지 않습니다.",
+    "englishSource": "Nothing is locked for this wallet."
+  },
+  "recoverFundsCouldNotCheck": {
+    "message": "$network$에서 $tokens$을(를) 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "Could not check $tokens$ on $network$. Try again later.",
+    "placeholders": {
+      "tokens": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "recoverFundsConnectAnother": {
+    "message": "다른 지갑 연결하기",
+    "englishSource": "Connect another wallet"
+  },
+  "recoverFundsNoAddressesTitle": {
+    "message": "확인할 지갑 없음",
+    "englishSource": "No wallets to check"
+  },
+  "recoverFundsNoAddressesBody": {
+    "message": "입금을 수행한 EVM 지갑을 연결하여 잠긴 자금이 있는지 확인하십시오.",
+    "englishSource": "Connect the EVM wallet that made the deposit to check it for locked funds."
+  },
+  "recoverFundsLockTitle": {
+    "message": "잠긴 자금",
+    "englishSource": "Locked funds"
+  },
+  "recoverFundsLockInvalidTitle": {
+    "message": "이 링크는 유효하지 않습니다.",
+    "englishSource": "This link is not valid"
+  },
+  "recoverFundsLockInvalidBody": {
+    "message": "'잠긴 브리지 자금 복구'에서 잠금을 다시 해제하십시오.",
+    "englishSource": "Open the lock again from Recover locked bridge funds."
+  },
+  "recoverFundsLockEmpty": {
+    "message": "여기서는 어떤 것도 잠겨 있지 않습니다",
+    "englishSource": "Nothing is locked here"
+  },
+  "recoverFundsChecking": {
+    "message": "확인 중…",
+    "englishSource": "Checking…"
+  },
+  "recoverFundsCouldNotCheckShort": {
+    "message": "확인할 수 없음",
+    "englishSource": "Could not check"
+  },
+  "recoverFundsWallet": {
+    "message": "지갑",
+    "englishSource": "Wallet"
+  },
+  "recoverFundsLocked": {
+    "message": "잠김",
+    "englishSource": "Locked"
+  },
+  "recoverFundsWithdrawal": {
+    "message": "인출",
+    "englishSource": "Withdrawal"
+  },
+  "recoverFundsWithdrawOff": {
+    "message": "요청되지 않음",
+    "englishSource": "Not requested"
+  },
+  "recoverFundsCancelWithdrawal": {
+    "message": "출금 비활성화",
+    "englishSource": "Disable withdrawal"
+  },
+  "recoverFundsCancelling": {
+    "message": "비활성화…",
+    "englishSource": "Disabling…"
+  },
+  "recoverFundsWithdrawBlocksBridge": {
+    "message": "강제 인출은 $address$에서 $token$의 새로운 Fast 브리지 인을 차단합니다. 자금을 회수한 후에는 브리지 인출을 다시 비활성화하십시오.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Fast Bridge 접속 확인",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "이 토큰과 지갑의 인출 상태를 확인 중입니다.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "인출 상태를 확인할 수 없습니다. Fast 브릿지를 사용하기 전에 다시 시도해 주십시오.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "$network$에서 $token$에 대한 강제 인출이 활성화되었습니다. 자금을 회수한 후에는 브릿지 인출 기능을 다시 비활성화하십시오.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "출금 비활성화",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "비활성화…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "이렇게 하면 해당 잠금에 대한 강제 인출이 해제됩니다. 이미 복구된 자금은 지갑에 그대로 남아 있습니다. 새로운 복구 요청을 하면 새로운 대기 기간이 시작됩니다. 이 거래에는 네트워크 수수료가 필요합니다.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "연결된 EVM 지갑을 열고 $network$에서 거래를 승인하십시오. 여기서 확인이 완료될 때까지 기다리십시오.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "대신 'Circle'을 사용하십시오.",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "대신 '슬로우 브리지(Slow bridge)'를 사용하십시오.",
+    "englishSource": "Use Slow bridge instead"
+  },
+  "connectFactsTitle": {
+    "message": "이 사이트는 다음과 같은 기능을 제공할 예정입니다.",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "잔액 및 내역 확인하기",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "묻지 않고 개인 데이터 읽기",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "$scopes$에 대한 접근 권한이 부여됩니다.",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "개인 정보를 열람하기 전에 반드시 확인하십시오",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "거래 요청을 보내드립니다",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "각 항목을 승인합니다",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "절대 자금을 단독으로 이동시키지 마십시오",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "자금은 귀하가 승인할 때만 출금됩니다.",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "요청 내용이 여전히 남아 있으므로 다시 시도할 수 있습니다.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "연결할 수 없음",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "다른 네트워크",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "요청자:",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "토큰 faucet",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "블록 회상",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "수신",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "faucet의 Note",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "당신",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "결제",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "받는 금액",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "계정에서 나갑니다",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "귀하의 계좌에 입금됩니다",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "사용자 지정 거래",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "거래 요약",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "요청 내용이 여전히 남아 있으므로 다시 시도해 보실 수 있습니다.",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "확인할 수 없음",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "미확인",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureTitle": {
+    "message": "이것은 단순히 로그인하는 것일 뿐입니다",
+    "englishSource": "This only signs you in"
   }
 }

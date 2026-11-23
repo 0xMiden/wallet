@@ -5,6 +5,7 @@ import {
   selectMainnetNearNativeAsset,
   type MainnetNearPlanningFacts
 } from '../playwright/e2e/helpers/mainnet-near-plan';
+import { usesMainnetNearSignedEconomics } from '../playwright/e2e/helpers/mainnet-near-plan';
 import { nativeNearFixture } from './helpers/mainnet-near-fixture';
 import type { MainnetEvmHolding } from '../playwright/e2e/helpers/mainnet-one-click-evm';
 jest.mock('@miden-sdk/miden-sdk', () => ({
@@ -16,6 +17,8 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
   }
 }));
 const native = '0xe69e6ca6e39df1b10c1e5399399feb';
+const DIRECT_PROVIDER = 'https://1click.chaindefuser.com';
+const UNSIGNED_PROVIDER = 'https://one-click.example';
 const asset: OneClickAsset = {
   assetId: `nep141:miden-${native}.omft.near`,
   blockchain: 'miden',
@@ -74,10 +77,9 @@ function planningFixture() {
     lossBudgetUsdMicros: 1999095n,
     nativeAsset: asset,
     config: {
-      serviceUrl: saved.serviceUrl,
-      appFees: saved.appFees,
-      feePolicy: saved.feePolicy,
-      midenAssets: [{ assetId: asset.assetId, faucetId: native, symbol: 'USDCX', decimals: 6 }]
+      serviceUrl: UNSIGNED_PROVIDER,
+      chains: [],
+      midenAssets: [{ id: 'usdcx', assetId: asset.assetId, faucetId: native, decimals: 6 }]
     },
     candidates: [{ holding, tokenUsdMicros: 1000000n, gasUsdMicros: 2000000000n }]
   };
@@ -139,6 +141,53 @@ it('builds a bounded native checkpoint from real quote-boundary results without 
     paidEvmFees: '0'
   });
   expect(state.forwardQuote).toBeUndefined();
+  expect(state.sendAuthority).toBeUndefined();
+});
+it.each([
+  [DIRECT_PROVIDER, true],
+  [`${DIRECT_PROVIDER}/`, true],
+  [UNSIGNED_PROVIDER, false],
+  ['https://1click.chaindefuser.com.evil.example', false],
+  ['https://proxy.example/1click.chaindefuser.com', false]
+])('selects signed economics only for the direct provider URL: %s', (serviceUrl, signed) => {
+  expect(usesMainnetNearSignedEconomics({ serviceUrl })).toBe(signed);
+});
+it('writes no app fees or fee policy into a new checkpoint', async () => {
+  const f = planningFixture();
+  const state = await prepareMainnetNearRoundTrip(f.facts, f.quote);
+  expect(state.appFees).toEqual([]);
+  expect(state).not.toHaveProperty('feePolicy');
+});
+it('rejects dry fee terms when direct nightly planning requires signed execution terms', async () => {
+  const f = planningFixture();
+  f.facts.config.serviceUrl = DIRECT_PROVIDER;
+  await expect(prepareMainnetNearRoundTrip(f.facts, f.quote)).rejects.toThrow(/signed execution terms/);
+});
+it('rejects direct execution terms that would refund no principal', async () => {
+  const f = planningFixture();
+  f.facts.config.serviceUrl = DIRECT_PROVIDER;
+  await expect(
+    prepareMainnetNearRoundTrip(f.facts, async request => {
+      const response = await f.quote(request);
+      if (response) {
+        response.quoteRequest.dry = false;
+        response.quote.refundFee = response.quote.amountIn;
+      }
+      return response;
+    })
+  ).rejects.toThrow(/bounded refund fee/);
+});
+it('accepts bounded signed execution terms and records no fee fields', async () => {
+  const f = planningFixture();
+  f.facts.config.serviceUrl = DIRECT_PROVIDER;
+  const state = await prepareMainnetNearRoundTrip(f.facts, async request => {
+    const response = await f.quote(request);
+    if (response) response.quoteRequest.dry = false;
+    return response;
+  });
+  expect(state.appFees).toEqual([]);
+  expect(state.feePolicy).toBeUndefined();
+  expect(state.serviceUrl).toBe(DIRECT_PROVIDER);
   expect(state.sendAuthority).toBeUndefined();
 });
 it('refuses a requested route whose conservative quote/fee pair exceeds the actual remaining shared allowance', async () => {

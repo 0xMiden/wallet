@@ -104,6 +104,7 @@ const makeProps = (overrides: Partial<Props> = {}): Props => ({
   onRecallBlocksChange: jest.fn(),
   onRecallDateChange: jest.fn(),
   onRecallTimeChange: jest.fn(),
+  onCalendarTargetChange: jest.fn(),
   onRecallNever: jest.fn(),
   ...overrides
 });
@@ -253,6 +254,16 @@ describe('RecallCalendarDrawer', () => {
     expect(screen.getByTestId('calendar-month').textContent).toBe(new Date(2030, 5, 1).toISOString());
   });
 
+  it('reports an authored target on a calendar edit, not a drawer open or dismissal', async () => {
+    const props = makeProps();
+    await renderDrawer(props);
+    expect(props.onCalendarTargetChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('drawer-onOpenChange-false'));
+    expect(props.onCalendarTargetChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('calendar-select-date'));
+    expect(props.onCalendarTargetChange).toHaveBeenCalledWith(new Date('2030-06-15T09:00:00'), '14:30');
+  });
+
   it('picking a calendar date also syncs recallBlocks so date and blocks never orphan', async () => {
     // Regression: onSelect previously set only recallDate; dismissing without
     // Confirm then left recallBlocks stale (e.g. undefined after "Never"), so the
@@ -296,6 +307,40 @@ describe('RecallCalendarDrawer', () => {
     await renderDrawer(makeProps({ recallDate }));
 
     expect(screen.getByRole('button', { name: 'confirm' })).toHaveAttribute('data-accent', 'send');
+  });
+
+  it('keeps a Command relative choice untouched when its calendar opens and Confirms without an edit', async () => {
+    const props = makeProps({
+      recallDate: new Date('2030-06-15T14:30:00'),
+      recallTime: '14:30',
+      skipUnchangedConfirm: true
+    });
+    await renderDrawer(props);
+    fireEvent.click(screen.getByTestId('calendar-select-date'));
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
+    expect(props.onRecallDateChange).not.toHaveBeenCalled();
+    expect(props.onRecallTimeChange).not.toHaveBeenCalled();
+    expect(props.onRecallBlocksChange).not.toHaveBeenCalled();
+    expect(props.onCalendarTargetChange).not.toHaveBeenCalled();
+  });
+
+  it('marks an explicit week preset as authored even when it matches the current default minute', async () => {
+    jest.useFakeTimers({ now: new Date(2030, 0, 1, 12) });
+    try {
+      const props = makeProps({
+        recallDate: new Date(2030, 0, 8, 12),
+        recallTime: '12:00',
+        skipUnchangedConfirm: true
+      });
+      const { unmount } = await renderDrawer(props);
+      fireEvent.click(screen.getByRole('button', { name: 'inAWeek' }));
+      expect(props.onCalendarTargetChange).toHaveBeenCalledWith(new Date(2030, 0, 8, 12), '12:00');
+      expect(props.onRecallBlocksChange).toHaveBeenCalledTimes(1);
+      unmount();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('confirm applies the selection, computes relative blocks, and closes the drawer', async () => {

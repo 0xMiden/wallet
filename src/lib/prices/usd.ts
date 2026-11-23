@@ -17,7 +17,7 @@ export const USD_SCALE = 1_000_000n;
  */
 export const PRICE_MAX_AGE_SECONDS = 600;
 
-const PRICE_CACHE_STORAGE_KEY = 'usd_price_cache';
+export const PRICE_CACHE_STORAGE_KEY = 'usd_price_cache';
 const CANONICAL_PRICE = /^(0|[1-9]\d*)$/;
 
 interface CachedUsdPrice {
@@ -64,6 +64,8 @@ const mergeIntoCache = (
 const mergePrices = async (prices: TokenPrices, now: number, requested: readonly string[]): Promise<UsdPriceCache> => {
   const cache = await readCache();
   for (const [symbol, info] of Object.entries(prices)) {
+    // Only an exchange quote may value a spend: a basket's value or a nominal rate is for display.
+    if (info.kind !== 'market') continue;
     if (!requested.includes(symbol) && !isCoveredSymbol(symbol)) continue;
     const priceMicro = toPriceMicro(info.price);
     if (priceMicro === undefined) continue;

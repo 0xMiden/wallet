@@ -116,6 +116,7 @@ export interface OffscreenSendDto {
   delegateTransaction?: boolean;
   extraInputs: {
     recallBlocks?: number;
+    calendarRecallTarget?: string;
     oneClick?: {
       fundingDeadline?: string;
       request: { deadline: string };
@@ -170,6 +171,8 @@ export const OFFSCREEN_PROVE_MARKER = 'OFFSCREEN_PROVE_MARKER' as const;
  * the per-op deadline the SW enforces; `null` means "no deadline". `endpoints`
  * is the SW's endpoint state when the call is sent: this realm has no extension
  * storage, so it runs every call on the network the call names (#1482).
+ * `submitGated` says the SW registered a submit gate for the op, which a
+ * single-key write then asks for its 'submitting' stamp (#1081).
  */
 export interface OffscreenCallRequest {
   target: typeof OFFSCREEN_TARGET;
@@ -179,6 +182,7 @@ export interface OffscreenCallRequest {
   argsB64: string[];
   deadline_ms: number | null;
   endpoints: EndpointState;
+  submitGated?: true;
 }
 
 /**
@@ -204,8 +208,8 @@ export interface OffscreenCallRequest {
  * rebuilt error names the mechanism that actually fired rather than guessing.
  * `errorLanded` carries what an `ApplyAfterSubmitError` could read about the executed
  * transaction, its id, private output note count and the swap order it opened (the
- * order id as decimal text), so a landed row the service worker completes still
- * records them (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
+ * order id as decimal text), and whether its local apply completed, so a landed row
+ * the service worker completes still records them (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
  * before its submit call (#1081).
  */
 export type OffscreenCallResponse =

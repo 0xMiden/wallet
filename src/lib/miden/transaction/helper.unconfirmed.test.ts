@@ -183,6 +183,67 @@ describe('a verified landing of a swap opens the order its landed failure decide
     expect(row.outputNoteIds).toBeUndefined();
   });
 
+  // The order is fixed when the request is built, so the one its saved request recorded stands in for a landing that
+  // read none, with no decode.
+  const RECORDED = { orderId: '42', noteId: ORDER_NOTE };
+
+  it('a landing whose facts name no order opens the one its saved request recorded', () => {
+    const row = failedSwap({ expirySeconds: 60, requestOrder: RECORDED }, { completedAt: 500 });
+
+    applyVerifiedLanding(row, {}, {});
+
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs).toMatchObject({ orderId: 42n, expiresAt: 560 });
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE]);
+  });
+
+  it('a recorded order keeps the output notes a row already records', () => {
+    const recordedNotes = [`0x${'cd'.repeat(32)}`];
+    const row = failedSwap({ requestOrder: RECORDED }, { outputNoteIds: recordedNotes });
+
+    applyVerifiedLanding(row);
+
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.outputNoteIds).toEqual(recordedNotes);
+  });
+
+  it('a read that is not well formed opens the recorded order, never a mix of the two', () => {
+    const row = failedSwap({ requestOrder: RECORDED });
+
+    applyVerifiedLanding(row, {}, { orderId: '0x2a', orderNoteId: `0x${'08'.repeat(32)}` });
+
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.outputNoteIds).toEqual([ORDER_NOTE]);
+  });
+
+  it('the held order and the landing`s own read outrank the recorded one, each as a pair', () => {
+    const held = failedSwap({ requestOrder: RECORDED, landedOrder: { orderId: '7', expiresAt: 99 } });
+    applyVerifiedLanding(held);
+    expect(held.extraInputs).toMatchObject({ orderId: 7n, expiresAt: 99 });
+    expect(held.outputNoteIds).toBeUndefined();
+
+    const readNote = `0x${'08'.repeat(32)}`;
+    const read = failedSwap({ requestOrder: RECORDED });
+    applyVerifiedLanding(read, {}, { orderId: '8', orderNoteId: readNote });
+    expect(read.extraInputs.orderId).toBe(8n);
+    expect(read.outputNoteIds).toEqual([readNote]);
+  });
+
+  it.each<[string, unknown]>([
+    ['a hex order id', { orderId: '0x2a', noteId: ORDER_NOTE }],
+    ['a note id that is not note-id shaped', { orderId: '42', noteId: 'bad' }],
+    ['no note id', { orderId: '42' }],
+    ['no object', '42']
+  ])('a recorded order with %s opens none', (_label, requestOrder) => {
+    const row = failedSwap({ requestOrder });
+
+    applyVerifiedLanding(row);
+
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.expiresAt).toBeUndefined();
+    expect(row.outputNoteIds).toBeUndefined();
+  });
+
   it.each<[string, Partial<ITransaction>]>([
     ['send', { type: 'send', extraInputs: { recallBlocks: 10, landedOrder: { orderId: '42', expiresAt: 1100 } } }],
     ['bridged-send', { type: 'bridged-send', extraInputs: { provider: 'agglayer' } }]

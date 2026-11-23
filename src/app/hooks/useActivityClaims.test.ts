@@ -2,7 +2,9 @@ import React from 'react';
 
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 
+import { Receive } from 'app/pages/Receive';
 import { PendingActivityCard } from 'app/templates/history/PendingActivityCard';
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { ISubmitEvidence } from 'lib/miden/db/types';
 import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
@@ -11,9 +13,11 @@ import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes'
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
 import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
+import { isExtension } from 'lib/platform';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { annotatePendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
 
@@ -55,7 +59,6 @@ const mockSubscriptions: Array<{
   observer: { next: (rows: MockRow[]) => void; error: (error: unknown) => void };
   unsubscribe: jest.Mock;
 }> = [];
-const mockFlags = { extension: false };
 const mockEndpoint = { rpc: 'rpc', network: 'testnet' };
 let mockFeeCopy = 'worker-fee-copy';
 jest.mock('lib/i18n', () => ({
@@ -87,6 +90,27 @@ jest.mock('lib/remote-config/token-labels', () => ({
   midenTokenLabel: (_snapshot: unknown, _faucetId: string, symbol: string) => symbol
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/usdcx/use-bridge-in-availability', () => ({
+  useBridgeInAvailability: () => ({ state: 'available' }),
+  isBridgeInOfferedOnNetwork: () => false
+}));
+jest.mock('app/hooks/useActivityHiddenNotes', () => ({
+  useActivityHiddenNotes: () => ({ ids: new Set(), loaded: true, hide: jest.fn(), restore: jest.fn() })
+}));
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => jest.fn() }));
+// The asset picker is not involved in claiming a note; Receive.test.tsx exercises its real drawer.
+jest.mock('lib/ui/drawer', () => ({
+  Drawer: () => null,
+  DrawerContent: () => null,
+  DrawerHeader: () => null,
+  DrawerTitle: () => null
+}));
+jest.mock('app/pages/Receive/AddressTab', () => ({
+  AddressTab: ({ address }: { address: string }) =>
+    React.createElement('div', { 'data-testid': 'real-receive-address' }, address),
+  ReceiveBridgeTile: () => null
+}));
+jest.mock('lib/woozie', () => ({ useLocation: () => ({ pathname: '/receive' }), navigate: jest.fn() }));
 const mockClaim = {
   account: { publicKey: 'account' },
   safeClaimableNotes: [note],
@@ -172,6 +196,7 @@ jest.mock('lib/miden/db/types', () => ({
 const mockBalances: { data: TokenBalanceData[]; isLoading: boolean } = { data: [], isLoading: false };
 let mockBaseFee: number | null = null;
 jest.mock('lib/miden/front', () => ({
+  useAccount: () => mockClaim.account,
   useMidenContext: () => ({ signTransaction: jest.fn() }),
   useAllTokensBaseMetadata: () => ({}),
   useAllBalances: () => mockBalances
@@ -183,12 +208,20 @@ jest.mock('lib/miden/fees/spendable', () => {
   return { ...actual, claimFeeShortfalls: jest.fn(actual.claimFeeShortfalls) };
 });
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
-jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
-// This registry has only the native ETH faucet. The SDK mock returns each ID unchanged.
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () => ({}),
-  initBridgeConfig: async () => ({})
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: jest.fn(() => false)
 }));
+// This registry has only the native ETH faucet. The SDK mock returns each ID unchanged.
+jest.mock('lib/remote-config/runtime', () => {
+  // useSyncExternalStore needs a stable snapshot, so one object serves every read.
+  const snapshot = {};
+  return {
+    getBridgeConfigSnapshot: () => snapshot,
+    initBridgeConfig: async () => ({}),
+    subscribeBridgeConfig: () => () => undefined
+  };
+});
 jest.mock('lib/remote-config/values', () => ({
   selectAgglayerDeliveryFaucets: () => [
     jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
@@ -248,7 +281,7 @@ beforeEach(() => {
   mockBridgeRows.length = 0;
   mockSubscriptions.length = 0;
   mockReported.length = 0;
-  mockFlags.extension = false;
+  jest.mocked(isExtension).mockReturnValue(false);
   __resetActivityClaimsForTest();
   mockEndpoint.rpc = 'rpc';
   mockEndpoint.network = 'testnet';
@@ -263,6 +296,85 @@ beforeEach(() => {
   mockClaim.retriableTxIds = new Map();
   mockQueue.mockResolvedValue('tx-one');
   mockQueueMany.mockResolvedValue('tx-batch');
+});
+
+function RealCommandReceive() {
+  return React.createElement(CommandDraftProvider, {
+    scope: { accountId: 'scope', network: mockEndpoint.network, rpcUrl: mockEndpoint.rpc },
+    children: React.createElement(FlowPresentationProvider, {
+      value: 'command',
+      children: React.createElement(Receive)
+    })
+  });
+}
+
+it('reviews a live incoming note before queuing exactly that note through the native claim controller', async () => {
+  const view = render(React.createElement(RealCommandReceive));
+  expect(view.getByTestId('real-receive-address')).toHaveTextContent('account');
+  expect(mockQueue).not.toHaveBeenCalled();
+  fireEvent.click(view.getByTestId('receive-note-note-one'));
+  expect(mockQueue).not.toHaveBeenCalled();
+  fireEvent.click(view.getByRole('button', { name: 'activityAcceptTransfer' }));
+  await act(async () => {});
+  expect(mockQueue).toHaveBeenCalledTimes(1);
+  expect(mockQueue).toHaveBeenCalledWith('account', note, ...ACCEPTS);
+});
+
+it('does not accept a cached incoming note through its review', async () => {
+  mockClaim.safeClaimableNotes = [{ ...note, fromCache: true }];
+  const view = render(React.createElement(RealCommandReceive));
+  fireEvent.click(view.getByTestId('receive-note-note-one'));
+  expect(view.getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+  expect(mockQueue).not.toHaveBeenCalled();
+});
+
+it('reviews an unverified note and permits only a fresh live note through native revalidation', async () => {
+  mockClaim.safeClaimableNotes = [{ ...note, fromCache: true }];
+  const view = render(React.createElement(RealCommandReceive));
+  fireEvent.click(view.getByTestId('receive-note-note-one'));
+  expect(view.getByText('activityNotYetAccepted')).toBeInTheDocument();
+  expect(view.getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+  mockClaim.safeClaimableNotes = [note];
+  view.rerender(React.createElement(RealCommandReceive));
+  fireEvent.click(view.getByRole('button', { name: 'activityAcceptTransfer' }));
+  await act(async () => {});
+  expect(mockQueue).toHaveBeenCalledWith('account', note, ...ACCEPTS);
+});
+
+it('withholds Receive review acceptance when the native fee is unavailable', () => {
+  mockBaseFee = 100;
+  mockBalances.data = [
+    {
+      tokenId: 'faucet-native',
+      tokenSlug: 'USDCX',
+      metadata: { name: 'USDCX', symbol: 'USDCX', decimals: 6 },
+      balance: 0,
+      fiatPrice: 0,
+      change24h: 0
+    }
+  ];
+  try {
+    const view = render(React.createElement(RealCommandReceive));
+    fireEvent.click(view.getByTestId('receive-note-note-one'));
+    expect(view.getByTestId('pending-activity-fee-notice')).toBeInTheDocument();
+    expect(view.getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+    expect(mockQueue).not.toHaveBeenCalled();
+  } finally {
+    mockBaseFee = null;
+    mockBalances.data = [];
+  }
+});
+
+it('resumes a held Receive note using the original transaction id rather than queuing a second claim', async () => {
+  mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+  mockRequeue.mockResolvedValue(undefined);
+  const view = render(React.createElement(RealCommandReceive));
+  settle([{ id: 'tx-held', status: 4, held: true }]);
+  fireEvent.click(view.getByTestId('receive-note-note-one'));
+  fireEvent.click(view.getByRole('button', { name: 'retry' }));
+  await act(async () => {});
+  expect(mockRequeue).toHaveBeenCalledWith('tx-held');
+  expect(mockQueue).not.toHaveBeenCalled();
 });
 
 it('queues only once when the carousel and list accept the same note together', async () => {
@@ -313,7 +425,7 @@ it('drops a failed attempt once its note leaves the live list, so neither Retry 
 
 it('allows retry after queue failure and uses the worker on extension', async () => {
   const log = jest.spyOn(console, 'error').mockImplementation(() => {});
-  mockFlags.extension = true;
+  jest.mocked(isExtension).mockReturnValue(true);
   mockQueue.mockRejectedValueOnce(new Error('Queue failed'));
   const { result } = renderHook(() => useActivityClaims());
   await act(async () => {
@@ -545,7 +657,7 @@ it('marks every note in a failed batch retryable and does not wake a worker', as
 });
 
 it('filters cached and busy notes from a batch and wakes the extension worker', async () => {
-  mockFlags.extension = true;
+  jest.mocked(isExtension).mockReturnValue(true);
   const cached = { ...note, id: 'cached', fromCache: true };
   const accepted = { ...note, id: 'accepted' };
   mockClaim.safeClaimableNotes = [cached, accepted];

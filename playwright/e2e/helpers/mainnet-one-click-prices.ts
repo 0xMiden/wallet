@@ -1,7 +1,7 @@
-import type { OneClickAsset, OneClickMidenAssetConfig } from '../../../src/lib/one-click/types';
+import type { OneClickAsset, NearIntentsMidenAssetConfig } from '../../../src/lib/one-click/types';
 import { usdToMicroDollarsCeil } from './mainnet-one-click-plan';
 
-export function mainnetOneClickPriceId(asset: OneClickAsset, verifiedNative: OneClickMidenAssetConfig): string {
+export function mainnetOneClickPriceId(asset: OneClickAsset, verifiedNative: NearIntentsMidenAssetConfig): string {
   if (asset.assetId === verifiedNative.assetId) {
     if (
       asset.blockchain !== 'miden' ||

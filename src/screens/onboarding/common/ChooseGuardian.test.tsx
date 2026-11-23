@@ -320,12 +320,13 @@ describe('ChooseGuardianScreen', () => {
     expect(gatewayBtn!.querySelector('[data-testid="guardian-operator-logo"]')).toHaveClass('[&_path]:fill-ink');
   });
 
-  it('draws each card flat, with no border, and the selection as the accent ring', () => {
+  it('marks only the current Guardian as selected', () => {
     const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     const [ozBtn, gatewayBtn] = optionButtons(container);
-    expect(ozBtn).toHaveClass('bg-fill', 'rounded-2xl', 'ring-accent-primary');
-    expect(ozBtn!.className).not.toMatch(/border-primary-500|border-4/);
-    expect(gatewayBtn).not.toHaveClass('ring-accent-primary');
+    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
+    expect(ozBtn).toHaveClass('bg-fill', 'rounded-2xl', 'before:border-accent-primary');
+    expect(gatewayBtn).toHaveAttribute('aria-checked', 'false');
+    expect(gatewayBtn).not.toHaveClass('before:border-accent-primary');
   });
 
   it('draws Learn more as the Guardian info pill and Use a custom URL as a text action, never underlined', () => {

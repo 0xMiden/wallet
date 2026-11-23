@@ -4,6 +4,7 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { ReviewLayout } from 'components/review';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
@@ -125,6 +126,18 @@ function formatFillsIn(t: TFunction, quote?: SwapQuote): string {
     : t('swapEtaMinutes', { minutes: Math.round(seconds / 60) });
 }
 
+/** Compare only solver terms the review actually displays, at its precision and locale. */
+export function swapReviewTermsChanged(t: TFunction, reviewed: SwapQuote, fresh: SwapQuote, decimals: number): boolean {
+  const reviewedVerdict = swapVerdict(reviewed.eta);
+  const freshVerdict = swapVerdict(fresh.eta);
+  return (
+    reviewedVerdict !== freshVerdict ||
+    fillWarningKey(reviewed) !== fillWarningKey(fresh) ||
+    (freshVerdict === 'full' && expectedOverAsk(reviewed, decimals) !== expectedOverAsk(fresh, decimals)) ||
+    formatFillsIn(t, reviewed) !== formatFillsIn(t, fresh)
+  );
+}
+
 const SwapArrows: React.FC = () => (
   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-swap text-accent-swap-on">
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -173,6 +186,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   submitting = false
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const networkFeeDetails = useNetworkFeeEstimateDetails();
   const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
@@ -267,7 +281,12 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         }
         value={
           <span className="inline-flex items-center gap-1">
-            <TokenAmount amount={requestAmount} symbol={requestLabel} formatting="exact" />
+            <TokenAmount
+              amount={requestAmount}
+              symbol={requestLabel}
+              formatting="exact"
+              renderText={amount => (command ? t('swapApproxAmount', { amount }) : amount)}
+            />
             <SwapTokenInfoButton faucetId={requestToken.faucetId} label={requestLabel} />
           </span>
         }

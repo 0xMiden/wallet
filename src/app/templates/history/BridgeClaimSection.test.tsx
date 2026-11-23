@@ -79,8 +79,9 @@ jest.mock('lib/agglayer', () => {
   };
 });
 
+let mockSelectedAccount = 'acct-1';
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => ({ publicKey: 'acct-1' })
+  useAccount: () => ({ publicKey: mockSelectedAccount })
 }));
 
 let mockEvm = {
@@ -146,6 +147,7 @@ const UNCONFIRMED = 4;
 function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
   return {
     txId: 'tx-1',
+    address: 'acct-1',
     bridgeProvider: 'epoch',
     bridgeDestinationAddress: '0xdead',
     status: FAILED,
@@ -190,6 +192,7 @@ const READY = { id: 'deposit-1', tx_hash: '0xexit', deposit_cnt: 5, ready_for_cl
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
     mockFeeCopy = 'worker-fee-copy';
+    mockSelectedAccount = 'acct-1';
     jest.clearAllMocks();
     // clearAllMocks keeps a queued *Once, so a block read a test never reaches would leak into the next.
     mockGetCurrentMidenBlock.mockReset().mockImplementation(async () => 0);
@@ -220,6 +223,26 @@ describe('BridgeClaimSection', () => {
       await waitFor(() => expect(mockGetCurrentMidenBlock).toHaveBeenCalled());
       expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+    });
+
+    it('blocks Reclaim when the receipt belongs to another account, including after a selection change', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValue(1200);
+      mockSelectedAccount = 'acct-2';
+      const row = entry();
+      const view = renderSection({ entry: row });
+      const reclaim = await screen.findByRole('button', { name: 't:reclaimFunds' });
+      expect(reclaim).toBeDisabled();
+      fireEvent.click(reclaim);
+      expect(mockInitiateConsumeFromId).not.toHaveBeenCalled();
+
+      mockSelectedAccount = 'acct-1';
+      view.rerender(<BridgeClaimSection entry={row} restoredFromBackup={false} />);
+      expect(reclaim).toBeEnabled();
+      mockSelectedAccount = 'acct-2';
+      view.rerender(<BridgeClaimSection entry={row} restoredFromBackup={false} />);
+      expect(reclaim).toBeDisabled();
+      fireEvent.click(reclaim);
+      expect(mockInitiateConsumeFromId).not.toHaveBeenCalled();
     });
 
     it('shows a Reclaim button once the height passes and consumes the note on click', async () => {

@@ -98,7 +98,7 @@ it('uses bulk metadata to isolate absent markets and cache a final unpriced resu
   expect(engine.pricesLoaded({}, ['ABSENT'])).toBe(true);
   nominal.mockReturnValue(true);
   expect(engine.quotedPrice({}, 'ABSENT')).toBeUndefined();
-  const fallbackQuote = { price: 0.9999, change24h: 0, percentageChange24h: 0 };
+  const fallbackQuote = { price: 0.9999, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
   expect(engine.quotedPrice({ ABSENT: fallbackQuote }, 'ABSENT')).toEqual(fallbackQuote);
   await engine.fetchTokenPrices(['ABSENT']);
   expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(1);
@@ -177,6 +177,42 @@ it('returns no history when market resolution or chart loading fails', async () 
   warn.mockRestore();
 });
 
+it('reports the interval a YTD request sent when the clock crosses day 90 while it is pending', async () => {
+  jest.useFakeTimers().setSystemTime(new Date('2026-03-31T12:00:00'));
+  try {
+    http.get.mockImplementationOnce(async () => {
+      jest.setSystemTime(new Date('2026-04-01T12:00:00'));
+      return { data: [[1, 0, 0, 0, '0.95']] };
+    });
+    expect(await engine.fetchKlineSeries('USDT', 'YTD')).toEqual({
+      points: [{ time: 1, value: 0.95 }],
+      stepMs: 21_600_000
+    });
+    expect(http.get).toHaveBeenCalledWith(
+      expect.stringContaining('/uiKlines'),
+      expect.objectContaining({ params: expect.objectContaining({ interval: '6h' }) })
+    );
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it('gives the 1M series a 6h step and keeps fetchKlineData to points', async () => {
+  http.get.mockResolvedValue({ data: [[1, 0, 0, 0, '0.95']] });
+  expect(await engine.fetchKlineSeries('USDT', '1M')).toEqual({
+    points: [{ time: 1, value: 0.95 }],
+    stepMs: 21_600_000
+  });
+  expect(await engine.fetchKlineData('USDT', '1M')).toEqual([{ time: 1, value: 0.95 }]);
+});
+
+it('gives an empty series with no step when the history request fails', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  http.get.mockRejectedValueOnce(new Error('offline'));
+  expect(await engine.fetchKlineSeries('USDT', '1D')).toEqual({ points: [], stepMs: Number.NaN });
+  warn.mockRestore();
+});
+
 it('keeps the fixed USDCX rate and waits for unresolved market assets', () => {
   expect(engine.quotedPrice({}, 'USDCX')?.price).toBe(1);
   expect(engine.pricesLoaded({}, ['USDCX'])).toBe(true);
@@ -226,27 +262,29 @@ it('uses a nominal quote only when no price asset was supplied and the switch is
   expect(engine.quotedPrice({}, undefined)).toBeUndefined();
   nominal.mockReturnValue(true);
   const quote = engine.quotedPrice({}, undefined);
-  expect(quote).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
-  expect(engine.isNominalQuote(quote)).toBe(true);
-  expect(engine.isNominalQuote({ price: 1, change24h: 0, percentageChange24h: 0 })).toBe(false);
-  expect(engine.isNominalQuote(undefined)).toBe(false);
+  expect(quote).toEqual({ price: 1, change24h: 0, percentageChange24h: 0, kind: 'nominal' });
   expect(engine.pricesLoaded({}, [undefined])).toBe(true);
 });
 
 it('values known balances only with a positive price and known scale', () => {
-  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0 } };
+  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
   expect(engine.listedPrice(prices, 'VALUED')).toBe(2);
   expect(engine.listedFiatValue(prices, 'VALUED', 3, true)).toBe(6);
   expect(engine.listedFiatValue(prices, 'VALUED', 3, false)).toBeUndefined();
   expect(engine.listedFiatValue(prices, 'VALUED', 0, true)).toBe(0);
   expect(engine.listedFiatValue(prices, 'NOQUOTE', 3, true)).toBeUndefined();
-  expect(engine.listedPrice({ VALUED: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'VALUED')).toBe(0);
+  expect(
+    engine.listedPrice(
+      { VALUED: { price: 0, change24h: 0, percentageChange24h: 0, kind: 'market' as const } },
+      'VALUED'
+    )
+  ).toBe(0);
   expect(engine.pricesLoaded(prices, ['VALUED'])).toBe(true);
   expect(engine.pricesLoaded({}, [])).toBe(false);
 });
 
 it('omits fiat values for negative or non-finite balances', () => {
-  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0 } };
+  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
   expect(engine.listedFiatValue(prices, 'VALUED', -1, true)).toBeUndefined();
   expect(engine.listedFiatValue(prices, 'VALUED', Number.NaN, true)).toBeUndefined();
   expect(engine.listedFiatValue(prices, 'VALUED', Number.POSITIVE_INFINITY, true)).toBeUndefined();
@@ -254,7 +292,7 @@ it('omits fiat values for negative or non-finite balances', () => {
 });
 
 it('waits for a requested asset while only the conversion quotes have arrived', () => {
-  const dollar = { price: 1, change24h: 0, percentageChange24h: 0 };
+  const dollar = { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
   const conversion = { USDT: dollar, USDC: dollar };
   expect(engine.pricesLoaded(conversion, ['PENDING'])).toBe(false);
   expect(engine.pricesLoaded(conversion, ['USDC'])).toBe(true);

@@ -1,88 +1,65 @@
-import {
-  fetchKlineData as fetchBinanceKlineData,
-  fetchTokenPrices as fetchBinancePrices,
-  isListedSymbol
-} from './binance';
-import type { KlinePoint, Timeframe, TokenPrices } from './binance';
-import { fetchKrakenKlineData, fetchKrakenPrices, findKrakenUsdMarket } from './kraken';
+import type { KlinePoint, KlineSeries, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
+import { binanceSource } from './binance-source';
+import { krakenSource } from './kraken-source';
+import type { PriceSource } from './source';
 
-const krakenMarkets = new Map<string, string | null>();
-const pendingMarkets = new Map<string, Promise<string | null>>();
+/**
+ * The feed's sources in order of priority. A source is asked only about a symbol every earlier source has ruled out,
+ * and an earlier quote wins over a later one. Adding an exchange is one file and one entry here.
+ */
+const SOURCES: readonly PriceSource[] = [binanceSource, krakenSource];
 
-async function resolveKrakenMarket(symbol: string): Promise<string | null> {
-  if (krakenMarkets.has(symbol)) return krakenMarkets.get(symbol) ?? null;
-  const pending = pendingMarkets.get(symbol);
-  if (pending) return pending;
-  const request = findKrakenUsdMarket(symbol).then(pair => {
-    krakenMarkets.set(symbol, pair);
-    return pair;
-  });
-  pendingMarkets.set(symbol, request);
-  try {
-    return await request;
-  } finally {
-    pendingMarkets.delete(symbol);
-  }
-}
+const MARKETS = SOURCES.filter(source => source.kind === 'market');
 
-/** True only after both providers answered and neither lists the asset; a failed lookup proves nothing. */
+const ruledOut = (source: PriceSource, symbol: string): boolean => source.verdictOf(symbol)?.state === 'unlisted';
+
+/** True only after every market source answered and none lists the asset; a failed lookup proves nothing. */
 export function hasNoUsdMarket(symbol: string): boolean {
-  return !isListedSymbol(symbol) && krakenMarkets.get(symbol) === null;
-}
-
-/** The symbols the feed asks Kraken about once Binance has ruled them out. */
-function krakenSymbol(symbol: string): boolean {
-  return /^[A-Z0-9]{1,30}$/.test(symbol);
+  return MARKETS.every(source => ruledOut(source, symbol));
 }
 
 /**
- * True while a USD quote for `symbol` may still come: until the feed has ruled its market out at both providers. A
- * symbol the feed never sends to Kraken waits on Binance's verdict alone, and no symbol waits on nothing.
+ * True while a USD quote for `symbol` may still come: until every market source that can be asked about it has ruled
+ * its market out. A symbol the feed never sends to Kraken waits on Binance's verdict alone, and no symbol waits on
+ * nothing.
  */
 export function usdMarketPending(symbol: string | undefined): boolean {
   if (symbol === undefined) return false;
-  return krakenSymbol(symbol) ? !hasNoUsdMarket(symbol) : isListedSymbol(symbol);
+  return !MARKETS.filter(source => source.serves(symbol)).every(source => ruledOut(source, symbol));
 }
 
-/** Fetch Binance prices first, then direct USD prices for assets it does not list. */
-function timestampPrices(prices: TokenPrices): TokenPrices {
-  const observedAt = Date.now();
-  return Object.fromEntries(Object.entries(prices).map(([symbol, quote]) => [symbol, { ...quote, observedAt }]));
-}
-
+/** Ask each source in turn, then stamp every quote with one retrieval time. */
 export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<TokenPrices> {
-  const prices = await fetchBinancePrices(symbols);
-  // PYUSD has a Kraken USD market but no Binance USDT or USDC market.
-  // Use this fallback only when both Binance markets are absent, not when a request fails.
-  const queue = [...new Set(symbols)].filter(symbol => krakenSymbol(symbol) && !isListedSymbol(symbol));
-  const resolved = new Map<string, string>();
-  const resolveNext = async (): Promise<void> => {
-    for (let symbol = queue.shift(); symbol !== undefined; symbol = queue.shift()) {
-      try {
-        const pair = await resolveKrakenMarket(symbol);
-        if (pair) resolved.set(symbol, pair);
-      } catch {
-        // Retry failed market checks on the next price refresh.
-      }
+  const prices = new Map<string, TokenPriceInfo>();
+  const open = [...new Set(symbols)];
+  const asked: PriceSource[] = [];
+  for (const source of SOURCES) {
+    // PYUSD has a Kraken USD market but no Binance USDT or USDC market.
+    // Use this fallback only when every earlier market is absent, not when a request fails.
+    const candidates = open.filter(
+      symbol => source.serves(symbol) && !prices.has(symbol) && asked.every(earlier => ruledOut(earlier, symbol))
+    );
+    await source.resolve(candidates);
+    for (const [symbol, quote] of Object.entries(await source.fetchQuotes(candidates))) {
+      if (!prices.has(symbol)) prices.set(symbol, quote);
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, resolveNext));
-  if (resolved.size === 0) return timestampPrices(prices);
-  try {
-    return timestampPrices({ ...prices, ...(await fetchKrakenPrices(resolved)) });
-  } catch {
-    return timestampPrices(prices);
+    asked.push(source);
   }
+  const observedAt = Date.now();
+  return Object.fromEntries([...prices].map(([symbol, quote]) => [symbol, { ...quote, observedAt }]));
+}
+
+/** Use the same provider selection for chart history and current prices, with the candle length of that provider. */
+export async function fetchKlineSeries(symbol: string, timeframe: Timeframe): Promise<KlineSeries> {
+  let series: KlineSeries = { points: [], stepMs: Number.NaN };
+  for (const source of SOURCES) {
+    series = await source.fetchHistory(symbol, timeframe);
+    if (!ruledOut(source, symbol)) break;
+  }
+  return series;
 }
 
 /** Use the same provider selection for chart history and current prices. */
 export async function fetchKlineData(symbol: string, timeframe: Timeframe): Promise<KlinePoint[]> {
-  const points = await fetchBinanceKlineData(symbol, timeframe);
-  if (isListedSymbol(symbol)) return points;
-  try {
-    const pair = await resolveKrakenMarket(symbol);
-    return pair ? await fetchKrakenKlineData(pair, timeframe) : [];
-  } catch {
-    return [];
-  }
+  return (await fetchKlineSeries(symbol, timeframe)).points;
 }

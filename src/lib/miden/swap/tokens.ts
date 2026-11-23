@@ -66,11 +66,15 @@ export const subscribeSwapTokens = (listener: () => void): (() => void) => {
 };
 
 // A faucet the reviewed document prices (bridged ETH, the Earn USDC) keeps the document's symbol: the solver's
-// assets can be stand-ins, and every reader of a token's price must agree with the spending cap.
+// assets can be stand-ins, and every reader of a token's price must agree with the spending cap. A faucet the
+// verified token list prices (USDT, SOL, NEAR, PAXG) is priced as the list says, as home and the cap do; the solver's
+// own asset only counts where the wallet's feed quotes it.
 function listedSwapToken(token: SwapPairsToken, allowlist: readonly PricedFaucet[]): SwapToken {
   const faucetId = normalizedFaucetId(token.faucetId);
   const priceSymbol =
-    allowlist.find(entry => normalizedFaucetId(entry.faucetId) === faucetId)?.priceSymbol ?? token.binanceAsset;
+    allowlist.find(entry => normalizedFaucetId(entry.faucetId) === faucetId)?.priceSymbol ??
+    priceSymbolFor(faucetId, token.ticker) ??
+    token.binanceAsset;
   return {
     symbol: token.ticker,
     faucetId,

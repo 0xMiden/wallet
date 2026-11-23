@@ -57,7 +57,13 @@ describe('EVM quote identity', () => {
     expect(evmPriceSymbolFor(8453, '0x0000000000000000000000000000000000000000')).toBe('ETH');
   });
   it('uses the actual USDC feed instead of assuming a dollar', () => {
-    const quote = { price: 0.97, change24h: 0, percentageChange24h: 0, observedAt: Date.now() };
+    const quote = {
+      price: 0.97,
+      change24h: 0,
+      percentageChange24h: 0,
+      observedAt: Date.now(),
+      kind: 'market' as const
+    };
     expect(evmQuote({ USDC: quote }, 1, '0xaabb')).toBe(quote);
     expect(evmQuote({}, 1, '0xaabb')).toBeUndefined();
   });

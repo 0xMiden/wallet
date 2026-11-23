@@ -39,7 +39,9 @@ export const NetworkLogo: React.FC<{ kind: NetworkChipKind; network?: string; si
         className={size === 'md' ? 'h-6 w-auto' : 'h-3.5 w-auto'}
       />
     );
-  if (logo) return <img src={logo} alt="" aria-hidden="true" className={cn('shrink-0 object-contain', sizing)} />;
+  // The logo files are square. The round clip makes each one a disc, the same shape as the Ethereum mark below.
+  if (logo)
+    return <img src={logo} alt="" aria-hidden="true" className={cn('shrink-0 rounded-full object-contain', sizing)} />;
   // Unknown networks must not inherit Ethereum's identity. Sepolia uses Ethereum's own mark.
   if (network && !['ethereum', 'mainnet', 'sepolia'].includes(network)) {
     return <Icon name={IconName.Globe} size={size === 'md' ? 'lg' : 'xs'} className="text-muted" aria-hidden="true" />;

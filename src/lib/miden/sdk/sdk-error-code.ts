@@ -442,6 +442,11 @@ export interface LandedTransaction {
   orderId?: string;
   /** The id of the note `orderId` was read off, in lower case. */
   orderNoteId?: string;
+  /**
+   * The local apply completed, so the store holds the transaction's output notes: set only by a failure after it, a
+   * trap serializing the offscreen result. A landed private send then owes the notes its submit stamp recorded.
+   */
+  applied?: true;
 }
 
 /**
@@ -485,7 +490,7 @@ export function landedOrderFacts(
 /**
  * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker
  * rebuilds from an offscreen reply, keeping only a string id, a non-negative integer count, a string
- * final commitment, a canonical decimal felt as the order id and a note-id-shaped order note id.
+ * final commitment, a canonical decimal felt as the order id, a note-id-shaped order note id and an `applied` of true.
  */
 export function extractLanded(err: unknown): LandedTransaction {
   const landed = readGuarded(err, 'landed');
@@ -498,7 +503,8 @@ export function extractLanded(err: unknown): LandedTransaction {
       ? { privateOutputNotes }
       : {}),
     ...(typeof finalAccountCommitment === 'string' ? { finalAccountCommitment } : {}),
-    ...landedOrderFacts(readGuarded(landed, 'orderId'), readGuarded(landed, 'orderNoteId'))
+    ...landedOrderFacts(readGuarded(landed, 'orderId'), readGuarded(landed, 'orderNoteId')),
+    ...(readGuarded(landed, 'applied') === true ? { applied: true } : {})
   };
 }
 

@@ -10,7 +10,7 @@ import {
   TRANSACTION_LANDING_PENDING_RETRY_ERROR
 } from './constants';
 import { ClaimFeeRefusedError } from './initiate';
-import { NodeReads } from './reconcile-reads';
+import { NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { acknowledgementOf, requeueFailedTransaction, RETRY_REFUSAL_COPY, RetryOptions } from './retry';
 import { isGuardianHoldRetryError } from './retry-refusal';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -543,6 +543,40 @@ describe('an unproven execute is acknowledgeable (#1081)', () => {
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
     expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+  });
+
+  describe('the account that created its attempt note (#2147)', () => {
+    /** NOTE on chain as `creator` created it: a read naming another sender gets no answer, as the real read's. */
+    const heldBy = (creator: string) => {
+      const noteInclusions = jest.fn(
+        async (
+          ...[, , sender]: Parameters<NodeReads['noteInclusions']>
+        ): Promise<ReadonlyMap<string, number> | undefined> =>
+          sender === undefined || sender === creator ? new Map([[NOTE, 140]]) : undefined
+      );
+      mockNode.current = { ...node({ blockNum: 150, commitment: OTHER }), noteInclusions };
+      return noteInclusions;
+    };
+
+    it('a note the node holds only as another account`s meets the acknowledgeable refusal, never a completion', async () => {
+      const noteInclusions = heldBy('mtst1other');
+      await Repo.transactions.put(execute());
+      const error = await refusal();
+      expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.executeChecking);
+      expect(acknowledgementOf(error)).toEqual({ attemptId: 'a1' });
+      const row = await read();
+      expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+      expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+      expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, 'mtst1acct_s']]);
+    });
+
+    it('a note its own account created completes it on the first Retry', async () => {
+      const noteInclusions = heldBy('mtst1acct_s');
+      await Repo.transactions.put(execute());
+      expect(await refusal()).toBeUndefined();
+      expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, transactionId: hex(2) });
+      expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, 'mtst1acct_s']]);
+    });
   });
 
   it('one whose entry lists a nullifier requeues as today', async () => {
