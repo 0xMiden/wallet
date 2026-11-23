@@ -152,7 +152,9 @@ describe('funded nightly swap workflow', () => {
     const source = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-near-runtime.ts'), 'utf8');
     const forward = source.split('export async function runMainnetNearForward(')[1]!;
     expect(forward).toMatch(/await armRecallBlocks\(wallet\.page, null\);\s*await wallet\.prepareSendReview\(/);
-    expect(forward).toMatch(/getByTestId\('review-recall-note'\)\)\.toHaveCount\(0\);\s*recordNearForwardStage\('arm'\)/);
+    expect(forward).toMatch(
+      /getByTestId\('review-recall-note'\)\)\.toHaveCount\(0\);\s*recordNearForwardStage\('arm'\)/
+    );
   });
   it('binds known unsigned NEAR reconciliation only to official artifact provenance without relabelling attempted funding', () => {
     expect(object(step('Recover prior mainnet NEAR').env)).toMatchObject({
