@@ -2,6 +2,8 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][mobile] Open incoming-note claims over the active dApp without closing or navigating away from its session.
+
 - [FIX][extension] Retain timeout ownership and validated offscreen deadline facts in saved transaction errors and local exports.
 
 - [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
