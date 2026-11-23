@@ -5481,8 +5481,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(sendResponse.mock.calls[0][0].errorBeforeSubmit).toBeUndefined();
     });
 
-    it('sends the proof as before when the tip cannot be read', async () => {
-      const { events, proofs } = await arrange([1_000], 1_100);
+    it('stops before its gate, tagged, when the tip cannot be read', async () => {
+      const { events } = await arrange([1_000], 1_100);
       G.__off.readChainTip = jest.fn(async () => {
         throw new Error('node down');
       });
@@ -5490,9 +5490,14 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       callGuardianPipeline(sendResponse);
       await waitForReply(sendResponse);
 
-      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
-      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'submit']);
-      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[0]);
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'ProofFreshnessUnknownError',
+        errorBeforeSubmit: true
+      });
+      expect(events).toEqual(['executing', 'execute', 'proving']);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(G.__off.guardianSubmitted).toBe(false);
     });
 
     it('reads no tip for a proof with no expiration', async () => {

@@ -73,6 +73,7 @@ import {
   GUARDIAN_UNREACHABLE_ERROR,
   isUnconfirmedFailure,
   LOCAL_PROVER_FAILED_ERROR,
+  PROOF_FRESHNESS_UNKNOWN_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
@@ -7174,18 +7175,41 @@ describe('generateTransaction - Guardian routing', () => {
       expect(entries.filter(entry => entry.source === 'stage' || entry.refBlock !== undefined)).toEqual([]);
     });
 
-    it('sends the proof as before when the tip cannot be read', async () => {
-      const txId = 'send-guardian-tip-unreadable';
-      const { tx, client } = arrangeSend(txId, true);
-      mockReadChainTip.mockImplementation(async () => {
-        throw new Error('node down');
-      });
+    it.each([
+      ['delegated', true],
+      ['local', false]
+    ])(
+      '%s: ends Failed with nothing sent, its candidate abandoned and Retry open when the tip cannot be read',
+      async (label, delegateTransaction) => {
+        const txId = `send-guardian-tip-unreadable-${label}`;
+        const { tx, abandonCandidate, client } = arrangeSend(txId, delegateTransaction);
+        mockReadChainTip.mockImplementation(async () => {
+          throw new Error('node down');
+        });
 
-      await run(tx);
+        await run(tx);
 
-      expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
-      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
-    });
+        expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+        expect(abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+
+        const stored = txStore.find(row => row.id === txId)!;
+        expect(stored).toMatchObject({
+          status: ITransactionStatus.Failed,
+          stage: 'proving',
+          error: PROOF_FRESHNESS_UNKNOWN_ERROR
+        });
+        expect(stored.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+        expect(stored.mayHaveSubmitted).toBeUndefined();
+        expect(stored.submitEvidence ?? []).toEqual([]);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+        expect(getConnectivityState().prover.active).toBe(false);
+
+        await withNavigatorLocks(() => requeueFailedTransaction(txId));
+        expect(stored.status).toBe(ITransactionStatus.Queued);
+      }
+    );
   });
 
   it('Guardian send (delegated): a prover outage the local fallback cannot rescue REQUEUES instead of terminal-failing (#419)', async () => {

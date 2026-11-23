@@ -4843,6 +4843,24 @@ describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
     expect(hasErrorBeforeSubmit(error)).toBe(true);
   });
 
+  it('rebuilds ProofFreshnessUnknownError as its class, tagged, so the row keeps its copy (#2193)', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    const { isProofFreshnessUnknownError } = await import('lib/miden/guardian/proof-freshness');
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'tip unknown',
+      errorName: 'ProofFreshnessUnknownError'
+    }));
+    const failed = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    const error = await failed;
+    expect(isProofFreshnessUnknownError(error)).toBe(true);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+  });
+
   it('never tags a rebuilt eviction', async () => {
     const { __test } = await loadProxy(true);
     const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');

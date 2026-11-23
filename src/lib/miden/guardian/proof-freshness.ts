@@ -32,7 +32,7 @@ export const OFFSCREEN_PROOF_BUDGET_MS = 160_000;
  */
 export const INLINE_PROOF_BUDGET_MS = WASM_LOCK_WATCHDOG_MS - 20_000;
 
-/** How long a leaf waits to learn the tip, which it does while holding the WASM lock, before it sends unchecked. */
+/** How long a leaf waits to learn the tip, which it does while holding the WASM lock, before it stops without submitting. */
 export const CHAIN_TIP_READ_TIMEOUT_MS = 3_000;
 
 /** Every execution an attempt was allowed ended past its submit window. Nothing was sent (#2060). */

@@ -3,7 +3,7 @@ import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import { isLikelyNetworkError, isPermanentHttpRejection } from 'lib/miden/activity/connectivity-classify';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
-import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { isFailedReexecution, isProofFreshnessUnknownError, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 
@@ -43,6 +43,11 @@ export const SUBMIT_CROSSING_UNRECORDED_ERROR =
 // A proof that kept going stale stops before its submit (#2060), so nothing reached the network and Retry is safe.
 export const STALE_PROOF_ERROR =
   'The network window for this transaction closed before it could be sent, so nothing was sent and no funds moved. ' +
+  'Please try again.';
+
+// An unreadable chain tip stops before submit (#2193), so nothing reached the network and Retry is safe.
+export const PROOF_FRESHNESS_UNKNOWN_ERROR =
+  'Could not verify that this transaction is still within its network window, so nothing was sent and no funds moved. ' +
   'Please try again.';
 
 export const PROVER_PROCEDURE_MISMATCH_ERROR =
@@ -807,6 +812,9 @@ function classifyTransactionError(
   }
   if (isStaleProofError(error)) {
     return STALE_PROOF_ERROR;
+  }
+  if (isProofFreshnessUnknownError(error)) {
+    return PROOF_FRESHNESS_UNKNOWN_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote

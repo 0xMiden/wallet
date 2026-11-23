@@ -42,6 +42,7 @@ import { GUARDIAN_REQUEST_TIMEOUT_MS } from 'lib/miden/guardian/native-http';
 import {
   INLINE_PROOF_BUDGET_MS,
   isFailedReexecution,
+  isProofFreshnessUnknownError,
   isStaleProofError,
   markFailedReexecution,
   type ProofPass,
@@ -2214,14 +2215,15 @@ const generateTransactionWithProvider = async (
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
       // A crossing write that failed also leaves 'proving', but it is no prover failure (#1081), and neither is a proof
-      // that kept going stale, whose copy tells the user to retry, nor a re-execution that failed before it proved
-      // (#2060).
+      // that kept going stale, whose copy tells the user to retry, an unreadable chain tip (#2193), nor a re-execution
+      // that failed before it proved (#2060).
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
         !abandonedWrite &&
         !isSubmitCrossingUnrecorded(error) &&
         !isStaleProofError(error) &&
+        !isProofFreshnessUnknownError(error) &&
         !isFailedReexecution(error) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
