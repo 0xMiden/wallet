@@ -91,7 +91,11 @@ jest.mock('../guardian/history-storage', () => {
   return { ...actual, saveGuardianHistoryCheckpoint: jest.fn(actual.saveGuardianHistoryCheckpoint) };
 });
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn(() => 'https://one') }));
-jest.mock('lib/miden/sdk/helpers', () => ({ canonicalWalletAccountId: (id: string) => id }));
+jest.mock('lib/miden/sdk/helpers', () => ({
+  __esModule: true,
+  ...jest.requireActual('lib/miden/sdk/helpers'),
+  canonicalWalletAccountId: (id: string) => id
+}));
 jest.mock('./miden-client-proxy', () => ({
   midenClientProxy: {
     decodeGuardianHistory: jest.fn(),
