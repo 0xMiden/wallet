@@ -45,6 +45,7 @@ import { pipelineKillIn } from 'lib/miden/sdk/sdk-error-code';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { handleTestAuthorizationStorage } from 'lib/miden/sdk/test-authorization-storage';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { beginStartupProbe } from 'lib/miden/storage-health';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import {
@@ -85,6 +86,8 @@ function afterInitialStartup(action: () => void) {
 
 export async function start() {
   console.log('Miden background script started');
+  // Before any await: the probe must not queue behind Dexie work a stalled browser never finishes.
+  beginStartupProbe();
   startupHydrated = false;
   let hydrated: () => void = () => undefined;
   let startupFailed: (error: unknown) => void = () => undefined;
@@ -410,7 +413,7 @@ function registerOffscreenSignHandler(): void {
       });
       return false;
     }
-    // The Guardian leaf's submit gate (#1644): answered only once the crossing is recorded, and refused on any fault, so
+    // An offscreen leaf's submit gate (#1644): answered only once the crossing is recorded, and refused on any fault, so
     // the leaf never submits on an answer that did not come from the handler.
     if (m.type === OFFSCREEN_SUBMIT_GATE) {
       if (typeof m.op_id !== 'string') return false;

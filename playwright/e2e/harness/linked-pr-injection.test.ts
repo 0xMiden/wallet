@@ -607,7 +607,8 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-usdcx.yml chrome-usdcx-arc: push 210, dispatch 240',
       'e2e-usdcx.yml chrome-usdcx-l2: push 325, dispatch 355',
       'pr-e2e-earn.yml earn-e2e: push 120, dispatch 270',
-      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270'
+      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270',
+      'red-before.yml run: push 30, dispatch 60'
     ]);
   });
 

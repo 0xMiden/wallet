@@ -15,7 +15,6 @@ import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TokenAmount } from 'components/ui/TokenAmount';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { earnCollateralFaucetId, earnMarketForVault, earnVaultTakesDeposits, openEarnPosition } from 'lib/epoch';
@@ -50,6 +49,7 @@ import { placeholderVault } from './earn-mapping';
 import { EarnCollateralNotice } from './EarnCollateralNotice';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnLoading } from './EarnLoading';
+import { EarnPageLayout } from './EarnPageLayout';
 import { ChartDotProps, EarnVault } from './types';
 import { useEarnCollateralState } from './useEarnCollateral';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -223,7 +223,13 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       setSubmitErrorId('earnNoEvmAddress');
       return;
     }
-    if (amountBaseUnits === undefined || !collateralMatches || !found?.info || !earnVaultTakesDeposits(found.info)) {
+    if (
+      amountValue <= 0 ||
+      amountBaseUnits === undefined ||
+      !collateralMatches ||
+      !found?.info ||
+      !earnVaultTakesDeposits(found.info)
+    ) {
       setSubmitError(t('earnFailedToOpenPosition'));
       setSubmitErrorId('earnFailedToOpenPosition');
       return;
@@ -285,11 +291,17 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       {/* The shared pushed-page frame: the earn flow's header, the 16px page margin its two
           hand-rolled ones diverged from, and the CTA pinned under the body. Until the vault is
           found the header names the route, and the CTA waits with the body. */}
-      <SubPageLayout
+      <EarnPageLayout
         data-testid="earn-deposit-review-page"
+        showCommandSubject
         title={found ? earnSubjectTitle(found) : t('earnDeposit')}
         subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
+        formId="earn-deposit-review-form"
+        onSubmit={event => {
+          event.preventDefault();
+          void handleOpenPosition();
+        }}
         headerActions={
           found && (
             <EarnAssetMark
@@ -318,12 +330,13 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               )}
               <Button
                 data-testid="earn-deposit-review-confirm"
+                type="submit"
+                form="earn-deposit-review-form"
                 title={t('earnOpenPosition')}
                 aria-busy={isSubmitting}
                 iconLeft={isSubmitting && <Spinner size="sm" />}
                 variant={ButtonVariant.Primary}
                 accent="earn"
-                onClick={handleOpenPosition}
                 disabled={
                   isSubmitting || amountValue <= 0 || !vault.info || vault.canOpen === false || !collateralMatches
                 }
@@ -380,7 +393,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
             <DepositProjection vault={vault} amount={amountValue} />
           </>
         )}
-      </SubPageLayout>
+      </EarnPageLayout>
 
       {spendingLimitChallenge !== undefined && (
         <SpendingLimitChallenge

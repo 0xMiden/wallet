@@ -1,6 +1,7 @@
 import { SigningInputs } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
 
+import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
 import {
   cacheScope,
   getVerificationBaseFee,
@@ -34,12 +35,14 @@ jest.mock('lib/shared/helpers', () => ({ b64ToU8: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   cacheScope: jest.fn(() => 'rpc-a|testnet'),
   getNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
   getVerificationBaseFeeSync: jest.fn(() => 2),
   getVerificationBaseFee: jest.fn(async () => 2),
   refreshVerificationBaseFee: jest.fn(async () => 2),
   isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
 jest.mock('../sdk/miden-client', () => ({ withWasmClientLock: jest.fn() }));
+jest.mock('lib/miden/sdk/fee-sponsorship', () => ({ canonicalFeeSponsorshipNoteId: jest.fn(() => 'sponsor') }));
 jest.mock('lib/i18n/core', () => ({ getMessage: jest.fn((key: string) => `copy:${key}`) }));
 
 type Asset = { faucetId: () => { __faucet: string }; amount: () => bigint };
@@ -151,6 +154,7 @@ const refusalOf = (signer: RawSigner, hex: string) => signer('pk', hex).catch((e
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(canonicalFeeSponsorshipNoteId).mockReset().mockReturnValue('sponsor');
   jest.mocked(SigningInputs.deserialize).mockReset();
   jest.mocked(getVerificationBaseFee).mockReset();
   jest.mocked(getVerificationBaseFee).mockImplementation(async () => 2);
@@ -178,6 +182,68 @@ it('passes the base signer through untouched for an unchecked type', async () =>
   await expect(withEffectCheckedSigner(incoming, sign, run)).resolves.toBe(sign);
   expect(refreshVerificationBaseFee).not.toHaveBeenCalled();
   expect(SigningInputs.deserialize).not.toHaveBeenCalled();
+});
+
+describe('reviewed USDCx signing fee budget', () => {
+  const burn = (maximum = '5') =>
+    row({
+      type: 'bridged-send',
+      faucetId: 'bech32:usdcx',
+      amount: 100n,
+      approvedOutputNoteIds: ['burn'],
+      extraInputs: {
+        provider: 'usdcx',
+        usdcxBurn: {
+          noteId: 'burn',
+          destinationDomain: 6,
+          phase: 'pending',
+          networkFeeBudget: {
+            faucetId: 'bech32:usdcx',
+            maxAmount: maximum,
+            scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+          }
+        }
+      }
+    });
+  const sponsored = () =>
+    summary('acct-a', {
+      removed: [fa('usdcx', 105n)],
+      added: [],
+      inputs: [],
+      outputs: [note([fa('usdcx', 100n)], 'burn'), note([fa('usdcx', 3n)], 'sponsor'), feeNote(2n)]
+    });
+
+  it('signs the unchanged principal when both canonical native fees fit the reviewed cap', async () => {
+    givenSigning(summaryInputs(sponsored()));
+    const sign = baseSigner();
+    await expect(withEffectCheckedSigner(burn(), sign, signer => signer('pk', 'aa'))).resolves.toBe(SIGNATURE);
+    expect(sign.mock.calls).toEqual([['pk', 'aa']]);
+  });
+
+  it('does not delegate signing when the combined native fee exceeds the cap', async () => {
+    givenSigning(summaryInputs(sponsored()));
+    const sign = baseSigner();
+    await expect(withEffectCheckedSigner(burn('4'), sign, signer => signer('pk', 'aa'))).rejects.toBeInstanceOf(
+      ProposalEffectRefusedError
+    );
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it('preserves a reconstruction trap even when the SDK replaces it with an ordinary callback error', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    givenSigning(summaryInputs(sponsored()));
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
+      throw trap;
+    });
+    const sign = baseSigner();
+    await expect(
+      withEffectCheckedSigner(burn(), sign, async signer => {
+        await refusalOf(signer, 'aa');
+        throw new Error('SDK callback failed');
+      })
+    ).rejects.toBe(trap);
+    expect(sign).not.toHaveBeenCalled();
+  });
 });
 
 const guardedTransfers: ITransaction['type'][] = ['send', 'swap'];

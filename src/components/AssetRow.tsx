@@ -10,9 +10,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
-import { isBasketQuote } from 'lib/prices/basket-nav';
-import { isNominalQuote, listedFiatValue } from 'lib/prices/binance';
-import { isFixedQuote } from 'lib/prices/fixed';
+import { listedFiatValue } from 'lib/prices/binance';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
@@ -90,7 +88,7 @@ export const AssetRow: FC<AssetRowProps> = ({
   // A fixed quote (USDCX at $1) keeps its row's line and pill: a flat grey line and a grey
   // +0.00%, since its move is always zero. A basket's net asset value has no market behind it either, so no
   // pill and a flat grey line.
-  const feedQuote = quote && !isNominalQuote(quote) && !isBasketQuote(quote) ? quote : undefined;
+  const feedQuote = quote && quote.kind !== 'nominal' && quote.kind !== 'basket' ? quote : undefined;
   const direction: 'positive' | 'negative' | 'neutral' | null = feedQuote
     ? Math.abs(feedQuote.percentageChange24h) < FLAT_MOVE_PERCENT
       ? 'neutral'
@@ -113,7 +111,10 @@ export const AssetRow: FC<AssetRowProps> = ({
         : undefined;
 
   // An empty symbol is the hook's "fetch nothing".
-  const points = useTokenSparkline(sparkline && !isFixedQuote(quote) && !isBasketQuote(quote) ? priceSymbol : '', '1D');
+  const points = useTokenSparkline(
+    sparkline && quote?.kind !== 'fixed' && quote?.kind !== 'basket' ? priceSymbol : '',
+    '1D'
+  );
   const hasRealPoints = points.length > 1;
   // Keyed on the hook's array so a re-render with the same series keeps Sparkline's path memo.
   const sparkPoints = useMemo(

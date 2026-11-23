@@ -1,9 +1,9 @@
 import {
+  basketComposition,
   basketHoldingValues,
   basketNav,
   basketPriceSources,
   fetchBasketPrices,
-  isBasketQuote,
   readBasketVault,
   type BasketSource,
   type BasketVault
@@ -35,6 +35,7 @@ const quote = (price: number, extra: Partial<TokenPriceInfo> = {}) => ({
   price,
   change24h: 0,
   percentageChange24h: 0,
+  kind: 'market' as const,
   ...extra
 });
 
@@ -42,8 +43,8 @@ const SOURCE: BasketSource = {
   faucetId: 'mm1basket',
   priceSymbol: 'BSK',
   constituents: [
-    { faucetId: 'mm1btc', priceSymbol: 'BTC', decimals: 8 },
-    { faucetId: 'mm1eth', priceSymbol: 'ETH', decimals: 8 }
+    { faucetId: 'mm1btc', symbol: 'WBTC', priceSymbol: 'BTC', decimals: 8 },
+    { faucetId: 'mm1eth', symbol: 'ETH', priceSymbol: 'ETH', decimals: 8 }
   ]
 };
 // 0.001 BTC and 0.05 ETH backing 200 shares of 8 decimals.
@@ -63,7 +64,8 @@ describe('basketPriceSources', () => {
   const baskets = new Map([['mm1basket', ['mm1btc', 'mm1eth']]]);
 
   it('names a basket whose price asset no exchange lists, with each constituent priced and its decimals', () => {
-    expect(basketPriceSources(baskets, assets, decimals, symbol => symbol === 'BSK')).toEqual([SOURCE]);
+    const symbols = new Map([['mm1btc', 'WBTC']]);
+    expect(basketPriceSources(baskets, assets, decimals, symbol => symbol === 'BSK', symbols)).toEqual([SOURCE]);
   });
 
   it('leaves out a basket an exchange lists, or before both providers ruled its market out', () => {
@@ -105,14 +107,17 @@ describe('basketNav', () => {
   });
 
   it('uses each constituent and the basket at their own decimals', () => {
-    const source = { ...SOURCE, constituents: [{ faucetId: 'mm1usd', priceSymbol: 'USDC', decimals: 6 }] };
+    const source = {
+      ...SOURCE,
+      constituents: [{ faucetId: 'mm1usd', symbol: 'USDC', priceSymbol: 'USDC', decimals: 6 }]
+    };
     const vault = { supply: 50_000n, decimals: 4, balances: [10_000_000n] };
     expect(basketNav(source, vault, { USDC: quote(1) })).toBeCloseTo(2, 12);
   });
 
   it('has no value while any constituent has no market quote', () => {
     expect(basketNav(SOURCE, VAULT, { BTC: quote(100_000) })).toBeUndefined();
-    expect(basketNav(SOURCE, VAULT, { ...PRICES, ETH: quote(1, { source: 'basket' }) })).toBeUndefined();
+    expect(basketNav(SOURCE, VAULT, { ...PRICES, ETH: quote(1, { kind: 'basket' }) })).toBeUndefined();
   });
 
   it('has no value with no supply', () => {
@@ -128,9 +133,38 @@ describe('fetchBasketPrices', () => {
   it('quotes a basket at its net asset value under its price asset, with no move', async () => {
     const read = jest.fn(async () => VAULT);
     await expect(fetchBasketPrices([SOURCE], PRICES, read, () => 42)).resolves.toEqual({
-      BSK: { price: 1.5, change24h: 0, percentageChange24h: 0, observedAt: 42, source: 'basket' }
+      BSK: {
+        price: 1.5,
+        change24h: 0,
+        percentageChange24h: 0,
+        observedAt: 42,
+        kind: 'basket' as const,
+        // $200 of ETH and $100 of BTC: the vault's own mix, largest first.
+        composition: [
+          { faucetId: 'mm1eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 2 / 3 },
+          { faucetId: 'mm1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 1 / 3 }
+        ]
+      }
     });
     expect(read).toHaveBeenCalledWith(SOURCE);
+  });
+
+  it('carries the move its tokens give it, so every price surface reads the same move', async () => {
+    const moving = {
+      BTC: quote(100_000, { percentageChange24h: 10, kind: 'market' as const }),
+      ETH: quote(4_000, { percentageChange24h: -20, kind: 'market' as const })
+    };
+    const quotes = await fetchBasketPrices([SOURCE], moving, async () => VAULT);
+    // ETH is 2/3 of the vault's value and BTC 1/3: 24h ago it was worth 2/3 / 0.8 + 1/3 / 1.1 of today.
+    const move = (1 / (2 / 3 / 0.8 + 1 / 3 / 1.1) - 1) * 100;
+    expect(quotes.BSK?.percentageChange24h).toBeCloseTo(move, 10);
+    expect(quotes.BSK?.change24h).toBeCloseTo(1.5 - 1.5 / (1 + move / 100), 10);
+  });
+
+  it('leaves out a basket whose vault holds nothing', async () => {
+    const empty = { ...VAULT, balances: [0n, 0n] };
+    const quotes = await fetchBasketPrices([SOURCE], PRICES, async () => empty);
+    expect(quotes.BSK).toBeUndefined();
   });
 
   it('leaves out a basket whose vault cannot be read, and prices the others', async () => {
@@ -269,8 +303,10 @@ describe('readBasketVault', () => {
   });
 });
 
-it('tells a basket quote from the others', () => {
-  expect(isBasketQuote(quote(1, { source: 'basket' }))).toBe(true);
-  expect(isBasketQuote(quote(1))).toBe(false);
-  expect(isBasketQuote(undefined)).toBe(false);
+it('splits a basket by the value each constituent holds, largest first', () => {
+  expect(basketComposition(SOURCE, [100, 300])).toEqual([
+    { faucetId: 'mm1eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 0.75 },
+    { faucetId: 'mm1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.25 }
+  ]);
+  expect(basketComposition(SOURCE, [0, 0])).toBeUndefined();
 });

@@ -972,6 +972,14 @@
     "message": "У заставній note має бути вказано перевірений токен, перевірена сума та налаштований розподільник. Нічого не було надіслано. Поверніться назад і спробуйте ще раз.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "Термінологія «bridge» змінилася. Перевірте «Activity», перш ніж продовжувати.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "Зупинено перед відправленням",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Загальна сума заробленого",
     "englishSource": "Total earned"
@@ -2668,6 +2676,14 @@
     "message": "Термін придатності",
     "englishSource": "Expiration Date"
   },
+  "recallEstimated": {
+    "message": "Орієнтовна",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "Переглянутий термін дії змінився. Перегляньте його ще раз перед відправленням.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
+  },
   "recallReturnsNote": {
     "message": "Якщо до того часу його не приймуть, $amount$ повернеться як очікуваний переказ, який ви приймете. Кошти не втрачаються.",
     "englishSource": "If it is not accepted by then, the $amount$ comes back as a pending transfer you accept. No funds are lost.",
@@ -3232,8 +3248,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Ваша фраза відновлення відновлює ваші ключі, а разом із резервною копією вашого «Guardian» — і ваш обліковий запис. Зберігайте цю фразу в безпечному місці.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Ваша фраза та резервна копія вашого «Guardian» відновлюють ваш обліковий запис. Зберігайте фразу в безпечному місці.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Ваші кошти залишаються вашими",
@@ -3252,8 +3268,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "Більше про «Guardians»",
-    "englishSource": "More about Guardians"
+    "message": "Дізнайтеся більше про «Guardian»",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Продовжуйте з $name$",
@@ -3451,6 +3467,245 @@
   "openWallet": {
     "message": "Відкрити гаманець",
     "englishSource": "Open wallet"
+  },
+  "commandWallet": {
+    "message": "Гаманець",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Пошук дій гаманця",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Дії з гаманцем",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Транзакція",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Міст",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "Напрямок",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Вихід з мосту",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Мережа Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Зміна мережі",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Провайдер",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Епоха",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "З",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "До",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Актив, мережа та провайдер",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ до $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Зовнішній рахунок",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Рахунок Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Орієнтовна сума, що надійшла",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Загальна сума джерела",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Комісія провайдера",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Зміна вихідної мережі",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch не може вказати фіксовану суму джерела у встановленого постачальника. Оберіть іншого постачальника для підключення.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Для поточної мережі гаманців маршрути-містки недоступні.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Перед продовженням процедури необхідно переконатися, що на рахунку є достатній залишок, який дозволяє здійснити цей депозит.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Цей переказ зафіксовано в розділі «Активність». Затвердження гаманцем або розрахунок можуть ще перебувати в стані очікування. Не починайте процес заново.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Переглянути статус переказу",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "Деталі",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "Відкрити у повноекранному режимі",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Відкриває ваш гаманець у новій вкладці.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Не вдалося відкрити у повноекранному режимі. Спробуйте ще раз.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "Портфель",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "Розподіл",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Активи гаманця з визначеною ціною",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "Ваш гаманець порожній.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Немає активів із зазначеною ціною для відображення.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "Останні дії",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Немає останніх дій для показу",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "Баланс гаманця",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "Зміна ринкової ціни за останні 24 години для активів за поточною ціною: $change$ доларів США ($percentage$%)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "Приховати залишки",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Показати залишки",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Приховано",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Баланс недоступний",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Ціна недоступна",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Часткова оцінка — деякі активи не мають підтвердженої ціни в доларах США",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Історія операцій з гаманцем",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Діапазон історії",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Поки що недостатньо спостережень",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Відсутні деякі інтервали або охоплення оцінки",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandHistoryObservationsOnly": {
+    "message": "Лише зафіксовані спостереження",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "Прийом нових депозитів у програмі «Earn» призупинено. Ви все ще можете переглядати та виводити існуючі позиції.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
+  "commandInspectHistory": {
+    "message": "Переглянути історію спостережень",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Зауваження стосуються лише цього пристрою. Пропуски не заповнюються.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
   },
   "getStarted": {
     "message": "Почніть",
@@ -4105,6 +4360,14 @@
   "connectivityGuardianCta": {
     "message": "Змінити Guardian",
     "englishSource": "Switch Guardian"
+  },
+  "storageStalledTitle": {
+    "message": "Сховище браузера не відповідає",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Дані вашого гаманця не втрачено, але браузер перестав відповідати на запити щодо них. Щоб відновити роботу, повністю закрийте та знову відкрийте браузер.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
   },
   "revealHotKey": {
     "message": "Розкрити щоденний ключ",
@@ -4849,6 +5112,19 @@
   "signBlindCommitment": {
     "message": "Підписати зобов’язання «Blind»?",
     "englishSource": "Sign the Blind commitment?"
+  },
+  "signMessageTitle": {
+    "message": "Запит на підпис повідомлення",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "Цей сайт попросив вас підписати повідомлення, що містить $count$ елементів поля. Гаманець не може показати, що означає це повідомлення. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "connectToWebsite": {
     "message": "Перейти на веб-сайт",
@@ -5761,6 +6037,10 @@
     "message": "Інформація про токен",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Склад",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Опис",
     "englishSource": "Description"
@@ -6043,6 +6323,10 @@
     "message": "Відновлений",
     "englishSource": "Reclaimed"
   },
+  "statusExpired": {
+    "message": "Термін дії закінчився",
+    "englishSource": "Expired"
+  },
   "faucetRequestTitle": {
     "message": "Faucet Запит",
     "englishSource": "Faucet Request"
@@ -6054,6 +6338,10 @@
   "receiveShareCaption": {
     "message": "Надіслати адресу",
     "englishSource": "Send your address"
+  },
+  "receiveShareCopyFailed": {
+    "message": "Не вдалося скопіювати цю адресу. Виберіть її нижче, щоб скопіювати вручну.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
   },
   "receiveCrossChainCaption": {
     "message": "З іншої мережі",
@@ -6597,16 +6885,21 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Запит на підпис із прихованим вмістом",
-    "englishSource": "Opaque signature request"
+    "message": "Bread не може переглянути це",
+    "englishSource": "Bread can't preview this"
   },
   "opaqueSignatureNotATransaction": {
     "message": "Цей підпис не може авторизувати транзакцію з вашого рахунку.",
     "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
-    "message": "Цей сайт попросив вас підписати необроблене значення. Гаманець не може показати, що саме він авторизує. Продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ попросив вас підписати необроблене значення. Bread не може показати, що саме авторизується, тому продовжуйте лише в тому випадку, якщо ви повністю довіряєте цьому сайту.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",
@@ -7578,6 +7871,10 @@
     "message": "Отримати на",
     "englishSource": "Receive at"
   },
+  "receiveNoPendingTransfers": {
+    "message": "Відсутні вхідні перекази для перевірки",
+    "englishSource": "No incoming transfers to review"
+  },
   "earnTitle": {
     "message": "Ваш дохід",
     "englishSource": "Your Earnings"
@@ -7934,6 +8231,10 @@
   "bridgeConnectWalletAction": {
     "message": "Підключити гаманець",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "Не вдалося відкрити вікно вибору гаманця. Спробуйте ще раз.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "Ваш гаманець",
@@ -8568,6 +8869,343 @@
     "message": "Arc",
     "englishSource": "Arc"
   },
+  "receiveMethod": {
+    "message": "Метод отримання",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "Наближені наміри",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "БЕТА",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "Ви надсилаєте",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "Ви отримуєте",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "на $chain$",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "Виберіть токен для відправлення ($symbol$)",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "Виберіть токен для отримання ($symbol$)",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "Адреса для повернення коштів",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "Ваша адреса $chain$",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "Якщо переказ не відбувся, ваші $symbol$ повертаються на цю адресу.",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "Введіть дійсну адресу $chain$.",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "Приблизно $minutes$ хвилин",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "Отримати адресу для депозиту",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "Надсилайте з власного гаманця.",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "Відсутність адреси для депозиту",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "Гаманець не зміг отримати адресу для депозиту. Спробуйте ще раз.",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Функція «Near Intents» недоступна",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "Гаманець не зміг завантажити токени, які ви можете надіслати. Спробуйте ще раз пізніше.",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "Токен для відправлення",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "Знайдіть токен для відправлення",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "Фільтрувати за мережею",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "Жоден токен не відповідає вашому запиту.",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "Ви отримуєте на Miden",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "Доступно за $symbol$ на $chain$",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "Сплачуйте безпосередньо з",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "Оплатіть за допомогою $wallet$",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "Не вдалося відкрити гаманець. Скопіюйте адресу та суму, щоб надіслати свій депозит.",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "Rainbow",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "Фантом",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "Надіслати точно",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "Скопіювати суму",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "Адреса депозиту",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "Скопіювати адресу депозиту",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "Примітка",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "Копіювати примітку",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "Додайте цю записку до вашого депозиту. Депозит без цієї записки може бути втрачений.",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ $amount$ $symbol$ на Miden",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "Надіслати до",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · Залишилося $countdown$",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "Повернення коштів на",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "Поверніться до розділу «Отримати», щоб отримати нову адресу для депозиту.",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "Надішліть лише $symbol$ на $chain$. Ви можете закрити цю сторінку; переказ відображається в розділі «Активність».",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "Очікування вашого депозиту",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "Сума депозиту менша за суму",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "Обробка вашого депозиту",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "Опубліковано на Miden",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "Ваш депозит підтверджено. Переказ до Miden триває. Ви можете закрити цю сторінку.",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "Ваш $symbol$ знаходиться на Miden. note надійде у ваш гаманець після наступної синхронізації. Отримайте його в розділі «Активність».",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "Ваш $symbol$ знаходиться у вашому гаманці.",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "Отримано",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "Повернуто",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "Переказ не вдався",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "Термін дії цієї адреси закінчився. Не надсилайте кошти.",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "Показати адресу депозиту",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "Транзакція призначення",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "Недостатньо ліквідності для цієї суми. Спробуйте вказати іншу суму.",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
+  },
   "availableAmount": {
     "message": "Доступно: $amount$ $symbol$",
     "englishSource": "Available: $amount$ $symbol$",
@@ -8979,5 +9617,404 @@
   "epochReturnUnavailable": {
     "message": "Не вдалося перевірити стан коштів. Спробуйте ще раз.",
     "englishSource": "Unable to check the funds status. Try again."
+  },
+  "epochDepositLocked": {
+    "message": "Депозит заблоковано",
+    "englishSource": "Deposit locked"
+  },
+  "epochDepositWithdrawn": {
+    "message": "Знято депозит",
+    "englishSource": "Deposit withdrawn"
+  },
+  "epochDepositLockedTitle": {
+    "message": "Ваш депозит у безпеці",
+    "englishSource": "Your deposit is safe"
+  },
+  "epochDepositLockedBody": {
+    "message": "Ваш депозит у розмірі $amount$ знаходиться в The Compact на $network$, але Epoch не запустив міст. Спробуйте запустити міст ще раз або виведіть депозит назад на $address$.",
+    "englishSource": "Your $amount$ deposit is in The Compact on $network$, but Epoch did not start the bridge. Retry the bridge, or withdraw the deposit back to $address$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      },
+      "address": {
+        "content": "$3"
+      }
+    }
+  },
+  "epochDepositConnectSponsor": {
+    "message": "Підключіть гаманець EVM $address$, щоб відновити цей депозит.",
+    "englishSource": "Connect the EVM wallet $address$ to recover this deposit.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWrongWallet": {
+    "message": "Цей депозит не був здійснений з підключеного гаманця. Підключіть $address$, щоб його відновити.",
+    "englishSource": "The connected wallet did not make this deposit. Connect $address$ to recover it.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositRetry": {
+    "message": "Повторити спробу",
+    "englishSource": "Retry bridge"
+  },
+  "epochDepositRetrying": {
+    "message": "Повторюю спробу…",
+    "englishSource": "Retrying…"
+  },
+  "epochDepositWithdraw": {
+    "message": "Зняття депозиту",
+    "englishSource": "Withdraw deposit"
+  },
+  "epochDepositWithdrawing": {
+    "message": "Виведення…",
+    "englishSource": "Withdrawing…"
+  },
+  "epochDepositWithdrawStarted": {
+    "message": "Виведення коштів доступне через $time$.",
+    "englishSource": "Withdrawal available in $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWithdrawStartedUnknown": {
+    "message": "Запит на виведення коштів. Кошти стають доступними приблизно через годину після подання запиту.",
+    "englishSource": "Withdrawal requested. It becomes available about one hour after the request."
+  },
+  "epochDepositWithdrawReady": {
+    "message": "Виведення коштів доступне.",
+    "englishSource": "The withdrawal is available."
+  },
+  "epochDepositWithdrawnBody": {
+    "message": "Депозит повернувся на адресу $address$.",
+    "englishSource": "The deposit went back to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotRecoverable": {
+    "message": "Цей депозит неможливо повернути з цього гаманця.",
+    "englishSource": "This deposit cannot be recovered from this wallet."
+  },
+  "epochDepositErrorWrongChain": {
+    "message": "Переключіть свій гаманець EVM на $network$ і спробуйте ще раз.",
+    "englishSource": "Switch your EVM wallet to $network$ and try again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotStarted": {
+    "message": "Спочатку розпочніть виведення коштів.",
+    "englishSource": "Start the withdrawal first."
+  },
+  "epochDepositErrorNotDue": {
+    "message": "Виведення коштів поки що недоступне.",
+    "englishSource": "The withdrawal is not available yet."
+  },
+  "epochDepositErrorMissing": {
+    "message": "Компакт більше не утримує цей депозит.",
+    "englishSource": "The Compact no longer holds this deposit."
+  },
+  "epochDepositErrorLockMismatch": {
+    "message": "Epoch повернув інший код блокування для цього депозиту. Замість цього зніміть кошти з депозиту.",
+    "englishSource": "Epoch returned a different lock for this deposit. Withdraw the deposit instead."
+  },
+  "recoverLockedFunds": {
+    "message": "Відновлення заблокованих коштів на мосту",
+    "englishSource": "Recover locked bridge funds"
+  },
+  "recoverFundsOpenLock": {
+    "message": "Управління цим блокуванням здійснюється в розділі «Налаштування»",
+    "englishSource": "Manage this lock in Settings"
+  },
+  "recoverFundsDescription": {
+    "message": "Швидкий вхід через міст може залишити свій депозит у The Compact, якщо Epoch не запускає міст. Ця сторінка перевіряє The Compact на наявність кожного гаманця EVM, який увійшов через міст з цього гаманця, а також підключеного гаманця.",
+    "englishSource": "A Fast bridge-in can leave its deposit in The Compact when Epoch does not start the bridge. This page checks The Compact for each EVM wallet that bridged in from this wallet, and for the connected wallet."
+  },
+  "recoverFundsConnectedWallet": {
+    "message": "Підключений гаманець",
+    "englishSource": "Connected wallet"
+  },
+  "recoverFundsNothingLocked": {
+    "message": "У цьому гаманці нічого не блокується.",
+    "englishSource": "Nothing is locked for this wallet."
+  },
+  "recoverFundsCouldNotCheck": {
+    "message": "Не вдалося перевірити $tokens$ у мережі $network$. Спробуйте пізніше.",
+    "englishSource": "Could not check $tokens$ on $network$. Try again later.",
+    "placeholders": {
+      "tokens": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "recoverFundsConnectAnother": {
+    "message": "Підключити інший гаманець",
+    "englishSource": "Connect another wallet"
+  },
+  "recoverFundsNoAddressesTitle": {
+    "message": "Немає гаманців, які потрібно перевіряти",
+    "englishSource": "No wallets to check"
+  },
+  "recoverFundsNoAddressesBody": {
+    "message": "Підключіть гаманець EVM, з якого було здійснено депозит, щоб перевірити наявність заблокованих коштів.",
+    "englishSource": "Connect the EVM wallet that made the deposit to check it for locked funds."
+  },
+  "recoverFundsLockTitle": {
+    "message": "Заблоковані кошти",
+    "englishSource": "Locked funds"
+  },
+  "recoverFundsLockInvalidTitle": {
+    "message": "Це посилання недійсне",
+    "englishSource": "This link is not valid"
+  },
+  "recoverFundsLockInvalidBody": {
+    "message": "Знову відкрийте замок у розділі «Відновлення заблокованих коштів на мосту».",
+    "englishSource": "Open the lock again from Recover locked bridge funds."
+  },
+  "recoverFundsLockEmpty": {
+    "message": "Тут нічого не блокується",
+    "englishSource": "Nothing is locked here"
+  },
+  "recoverFundsChecking": {
+    "message": "Перевіряю…",
+    "englishSource": "Checking…"
+  },
+  "recoverFundsCouldNotCheckShort": {
+    "message": "Не вдалося перевірити",
+    "englishSource": "Could not check"
+  },
+  "recoverFundsWallet": {
+    "message": "Гаманець",
+    "englishSource": "Wallet"
+  },
+  "recoverFundsLocked": {
+    "message": "Заблоковано",
+    "englishSource": "Locked"
+  },
+  "recoverFundsWithdrawal": {
+    "message": "Виведення коштів",
+    "englishSource": "Withdrawal"
+  },
+  "recoverFundsWithdrawOff": {
+    "message": "Не запитується",
+    "englishSource": "Not requested"
+  },
+  "recoverFundsCancelWithdrawal": {
+    "message": "Вимкнути виведення коштів",
+    "englishSource": "Disable withdrawal"
+  },
+  "recoverFundsCancelling": {
+    "message": "Вимкнення…",
+    "englishSource": "Disabling…"
+  },
+  "recoverFundsWithdrawBlocksBridge": {
+    "message": "Примусове виведення коштів блокує нові швидкі перекази $token$ з $address$. Після відновлення коштів вимкніть виведення, щоб знову мати можливість здійснювати перекази.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Перевірте швидкий доступ до мосту",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "Перевірка статусу виведення цього токена та гаманця.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "Не вдалося перевірити статус виведення коштів. Спробуйте ще раз, перш ніж використовувати Fast bridge.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "Примусове виведення коштів активне для $token$ у мережі $network$. Після відновлення коштів вимкніть виведення, щоб знову підключити міст.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "Вимкнути виведення коштів",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "Вимкнення…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "Це вимикає примусове виведення коштів для цього блокування. Кошти, які вже було відновлено, залишаються у вашому гаманці. Новий запит на відновлення запускає новий період очікування. Ця транзакція вимагає сплати мережевої комісії.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "Відкрийте свій підключений гаманець EVM і затвердіть транзакцію в мережі $network$. Зачекайте тут на підтвердження.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "Замість цього використовуйте Circle",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "Замість цього використовуйте термін «Slow bridge»",
+    "englishSource": "Use Slow bridge instead"
+  },
+  "connectFactsTitle": {
+    "message": "Цей сайт зможе",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Перегляньте свій баланс та історію",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Читати приватні дані без дозволу",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "Буде надано доступ до $scopes$",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Запитайте, перш ніж читати приватні дані",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Надсилати вам запити на транзакції",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Ви затверджуєте кожне з них",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Ніколи не переказуйте кошти самостійно",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Кошти виходять з рахунку лише після вашого затвердження",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "Ваш запит все ще тут, тож ви можете спробувати ще раз.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "Не вдалося підключитися",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Інша мережа",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Запит від",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet токенів",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Блоки відкликання",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Отримання",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note від faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "ви",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Ви платите",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Ви отримуєте",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Виходить з вашого рахунку",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Надходить на ваш рахунок",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Індивідуальна транзакція",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "Звіт про транзакції",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Ваш запит все ще тут, тож ви можете спробувати ще раз.",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "Не вдалося підтвердити",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Не підтверджено",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureTitle": {
+    "message": "Це лише входить у систему",
+    "englishSource": "This only signs you in"
   }
 }

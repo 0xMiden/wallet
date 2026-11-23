@@ -56,6 +56,9 @@ export const ListGroup: React.FC<ListGroupProps> = ({
     className={cn(
       'flex flex-col overflow-hidden',
       surface === 'fill' && 'rounded-2xl bg-fill',
+      // A `FactRow` carries no side padding of its own (a plain group sets it on the page margin);
+      // on a surface it takes the 16px inset a `ListRow` has, or its circle sits on the edge.
+      surface !== 'plain' && '[&>[data-slot=fact-row]]:px-4',
       // A hairline edge on `page` instead of the fill. The rows' hairlines run border to border, as
       // an outlined `DetailCard`'s do: inset past the leading visual they met the right edge only,
       // and read as a line that had slipped off the card.

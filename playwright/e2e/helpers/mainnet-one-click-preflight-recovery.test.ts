@@ -1,5 +1,8 @@
+import type { TestInfo } from '@playwright/test';
+
 type PlaywrightFixtures = {
   walletB: {
+    getAccountAddress?: jest.Mock;
     recoverGuardianFromHotKey: jest.Mock;
     triggerSync: jest.Mock;
   };
@@ -27,6 +30,7 @@ const mockPlaywrightTest = Object.assign(
 const originalEnvironment = new Map<string, string | undefined>();
 const environmentKeys = [
   'E2E_NETWORK',
+  'E2E_WALLET_REPORT_INVOCATION',
   'E2E_MAINNET_GUARDIAN_KEY_PAIR',
   'E2E_MAINNET_EVM_KEY',
   'MAINNET_ONE_CLICK_MODE',
@@ -47,16 +51,20 @@ const authorizedCheckpoint = () => ({
   updatedAt: '2026-10-23T10:00:00.000Z'
 });
 
-function registerMainnetLoop(): void {
+function registerMainnetLoop(restoreGuardian?: jest.Mock): void {
   jest.resetModules();
   mockSavedCheckpoints.length = 0;
   mockRegisteredCallback = undefined;
 
   jest.doMock('@playwright/test', () => ({ expect: jest.fn() }));
   jest.doMock('../fixtures/two-wallets', () => ({ test: mockPlaywrightTest, expect: jest.fn() }));
+  if (restoreGuardian) {
+    jest.doMock('./mainnet-loop-wallet', () => ({ restoreMainnetLoopGuardian: restoreGuardian }));
+  }
   jest.doMock('./mainnet-one-click-ui', () => ({
-    confirmMainnetOneClickReview: jest.fn(),
-    selectMainnetOneClickAssets: jest.fn()
+    captureMainnetNearIntentsQuote: jest.fn(),
+    readMainnetNearIntentsDeposit: jest.fn(),
+    selectMainnetNearIntentsDeposit: jest.fn()
   }));
   jest.doMock('../ios/helpers/wc-counterparty', () => ({ WcCounterparty: jest.fn() }));
   jest.doMock('./test-dapp', () => ({ setAutoConsume: jest.fn().mockResolvedValue(undefined) }));
@@ -89,9 +97,12 @@ function registerMainnetLoop(): void {
   });
 }
 
-async function runRegisteredLoop(fixtures: PlaywrightFixtures): Promise<unknown> {
+async function runRegisteredLoop(
+  fixtures: PlaywrightFixtures,
+  info?: Pick<TestInfo, 'annotations' | 'timeout'>
+): Promise<unknown> {
   if (typeof mockRegisteredCallback !== 'function') throw new Error('The mainnet 1Click callback was not registered');
-  return Reflect.apply(mockRegisteredCallback, undefined, [fixtures]);
+  return Reflect.apply(mockRegisteredCallback, undefined, [fixtures, info]);
 }
 
 describe('mainnet 1Click checkpoint recovery', () => {
@@ -104,6 +115,7 @@ describe('mainnet 1Click checkpoint recovery', () => {
     process.env.MAINNET_ONE_CLICK_MODE = 'execute';
     process.env.GITHUB_RUN_ID = mockRunId;
     delete process.env.MAINNET_NEAR_MODE;
+    delete process.env.E2E_WALLET_REPORT_INVOCATION;
     mockNativeCheckpoint = undefined;
     mockCheckpoint = authorizedCheckpoint();
     registerMainnetLoop();
@@ -118,6 +130,7 @@ describe('mainnet 1Click checkpoint recovery', () => {
     jest.dontMock('@playwright/test');
     jest.dontMock('../fixtures/two-wallets');
     jest.dontMock('./mainnet-one-click-ui');
+    jest.dontMock('./mainnet-loop-wallet');
     jest.dontMock('../ios/helpers/wc-counterparty');
     jest.dontMock('./test-dapp');
     jest.dontMock('./mainnet-one-click-checkpoint');
@@ -206,6 +219,93 @@ describe('mainnet 1Click checkpoint recovery', () => {
         lossBudgetUsdMicros: '1800000'
       })
     ]);
+  });
+  it('reports read-only recovery with no inferred network when checkpoint telemetry is absent', async () => {
+    process.env.MAINNET_NEAR_MODE = 'recover';
+    process.env.E2E_WALLET_REPORT_INVOCATION = 'near-recover';
+    process.env.GITHUB_RUN_ID = '100';
+    process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'false';
+    mockNativeCheckpoint = {
+      phase: 'forward-authorized',
+      sourceRunId: '99',
+      authorizationRunId: '99',
+      account: 'test_only_original_guardian',
+      paidMidenFees: '0',
+      paidEvmFees: '0'
+    };
+    const info: Pick<TestInfo, 'annotations' | 'timeout'> = { annotations: [], timeout: 30_000 };
+    const walletB = { recoverGuardianFromHotKey: jest.fn(), triggerSync: jest.fn() };
+    await expect(runRegisteredLoop({ walletB }, info)).resolves.toBeUndefined();
+
+    expect(walletB.recoverGuardianFromHotKey).not.toHaveBeenCalled();
+    expect(mockSavedCheckpoints[0]).toMatchObject({ phase: 'unspent', sourceRunId: '99' });
+    expect(info.annotations).toHaveLength(1);
+    const description = info.annotations[0]?.description ?? '';
+    expect(JSON.parse(description)).toMatchObject({
+      operation: {
+        key: 'near-recovery',
+        provider: 'NEAR',
+        sourceRunId: { value: '99', reason: null },
+        sourceNetwork: null,
+        destinationNetwork: null,
+        recoveryEffect: 'read_only',
+        outcome: 'unknown',
+        stages: [{ key: 'cleanup', status: 'passed' }]
+      }
+    });
+    expect(description).not.toContain('test_only_original_guardian');
+  });
+
+  it.each([false, true])('blocks a mismatched original NEAR account with reporting enabled %s', async reporting => {
+    process.env.MAINNET_NEAR_MODE = 'recover';
+    process.env.GITHUB_RUN_ID = '100';
+    process.env.GITHUB_RUN_ATTEMPT = '1';
+    if (reporting) process.env.E2E_WALLET_REPORT_INVOCATION = 'near-recover';
+    mockNativeCheckpoint = {
+      phase: 'forward-authorized',
+      sourceRunId: '99',
+      account: 'test_only_original_guardian',
+      forwardQuote: {},
+      sendAuthority: {}
+    };
+    const restoreGuardian = jest.fn().mockResolvedValue(undefined);
+    registerMainnetLoop(restoreGuardian);
+    const info: Pick<TestInfo, 'annotations' | 'timeout'> = { annotations: [], timeout: 30_000 };
+    const walletB = {
+      getAccountAddress: jest.fn().mockResolvedValue('test_only_restored_guardian'),
+      recoverGuardianFromHotKey: jest.fn(),
+      triggerSync: jest.fn()
+    };
+    await expect(runRegisteredLoop({ walletB }, info)).rejects.toThrow(
+      'Original native NEAR recovery Guardian changed'
+    );
+
+    expect(restoreGuardian).toHaveBeenCalledTimes(1);
+    expect(walletB.getAccountAddress).toHaveBeenCalledTimes(1);
+    expect(mockSavedCheckpoints).toHaveLength(0);
+    expect(info.annotations).toHaveLength(reporting ? 1 : 0);
+    if (!reporting) return;
+    const description = info.annotations[0]?.description ?? '';
+    expect(JSON.parse(description)).toMatchObject({
+      operation: {
+        key: 'near-recovery',
+        provider: 'NEAR',
+        outcome: 'unknown',
+        stages: [
+          {
+            key: 'recovery_gate',
+            status: 'failed',
+            endpoint: null,
+            error: {
+              code: 'recovery_checkpoint_account_mismatch',
+              explanation: 'The recovery checkpoint did not match the wallet account.'
+            }
+          }
+        ]
+      }
+    });
+    expect(description).not.toMatch(/test_only_(original|restored)_guardian/);
   });
   it('never calls a missing native send fingerprint unspent when the original forward stage was attempted', async () => {
     process.env.MAINNET_NEAR_MODE = 'recover';

@@ -28,7 +28,8 @@ import { balancePrice } from './balancePrice';
 export async function updateBalancesFromSyncData(
   accountPublicKey: string,
   vaultAssets: SerializedVaultAsset[],
-  snapshot?: BalanceSnapshot
+  snapshot?: BalanceSnapshot,
+  isCurrent: () => boolean = () => true
 ): Promise<void> {
   const store = useWalletStore.getState();
   /* c8 ignore next -- tokenPrices always initialized in store */
@@ -40,6 +41,8 @@ export async function updateBalancesFromSyncData(
     console.warn('Token metadata overrides read failed', error);
     return {};
   });
+
+  if (!isCurrent()) return;
 
   const balances: TokenBalanceData[] = [];
   // The faucets whose rows took an override from the storage read; the landing applies the store's current ones.

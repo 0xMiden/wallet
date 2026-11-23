@@ -108,6 +108,64 @@ test('waits without signing while the newly queued original PSWAP is not public 
     RpcClient.prototype.getNotesById = originalGet;
   }
 });
+test('reports canonical order inclusion before a payback or claim exists', async () => {
+  const { original, scope } = fixture();
+  const blockNum = 123;
+  const noteRoot = Word.fromHex(scope.noteId);
+  let provesCanonicalNote = true;
+  const record = {
+    note: original,
+    noteId: original.id(),
+    metadata: original.metadata(),
+    inclusionProof: {
+      location: () => ({ blockNum: () => blockNum, blockNoteTreeIndex: () => 0 }),
+      notePath: () => ({
+        verify(index, id, root) {
+          assert.equal(index, 0n);
+          assert.equal(id.toHex(), scope.noteId);
+          assert.equal(root, noteRoot);
+          return provesCanonicalNote;
+        }
+      })
+    }
+  };
+  const originalGet = RpcClient.prototype.getNotesById;
+  const originalHeader = RpcClient.prototype.getBlockHeaderByNumber;
+  const originalCommitHeight = RpcClient.prototype.getNullifierCommitHeight;
+  const observed = [];
+  RpcClient.prototype.getNotesById = async () => [record];
+  RpcClient.prototype.getBlockHeaderByNumber = async () => ({ blockNum: () => blockNum, noteRoot: () => noteRoot });
+  RpcClient.prototype.getNullifierCommitHeight = async () => {
+    observed.push('payback check');
+    return undefined;
+  };
+  const onOriginalIncluded = () => observed.push('inclusion');
+  try {
+    const rpcUrl = 'https://rpc.mainnet.miden.io';
+    assert.equal(await claims.readMainnetSwapPayback(rpcUrl, scope, onOriginalIncluded), undefined);
+    assert.deepEqual(observed.splice(0), ['inclusion', 'payback check']);
+
+    assert.equal(
+      await claims.readMainnetSwapPayback(rpcUrl, scope, () => {
+        throw new Error('report unavailable');
+      }),
+      undefined
+    );
+    assert.deepEqual(observed.splice(0), ['payback check']);
+
+    provesCanonicalNote = false;
+    await assert.rejects(
+      () => claims.readMainnetSwapPayback(rpcUrl, scope, onOriginalIncluded),
+      /canonical header root/
+    );
+    assert.deepEqual(observed, []);
+  } finally {
+    RpcClient.prototype.getNotesById = originalGet;
+    RpcClient.prototype.getBlockHeaderByNumber = originalHeader;
+    RpcClient.prototype.getNullifierCommitHeight = originalCommitHeight;
+  }
+});
+
 test('never treats a nonempty malformed original response as pending', async () => {
   const { scope } = fixture();
   const originalGet = RpcClient.prototype.getNotesById;
@@ -754,6 +812,34 @@ test('accepts a claimed forward-settled checkpoint for its first recovery return
     /already prepared or issued/
   );
 });
+test('accepts exact retained return preparation without treating it as an issued grant', () => {
+  const { state, evidence, balances } = recoveryFixture();
+  Object.assign(state, {
+    phase: 'forward-settled',
+    forwardReceived: evidence.amount.toString(),
+    forwardRefunded: '0',
+    paidFees: '266',
+    returnAmount: evidence.amount.toString(),
+    returnBaseline: Object.fromEntries(Object.entries(balances).map(([key, value]) => [key, value.toString()]))
+  });
+  const result = claims.authorizeMainnetSwapRecoveryReturn(state, evidence, balances, '456', grant);
+  assert.equal(result.phase, 'reverse-authorized');
+  assert.equal(result.returnAmount, state.returnAmount);
+  assert.deepEqual(result.returnBaseline, state.returnBaseline);
+  assert.equal(result.reverseRequestAuthority, undefined);
+  assert.equal(result.recoveryReturnAuthorizedAt, grant);
+  for (const changed of [
+    { returnAmount: '1' },
+    { returnBaseline: { ...state.returnBaseline, native: '1' } },
+    { returnBaseline: undefined },
+    { recoveryReturnAuthorizedAt: grant }
+  ]) {
+    assert.throws(() =>
+      claims.authorizeMainnetSwapRecoveryReturn({ ...state, ...changed }, evidence, balances, '456', grant)
+    );
+  }
+});
+
 test('freezes only a first recovery return, retaining original expired bytes/nonce/prices and conservative aggregate costs', () => {
   const { state, evidence, balances } = recoveryFixture();
   const original = structuredClone(state);

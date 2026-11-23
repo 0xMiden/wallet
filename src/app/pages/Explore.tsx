@@ -64,7 +64,7 @@ interface PullGesture {
   distance: number;
 }
 
-const Explore: FC = () => {
+const Explore: FC<{ balanceAction?: React.ReactNode }> = ({ balanceAction }) => {
   const { t } = useTranslation();
   const isMobileApp = isMobile();
   const account = useAccount();
@@ -371,6 +371,7 @@ const Explore: FC = () => {
             onUnhide={unhide}
             account={account}
             balancesLoading={balancesLoading}
+            balanceAction={balanceAction}
             claimableNotes={manuallyClaimableNotes}
             // A faucet baseline has to be a LIVE list: the hook serves the list
             // saved last session first, and a native note newer than that cache
@@ -395,6 +396,7 @@ interface HomeOverviewProps {
   onUnhide: (tokenId: string) => Promise<boolean>;
   account: WalletAccount;
   balancesLoading: boolean;
+  balanceAction?: React.ReactNode;
   claimableNotes: readonly PendingNoteValue[] | undefined;
   fundingNotes: readonly PendingNoteValue[] | undefined;
 }
@@ -409,6 +411,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   onUnhide,
   account,
   balancesLoading,
+  balanceAction,
   claimableNotes,
   fundingNotes
 }) => {
@@ -465,6 +468,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
                 : undefined
             }
             onMore={() => setAccountsOpen(true)}
+            balanceAction={balanceAction}
           />
         )}
       </Balance>

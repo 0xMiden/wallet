@@ -338,6 +338,7 @@ async function establishSession(
     adapterConnected: view.adapterConnected,
     adapterAddress: view.adapterAddress,
     providerAddress: view.providerAddress,
+    cachedAddress: view.connected?.addressCanonical ?? null,
     privateDataPermission: view.connected?.privateDataPermission ?? null,
     walletSessionAccounts: await dappSessionsFor(j.walletA, dapp.origin)
   };

@@ -739,6 +739,35 @@ RED: the first two named suites ran 104 tests, with five expected failures for r
 
 Review found `.15` and `-.15` were left without a leading zero despite the accepted plan. Added both failing cases, then normalized them to `0.15` and `-0.15`. The two named suites now pass all 107 tests; named ESLint passes.
 
+# Bread Command fullscreen wallet integration
+
+## Plan
+
+- [x] Record V6 visual/UX approval and the request for full integration with a real bridge-portal source port.
+- [x] Establish an isolated worktree on freshly fetched `origin/main`.
+- [x] Map the real five journeys, wallet ownership, live data, configuration, and portal port boundaries.
+- [x] Write the integration design and complete the independent builder-readiness check.
+- [x] Obtain approval of the written production design and feature-branch/PR publication for CI; incorporate the prominently labelled sidebar launcher.
+- [ ] Execute the confirmed implementation plan and verify a clean dependency/test baseline (plan written and self-checked; baseline not run).
+- [ ] Implement the scoped React Command shell, desktop presentation variants, live data, drafts and existing four action controllers.
+- [ ] Port the bridge portal core/providers and required tests, with wallet-native signing, durable tracking and compatibility for existing bridge records.
+- [ ] Verify protected execution, recovery, routing and unaffected compact/mobile/desktop behavior with meaningful tests and current-head CI.
+- [ ] Inspect rendered wide-desktop visuals, all action states, keyboard/focus and normal/reduced motion.
+- [ ] Complete finished-code review, apply actionable findings, verify the final source and hand over without an unauthorized merge or release.
+
+## Status
+
+V6 is approved and real integration is requested. The written design is `docs/bread-command-integration-design.md`, approved with feature-branch/PR publication for CI. The user additionally delegated a prominent sidebar fullscreen launcher; the design now specifies a pinned, full-width orange button with charcoal text above existing Home action tabs. Fresh builder-readiness check `d178b4b3-ae2b-4c6b-a4ce-b0e785e0b53e` returned "nothing important left". Product code, dependencies and runtime wallet state are not changed. Baseline: `9f239a3171140260d1c3b1133b49a04eaecc5683`. Portal source: `0xMiden/bridge-portal` at `cb52c470395273e05e84460fdadc59652d9ef5b3`, freshly confirmed remote HEAD. The three read-only discovery lanes in `66df5a70-d4f5-49ce-baa6-37c45ed09fb3` completed successfully. Existing task sections above are inherited, not owned by this integration task. The story-wide tracker is `/Users/celrisen/tasks/wallet-dashboard/todo.md`.
+
+## Design verification
+
+- Confirmed both frozen refs, the clean starting worktree, unchanged approved V6 hashes, portal MIT terms, wallet execution ownership and the three discovery outputs.
+- Fresh builder-readiness check reported no important planning questions. This is not finished-code review or runtime validation. Two additional read-only plan-source lanes in `ef9fe4c9-6a2a-47c3-acc5-bf38e1473ac9` completed successfully; the plan itself was self-checked, not delegated for review.
+- Launcher planning explicitly accounts for the collapsed Home-action wrapper, fixed 48px target, both-theme/Devnet tokens and hover contrast. Data planning reuses existing balance-snapshot evidence, avoids the stubbed account-removal/FX paths, and adds no second balance fetcher or signing owner.
+- Guarded document Prettier and diff preflight passed. Earlier lock refusals returned75 and ran nothing; no guard was bypassed. Existing unsupported Prettier import-order options emitted warnings, not document failures.
+- The shared design lives in `docs/` because this clone locally excludes `docs/superpowers/`; no ignore rule was changed or bypassed.
+- No dependency installation, product test/build, browser/device check, live wallet connection, signature, provider operation, push, PR, merge or deployment has occurred. Design and feature-branch CI publication are approved. The self-checked implementation plan is `docs/bread-command-integration-plan.md` (15 task-sized deliverables). Plan confirmation and execution-method selection are the next user-dependent gate; subagent-driven execution is recommended, with native inline execution also offered. No product changes start before that handoff.
+
 # PR #2149 - nightly extension merge goal (2026-11-15)
 
 - [ ] Integrate current main and preserve the user-correction lesson in the existing isolated branch.

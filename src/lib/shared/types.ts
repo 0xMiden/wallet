@@ -407,7 +407,7 @@ export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
  * when the dry run ran and could not measure, or could not be built.
  */
 export type UsdcxBurnFeeEstimate =
-  | { outcome: 'measured'; reserve: bigint }
+  | { outcome: 'measured'; reserve: bigint; faucetId: string; scope: string }
   | { outcome: 'busy' }
   | { outcome: 'failed'; failure?: BurnFeeFailure };
 
@@ -415,7 +415,7 @@ export type UsdcxBurnFeeEstimate =
 export type EstimateUsdcxBurnFeeResponse = WalletMessageBase & {
   type: WalletMessageType.EstimateUsdcxBurnFeeResponse;
 } & (
-    | { outcome: 'measured'; feeReserve: string }
+    | { outcome: 'measured'; feeReserve: string; faucetId: string; scope: string }
     | { outcome: 'busy' }
     | { outcome: 'failed'; failure?: BurnFeeFailure }
   );

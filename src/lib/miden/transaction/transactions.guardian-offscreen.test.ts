@@ -54,6 +54,8 @@
  *     update-procedure-threshold completes with its finalization (#1233).
  */
 
+import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
@@ -68,11 +70,13 @@ import {
   STALE_PROOF_ERROR,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
+import { noteDeliveryWriteCount } from './helper';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+import { parseSubmitEvidence } from '../sdk/submit-evidence';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
@@ -296,8 +300,11 @@ const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => {
   const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
   return {
+    ColdProposalAdoptionError: actual.ColdProposalAdoptionError,
     GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
+    isProposalChainSyncError: actual.isProposalChainSyncError,
     PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+    ProposalChainSyncError: actual.ProposalChainSyncError,
     MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
   };
 });
@@ -3666,6 +3673,45 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
   });
 
+  // An apply trap reads nothing off the result, so the facts name no order: the one the rebuild recorded beside the
+  // bytes it proposed is the order, held at the landing and opened by the Completed write, with no decode.
+  it('swap: a round-tripped apply trap with no landed facts is Completed with the order its request recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    const swap = valueMovingCases().find(c => c.type === 'swap')!.row;
+    const extraInputs = { requestedFaucetId: 'rfaucet', requestedAmount: '10', expirySeconds: 100 };
+    const row = { ...swap, extraInputs: { ...extraInputs, requestOrder: { orderId: '42', noteId: orderNoteId } } };
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    mockDispatchGuardianPipeline.mockImplementationOnce(async () => {
+      deserialize.mockClear();
+      throw Object.assign(new Error('local apply failed after submit'), {
+        errorCode: 'ApplyTransactionAfterSubmitFailed'
+      });
+    });
+    const { service } = arrange('apply-trap-swap-recorded-order', row);
+    const rebuilt = {
+      proposal: { id: 'prop', nonce: 7 },
+      requestBytes: new Uint8Array(REBASED_BYTES),
+      order: { orderId: '42', orderNoteId }
+    };
+    service.createRebasedCustomProposal.mockResolvedValueOnce(rebuilt);
+
+    await generateTransaction(
+      buildTx('apply-trap-swap-recorded-order', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'apply-trap-swap-recorded-order')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.extraInputs).toMatchObject({ orderId: 42n, expiresAt: expect.any(Number) });
+    expect(finalRow.extraInputs).not.toHaveProperty('landedOrder');
+    expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(deserialize).not.toHaveBeenCalled();
+  });
+
   it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     // As the proxy rebuilds the reply: the code and the landed facts on a plain Error.
@@ -3684,6 +3730,247 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.noteDelivery).toBe('undelivered');
     expect(finalRow.displayMessage).toBe('Executed - 2 private notes could not be delivered');
     expect(finalRow.transactionId).toBe('0xlanded');
+  });
+
+  // A trap serializing the result follows the leaf's apply, so the store holds the notes its gate recorded: the landed
+  // send owes exactly those, on the fresh schedule a reconciler landing starts, and the sweep is told to look again.
+  const appliedSendTxId = `0x${'cd'.repeat(32)}`;
+  const appliedSendNote = `0x${'ef'.repeat(32)}`;
+  const privateSend = {
+    type: 'send',
+    secondaryAccountId: 'recipient',
+    faucetId: 'faucet',
+    amount: '1000',
+    noteType: 'private'
+  };
+  const landAfterGate = (evidence: Record<string, unknown> | undefined, landed: Record<string, unknown>) => {
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(await gate(evidence)).toBe(true);
+      // As the proxy rebuilds the reply.
+      throw Object.assign(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: This transaction was accepted into the node's mempool but the " +
+            'local store update failed'
+        ),
+        { errorCode: 'ApplyTransactionAfterSubmitFailed', landed }
+      );
+    });
+  };
+
+  it('send: a landed reply after a serialize trap that followed the apply owes the notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] }, { applied: true });
+    const { service } = arrange('serialize-trap-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+    const landing = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      buildTx('serialize-trap-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-private-send')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [appliedSendNote],
+      noteDelivery: 'undelivered',
+      secondaryAccountId: 'recipient'
+    });
+    expect(finalRow.relayNoteIds).toBeUndefined();
+    expect(finalRow.relayAttempts).toBeUndefined();
+    expect(finalRow.nextRelayAt).toBeUndefined();
+    expect(finalRow.completedAt).toBeGreaterThanOrEqual(landing);
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  // An apply that failed left the notes out of the store, so nothing can push them: the row stays inert, as before.
+  it('send: a landed reply whose apply failed owes no note, whatever its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] }, {});
+    arrange('apply-failed-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('apply-failed-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'apply-failed-private-send')!;
+    expect(finalRow).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  it("send: an applied landing owes no note an earlier attempt's stamp recorded", async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate(undefined, { applied: true });
+    arrange('applied-send-earlier-stamp', privateSend);
+    txStore.find(r => r.id === 'applied-send-earlier-stamp')!.submitEvidence = [
+      {
+        attemptId: 'earlier',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: appliedSendTxId,
+        outputNoteIds: [appliedSendNote]
+      }
+    ];
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('applied-send-earlier-stamp', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'applied-send-earlier-stamp')!;
+    expect(finalRow).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  // An execute's gate also recorded which of its notes are private: those, not its public ones, are what the
+  // recipient its row names is owed.
+  const appliedExecuteNote = `0x${'7a'.repeat(32)}`;
+  const privateExecute = { type: 'execute', requestBytes: new Uint8Array([2, 2]), secondaryAccountId: 'recipient' };
+
+  it('execute: a landed reply after a serialize trap that followed the apply owes the private notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate(
+      {
+        transactionId: appliedSendTxId,
+        outputNoteIds: [appliedExecuteNote, appliedSendNote],
+        privateOutputNoteIds: [appliedSendNote]
+      },
+      { applied: true }
+    );
+    const { service } = arrange('serialize-trap-private-execute', privateExecute);
+    const writes = noteDeliveryWriteCount();
+    const landing = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      buildTx('serialize-trap-private-execute', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-private-execute')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [appliedSendNote],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(finalRow.relayAttempts).toBeUndefined();
+    expect(finalRow.nextRelayAt).toBeUndefined();
+    expect(finalRow.completedAt).toBeGreaterThanOrEqual(landing);
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  // A transaction can create up to 1024 notes, so a gate naming 300 crosses the bus whole, as the service worker
+  // parses it.
+  it('execute: a landed reply after a serialize trap owes the one private note out of 300 its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const outputNoteIds = Array.from({ length: 300 }, (_, i) => `0x${(0xe0000 + i).toString(16).padStart(64, '0')}`);
+    outputNoteIds[150] = appliedSendNote;
+    landAfterGate(
+      parseSubmitEvidence({ transactionId: appliedSendTxId, outputNoteIds, privateOutputNoteIds: [appliedSendNote] }),
+      { applied: true }
+    );
+    arrange('serialize-trap-execute-300', privateExecute);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('serialize-trap-execute-300', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-execute-300')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [appliedSendNote],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+  });
+
+  // A failure before the submit never reaches the landed write, so the notes its gate recorded are owed to nobody.
+  it('execute: a failure before its submit owes none of the private notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(
+        await gate({
+          transactionId: appliedSendTxId,
+          outputNoteIds: [appliedExecuteNote, appliedSendNote],
+          privateOutputNoteIds: [appliedSendNote]
+        })
+      ).toBe(true);
+      throw markErrorBeforeSubmit(new Error("Offscreen call 'guardianPipeline' failed: the chain tip did not read"));
+    });
+    arrange('pre-submit-private-execute', privateExecute);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('pre-submit-private-execute', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'pre-submit-private-execute')!;
+    expect(finalRow.submitEvidence).toEqual([expect.objectContaining({ privateOutputNoteIds: [appliedSendNote] })]);
+    expect(finalRow.status).not.toBe(ITransactionStatus.Completed);
+    expect(finalRow.relayNoteIds).toBeUndefined();
+    expect(finalRow.relayRecipientId).toBeUndefined();
+    expect(finalRow.noteDelivery).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  // The offscreen leaf resolves only after its apply, so a tail that fails after it leaves the notes its gate recorded
+  // in the store, owed as after a serialize trap.
+  it('send: a tail that fails after a resolved offscreen leaf owes the notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(await gate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] })).toBe(true);
+      return makeResult();
+    });
+    mockComplete.send.mockRejectedValueOnce(new Error('the completion failed'));
+    arrange('tail-failed-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('tail-failed-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockComplete.send).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(r => r.id === 'tail-failed-private-send')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [appliedSendNote],
+      noteDelivery: 'undelivered'
+    });
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
   });
 
   it('execute: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
@@ -3729,7 +4016,10 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 const makeStructuralService = () => {
   const pushSwitchDelta = jest.fn(async (_proposalId: string) => {});
   return {
-    createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
+    createSwitchGuardianProposal: jest.fn(async () => ({
+      proposal: { id: 'prop', nonce: 7 },
+      exportedProposal: '{"commitment":"prop"}'
+    })),
     createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
     createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
     signProposal: jest.fn(async () => {}),
@@ -3761,6 +4051,24 @@ const makeStructuralProvider = () => ({
 });
 
 type StructuralCase = { type: string; row: Record<string, unknown>; complete: jest.Mock };
+
+const expectStructuralCoSign = (service: ReturnType<typeof makeStructuralService>, type: string) => {
+  const expectedCalls =
+    type === 'switch-guardian'
+      ? [
+          [
+            'prop',
+            expect.objectContaining({ label: 'switch-guardian cold co-sign' }),
+            '{"commitment":"prop"}',
+            expect.objectContaining({ syncing: false, abandoned: false })
+          ]
+        ]
+      : [];
+  expect(service.signProposal.mock.calls).toEqual(expectedCalls);
+  const hotSignOrder = service.signAndCreateTransactionRequest.mock.invocationCallOrder[0]!;
+  expect(service.signProposal.mock.invocationCallOrder.every(order => order < hotSignOrder)).toBe(true);
+};
+
 const structuralCases = (): StructuralCase[] => [
   {
     type: 'switch-guardian',
@@ -3802,7 +4110,7 @@ function arrangeStructural(id: string, extra: Record<string, unknown>, result = 
 describe('structural guardian leaf routing — flag OFF (inline)', () => {
   it.each(structuralCases())(
     '$type: runs the inline pipeline, never dispatchGuardianPipeline; commit-wait routes through the proxy with the re-derived id',
-    async ({ row, complete }) => {
+    async ({ type, row, complete }) => {
       const { service, inline, provider: sp } = arrangeStructural(`s-off-${row.type}`, row);
 
       await generateTransaction(buildTx(`s-off-${row.type}`, row) as never, signCallback, false, sp as never);
@@ -3824,6 +4132,7 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
       const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
       const completeOrder = complete.mock.invocationCallOrder[0]!;
       expect(waitOrder).toBeLessThan(completeOrder);
+      expectStructuralCoSign(service, type);
     }
   );
 });
@@ -3831,11 +4140,11 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
 describe('structural guardian leaf routing — flag ON (offscreen)', () => {
   it.each(structuralCases())(
     '$type: crosses the co-signed request bytes to dispatchGuardianPipeline; commit-wait routes through the proxy (offscreen), never the dormant SW client',
-    async ({ row, complete }) => {
+    async ({ type, row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       const dispatched = makeResult();
       mockDispatchGuardianPipeline.mockResolvedValue(dispatched);
-      const { inline, provider: sp } = arrangeStructural(`s-on-${row.type}`, row);
+      const { service, inline, provider: sp } = arrangeStructural(`s-on-${row.type}`, row);
 
       await generateTransaction(buildTx(`s-on-${row.type}`, row) as never, signCallback, false, sp as never);
 
@@ -3863,6 +4172,7 @@ describe('structural guardian leaf routing — flag ON (offscreen)', () => {
       const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
       const completeOrder = complete.mock.invocationCallOrder[0]!;
       expect(waitOrder).toBeLessThan(completeOrder);
+      expectStructuralCoSign(service, type);
       // Structural completion finalized with the round-tripped result.
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0][STRUCTURAL_RESULT_ARG]).toBe(dispatched);

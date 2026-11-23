@@ -275,9 +275,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   // The first lookup (adopt only) is done, so the gate knows whether a rotation exists before it asks.
   const [adoptChecked, setAdoptChecked] = useState(false);
   const inFlightRef = useRef<Promise<RotationLookup> | null>(null);
-  const { row: rowById, loaded: rowLoaded } = useTransactionRow(txId ?? '');
+  const { row: rowById, loaded: rowLoaded, readFailed } = useTransactionRow(txId ?? '');
   // Without an id the overlay tracks no row.
   const row = txId === null ? undefined : rowById;
+  const trackedReadFailed = txId !== null && readFailed === true;
   const { rotationRows, fundingRows, loaded: rowsLoaded } = useRotationGateRows(accountPublicKey);
   const feeFaucetId = useNativeFeeFaucetId();
   const baseFee = useVerificationBaseFee();
@@ -391,11 +392,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const rotationLive = rotationRows.some(isLiveTransaction);
 
   const onRetry = useCallback(() => {
+    if (trackedReadFailed) return;
     setTxId(null);
     // Failed rows are terminal — retry always enqueues a fresh transaction, with the role chosen here, else
     // with the role of the failed rotation (a rotation adopted on mount).
     beginRotation(false, mode);
-  }, [beginRotation, mode]);
+  }, [beginRotation, mode, trackedReadFailed]);
 
   const confirm = useConfirm();
   const alert = useAlert();
@@ -444,12 +446,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
 
   // A funding trigger never queues a second rotation beside a live one.
   const onFunded = useCallback(() => {
-    if (!rotationLive && !importing) beginRotation(false, mode);
-  }, [beginRotation, rotationLive, importing, mode]);
+    if (!trackedReadFailed && !rotationLive && !importing) beginRotation(false, mode);
+  }, [beginRotation, rotationLive, importing, mode, trackedReadFailed]);
 
   const { retryClaim } = useRotationFundingClaim({
     accountPublicKey,
-    active: rowsLoaded && gate.view === 'funding' && !rotationLive && !importing,
+    active: rowsLoaded && gate.view === 'funding' && !rotationLive && !importing && !trackedReadFailed,
     listLive: !isFallback && claimableNotes !== undefined && feeFaucetId !== null,
     selection,
     feeFaucetId,
@@ -470,7 +472,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     if (deferredRotationDue) beginRotation(balancesLoading, mode);
   }, [beginRotation, deferredRotationDue, balancesLoading, mode, rotationRows, fundingRows]);
 
-  const watchedRotationFailure = useWatchedTransactionFailure(row, rowLoaded, accountPublicKey, gate.view === 'failed');
+  const watchedRotationFailure = useWatchedTransactionFailure(
+    row,
+    rowLoaded && !trackedReadFailed,
+    accountPublicKey,
+    gate.view === 'failed'
+  );
   const watchedFundingRow = newestRow(fundingRows);
   const watchedFundingFailure = useWatchedTransactionFailure(
     watchedFundingRow,
@@ -487,7 +494,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
           ? 'raw_hot_key_rotation_failed'
           : 'hotKeyRotationFailedGeneric'
       : null;
-  if (gate.view === 'recovery-seed' && row) {
+  if (!trackedReadFailed && gate.view === 'recovery-seed' && row) {
     return <RecoverySeedPrompt transaction={row} onClose={() => Woozie.navigate('/')} />;
   }
 
@@ -528,7 +535,11 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     >
       {/* `my-auto` centres the content and lets a taller one scroll from its top instead of clipping. */}
       <div className="my-auto flex w-full flex-col items-center gap-4">
-        {importing ? (
+        {trackedReadFailed ? (
+          <Notice errorId="historyDetailsLoadError" tone="negative" role="alert">
+            {t('historyDetailsLoadError')}
+          </Notice>
+        ) : importing ? (
           <div data-testid="hot-key-rotation-import" className="flex w-full flex-col items-center gap-4">
             <ImportHotKeyScreen submitting={importBusy} onSubmit={onImportKeyPair} />
             {importError && (

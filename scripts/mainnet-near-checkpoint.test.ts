@@ -3,13 +3,18 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  assertMainnetNearNoLegacyFees,
   parseMainnetNearCheckpoint,
   loadMainnetNearCheckpoint,
   saveMainnetNearCheckpoint,
   type MainnetNearCheckpoint
 } from '../playwright/e2e/helpers/mainnet-near-checkpoint';
 
-import { nativeNearFixture as fixture, nativeNearQuote as quote } from './helpers/mainnet-near-fixture';
+import {
+  nativeNearFixture as fixture,
+  nativeNearNoFeeFixture,
+  nativeNearQuote as quote
+} from './helpers/mainnet-near-fixture';
 
 const hash = `0x${'a'.repeat(64)}`;
 function complete(): MainnetNearCheckpoint {
@@ -73,6 +78,40 @@ it('loads no fabricated state when absent and atomically preserves exact origina
 it('accepts only a fully receipted native round trip with actual EVM/native fees and consume fingerprints', () => {
   const state = complete();
   expect(parseMainnetNearCheckpoint(state)).toEqual(state);
+});
+it('persists one retired NEAR return separately from a distinct replacement', () => {
+  const state = complete();
+  const checkpoint = {
+    ...state,
+    sourceRunId: '44318071333',
+    authorizationRunId: '44318071333',
+    lossBudgetUsdMicros: '1712349',
+    retiredReturn: {
+      runId: '44844609625',
+      replacementRunId: '44930000000',
+      quote: {
+        ...state.reverseQuote!,
+        quoteHash: '3'.repeat(44),
+        depositAddress: `0x${'4'.repeat(40)}`,
+        deadline: '2026-11-12T12:04:00.000Z'
+      },
+      nonce: state.evmNonceBefore!,
+      valuation: state.returnValuation!
+    }
+  };
+  const path = join(directory, 'roundtrip.json');
+  saveMainnetNearCheckpoint(path, parseMainnetNearCheckpoint(checkpoint));
+  expect(loadMainnetNearCheckpoint(path)).toEqual(checkpoint);
+  for (const retiredReturn of [
+    { ...checkpoint.retiredReturn, runId: checkpoint.retiredReturn.replacementRunId },
+    { ...checkpoint.retiredReturn, nonce: 1 },
+    { ...checkpoint.retiredReturn, quote: { ...checkpoint.retiredReturn.quote, amountIn: '1' } },
+    { ...checkpoint.retiredReturn, quote: state.reverseQuote },
+    { ...checkpoint.retiredReturn, rawSignature: 'never persist' }
+  ]) {
+    expect(() => parseMainnetNearCheckpoint({ ...checkpoint, retiredReturn })).toThrow();
+  }
+  expect(() => parseMainnetNearCheckpoint({ ...checkpoint, reverseQuote: undefined })).toThrow();
 });
 it('retains the final signed Guardian consume fingerprint/deadline alongside the original note reference', () => {
   const state = complete();
@@ -211,6 +250,21 @@ const invalid: [string, (state: MainnetNearCheckpoint) => void][] = [
     }
   ]
 ];
+it('parses both a legacy partner-policy checkpoint and a new checkpoint with no fee fields', () => {
+  expect(parseMainnetNearCheckpoint(fixture()).feePolicy).toMatchObject({ kind: 'partner' });
+  const fresh = parseMainnetNearCheckpoint(nativeNearNoFeeFixture());
+  expect(fresh.appFees).toEqual([]);
+  expect(fresh.feePolicy).toBeUndefined();
+});
+it('refuses a fresh-quote leg on a legacy fee checkpoint and allows one with no fee fields', () => {
+  expect(() => assertMainnetNearNoLegacyFees(parseMainnetNearCheckpoint(fixture()), 'legacy fees')).toThrow(
+    'legacy fees'
+  );
+  const feeOnly = nativeNearNoFeeFixture();
+  feeOnly.appFees = [{ recipient: 'fee.near', fee: 10 }];
+  expect(() => assertMainnetNearNoLegacyFees(feeOnly, 'legacy fees')).toThrow('legacy fees');
+  expect(() => assertMainnetNearNoLegacyFees(parseMainnetNearCheckpoint(nativeNearNoFeeFixture()), 'x')).not.toThrow();
+});
 it.each(invalid)('refuses %s instead of creating spending authority', (_name, change) => {
   const state = fixture();
   change(state);

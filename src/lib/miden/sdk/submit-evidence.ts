@@ -1,12 +1,21 @@
 // What an attempt's leaf reads off its executed and proven transaction immediately before it submits (#1081), and
-// the service worker's parser for the copy that crosses the offscreen bus. Synchronous and total: each field is read
-// in its own try, and an unreadable field is left out, which only keeps the entry from being provable.
+// the service worker's parser for the copy that crosses the offscreen bus. Synchronous and total but for a trap: each
+// field is read in its own try, and an unreadable field is left out, which only keeps the entry from being provable.
+import type { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
+import { landedOrderFacts } from './sdk-error-code';
+import { isWasmTrap } from './wasm-handle';
 import type { SubmitEvidenceFields } from '../db/types';
+import { toNoteTypeString } from '../helpers';
+import { NoteTypeEnum } from '../types';
 
 /** A delta can move the expiration at most this far past the reference block. */
 export const EXPIRATION_DELTA_RANGE = 65535;
-/** The most entries the parser accepts in one list. */
-export const MAX_EVIDENCE_LIST = 256;
+/**
+ * The most entries the parser accepts in one list: `MAX_OUTPUT_NOTES_PER_TX` and `MAX_INPUT_NOTES_PER_TX`, both 1024 in
+ * miden-protocol 0.17.1, so it bounds the nullifiers too. A longer list is no transaction's and is refused whole.
+ */
+export const MAX_EVIDENCE_LIST = 1024;
 
 const WORD_HEX = /^0x[0-9a-f]{64}$/i;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
@@ -25,7 +34,7 @@ export interface EvidenceResult {
     id(): { toHex(): string };
     initialAccountHeader(): EvidenceHeader;
     finalAccountHeader(): EvidenceHeader;
-    userOutputNotes(): { id(): { toString(): string } }[];
+    userOutputNotes(): { id(): { toString(): string }; metadata(): { noteType(): NoteType } }[];
   };
 }
 
@@ -40,7 +49,10 @@ export interface EvidenceProof {
 function attempt<T>(read: () => T): T | undefined {
   try {
     return read();
-  } catch {
+  } catch (error) {
+    // This runs in the submitting hold before its submit, so the hold's lock retires the trap and the leaf never
+    // submits from that client.
+    if (isWasmTrap(error)) throw error;
     return undefined;
   }
 }
@@ -49,6 +61,7 @@ function attempt<T>(read: () => T): T | undefined {
  * The evidence of an attempt about to submit. Reads nothing once `holdIsCurrent` says the WASM hold that executed it
  * is gone, the rule `readLanded` follows: the handles are borrows of a client the flow no longer owns. The fee note
  * is never captured, because another transaction from the same pre-state paying the same fee can carry the same one.
+ * Total but for a trap: the first `WebAssembly.RuntimeError` leaves as itself and no later field is read.
  */
 export function readSubmitEvidence(
   result: EvidenceResult,
@@ -67,8 +80,19 @@ export function readSubmitEvidence(
     if (finalCommitment !== undefined) evidence.finalCommitment = finalCommitment;
     const initialNonce = attempt(() => executed.initialAccountHeader().nonce().asInt().toString());
     if (initialNonce !== undefined) evidence.initialNonce = initialNonce;
-    const outputNoteIds = attempt(() => executed.userOutputNotes().map(note => normalizeHex(note.id().toString())));
-    if (outputNoteIds !== undefined) evidence.outputNoteIds = outputNoteIds;
+    const notes = attempt(() => executed.userOutputNotes());
+    const outputNoteIds = notes && attempt(() => notes.map(note => normalizeHex(note.id().toString())));
+    if (notes !== undefined && outputNoteIds !== undefined) {
+      evidence.outputNoteIds = outputNoteIds;
+      // The predicate `completeCustomTransaction` relays by, over the same notes, so a type that does not read leaves
+      // the whole list out, never a shorter one.
+      const privateOutputNoteIds = attempt(() =>
+        notes
+          .filter(note => toNoteTypeString(note.metadata().noteType()) === NoteTypeEnum.Private)
+          .map(note => normalizeHex(note.id().toString()))
+      );
+      if (privateOutputNoteIds !== undefined) evidence.privateOutputNoteIds = privateOutputNoteIds;
+    }
   }
   const nullifiers = attempt(() => proof.nullifiers().map(nullifier => normalizeHex(nullifier.toHex())));
   if (nullifiers !== undefined) evidence.nullifiers = nullifiers;
@@ -112,8 +136,21 @@ const readWords = (value: unknown): string[] | undefined | null => {
 };
 
 /**
+ * `privateIds` as note ids when it is a list of distinct well-formed ids all of which `outputNoteIds` names, else
+ * undefined: the private notes are read with that list off the same notes, so a list not part of it is not that read.
+ */
+export const privateOutputNoteIdsOf = (outputNoteIds: unknown, privateIds: unknown): string[] | undefined => {
+  const named = readWords(outputNoteIds);
+  const owed = readWords(privateIds);
+  if (!Array.isArray(named) || !Array.isArray(owed) || new Set(owed).size !== owed.length) return undefined;
+  return owed.every(noteId => named.includes(noteId)) ? owed : undefined;
+};
+
+/**
  * Evidence as it crossed the offscreen bus, or undefined when there is none or any field is malformed. The caller
- * still records the crossing then, as an evidence-less entry that can only hold a row back from "safe".
+ * still records the crossing then, as an evidence-less entry that can only hold a row back from "safe". A swap's order
+ * is a landed fact, not verdict evidence: it is kept only as a well-formed pair, and one that is not costs only itself.
+ * The private notes are a delivery fact and cost only themselves the same way.
  */
 export function parseSubmitEvidence(value: unknown): SubmitEvidenceFields | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
@@ -148,10 +185,17 @@ export function parseSubmitEvidence(value: unknown): SubmitEvidenceFields | unde
     if (finalCommitment !== undefined) evidence.finalCommitment = finalCommitment;
     if (initialNonce !== undefined) evidence.initialNonce = initialNonce;
     if (outputNoteIds !== undefined) evidence.outputNoteIds = outputNoteIds;
+    const privateOutputNoteIds = privateOutputNoteIdsOf(outputNoteIds, Reflect.get(value, 'privateOutputNoteIds'));
+    if (privateOutputNoteIds !== undefined) evidence.privateOutputNoteIds = privateOutputNoteIds;
     if (nullifiers !== undefined) evidence.nullifiers = nullifiers;
     if (refBlock !== undefined) evidence.refBlock = refBlock;
     if (refBlockCommitment !== undefined) evidence.refBlockCommitment = refBlockCommitment;
     if (expirationBlock !== undefined) evidence.expirationBlock = expirationBlock;
+    const order = landedOrderFacts(Reflect.get(value, 'orderId'), Reflect.get(value, 'orderNoteId'));
+    if (order.orderId !== undefined && order.orderNoteId !== undefined) {
+      evidence.orderId = order.orderId;
+      evidence.orderNoteId = order.orderNoteId;
+    }
     return evidence;
   } catch {
     return undefined;

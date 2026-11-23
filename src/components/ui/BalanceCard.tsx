@@ -77,6 +77,7 @@ export interface BalanceCardProps {
     direction?: BalanceDeltaDirection;
   };
   onMore?: () => void;
+  balanceAction?: ReactNode;
   state?: 'default' | 'loading' | 'zero' | 'hidden';
   className?: string;
 }
@@ -135,6 +136,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   currency = 'USD',
   delta,
   onMore,
+  balanceAction,
   state = 'default',
   className
 }) => {
@@ -191,8 +193,18 @@ export const BalanceCard: FC<BalanceCardProps> = ({
       <div className={classNames('relative px-5 pt-6 pb-5', onMore && 'pointer-events-none')}>
         {/* Every text on the card is the full-strength card ink: hierarchy comes from size and
             weight, since any translucent ink falls under 4.5:1 on the lighter card colors. */}
-        <div data-testid="balance-card-label" className="text-value">
-          {t('balanceCardTotalBalance')}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div data-testid="balance-card-label" className="min-w-0 text-value">
+            {t('balanceCardTotalBalance')}
+          </div>
+          {balanceAction && (
+            <div
+              data-testid="balance-card-action"
+              className="pointer-events-auto ms-auto min-w-0 max-w-full empty:hidden"
+            >
+              {balanceAction}
+            </div>
+          )}
         </div>
 
         <div ref={rowRef} className="mt-2 flex items-end leading-none min-w-0">

@@ -10,7 +10,8 @@ import {
   loadTokenPriceAssets,
   peekTokenBaskets,
   peekTokenDecimals,
-  peekTokenPriceAssets
+  peekTokenPriceAssets,
+  peekTokenSymbols
 } from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
@@ -21,7 +22,7 @@ import { writeUsdPriceCache } from './usd';
 
 export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
 export { fetchKlineData } from './feed';
-export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
+export type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
 
 /**
  * useTokenSparkline — close prices over the given timeframe for a single symbol.
@@ -43,13 +44,19 @@ function entries<T>(map: Map<string, T> | null | undefined): [string, T][] | nul
 }
 
 /**
- * Everything the price fetch reads from the loaded list (price assets, baskets and decimals), as one string, or
- * undefined before the first load. A refresh that changes any of them changes this key, so the fetch runs again.
+ * Everything the price fetch reads from the loaded list (price assets, baskets, decimals and token symbols), as one
+ * string, or undefined before the first load. A refresh that changes any of them changes this key, so the fetch runs
+ * again.
  */
 function peekPriceListKey(network: string): string | undefined {
   const assets = peekTokenPriceAssets(network);
   if (assets === undefined) return undefined;
-  return JSON.stringify([entries(assets), entries(peekTokenBaskets(network)), entries(peekTokenDecimals(network))]);
+  return JSON.stringify([
+    entries(assets),
+    entries(peekTokenBaskets(network)),
+    entries(peekTokenDecimals(network)),
+    entries(peekTokenSymbols(network))
+  ]);
 }
 
 async function loadPriceListKey(network: string): Promise<string | undefined> {
@@ -85,7 +92,13 @@ export function PriceProvider() {
       const prices = await fetchTokenPrices(symbols);
       // After the feed, which is what rules a market out and prices the constituents: a basket's value never stands
       // in for an exchange's price.
-      const sources = basketPriceSources(peekTokenBaskets(network), assets, peekTokenDecimals(network), hasNoUsdMarket);
+      const sources = basketPriceSources(
+        peekTokenBaskets(network),
+        assets,
+        peekTokenDecimals(network),
+        hasNoUsdMarket,
+        peekTokenSymbols(network)
+      );
       const basketPrices = sources.length > 0 ? await fetchBasketPrices(sources, prices) : {};
       return { network, assetKey, listKey, prices, basketPrices };
     },
@@ -106,7 +119,7 @@ export function PriceProvider() {
       setTokenPrices({ ...prices.basketPrices, ...prices.prices });
       // The enforcement path runs in the backend realm and cannot see this store. Writing through
       // is what keeps the cache warm enough that the backend rarely fetches on the send path.
-      // Exchange quotes only: a basket's value is for display and never values a spend.
+      // The cache keeps `market` quotes only: a basket's value is for display and never values a spend.
       writeUsdPriceCache(prices.prices).catch(() => undefined);
     }
   }, [enabled, network, assetKey, listKey, prices, setTokenPrices]);

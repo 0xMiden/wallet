@@ -20,7 +20,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry,
+  hasOwnBridgeBadge,
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
@@ -211,7 +211,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
             {outAmount} {outLabel}
           </span>
         )}
-        <StatusBadge status={epochReturn.status ?? (isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : status)} />
+        <StatusBadge status={epochReturn.status ?? (hasOwnBridgeBadge(entry) ? bridgeBadgeStatusOf(entry) : status)} />
       </div>
     </div>
   );

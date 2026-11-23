@@ -4,12 +4,20 @@ import { cn } from 'lib/ui/util';
 
 /**
  * `fill`: the neutral loading tone, for a skeleton sitting on `page`.
+ * `onFill`: the `fill-pressed` tone, for a skeleton sitting on a `fill` card, where a `fill`
+ * block has the card's own colour and cannot be seen.
  * `inverse`: a translucent fixed white block for a skeleton on a colored surface
  * (e.g. the balance card's own royal-blue background, where `fill` would
  * read as a stray warm-neutral patch rather than a loading block). The fixed
  * white does not flip with theme and stays visible in both light and dark modes.
  */
-export type SkeletonTone = 'fill' | 'inverse';
+export type SkeletonTone = 'fill' | 'onFill' | 'inverse';
+
+const TONE_CLASSES: Record<SkeletonTone, string> = {
+  fill: 'bg-fill',
+  onFill: 'bg-fill-pressed',
+  inverse: 'bg-pure-white/15'
+};
 
 export interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {
   tone?: SkeletonTone;
@@ -27,11 +35,7 @@ export function Skeleton({ className, tone = 'fill', ...props }: SkeletonProps) 
   return (
     <div
       data-slot="skeleton"
-      className={cn(
-        'animate-pulse rounded-md motion-reduce:animate-none',
-        tone === 'fill' ? 'bg-fill' : 'bg-pure-white/15',
-        className
-      )}
+      className={cn('animate-pulse rounded-md motion-reduce:animate-none', TONE_CLASSES[tone], className)}
       {...props}
     />
   );

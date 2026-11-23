@@ -1714,6 +1714,168 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   });
 
   // A 0.19 Guardian refuses a state its node does not hold yet and stores nothing, so the push is refused, not spent.
+  // A Guardian record that names none of the account's signers rejects the cold key too, so the cold
+  // service cannot load and the cold heal can never push. The registration that needs no Guardian
+  // read is the repair.
+  describe('when the Guardian rejects the cold key too', () => {
+    const endpoint = 'https://overwritten.guardian.test';
+    // One account per case: the heal budgets and cooldowns are keyed by account and outlive a case.
+    const useAccount = (publicKey: string) => {
+      storeState.accounts = [
+        { publicKey, type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold', guardianEndpoint: endpoint }
+      ] as never;
+    };
+
+    beforeEach(() => {
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockRejectedValue(authError) });
+      mockFinalizeDirectGuardianSwitch.mockReset();
+      mockFinalizeDirectGuardianSwitch.mockResolvedValue(undefined);
+      mockGetGuardianCommitmentFromAccount.mockReturnValue('guardiankey');
+      mockCheckEndpointCommitment.mockReset();
+      mockCheckEndpointCommitment.mockResolvedValue('match');
+      mockResolveChosenGuardianEndpoint.mockImplementation(resolveChosenDefault);
+    });
+
+    it('registers without a Guardian read when the cold service load is rejected', async () => {
+      useAccount('acct-overwritten-load');
+      mockBuildColdMultisigService.mockRejectedValue(authError);
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockReRegister).not.toHaveBeenCalled();
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch.mock.calls[0]?.[0]).toBe('acct-overwritten-load');
+      expect(mockFinalizeDirectGuardianSwitch.mock.calls[0]?.[1]).toBe(endpoint);
+      // The chain must hold this device's state before the push.
+      expect(mockFinalizeDirectGuardianSwitch.mock.calls[0]?.[5]).toBe('require-landed');
+    });
+
+    it('registers without a Guardian read when the cold adopt read is rejected', async () => {
+      useAccount('acct-overwritten-adopt');
+      mockAdoptGuardianState.mockRejectedValue(authError);
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockReRegister).not.toHaveBeenCalled();
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not register when the operator does not serve the Guardian key the account names', async () => {
+      useAccount('acct-overwritten-wrong-key');
+      mockBuildColdMultisigService.mockRejectedValue(authError);
+      mockCheckEndpointCommitment.mockResolvedValue('mismatch');
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(endpoint, 'guardiankey');
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('does not register when this device is not the on-chain hot signer', async () => {
+      useAccount('acct-overwritten-not-signer');
+      mockBuildColdMultisigService.mockRejectedValue(authError);
+      mockGetSignerCommitments.mockReturnValue(['ccdd', '0xc01d']);
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('fuses registration after repeated watchdog evictions following a cold rejection', async () => {
+      const publicKey = 'acct-overwritten-fused';
+      useAccount(publicKey);
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
+      mockBuildColdMultisigService.mockRejectedValue(authError);
+      mockFinalizeDirectGuardianSwitch.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+      const clock = useFakeClocks(9_000_000);
+      try {
+        for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
+          await syncGuardianAccounts();
+          clock.advance(MISSING_REGISTRATION_BACKOFF_MS + 1_000);
+        }
+
+        expect(mockFinalizeDirectGuardianSwitch.mock.calls.length).toBeGreaterThanOrEqual(
+          MAX_CONSECUTIVE_WATCHDOG_EVICTIONS
+        );
+        expect(isSyncFused(guardianSelfHealFuseKey(publicKey, endpoint))).toBe(true);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('rearms an expired heal fuse when the cold fallback refuses to register', async () => {
+      const publicKey = 'acct-overwritten-fuse-refused';
+      useAccount(publicKey);
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
+      mockBuildColdMultisigService.mockRejectedValue(authError);
+      mockCheckEndpointCommitment.mockResolvedValue('mismatch');
+      const key = guardianSelfHealFuseKey(publicKey, endpoint);
+      const clock = useFakeClocks(9_000_000);
+      try {
+        noteSyncParked(key);
+        clock.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+        expect(isSyncFused(key)).toBe(false);
+
+        for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+        expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+        expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(endpoint, 'guardiankey');
+        expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+        expect(isSyncFused(key)).toBe(true);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('does not start registration when the cold read retires its sync pass', async () => {
+      useAccount('acct-overwritten-retired');
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
+      mockBuildColdMultisigService.mockImplementation(async () => {
+        retireGuardianSyncPasses();
+        throw authError;
+      });
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('does not start registration when the Guardian endpoint changes during the cold read', async () => {
+      useAccount('acct-overwritten-endpoint-changed');
+      storeState.checkGuardianDrift.mockResolvedValue(undefined);
+      mockBuildColdMultisigService.mockImplementation(async () => {
+        storeState.accounts = storeState.accounts.map(account => ({
+          ...account,
+          guardianEndpoint: 'https://replacement.guardian.test'
+        }));
+        throw authError;
+      });
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('keeps the cold re-register when the 401 comes from its own push', async () => {
+      useAccount('acct-overwritten-push');
+      mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
+        onPushStart?.();
+        throw authError;
+      });
+
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+      expect(mockReRegister).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+  });
+
   it('a cold re-register refused with state_not_on_chain is refused-transiently', async () => {
     mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
       onPushStart?.();

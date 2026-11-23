@@ -1,5 +1,25 @@
 /** @jest-environment node */
-import { remainingMainnetLoopBudget, realizedMainnetLoopLoss } from '../playwright/e2e/helpers/mainnet-loop-budget';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
+
+import {
+  remainingMainnetLoopBudget,
+  realizedMainnetLoopLoss,
+  cappedMainnetRecoveryBudget
+} from '../playwright/e2e/helpers/mainnet-loop-budget';
+
+it.each([
+  ['1218022', 1_218_022n],
+  ['2000000', 1_237_031n],
+  [undefined, 1_237_031n]
+])('bounds the original recovery allowance by the current dispatch cap (%s)', (configured, expected) => {
+  expect(cappedMainnetRecoveryBudget('1237031', configured)).toBe(expected);
+});
+
+it.each(['0', '-1', '1e6', '2000001'])('refuses invalid current recovery allowance %s', configured => {
+  expect(() => cappedMainnetRecoveryBudget('1237031', configured)).toThrow('Invalid remaining mainnet task loss allowance');
+});
 
 const evidence = (provider: string, cost: string, changes: Record<string, unknown> = {}) => ({
   provider,
@@ -51,6 +71,70 @@ describe('combined mainnet loop loss budget', () => {
       remainingMainnetLoopBudget('100', 'near', [evidence('swap', '905'), evidence('epoch', '0', { account: 'other' })])
     ).toThrow();
     expect(() => remainingMainnetLoopBudget('', 'swap', [])).toThrow();
+  });
+});
+
+describe('bridge-only same-run budget and account evidence', () => {
+  const original = { ...process.env };
+  beforeEach(() => {
+    process.env.MAINNET_LOOP_BRIDGES_ONLY = 'true';
+    process.env.MAINNET_LOOP_LOSS_BUDGET_USD_MICROS = '1953919';
+  });
+  afterEach(() => {
+    process.env = { ...original };
+  });
+  it.each([
+    { provider: 'swap', checkpoint: undefined },
+    evidence('swap', '986', { sourceRunId: '99', account: 'historical' })
+  ])('starts Epoch with the remaining allowance and no fresh swap: %#', swap => {
+    expect(remainingMainnetLoopBudget('100', 'epoch', [swap])).toBe(1_953_919n);
+    expect(remainingMainnetLoopBudget('100', 'near', [swap, evidence('epoch', '500')])).toBe(1_953_419n);
+  });
+  it('rejects unexpected fresh swap cost instead of silently excluding it', () => {
+    expect(() => remainingMainnetLoopBudget('100', 'epoch', [evidence('swap', '986')])).toThrow();
+  });
+  it.each([
+    1,
+    evidence('swap', '0', { sourceRunId: '99', phase: 'forward-submitted' }).checkpoint,
+    evidence('swap', '0', { sourceRunId: undefined }).checkpoint,
+    evidence('swap', '0', { sourceRunId: '99', phase: undefined }).checkpoint
+  ])('does not ignore malformed or unresolved historical swap evidence: %#', checkpoint => {
+    expect(() => remainingMainnetLoopBudget('100', 'epoch', [{ provider: 'swap', checkpoint }])).toThrow();
+  });
+  it.each([
+    undefined,
+    evidence('epoch', '500', { sourceRunId: '99' }).checkpoint,
+    evidence('epoch', '500', { phase: 'forward-submitted' }).checkpoint,
+    evidence('epoch', '1953920').checkpoint
+  ])('still requires settled same-run Epoch cost before NEAR: %#', checkpoint => {
+    expect(() =>
+      remainingMainnetLoopBudget('100', 'near', [
+        { provider: 'swap', checkpoint: undefined },
+        { provider: 'epoch', checkpoint }
+      ])
+    ).toThrow();
+  });
+  it.each([
+    ['tests/mainnet/mainnet-epoch-loop.spec.ts', 'Epoch and swap must use the same existing Guardian account'],
+    [
+      'helpers/mainnet-near-runtime.ts',
+      'Native NEAR and both predecessor costs must belong to the same existing Guardian'
+    ]
+  ])('does not require a skipped swap account in the actual preparation guard: %s', (path, message) => {
+    const source = readFileSync(resolve(__dirname, '../playwright/e2e', path), 'utf8');
+    const end = source.indexOf(message);
+    expect(end).toBeGreaterThan(0);
+    const guard = source.slice(source.lastIndexOf('if (', end), source.indexOf(';', end) + 1);
+    const context = {
+      account: 'guardian',
+      runId: '100',
+      predecessor: undefined,
+      swap: undefined,
+      epoch: evidence('epoch', '0').checkpoint
+    };
+    expect(() => runInNewContext(guard, context)).not.toThrow();
+    const foreign = evidence('swap', '0', { account: 'foreign' }).checkpoint;
+    expect(() => runInNewContext(guard, { ...context, predecessor: foreign, swap: foreign })).toThrow();
   });
 });
 

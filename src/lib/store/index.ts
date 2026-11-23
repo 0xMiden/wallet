@@ -260,7 +260,7 @@ export function withLandedBalances(
     balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
   };
   const finalRows = result.balances[accountAddress];
-  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot);
+  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot, accountAddress);
   return result;
 }
 
@@ -892,7 +892,7 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
       const failure = burnFeeFailureOf(res);
       return res.outcome === 'measured'
-        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve), faucetId: res.faucetId, scope: res.scope }
         : res.outcome === 'failed' && failure
           ? { outcome: 'failed', failure }
           : { outcome: res.outcome };

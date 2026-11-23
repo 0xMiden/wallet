@@ -8,19 +8,17 @@ import { bundledExploreCatalog } from './source';
 
 const ICON_DIR = path.join(__dirname, '../../app/misc/dapp-icons');
 
-it('bundles both testnet faucets, Where Legends Grow and port0 in their published sections', () => {
+it('bundles both testnet faucets and port0 in their published sections', () => {
   const catalog = bundledExploreCatalog('testnet');
   expect(catalog?.items.map(item => [item.id, item.url, item.brandColor])).toEqual([
     ['faucet', 'https://faucet.testnet.miden.io/', '#778C72'],
     ['forkchoice-faucet', 'https://faucets.forkchoice.xyz/', '#2563EB'],
-    ['where-legends-grow', 'https://wherelegendsgrow.com/', '#07101F'],
     ['port0', 'https://testnet.port0.sh/', '#F200B9']
   ]);
   expect(catalog?.sections.map(section => [section.id, section.kind, section.itemIds])).toEqual([
     ['featured', 'featured', ['faucet']],
     ['helper-tools', 'list', ['faucet', 'forkchoice-faucet']],
-    ['defi', 'list', ['port0']],
-    ['games', 'list', ['where-legends-grow']]
+    ['defi', 'list', ['port0']]
   ]);
 });
 
@@ -39,22 +37,13 @@ it('ships a file for exactly the icon paths the bundled documents name', () => {
   for (const iconPath of named) expect(fs.existsSync(path.join(ICON_DIR, path.basename(iconPath)))).toBe(true);
 });
 
-it('carries the published translations for section titles and the swap faucet and game taglines', () => {
+it('carries the published translations for section titles and the swap faucet tagline', () => {
   const catalog = bundledExploreCatalog('testnet');
   // The published DeFi title is English only.
-  expect(catalog?.sections.map(section => section.title.de)).toEqual([
-    'Empfohlen',
-    'Hilfsprogramme',
-    undefined,
-    'Spiele'
-  ]);
+  expect(catalog?.sections.map(section => section.title.de)).toEqual(['Empfohlen', 'Hilfsprogramme', undefined]);
   expect(catalog?.items[1]?.tagline).toMatchObject({
     en: 'Get testnet tokens for swap',
     ja: 'スワップ用のテストネットトークンを入手'
-  });
-  expect(catalog?.items[2]?.tagline).toMatchObject({
-    en: 'Build a football club, train your squad and play matches',
-    ja: 'サッカークラブを作り、選手を育てて試合に挑む'
   });
 });
 

@@ -20,6 +20,7 @@ import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { dryRunRequest, type DryRunResult } from 'lib/miden/sdk/dry-run-request';
@@ -52,6 +53,7 @@ import {
   isWasmClientPoisonReason,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
+import { checkStorage, isStorageStalledNow, StorageStalledError } from 'lib/miden/storage-health';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
@@ -442,13 +444,13 @@ const opSignReasons = new Map<string, SignCallbackReason>();
 const opStageCallbacks = new Map<string, StageCallback>();
 
 /**
- * Records a Guardian leaf's submit crossing before its offscreen realm may submit (#1644), and says whether it may:
- * false once the leaf has settled. A throw refuses the gate too, since a crossing that cannot be recorded must not
- * happen.
+ * Records an offscreen leaf's submit crossing before its realm may submit (#1644; the single-key send, swap and custom
+ * writes since #1081, and a reviewed bridge source), and says whether it may: false once the leaf has settled. A throw
+ * refuses the gate too, since a crossing that cannot be recorded must not happen.
  */
 export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
 
-/** op_id → that Guardian write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
+/** op_id → that write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
 const opSubmitGates = new Map<string, SubmitGate>();
 
 function newOpId(): string {
@@ -532,6 +534,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       reject(new StaleProofError());
       return;
     }
+    if (resp.errorName === 'CalendarRecallReviewRequiredError') {
+      reject(new CalendarRecallReviewRequiredError());
+      return;
+    }
     if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
       reject(new GuardianHistoryFeeUnavailableError());
       return;
@@ -595,6 +601,20 @@ function rejectAllInFlight(
   }
 }
 
+function downgradeReadDeadline(op_id: string, op: InFlightOp): boolean {
+  if (op.critical || !isCriticalOpInFlight()) return false;
+  // A cheap read's deadline while a value-moving critical op owns the doc.
+  // Fail only this read - never tear down the realm running the write
+  // (design §3.3). The offscreen op keeps running; its result is dropped.
+  takeInFlight(op_id)?.reject(
+    new OperationAbortedError(op_id, 'deadline-no-kill', {
+      started: op.started,
+      deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
+    })
+  );
+  return true;
+}
+
 /**
  * The deadline handler (design §3.2, §3.3). Who may kill during a critical op:
  *   - a NON-critical (read) op's deadline while ANY critical op is in flight →
@@ -610,23 +630,23 @@ async function onDeadline(op_id: string): Promise<void> {
   // it — but if a stale timer callback races the pause, do nothing.
   if (op.paused) return;
 
-  if (!op.critical && isCriticalOpInFlight()) {
-    // A cheap read's deadline while a value-moving critical op owns the doc.
-    // Fail only this read — never tear down the realm running the write
-    // (design §3.3). The offscreen op keeps running; its result is dropped.
-    takeInFlight(op_id)?.reject(
-      new OperationAbortedError(op_id, 'deadline-no-kill', {
-        started: op.started,
-        deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
-      })
-    );
-    return;
-  }
+  if (downgradeReadDeadline(op_id, op)) return;
 
   // Either this IS the critical op whose own deadline fired (kill the wedge), or
   // a read deadline with no critical op in flight (kill + reopen).
   // Read before the close: a start signal or sign resume during it re-arms this op's timer.
   const deadline = { timer: op.timerPhase, killer: op.critical ? 'write' : 'read' } as const;
+  // A deadline on a browser whose IndexedDB is not answering is that stall, not a wedged realm: the reopened document
+  // would open the same database and hang again, an endless close/reopen loop (#2148). A read just fails; a write
+  // still tears down the realm it may be wedging, but nothing is reopened.
+  const storageStalled = await checkStorage();
+  // The probe can take seconds: the op may have settled or paused, or a write may have started, meanwhile.
+  if (inFlight.get(op_id) !== op || op.paused) return;
+  if (storageStalled && !op.critical) {
+    takeInFlight(op_id)?.reject(new StorageStalledError());
+    return;
+  }
+  if (downgradeReadDeadline(op_id, op)) return;
   const closed = await forceCloseOffscreenDocument();
   // Closing the doc killed every concurrent op's realm — reject them all.
   // TODO(slice 4): there is a small window where an op whose sendMessage is
@@ -635,7 +655,7 @@ async function onDeadline(op_id: string): Promise<void> {
   // weigh this against the write kill-window taxonomy (design §5) before routing
   // writes through here.
   rejectAllInFlight(op_id, deadline);
-  if (closed) {
+  if (closed && !storageStalled) {
     // Reopen eagerly so the next call doesn't pay the cold start on its own
     // critical path. Best-effort: the next call's ensureOffscreenDocument()
     // would recreate it anyway.
@@ -655,11 +675,14 @@ async function dispatchOp(
   method: string,
   args: unknown[],
   deadlineMs: number | null,
-  critical: boolean
+  critical: boolean,
+  submitGated = false
 ): Promise<string | null> {
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
   try {
+    // While storage is stalled nothing may be dispatched: every op would park on the same stuck database and pile up.
+    if (await isStorageStalledNow()) throw new StorageStalledError();
     await ensureOffscreenDocument();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
@@ -716,7 +739,8 @@ async function dispatchOp(
       method,
       argsB64,
       deadline_ms: deadlineMs,
-      endpoints: getEndpointState()
+      endpoints: getEndpointState(),
+      ...(submitGated ? { submitGated: true } : {})
     };
     // `sendMessage` may resolve with the response, resolve `undefined` (doc
     // closed), or reject ("message port closed"). All three are handled: a
@@ -869,7 +893,7 @@ export async function handleOffscreenSignRequest(
 }
 
 /**
- * Answer the Guardian leaf's submit gate (#1644). Opens only for an op this worker still runs and whose leaf records
+ * Answer an offscreen leaf's submit gate (#1644). Opens only for an op this worker still runs and whose leaf records
  * the crossing: an op a kill, a lost reply or its own settle took out of `inFlight` is refused, so the offscreen leaf
  * of an op whose outcome this worker already decided never submits. Its deadline keeps running: a kill that lands
  * while the crossing is written finds it recorded, which only keeps the candidate.
@@ -1026,7 +1050,9 @@ type OffscreenSwapDto = {
  * that can cross its submit supplies one (#1081): the send, consume, swap and
  * execute leaves and the guardian leaf. Its 'submitting' stamp carries the
  * attempt's submit evidence, which `handleOffscreenStageEvent` forwards with
- * `reliable: false`. A write called without one registers nothing.
+ * `reliable: false`. A write called without one registers nothing. A write that
+ * passes `submitGate` is told so on its call and asks that gate for its
+ * 'submitting' stamp instead, before its submit (#1081).
  */
 async function dispatchOffscreenWrite(
   method: string,
@@ -1048,7 +1074,14 @@ async function dispatchOffscreenWrite(
   if (submitGate) opSubmitGates.set(op_id, submitGate);
   incrementCriticalOp();
   try {
-    const resultB64 = await dispatchOp(op_id, method, args, WRITE_DEADLINE_MS, /* critical */ true);
+    const resultB64 = await dispatchOp(
+      op_id,
+      method,
+      args,
+      WRITE_DEADLINE_MS,
+      /* critical */ true,
+      submitGate !== undefined
+    );
     if (resultB64 == null) {
       // Every offscreen write yields a TransactionResult; a null here means the
       // offscreen op produced nothing, a hard error.
@@ -1848,7 +1881,7 @@ export const midenClientProxy = {
    * The minimal DTO carries EXACTLY the fields `MidenClientInterface.sendTransaction`
    * reads off the row — `accountId`, `secondaryAccountId`, `faucetId`, `noteType`,
    * `amount` (BigInt → decimal string), `delegateTransaction`, and
-   * `extraInputs.recallBlocks`, no more. `completeSendTransaction` (SW-side)
+   * the approved recall term and any 1Click cutoff. `completeSendTransaction` (SW-side)
    * consumes the round-tripped `TransactionResult` identically; any private-note
    * relay it does runs on the SW's own inline client (no further offscreen call).
    *
@@ -1862,11 +1895,16 @@ export const midenClientProxy = {
    *   an `OFFSCREEN_STAGE_EVENT` per step and the SW reverse-IPC listener replays it
    *   through this same callback. The row id never crosses the boundary — the op_id
    *   is the whole correspondence.
+   *
+   * `submitGate` is the attempt's {@link SubmitGate}, which flag-ON makes the
+   * 'submitting' stamp the submit's precondition, as the inline leaf's awaited
+   * stamp already is (#1081). Flag-OFF it has nothing to add and is not used.
    */
   async sendTransaction(
     transaction: SendTransaction,
     signCallback: RawSignCallback,
-    onStage?: StageCallback
+    onStage?: StageCallback,
+    submitGate?: SubmitGate
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async hold =>
@@ -1882,6 +1920,7 @@ export const midenClientProxy = {
       delegateTransaction: transaction.delegateTransaction,
       extraInputs: {
         recallBlocks: transaction.extraInputs?.recallBlocks,
+        calendarRecallTarget: transaction.extraInputs?.calendarRecallTarget,
         ...(transaction.extraInputs?.oneClick
           ? {
               oneClick: {
@@ -1895,7 +1934,7 @@ export const midenClientProxy = {
           : {})
       }
     };
-    return dispatchOffscreenWrite('sendTransaction', [dto], signCallback, onStage);
+    return dispatchOffscreenWrite('sendTransaction', [dto], signCallback, onStage, submitGate);
   },
 
   /**
@@ -1906,12 +1945,14 @@ export const midenClientProxy = {
    * `delegateTransaction`, `extraInputs.{requestedFaucetId, requestedAmount}`
    * (BigInt → string), the queued `balanceScope`, and the caller-resolved fee
    * context. `completeSwapTransaction` consumes the round-tripped
-   * `TransactionResult` identically (no further client call).
+   * `TransactionResult` identically (no further client call). `submitGate` as on
+   * {@link sendTransaction}.
    */
   async swapTransaction(
     transaction: SwapTransaction,
     signCallback: RawSignCallback,
-    onStage?: StageCallback
+    onStage?: StageCallback,
+    submitGate?: SubmitGate
   ): Promise<TransactionResult> {
     const feeContext = await readSwapFeeContext(transaction.extraInputs.balanceScope);
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
@@ -1933,7 +1974,7 @@ export const midenClientProxy = {
       },
       swapFeeContext: { ...feeContext, baseFee: feeContext.baseFee.toString() }
     };
-    return dispatchOffscreenWrite('swapTransaction', [dto], signCallback, onStage);
+    return dispatchOffscreenWrite('swapTransaction', [dto], signCallback, onStage, submitGate);
   },
 
   /**
@@ -1945,27 +1986,39 @@ export const midenClientProxy = {
    * base64), never JSON — because the request is opaque serialized bytes, not a
    * field-set. `completeCustomTransaction` consumes the round-tripped
    * `TransactionResult` identically; any private-note relay it does runs on the
-   * SW's own inline client.
+   * SW's own inline client. `submitGate` as on {@link sendTransaction}, except that the inline path awaits it in place
+   * of the 'submitting' stamp too: a reviewed bridge source's gate is what checks that source before its submit.
    */
   async newTransaction(
     accountId: string,
     requestBytes: Uint8Array,
     delegateTransaction: boolean | undefined,
     signCallback: RawSignCallback,
-    onStage?: StageCallback
+    onStage?: StageCallback,
+    submitGate?: SubmitGate
   ): Promise<TransactionResult> {
+    const guardedStage: StageCallback | undefined = submitGate
+      ? async (stage, detail) => {
+          if (stage === 'submitting') {
+            if (!(await submitGate(detail?.evidence))) throw markErrorBeforeSubmit(new Error('Submit was refused'));
+          } else await onStage?.(stage, detail);
+        }
+      : onStage;
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async hold =>
         withHoldSigner(hold, signCallback, async () =>
-          (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
+          (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, guardedStage)
         )
       );
     }
     return dispatchOffscreenWrite(
       'newTransaction',
-      [accountId, requestBytes, delegateTransaction],
+      submitGate
+        ? [accountId, requestBytes, delegateTransaction, true]
+        : [accountId, requestBytes, delegateTransaction],
       signCallback,
-      onStage
+      onStage,
+      submitGate
     );
   }
 };

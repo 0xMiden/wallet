@@ -1,10 +1,12 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { BridgeOperationSnapshot } from 'lib/bridge/operation';
+import type { EpochReviewedOutput } from 'lib/epoch/types';
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type {
+  NearIntentsConfig,
   OneClickAsset,
-  OneClickConfig,
   OneClickProviderStatus,
   OneClickQuoteRequest,
   OneClickQuoteResponse,
@@ -87,10 +89,18 @@ export interface ISubmitEvidence {
   finalCommitment?: string;
   initialNonce?: string; // decimal
   outputNoteIds?: string[]; // user output notes; [] when known empty
+  // The private ones among `outputNoteIds`, read with them off the same notes; [] when known none. An applied execute's
+  // landing that kept no read of its result owes these to the row's recipient.
+  privateOutputNoteIds?: string[];
   nullifiers?: string[]; // [] when known empty
   refBlock?: number;
   refBlockCommitment?: string; // the network identity
   expirationBlock?: number;
+  // A swap attempt's order as its leaf read it off the request before the execute: felt 1 of the PSWAP serial as
+  // decimal text, and the order note's id in lower case. Both or neither. A single-key swap saves no request, so this
+  // is the only record of its order a landed writer can open without the result.
+  orderId?: string;
+  orderNoteId?: string;
   guardianProposalNonce?: number;
   candidateKept?: true; // the guardian still holds this attempt's candidate
   initialSeenAtBlock?: number;
@@ -106,7 +116,10 @@ export interface ISubmitEvidence {
   fromExecute?: true; // the row was an execute when this entry was made
 }
 
-/** What a leaf reads off the executed and proven transaction just before it submits (#1081). */
+/**
+ * What a leaf reads off the executed and proven transaction just before it submits (#1081), and a swap's order, which
+ * its leaf read off the request before the execute.
+ */
 export type SubmitEvidenceFields = Pick<
   ISubmitEvidence,
   | 'transactionId'
@@ -114,10 +127,13 @@ export type SubmitEvidenceFields = Pick<
   | 'finalCommitment'
   | 'initialNonce'
   | 'outputNoteIds'
+  | 'privateOutputNoteIds'
   | 'nullifiers'
   | 'refBlock'
   | 'refBlockCommitment'
   | 'expirationBlock'
+  | 'orderId'
+  | 'orderNoteId'
 >;
 
 /**
@@ -184,14 +200,17 @@ export type IOneClickPhase =
   | 'delivered'
   | 'refunded'
   | 'incomplete-deposit'
-  | 'failed';
+  | 'failed'
+  // Nobody paid the deposit address before the funding deadline (plus a grace time). Terminal.
+  | 'expired';
 
 export interface IOneClickTrackingData {
+  /** `evm-to-miden` is every deposit into Miden, from any origin chain. The name stays for rows already stored. */
   direction: IOneClickDirection;
   request: OneClickQuoteRequest;
   quote: OneClickQuoteResponse;
   fundingDeadline?: string;
-  config: OneClickConfig;
+  config: NearIntentsConfig;
   network: string;
   accountId: string;
   accountAddress: string;
@@ -207,18 +226,64 @@ export interface IOneClickTrackingData {
   providerStatus?: OneClickProviderStatus;
   statusResponse?: OneClickStatusResponse;
   providerSubmitted?: boolean;
-  evmSubmission?: 'not-started' | 'attempted' | 'known';
   updatedAt?: number;
   error?: string;
 }
 
 export interface ISendExtraInputs {
   recallBlocks?: number;
+  /** Exact ISO date approved by Command Send; authoritative for the first request build. */
+  calendarRecallTarget?: string;
   oneClick?: IOneClickTrackingData;
 }
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
+
+/**
+ * epoch: a Compact deposit that landed on the source chain while Epoch refused its allocation (#2120). The USDC
+ * stays in the sponsor's resource lock in The Compact. The row keeps phase `failed`, and this record is what lets
+ * the sponsor's connected EVM wallet register the deposit again or withdraw it. A row restored from a backup never
+ * uses it.
+ */
+export interface IEpochLockedDeposit {
+  /** The connected EVM account that signed the deposit. Only this account can recover it. */
+  sponsorAddress: string;
+  /** The EVM chain of The Compact that holds the deposit. */
+  chainId: number;
+  /** The Compact resource lock id (ERC-6909 token id), as a decimal string. */
+  lockId: string;
+  /** The deposited token, the zero address for a native deposit. */
+  tokenAddress: string;
+  isNative: boolean;
+  /** Base units this deposit added to the lock. */
+  amount: string;
+  /** The intent that the allocator refused: a retry registers it again over the locked balance. */
+  taskTypeString: string;
+  intentData: Record<string, unknown>;
+  /** Unix seconds at which the wallet found the deposit locked. */
+  lockedAt: number;
+  /** Unix seconds at which the forced withdrawal was enabled from this wallet. */
+  withdrawEnabledAt?: number;
+  /** Unix seconds from which The Compact lets the sponsor withdraw. */
+  withdrawableAt?: number;
+  withdrawTxHash?: string;
+  /**
+   * Base units that the withdrawal sent back: the whole balance of the lock. This can be more than `amount`, because
+   * the lock holds every deposit of the sponsor in this token on this chain.
+   */
+  withdrawnAmount?: string;
+  /** Unix seconds at which the deposit went back to the sponsor. Final. */
+  withdrawnAt?: number;
+  /**
+   * Unix seconds at which the wallet read the lock empty with no withdrawal of its own on record. It says nothing about
+   * where the funds went. `withdrawnAt`, `withdrawTxHash` and `withdrawnAmount` stay for a withdrawal that this wallet
+   * sent.
+   */
+  emptiedAt?: number;
+  /** Unix seconds at which a retry registered the deposit again. The row then continues as a normal bridge-in. */
+  reallocatedAt?: number;
+}
 
 /** One faucet's summed amount inside a batch consume. */
 export interface IConsumedAssetTotal {
@@ -312,6 +377,11 @@ export interface IConsumedNote {
 export interface IUsdcxCctpLeg {
   /** Circle's domain of the source chain, the key of its Iris messages. */
   sourceDomain: number;
+  /** Verified original source receipt facts, never source or execute consent. */
+  sourceMessage?: string;
+  messageTransmitter?: string;
+  /** Destination wallet invocation ownership; hashless uncertainty never grants another gas prompt. */
+  executeAttempt?: { id: string; phase: 'uncertain' | 'known'; hash?: string };
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
   message?: string;
   attestation?: string;
@@ -349,6 +419,7 @@ export interface IAgglayerDelivery {
 }
 
 export interface IBridgedReceiveExtraInputs {
+  bridgeOperation?: BridgeOperationSnapshot;
   agglayerRoute?: AgglayerRecoveryConfig;
   /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
   agglayerDelivery?: IAgglayerDelivery;
@@ -385,6 +456,8 @@ export interface IBridgedReceiveExtraInputs {
   usdcxRemoteRecipient?: string;
   /** Unix seconds at which the row first reached `ready`. Written once, never cleared, and kept through `failed`. */
   readyAt?: number;
+  /** epoch: the deposit that is in The Compact without an allocation. See `IEpochLockedDeposit`. */
+  epochLockedDeposit?: IEpochLockedDeposit;
 }
 
 /** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`
@@ -423,7 +496,8 @@ export interface ISwitchGuardianExtraInputs {
   // falls back to a deadline-bounded attempt, so a missing marker costs 30s and
   // never correctness. The two paths also differ in what state can be left
   // behind (see `registerFailed` above), and without `directSwitchReason` a
-  // support log cannot tell whether the unreachability verdict was right.
+  // support log cannot tell whether the classified verdict (unreachable, cannot
+  // co-sign or refused) was right.
   switchedDirectly?: boolean;
   directSwitchReason?: string;
   // `commitUnconfirmed`: the direct rotation was SUBMITTED but the wallet never
@@ -478,8 +552,16 @@ export interface ISwitchGuardianExtraInputs {
  */
 export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
 
+/** Native base-unit cap shown at confirmation, bound to a fingerprint of the source RPC/network. */
+export interface IUsdcxNetworkFeeBudget {
+  faucetId: string;
+  maxAmount: string;
+  scope: string;
+}
+
 /** Faucet-side lifecycle, independent of the sender's transaction status. */
 export interface IUsdcxBurn {
+  networkFeeBudget?: IUsdcxNetworkFeeBudget;
   noteId: string;
   destinationDomain: number;
   destinationUsdc?: `0x${string}`;
@@ -502,6 +584,10 @@ export interface IUsdcxBurn {
 
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  epochReviewedOutput?: EpochReviewedOutput;
+  /** Local original unsigned collateral, for handoff comparison only; never signing authority or backup data. */
+  epochCollateralRequestBytes?: Uint8Array;
+  bridgeOperation?: BridgeOperationSnapshot;
   agglayerRoute?: AgglayerRecoveryConfig;
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
@@ -1615,6 +1701,21 @@ export interface ISwapExtraInputs {
    * attempts proven dead drops it.
    */
   landedOrder?: ISwapLandedOrder;
+  /**
+   * The order this row's saved request names, read off the request whose bytes are stored beside it and written in
+   * the same write as `requestBytes` (a Guardian swap's build and each rebuild), so it describes those bytes; a write
+   * that stores bytes it read no order for removes it. Only a writer completing a landed swap reads it, as the order a
+   * landing could not read (`completedSwapFields`), so a row carrying it opens no order. A Retry keeps it, since a
+   * replay resends the same bytes. Absent on single-key rows, which save no request, and on older rows.
+   */
+  requestOrder?: ISwapRequestOrder;
+}
+
+export interface ISwapRequestOrder {
+  /** The PSWAP lineage id, felt 1 of the order note's serial, as decimal text. */
+  orderId: string;
+  /** The order note's id, in lower case. */
+  noteId: string;
 }
 
 export interface ISwapLandedOrder {
