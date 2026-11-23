@@ -1,9 +1,13 @@
 # Changelog
 
-## 1.18.1 (TBD)
+## 1.18.1 (2026-11-23)
 
 - [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
+- [FIX][ci] Bound nightly NEAR return authorization by both the original checkpoint allowance and the current dispatch allowance.
+
+- [FIX][ios][android][extension] Show the USD value of USDT, SOL, NEAR and PAXG in the Swap token picker, priced from the verified token list like home, not only ETH and WBTC.
 - [FIX][extension] Tell the user to restart the browser when its IndexedDB storage stops answering, instead of showing an empty wallet, restarting the offscreen document in a loop, piling up sync retries until memory runs out, or reporting a node outage.
+- [FIX][ci] Use the authorized plain P2ID note for nightly NEAR deposits and reconcile the exact unused Green13 quote.
 - [FIX][ci] Reconcile the exact expired Green12 NEAR quote without renewing its authority.
 - [FIX][ci] Report the last NEAR forward stage without uploading private worker logs.
 - [FIX][ci] Report bounded queue diagnostics when NEAR forward authorization fails.
