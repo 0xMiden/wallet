@@ -601,17 +601,22 @@ function rejectAllInFlight(
   }
 }
 
-function downgradeReadDeadline(op_id: string, op: InFlightOp): boolean {
-  if (op.critical || !isCriticalOpInFlight()) return false;
-  // A cheap read's deadline while a value-moving critical op owns the doc.
-  // Fail only this read - never tear down the realm running the write
-  // (design §3.3). The offscreen op keeps running; its result is dropped.
+/** The reject-without-kill a read deadline uses when it must not tear the realm down. */
+function rejectDeadlineNoKill(op_id: string, op: InFlightOp): void {
   takeInFlight(op_id)?.reject(
     new OperationAbortedError(op_id, 'deadline-no-kill', {
       started: op.started,
       deadline: { owner: 'own', timer: op.timerPhase, killer: 'read' }
     })
   );
+}
+
+function downgradeReadDeadline(op_id: string, op: InFlightOp): boolean {
+  if (op.critical || !isCriticalOpInFlight()) return false;
+  // A cheap read's deadline while a value-moving critical op owns the doc.
+  // Fail only this read - never tear down the realm running the write
+  // (design §3.3). The offscreen op keeps running; its result is dropped.
+  rejectDeadlineNoKill(op_id, op);
   return true;
 }
 
@@ -631,6 +636,7 @@ async function onDeadline(op_id: string): Promise<void> {
   if (op.paused) return;
   // The timer that fired is the op's current one at entry; a start signal or sign resume arms a new one.
   const firedTimer = op.timer;
+  const isCurrent = () => inFlight.get(op_id) === op && !op.paused && op.timer === firedTimer;
 
   if (downgradeReadDeadline(op_id, op)) return;
 
@@ -644,21 +650,32 @@ async function onDeadline(op_id: string): Promise<void> {
   const storageStalled = await checkStorage();
   // The probe can take seconds: the op may have settled or paused, or a write may have started, meanwhile.
   // A re-armed op has a fresh deadline of its own and a newer firing; this one is superseded.
-  if (inFlight.get(op_id) !== op || op.paused || op.timer !== firedTimer) return;
+  if (!isCurrent()) return;
   if (storageStalled && !op.critical) {
     takeInFlight(op_id)?.reject(new StorageStalledError());
     return;
   }
   if (downgradeReadDeadline(op_id, op)) return;
-  const closed = await forceCloseOffscreenDocument();
-  // Closing the doc killed every concurrent op's realm — reject them all.
+  // The close waits on the lifecycle lock and on hasOffscreenDocument, so it asks again just before closeDocument: a
+  // start signal or sign resume may have superseded this firing, and a write can take the document without the lock.
+  const closeResult = await forceCloseOffscreenDocument(() => isCurrent() && (op.critical || !isCriticalOpInFlight()));
+  // Not closed, and no longer the current firing: leave the replacement timer or the paused sign.
+  if (closeResult !== 'closed' && !isCurrent()) return;
+  if (closeResult === 'blocked') {
+    // A write held the document: only this read fails, even if that write has ended since, as its timer is spent.
+    rejectDeadlineNoKill(op_id, op);
+    return;
+  }
+  if (closeResult === 'absent' && downgradeReadDeadline(op_id, op)) return;
+  // Closing the doc killed every concurrent op's realm — reject them all. A start signal that
+  // lands while closeDocument itself is in flight does not supersede that kill.
   // TODO(slice 4): there is a small window where an op whose sendMessage is
   // mid-flight (but whose result would have been fine) gets rejected as a
   // collateral 'deadline' abort. Harmless for idempotent reads; slice 4 must
   // weigh this against the write kill-window taxonomy (design §5) before routing
   // writes through here.
   rejectAllInFlight(op_id, deadline);
-  if (closed && !storageStalled) {
+  if (closeResult === 'closed' && !storageStalled) {
     // Reopen eagerly so the next call doesn't pay the cold start on its own
     // critical path. Best-effort: the next call's ensureOffscreenDocument()
     // would recreate it anyway.
