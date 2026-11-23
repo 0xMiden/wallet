@@ -5,7 +5,7 @@ import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
-import { useCachedDisplayQuotes } from 'lib/prices/display-cache';
+import { selectDisplayQuotes, useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { useWalletStore } from 'lib/store';
 
 const CURRENT_MS = 15 * 60_000;
@@ -20,7 +20,7 @@ export function useCommandPortfolio(scope: AccountScope) {
   const livePrices = useWalletStore(state => state.tokenPrices);
   const pricesStatus = useWalletStore(state => state.tokenPricesStatus);
   const cachedPrices = useCachedDisplayQuotes();
-  const tokenPrices = cachedPrices ? { ...cachedPrices, ...livePrices } : livePrices;
+  const tokenPrices = selectDisplayQuotes(livePrices, cachedPrices);
   const { isHidden, loaded: hiddenReady } = useHiddenTokens(scope.accountId);
 
   let held = false;
@@ -65,7 +65,7 @@ export function useCommandPortfolio(scope: AccountScope) {
     }
     hasMarketValue ||= quote.kind !== 'fixed';
     const liveQuote = tokenQuote(livePrices, row.tokenId, row.metadata.symbol);
-    usesCachedPrice ||= !liveQuote || liveQuote.kind === 'nominal';
+    usesCachedPrice ||= quote !== liveQuote;
     pricedRows.push(row);
     pricedValues.push({ tokenId: row.tokenId, value });
     priced.push(row.tokenId);
@@ -99,6 +99,7 @@ export function useCommandPortfolio(scope: AccountScope) {
   const priceMovement24h =
     value !== null &&
     !isLoading &&
+    !usesCachedPrice &&
     marketPriced &&
     previousFiat > 0 &&
     Number.isFinite(move) &&

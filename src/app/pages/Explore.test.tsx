@@ -10,10 +10,13 @@ import {
   TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
 } from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
+import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
@@ -127,9 +130,24 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
 // Balance is a render-prop that hands its child the total fiat BigNumber; the child converts it
 // to a number for `AnimatedNumber` and formats it through the (mocked) toLocalFormat.
 let mockPortfolioTotal: BigNumber | null = new BigNumber(0);
+let mockBalanceChange: { absolute: number; percentage: number } | null = null;
+let mockRealBalance = false;
 jest.mock('app/templates/Balance', () => ({
   __esModule: true,
-  default: ({ children }: { children: (b: BigNumber | null) => React.ReactElement }) => children(mockPortfolioTotal)
+  default: (props: {
+    children: (b: BigNumber | null, change: { absolute: number; percentage: number } | null) => React.ReactElement;
+  }) => {
+    if (mockRealBalance) {
+      const Actual = jest.requireActual<typeof import('app/templates/Balance')>('app/templates/Balance').default;
+      return <Actual>{props.children}</Actual>;
+    }
+    return props.children(mockPortfolioTotal, mockBalanceChange);
+  }
+}));
+let mockCachedQuotes: TokenPrices | undefined;
+jest.mock('lib/prices/display-cache', () => ({
+  ...jest.requireActual('lib/prices/display-cache'),
+  useCachedDisplayQuotes: () => mockCachedQuotes
 }));
 
 jest.mock('app/templates/HomePrompts', () => ({
@@ -370,6 +388,9 @@ describe('Explore', () => {
     mockAccount = { publicKey: 'mtst1account' };
     mockAllBalances = [];
     mockPortfolioTotal = new BigNumber(0);
+    mockBalanceChange = null;
+    mockRealBalance = false;
+    mockCachedQuotes = undefined;
     mockClaimableNotes = undefined;
     mockClaimableNotesAreCached = false;
     mockPlatform.isExtension = true;
@@ -598,6 +619,120 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+    });
+
+    const cachedEth = (change24h: number): TokenPrices => ({
+      ETH: {
+        price: 2,
+        observedAt: Date.now(),
+        kind: 'market',
+        change24h,
+        percentageChange24h: change24h
+      }
+    });
+    const scopeSnapshot = (rpcUrl = getEffectiveRpcUrl()) => {
+      tagBalanceSnapshot(
+        mockAllBalances,
+        {
+          network: getEffectiveNetworkName(),
+          effectiveNetwork: getEffectiveNetworkName(),
+          rpcUrl,
+          accountNonce: '1',
+          capturedAt: Date.now()
+        },
+        mockAccount.publicKey
+      );
+    };
+
+    it('shows the cached total when live prices have not loaded and the balance snapshot is in scope', async () => {
+      mockRealBalance = true;
+      mockCachedQuotes = cachedEth(0.5);
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 7.25)];
+      mockTokenPrices = {};
+      mockBalancesLoading = true;
+
+      const view = await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'loading');
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+
+      mockBalancesLoading = false;
+      view.rerender(<Explore />);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'default');
+
+      scopeSnapshot('https://other.example/rpc');
+      view.rerender(<Explore />);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+
+      scopeSnapshot();
+      view.rerender(<Explore />);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^14\.50$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
+    });
+
+    it('keeps a cache-only total as a dash until hidden tokens have loaded', async () => {
+      let resolveHidden: (value: null) => void = () => {};
+      mockReadStorage.mockImplementation((key: string) => {
+        if (String(key).startsWith('hidden-tokens:')) return new Promise(resolve => (resolveHidden = resolve));
+        return Promise.resolve(null);
+      });
+      mockRealBalance = true;
+      mockCachedQuotes = cachedEth(0.5);
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 7.25)];
+      mockTokenPrices = {};
+      scopeSnapshot();
+
+      await renderExplore();
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+
+      await act(async () => {
+        resolveHidden(null);
+      });
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^14\.50$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
+    });
+
+    it('keeps the dash when a cached quote still cannot value the holding', async () => {
+      mockRealBalance = true;
+      mockCachedQuotes = cachedEth(0);
+      mockAllBalances = [
+        {
+          tokenId: TEST_TOKEN_IETH.faucetId,
+          balance: 7.25,
+          metadata: { symbol: 'IETH', name: 'IETH', scaleIsUnknown: true }
+        }
+      ];
+      mockTokenPrices = {};
+      scopeSnapshot();
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+    });
+
+    it('shows the cached total when the only live quote is stale and cannot price the holding', async () => {
+      mockRealBalance = true;
+      const now = Date.now();
+      mockCachedQuotes = {
+        ETH: {
+          price: 2,
+          observedAt: now,
+          kind: 'market',
+          change24h: Number.NaN,
+          percentageChange24h: Number.NaN
+        }
+      };
+      mockTokenPrices = {
+        ETH: { price: 0, change24h: 1, percentageChange24h: 0, observedAt: now - 16 * 60_000, kind: 'market' }
+      };
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 7.25)];
+      scopeSnapshot();
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^14\.50$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
     });
 
     it('shows the dash placeholder when the account holds tokens and none of them has a price', async () => {

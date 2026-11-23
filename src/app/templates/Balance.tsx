@@ -7,8 +7,8 @@ import CSSTransition from 'react-transition-group/CSSTransition';
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
+import { selectDisplayQuotes, useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { useWalletStore } from 'lib/store';
 
 /** The valued total's move over 24 hours, in dollars and as a percentage of where it started. */
@@ -38,7 +38,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
     // `valuedBalanceTotal`'s rule, shared with the bridge-in ceiling.
     const { totalFiat, previousFiat, holdsAnything, valuedAnything } = valuedBalanceTotal(
       allTokenBalances,
-      cachedQuotes ? { ...cachedQuotes, ...tokenPrices } : tokenPrices,
+      selectDisplayQuotes(tokenPrices, cachedQuotes),
       isHidden
     );
     // No change to show without a valued total, or from a starting value of zero.
