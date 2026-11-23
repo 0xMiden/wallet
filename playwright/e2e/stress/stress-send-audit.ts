@@ -1,57 +1,9 @@
-import type { Page } from '@playwright/test';
-
 import { TxStatus, type TransactionRowSnapshot } from '../helpers/history';
 import type { StressOpRecord } from './stress-driver';
 
 type Wallet = 'A' | 'B';
 
 type SendRow = Pick<TransactionRowSnapshot, 'id' | 'type' | 'status' | 'transactionId'>;
-
-/** Inspect only the wallet rows named by the driver receipts. */
-export function readStressSendRows(
-  page: Page,
-  operations: StressOpRecord[],
-  wallet: Wallet
-): Promise<SendRow[] | null> {
-  const ids = new Set<string>();
-  for (const op of operations) {
-    const id = op.sender === wallet ? op.rowId : op.secondaryRowId;
-    if (id) ids.add(id);
-  }
-  return page.evaluate(
-    async rowIds => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const open = indexedDB.open('TridentMain');
-        open.onupgradeneeded = () => open.transaction?.abort();
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => resolve(open.result);
-      });
-      try {
-        if (!db.objectStoreNames.contains('transactions')) return null;
-        const store = db.transaction('transactions', 'readonly').objectStore('transactions');
-        const rows = await Promise.all(
-          rowIds.map(
-            id =>
-              new Promise<SendRow | null>((resolve, reject) => {
-                const request = store.get(id);
-                request.onerror = () => reject(request.error);
-                request.onsuccess = () => {
-                  const row = request.result;
-                  resolve(
-                    row ? { id: row.id, type: row.type, status: row.status, transactionId: row.transactionId } : null
-                  );
-                };
-              })
-          )
-        );
-        return rows.filter((row): row is SendRow => row !== null);
-      } finally {
-        db.close();
-      }
-    },
-    [...ids]
-  );
-}
 
 export function auditStressSends(operations: StressOpRecord[], rows: Record<Wallet, SendRow[]>) {
   const indexed = {

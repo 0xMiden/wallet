@@ -12,9 +12,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { runStressDriver, type StressOptions } from './stress-driver';
-import { auditStressSends, readStressSendRows } from './stress-send-audit';
+import { auditStressSends } from './stress-send-audit';
 import { expect, test } from '../fixtures/two-wallets';
 import { hexFaucetToBech32 } from '../helpers/faucet-address';
+import { readTransactionRowsOrNull } from '../helpers/history';
 import { streamIndexedDBToFile } from '../helpers/idb-dump';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
@@ -490,10 +491,8 @@ test.describe('Stress - random send/claim', () => {
         return latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] ?? 0;
       };
 
-      const [sendRowsA, sendRowsB] = await Promise.all([
-        readStressSendRows(walletA.page, result.perOp, 'A').catch(() => null),
-        readStressSendRows(walletB.page, result.perOp, 'B').catch(() => null)
-      ]);
+      const sendRowsA = await readTransactionRowsOrNull(walletA.page);
+      const sendRowsB = await readTransactionRowsOrNull(walletB.page);
       const sendAudit = sendRowsA && sendRowsB ? auditStressSends(result.perOp, { A: sendRowsA, B: sendRowsB }) : null;
       const summary = {
         seed: opts.seed,
