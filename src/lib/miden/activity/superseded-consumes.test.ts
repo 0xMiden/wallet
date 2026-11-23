@@ -112,15 +112,18 @@ describe('supersededFailedConsumeIds (#771)', () => {
   it('does not match empty accounts or share their negative evidence with suffixed accounts', async () => {
     await transactions.bulkAdd([
       completedClaim('empty', ['n1'], { accountId: '' }),
-      completedClaim('suffixed', ['n2'], { accountId: '_x' })
+      completedClaim('suffixed', ['n2'], { accountId: '_x' }),
+      completedClaim('valid-suffixed', ['n3'], { accountId: 'acc_x' })
     ]);
     const lookup = createClaimEvidenceLookup();
     const empty = lookup('', 'n1');
     expect(lookup('', 'n1')).toBe(empty);
     expect(await empty).toBe(false);
     expect(await lookup('', 'n2')).toBe(false);
-    expect(await lookup('_y', 'n2')).toBe(true);
-    expect(await lookup('', 'n2')).toBe(false);
+    expect(await lookup('_y', 'n2')).toBe(false);
+    expect(await lookup('', 'n3')).toBe(false);
+    expect(await lookup('acc_y', 'n3')).toBe(true);
+    expect(await lookup('', 'n3')).toBe(false);
   });
 
   it('uses noteIds before noteId when checking claim membership', async () => {
