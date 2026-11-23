@@ -5,8 +5,6 @@ import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
-import { isNominalQuote } from 'lib/prices/binance';
-import { isFixedQuote } from 'lib/prices/fixed';
 import { useWalletStore } from 'lib/store';
 
 const CURRENT_MS = 15 * 60_000;
@@ -38,7 +36,7 @@ export function useCommandPortfolio(scope: AccountScope) {
     if (
       !hasKnownScale(row.metadata) ||
       !quote ||
-      isNominalQuote(quote) ||
+      quote.kind === 'nominal' ||
       !Number.isFinite(quote.price) ||
       quote.price <= 0
     ) {
@@ -47,7 +45,7 @@ export function useCommandPortfolio(scope: AccountScope) {
       continue;
     }
     if (
-      !isFixedQuote(quote) &&
+      quote.kind !== 'fixed' &&
       (!quote.observedAt || Date.now() - quote.observedAt > CURRENT_MS || quote.observedAt > Date.now())
     ) {
       staleQuote = true;
@@ -61,7 +59,7 @@ export function useCommandPortfolio(scope: AccountScope) {
       unpriced.push(row.tokenId);
       continue;
     }
-    hasMarketValue ||= !isFixedQuote(quote);
+    hasMarketValue ||= quote.kind !== 'fixed';
     pricedRows.push(row);
     pricedValues.push({ tokenId: row.tokenId, value });
     priced.push(row.tokenId);
@@ -87,7 +85,7 @@ export function useCommandPortfolio(scope: AccountScope) {
   const percentage = (move / previousFiat) * 100;
   const marketPriced = pricedRows.some(row => {
     const quote = tokenQuote(tokenPrices, row.tokenId, row.metadata.symbol);
-    return quote && !isFixedQuote(quote) && Number.isFinite(quote.change24h);
+    return quote && quote.kind !== 'fixed' && Number.isFinite(quote.change24h);
   });
   const priceMovement24h =
     value !== null &&
