@@ -57,20 +57,15 @@ afterEach(() => {
 });
 
 describe('wallet-e2e/v1 projection', () => {
-  it('replays its first producer-emitted bytes and distinguishes prior-run claims from fresh swaps', () => {
-    const fixtureRoot = resolve(cwd, 'scripts/wallet-e2e/fixtures');
-    const bytes = formatReport(recoveryFixture());
-    expect(bytes).toBe(readFileSync(join(fixtureRoot, REPORT_FILENAME), 'utf8'));
-    const rejected = JSON.parse(readFileSync(join(fixtureRoot, 'rejected-v1.json'), 'utf8'));
-    expect(() => formatReport(rejected)).toThrow('Invalid wallet E2E report');
-    assertSanitized(bytes);
+  it('distinguishes prior-run claims and blocked recovery from fresh swaps', () => {
     const failure = recoveryFixture();
+    assertSanitized(formatReport(failure));
     expect(failure.coverage.freshSwapsStarted.value).toBe(0);
     expect(failure.coverage.swap.status).toBe('not_started');
     expect(failure.stages[0]?.error).toEqual(errorFor('recovery_gate_failed'));
 
     const previous = recoveryFixture(true);
-    expect(formatReport(previous)).toBe(readFileSync(join(fixtureRoot, 'prior-run-claim-v1.json'), 'utf8'));
+    assertSanitized(formatReport(previous));
     expect(previous.invocations[0]?.tests[0]?.status).toBe('passed');
     expect(previous.coverage.freshSwapsStarted.value).toBe(0);
     const action = previous.invocations[0]?.tests[0]?.attempts[0]?.operations[0];

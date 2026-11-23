@@ -8,13 +8,12 @@ import type { TestInfo } from '@playwright/test';
 import type { FullConfig, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 
 import {
-  commonSwapQuoteRefusal,
   readLiveSwapLeg,
   recordTerminalRouteRefusal,
   swapQuoteRefusal,
   validateSwapEta
 } from '../playwright/e2e/helpers/mainnet-swap-ui';
-import { observeNightly } from '../playwright/e2e/reporting/nightly-observation';
+import { NIGHTLY_OBSERVATION, observeNightly } from '../playwright/e2e/reporting/nightly-observation';
 import WalletE2eReporter from '../playwright/e2e/reporting/wallet-e2e-reporter';
 import { INVOCATIONS, TITLES } from './wallet-e2e/invocations.cjs';
 import { main } from './wallet-e2e/job.cjs';
@@ -71,7 +70,7 @@ function observe(invocationId: string, status: 'passed' | 'failed', operations: 
     invocationId,
     status,
     operations.map(value => ({
-      type: 'wallet-e2e-observation-v1',
+      type: NIGHTLY_OBSERVATION,
       description: JSON.stringify({ operation: value, timeout: 30_000 })
     }))
   );
@@ -254,11 +253,6 @@ it('reports a consistent terminal route-search refusal before starting fresh swa
     }
   }
   expect(fetch).toHaveBeenCalledTimes(2);
-  const agreed = commonSwapQuoteRefusal(2, refusals);
-  expect(agreed).toEqual({ errorCode: 'quote_price_stale', endpoint: 'inicio_pair_price' });
-  expect(commonSwapQuoteRefusal(3, refusals)).toBeUndefined();
-  expect(commonSwapQuoteRefusal(0, [])).toBeUndefined();
-
   env.E2E_WALLET_REPORT_INVOCATION = 'swap-prepare';
   const annotations: TestInfo['annotations'] = [];
   const observe = observeNightly({ annotations, timeout: 30_000 } as TestInfo, {
@@ -266,6 +260,7 @@ it('reports a consistent terminal route-search refusal before starting fresh swa
     kind: 'setup',
     provider: 'solver'
   });
+  recordTerminalRouteRefusal(observe, 0, []);
   recordTerminalRouteRefusal(observe, 3, refusals);
   expect(annotations).toHaveLength(0);
   recordTerminalRouteRefusal(observe, 2, refusals);
@@ -303,7 +298,9 @@ it('keeps contradictory and mixed quote declines from explaining route selection
   const paused = refusalFor({ ...eta, settlementsRunning: false });
   expect(insufficient?.errorCode).toBe('quote_liquidity_insufficient');
   expect(paused?.errorCode).toBe('quote_settlement_paused');
-  expect(commonSwapQuoteRefusal(2, [insufficient!, paused!])).toBeUndefined();
+  const observe = jest.fn();
+  recordTerminalRouteRefusal(observe, 2, [insufficient!, paused!]);
+  expect(observe).not.toHaveBeenCalled();
 });
 
 it.each([

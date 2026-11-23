@@ -41,25 +41,16 @@ export function swapQuoteRefusal(error: unknown) {
   return { errorCode: error.code, endpoint };
 }
 
-export function commonSwapQuoteRefusal(
-  attempted: number,
-  refusals: readonly NonNullable<ReturnType<typeof swapQuoteRefusal>>[]
-) {
-  const [first] = refusals;
-  if (first && refusals.length === attempted && refusals.every(refusal => refusal.errorCode === first.errorCode)) {
-    return first;
-  }
-  return undefined;
-}
-
 export function recordTerminalRouteRefusal(
   observe: ObserveNightly,
   attempted: number,
   refusals: readonly NonNullable<ReturnType<typeof swapQuoteRefusal>>[]
 ) {
-  const refusal = commonSwapQuoteRefusal(attempted, refusals);
-  if (refusal)
-    observe(undefined, { key: 'quote_availability', origin: 'wallet_assertion', status: 'failed', ...refusal });
+  const [first] = refusals;
+  if (!first || refusals.length !== attempted || refusals.some(refusal => refusal.errorCode !== first.errorCode)) {
+    return;
+  }
+  observe(undefined, { key: 'quote_availability', origin: 'wallet_assertion', status: 'failed', ...first });
 }
 
 export function quotedSwapMinimum(
