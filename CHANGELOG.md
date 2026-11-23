@@ -1,8 +1,11 @@
 # Changelog
 
-## 1.18.1 (2026-11-23)
+## 1.18.2 (TBD)
 
 - [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
+
+## 1.18.1 (2026-11-23)
+
 - [FIX][ci] Bound nightly NEAR return authorization by both the original checkpoint allowance and the current dispatch allowance.
 
 - [FIX][ios][android][extension] Show the USD value of USDT, SOL, NEAR and PAXG in the Swap token picker, priced from the verified token list like home, not only ETH and WBTC.
