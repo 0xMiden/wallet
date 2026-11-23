@@ -195,7 +195,7 @@ test('workflow keeps automation and source checkouts pinned and signing out of a
   assert.equal((source.match(/ref: \$\{\{ inputs\.source_sha \}\}/g) ?? []).length, 4);
   assert.equal((source.match(/run: yarn install --frozen-lockfile/g) ?? []).length, 3);
   assert.equal((source.match(/environment: wallet-store-signing/g) ?? []).length, 2);
-  assert.match(source, /runs-on: macos-26/);
+  assert.match(source, /runs-on: xcode-27\n/);
   assert.match(source, /java-version: '21'/);
   assert.match(source, /bundleRelease -PandroidBuildNumber="\$BUILD_NUMBER"/);
   assert.match(source, /'destination': 'export'/);
