@@ -1773,6 +1773,7 @@
   "bridgeConnectWalletTitle": "Connectez votre portefeuille",
   "bridgeConnectWalletBody": "Le portefeuille contenant les jetons que vous souhaitez transférer vers Miden.",
   "bridgeConnectWalletAction": "Connecter un portefeuille",
+  "bridgeConnectPickerFailed": "Le sélecteur de portefeuille n’a pas pu s’ouvrir. Veuillez réessayer.",
   "bridgeConnectSource": "Votre portefeuille",
   "bridgeConnectSourceHint": "Non connecté",
   "bridgeConnectNextTitle": "Après la connexion",

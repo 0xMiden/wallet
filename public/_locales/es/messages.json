@@ -8102,6 +8102,10 @@
     "message": "Conectar monedero",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "No se ha podido abrir el selector de monederos. Inténtalo de nuevo.",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "Tu monedero",
     "englishSource": "Your wallet"

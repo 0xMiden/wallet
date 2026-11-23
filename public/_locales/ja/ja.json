@@ -1777,6 +1777,7 @@
   "bridgeConnectWalletTitle": "ウォレットを接続してください",
   "bridgeConnectWalletBody": "Midenに持ち込みたいトークンを保管しているウォレット。",
   "bridgeConnectWalletAction": "ウォレットを接続する",
+  "bridgeConnectPickerFailed": "ウォレットピッカーを開くことができませんでした。もう一度お試しください。",
   "bridgeConnectSource": "ウォレット",
   "bridgeConnectSourceHint": "未接続",
   "bridgeConnectNextTitle": "接続後",

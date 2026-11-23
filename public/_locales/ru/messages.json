@@ -8100,6 +8100,10 @@
     "message": "Подключить кошелек",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "Не удалось открыть окно выбора кошелька. Попробуйте ещё раз.",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "Ваш кошелек",
     "englishSource": "Your wallet"

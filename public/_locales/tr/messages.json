@@ -8097,6 +8097,10 @@
     "message": "Cüzdanı bağla",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "Cüzdan seçici açılamadı. Lütfen tekrar deneyin.",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "Cüzdanınız",
     "englishSource": "Your wallet"

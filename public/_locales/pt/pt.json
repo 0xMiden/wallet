@@ -1771,6 +1771,7 @@
   "bridgeConnectWalletTitle": "Conecte sua carteira",
   "bridgeConnectWalletBody": "A carteira que contém os tokens que você deseja transferir para a Miden.",
   "bridgeConnectWalletAction": "Conectar carteira",
+  "bridgeConnectPickerFailed": "Não foi possível abrir o seletor de carteira. Tente novamente.",
   "bridgeConnectSource": "Sua carteira",
   "bridgeConnectSourceHint": "Não conectado",
   "bridgeConnectNextTitle": "Após conectar-se",

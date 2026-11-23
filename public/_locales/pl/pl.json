@@ -1775,6 +1775,7 @@
   "bridgeConnectWalletTitle": "Podłącz swój portfel",
   "bridgeConnectWalletBody": "Portfel zawierający tokeny, które chcesz przenieść do Miden.",
   "bridgeConnectWalletAction": "Połącz portfel",
+  "bridgeConnectPickerFailed": "Nie udało się otworzyć selektora portfela. Spróbuj ponownie.",
   "bridgeConnectSource": "Twój portfel",
   "bridgeConnectSourceHint": "Nie połączono",
   "bridgeConnectNextTitle": "Po nawiązaniu połączenia",

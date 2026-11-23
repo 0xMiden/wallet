@@ -1777,6 +1777,7 @@
   "bridgeConnectWalletTitle": "Connect your wallet",
   "bridgeConnectWalletBody": "The wallet holding the tokens you want to bring to Miden.",
   "bridgeConnectWalletAction": "Connect wallet",
+  "bridgeConnectPickerFailed": "The wallet picker could not open. Try again.",
   "bridgeConnectSource": "Your wallet",
   "bridgeConnectSourceHint": "Not connected",
   "bridgeConnectNextTitle": "After connecting",

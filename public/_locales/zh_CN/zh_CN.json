@@ -1777,6 +1777,7 @@
   "bridgeConnectWalletTitle": "连接您的钱包",
   "bridgeConnectWalletBody": "存放您打算带到 Miden 的代币的钱包。",
   "bridgeConnectWalletAction": "连接钱包",
+  "bridgeConnectPickerFailed": "无法打开钱包选择器。请重试。",
   "bridgeConnectSource": "您的钱包",
   "bridgeConnectSourceHint": "未连接",
   "bridgeConnectNextTitle": "连接后",

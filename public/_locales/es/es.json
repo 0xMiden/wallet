@@ -1771,6 +1771,7 @@
   "bridgeConnectWalletTitle": "Conecta tu monedero",
   "bridgeConnectWalletBody": "El monedero que contiene los tokens que deseas transferir a Miden.",
   "bridgeConnectWalletAction": "Conectar monedero",
+  "bridgeConnectPickerFailed": "No se ha podido abrir el selector de monederos. Inténtalo de nuevo.",
   "bridgeConnectSource": "Tu monedero",
   "bridgeConnectSourceHint": "No conectado",
   "bridgeConnectNextTitle": "Tras conectarse",

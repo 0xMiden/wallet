@@ -8102,6 +8102,10 @@
     "message": "Conectar carteira",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "Não foi possível abrir o seletor de carteira. Tente novamente.",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "Sua carteira",
     "englishSource": "Your wallet"
