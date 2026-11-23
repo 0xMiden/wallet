@@ -1,5 +1,6 @@
 import type { TestInfo } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
 import { privateKeyToAccount, privateKeyToAddress } from 'viem/accounts';
 import { expect } from '@playwright/test';
 import { createPublicClient, erc20Abi, getAddress, http, isHash, isHex, type Hash } from 'viem';
@@ -18,6 +19,7 @@ import {
   type MainnetNearCheckpoint
 } from './mainnet-near-checkpoint';
 import { verifyRetiredNearReturnAbsence } from './mainnet-near-return-absence';
+import { nearNativeRequestDiagnostic } from './mainnet-near-native-request-diagnostic';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
 import { realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
@@ -53,6 +55,7 @@ import { captureMainnetNearIntentsQuote, readMainnetNearIntentsDeposit } from '.
 import {
   assertNeverStartedBuilding,
   plantQueueBlocker,
+  readTransactionRow,
   readTransactionRows,
   readTransactionRowsWithBytes,
   releaseQueueBlocker,
@@ -575,6 +578,24 @@ export async function runMainnetNearForward(
       state.sendAuthority = authority;
       await persist();
     }
+  }).catch(async error => {
+    const observation = new AbortController();
+    try {
+      const row = await Promise.race([
+        readTransactionRow(wallet.page, queued.id).catch(() => undefined),
+        delay(1500, undefined, { signal: observation.signal, ref: false })
+      ]);
+      writeFileSync(
+        'test-results/mainnet-near-forward-stage.json',
+        JSON.stringify(nearNativeRequestDiagnostic(error, row)),
+        { mode: 0o600 }
+      );
+    } catch {
+      // Preserve the original authorization failure if observation fails.
+    } finally {
+      observation.abort();
+    }
+    throw error;
   });
   recordNearForwardStage('acknowledged');
   await waitForSendRow(wallet.page, {
