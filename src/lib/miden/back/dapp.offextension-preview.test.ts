@@ -23,22 +23,28 @@
  * from the same decoders instead.
  */
 
+import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 import fs from 'fs';
 import path from 'path';
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { WalletType } from 'screens/onboarding/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 // Mirrors the scaffold in `dapp.send-preview.test.ts`; `dapp.ts` pulls in the
 // vault, the transaction pipeline and the storage adapter at module scope.
 
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
+// The unlocked store's accounts: the sign gate reads the connected account's kind here. Empty reads as a single-key
+// account, as a locked store does.
+let mockAccounts: { publicKey: string; type: string }[] = [];
 
 jest.mock('lib/miden/back/store', () => ({
   store: {
-    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' } })
+    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, accounts: mockAccounts })
   },
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
@@ -237,6 +243,7 @@ const expectWarningThenLine = (rows: string[]) => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAccounts = [];
   mockCacheScope.mockReset();
   mockCacheScope.mockImplementation(() => 'rpc|testnet');
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
@@ -620,6 +627,150 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
 
     expectWarningThenLine(sheetRows());
     expect(mockRefreshVerificationBaseFee).not.toHaveBeenCalled();
+  });
+});
+
+// ── 1b. A Guardian account signs only arbitrary signing inputs; a single-key account is unchanged ──
+
+describe('dApp sign approval on mobile and desktop for a Guardian account', () => {
+  const signRequest = (kind: SignKind, payload = 'c2lnbmluZy1pbnB1dHM='): Parameters<typeof requestSign>[1] => ({
+    type: MidenDAppMessageType.SignRequest,
+    sourceAccountId: 'miden-account-1',
+    sourcePublicKey: 'miden-account-1',
+    payload,
+    kind
+  });
+
+  /** `SigningInputs` of `variantType` whose preimage is `values`. */
+  const signingInputs = (variantType: number, values: readonly bigint[] = []) => ({
+    variantType,
+    toElements: () => ({
+      length: () => values.length,
+      get: (index: number) => ({ asInt: () => values[index], free: () => undefined }),
+      free: () => undefined
+    }),
+    free: () => undefined
+  });
+
+  beforeEach(() => {
+    mockAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+  });
+
+  it('shows an arbitrary message with its element count and its elements', async () => {
+    sdk.SigningInputs = { deserialize: () => signingInputs(1, [4n, 5n, 6n, 7n]) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
+
+    expect(sheetRows()).toEqual([
+      'Kind, signingInputs',
+      'Account, miden-account-1',
+      getMessage('signMessageWarning', { count: 4 }),
+      'Message, 4, 5, 6, 7'
+    ]);
+  });
+
+  it('refuses a raw word before it loads the WASM module', async () => {
+    const getWasm = sdk.getWasmOrThrow as jest.Mock;
+    getWasm.mockClear();
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('word'), 'session-1')).rejects.toThrow(DAPP_SIGN_RULE);
+
+    expect(getWasm).not.toHaveBeenCalled();
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('rejects with the WASM trap, not the sign rule, when the payload decode traps', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw trap;
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toBe(trap);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, SignKind, () => unknown]>([
+    ['a raw word', 'word', () => signingInputs(1, [1n])],
+    ['transaction summary signing inputs', 'signingInputs', () => signingInputs(0)],
+    ['blind signing inputs', 'signingInputs', () => signingInputs(2)],
+    [
+      'an arbitrary preimage with the transaction summary layout',
+      'signingInputs',
+      () => signingInputs(1, [1n, ...Array<bigint>(23).fill(9n)])
+    ],
+    ['an arbitrary preimage of 257 elements', 'signingInputs', () => signingInputs(1, Array<bigint>(257).fill(9n))],
+    [
+      'bytes that do not decode',
+      'signingInputs',
+      () => {
+        throw new Error('not signing inputs');
+      }
+    ]
+  ])('refuses %s with the sign rule before the sheet opens', async (_case, kind, deserialize) => {
+    sdk.SigningInputs = { deserialize };
+
+    const refusal = requestSign(DAPP_ORIGIN, signRequest(kind), 'session-1');
+    await expect(refusal).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+    await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe('dApp sign approval on mobile and desktop for a single-key account', () => {
+  const signRequest = (kind: SignKind): Parameters<typeof requestSign>[1] => ({
+    type: MidenDAppMessageType.SignRequest,
+    sourceAccountId: 'miden-account-1',
+    sourcePublicKey: 'miden-account-1',
+    payload: 'c2lnbmluZy1pbnB1dHM=',
+    kind
+  });
+
+  beforeEach(() => {
+    mockAccounts = [{ publicKey: 'miden-account-1', type: WalletType.OnChain }];
+  });
+
+  it.each<[string, SignKind, number | undefined]>([
+    ['a raw word', 'word', undefined],
+    ['blind signing inputs', 'signingInputs', 2],
+    ['arbitrary signing inputs', 'signingInputs', 1]
+  ])('still prompts for %s with the opaque-signature warning, as before', async (_case, kind, variantType) => {
+    if (variantType !== undefined) {
+      sdk.SigningInputs = { deserialize: () => ({ variantType, free: () => undefined }) };
+    }
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest(kind), 'session-1')).rejects.toThrow(DECLINED);
+
+    const rows = sheetRows();
+    expect(rows.slice(0, 2)).toEqual([`Kind, ${kind}`, 'Account, miden-account-1']);
+    expect(rows).toContain(OPAQUE_WARNING);
+    expect(rows.some(row => row.startsWith('Message, '))).toBe(false);
+  });
+
+  it('still prompts for a transaction summary with its asset movement', async () => {
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => ({
+            id: () => ({ __faucet: 'miden-account-1' }),
+            vault: () => ({
+              removedFungibleAssets: () => [fungibleAsset('faucet-usdc', 1500000n)],
+              addedFungibleAssets: () => [],
+              numAssets: () => 1
+            }),
+            storage: () => ({ isEmpty: () => true })
+          }),
+          inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+          outputNotes: () => ({ numNotes: () => 0, notes: () => [] })
+        })
+      })
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
+
+    expect(sheetRows()).toContain('Sending, -1.5 USDC');
   });
 });
 

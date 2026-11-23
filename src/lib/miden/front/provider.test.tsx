@@ -81,6 +81,7 @@ jest.mock('./NativeNoteAutoConsumeManager', () => ({
   NativeNoteAutoConsumeManager: () => null
 }));
 jest.mock('lib/badges/BadgeIssuanceManager', () => ({ BadgeIssuanceManager: () => null }));
+jest.mock('lib/miden/activity/BridgeIntentWatcher', () => ({ BridgeIntentWatcher: () => null }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
@@ -96,6 +97,23 @@ jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(() => Promise.resolve())
 }));
 
+jest.mock('lib/miden/portfolio-observations', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/portfolio-observations')>(
+    'lib/miden/portfolio-observations'
+  );
+  return { ...actual, prunePortfolioObservations: jest.fn(actual.prunePortfolioObservations) };
+});
+
+import {
+  prunePortfolioObservations,
+  readPortfolioObservations,
+  recordPortfolioObservation
+} from 'lib/miden/portfolio-observations';
+import { portfolioObservations } from 'lib/miden/repo';
+import { WalletStatus, type WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
+
 import { MidenProvider, STORAGE_PRELOAD_BUDGET_MS } from './provider';
 
 beforeEach(() => {
@@ -104,9 +122,54 @@ beforeEach(() => {
   _g.__providerTest.getMidenClientCalls = 0;
   _g.__providerTest.backgroundLockRenders = 0;
   mockPreloadStorage.mockClear();
+  jest.mocked(prunePortfolioObservations).mockClear();
+  useWalletStore.setState({ status: WalletStatus.Idle, accounts: [] });
 });
 
 describe('MidenProvider', () => {
+  it('prunes only on a ready authoritative account list, not loading or network-filtered views', async () => {
+    const scope = { accountId: 'account-retired', network: 'testnet', rpcUrl: 'https://node-a' };
+    const capturedAt = Math.floor(Date.now() / 900_000) * 900_000;
+    await recordPortfolioObservation({
+      ...scope,
+      currency: 'USD',
+      bucket: capturedAt,
+      capturedAt,
+      value: '1',
+      coverage: 'complete',
+      coverageKey: 'priced:a'
+    });
+    useWalletStore.setState({ status: WalletStatus.Idle, accounts: [] });
+    const root = render(
+      <MidenProvider>
+        <div>child</div>
+      </MidenProvider>
+    );
+    await root.findByText('child');
+    expect(await readPortfolioObservations(scope, 0)).toHaveLength(1);
+    const account = (publicKey: string): WalletAccount => ({
+      publicKey,
+      name: publicKey,
+      isPublic: false,
+      type: WalletType.OnChain,
+      hdIndex: 0,
+      authScheme: 'falcon'
+    });
+    act(() =>
+      useWalletStore.setState({
+        status: WalletStatus.Ready,
+        accounts: [account('account-retired'), account('account-kept')]
+      })
+    );
+    await waitFor(() => expect(prunePortfolioObservations).toHaveBeenCalledTimes(1));
+    expect(await readPortfolioObservations(scope, 0)).toHaveLength(1);
+    act(() => useWalletStore.setState({ accounts: [account('account-kept'), account('account-retired')] }));
+    expect(prunePortfolioObservations).toHaveBeenCalledTimes(1);
+    act(() => useWalletStore.setState({ accounts: [account('account-kept')] }));
+    await waitFor(async () => expect(await readPortfolioObservations(scope, 0)).toHaveLength(0));
+    root.unmount();
+    await portfolioObservations.clear();
+  });
   it('renders children inside the provider tree (ready)', async () => {
     const { findByText } = render(
       <MidenProvider>

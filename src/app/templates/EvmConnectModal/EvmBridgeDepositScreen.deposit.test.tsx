@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import Dexie from 'dexie';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import type { Erc20Holding } from 'lib/agglayer/token-holdings';
@@ -16,6 +17,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -24,9 +26,22 @@ import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure'
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
+import { legacyBridgeReceiveFixture } from './bridge-receive-test-fixture';
 import type { DepositToken } from './deposit-token';
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
+let restoreTrackingLookup: () => void = () => undefined;
+beforeEach(() => {
+  const get = Repo.transactions.get.bind(Repo.transactions);
+  const lookup = jest.spyOn(Repo.transactions, 'get').mockImplementation(key => {
+    const args = jest.mocked(initiateBridgedReceiveTransaction).mock.calls.at(-1)?.[0];
+    if (typeof key === 'string' && key === 'bridge-tx' && args)
+      return Dexie.Promise.resolve(legacyBridgeReceiveFixture(args, key));
+    return get(key);
+  });
+  restoreTrackingLookup = () => lookup.mockRestore();
+});
+afterEach(() => restoreTrackingLookup());
 jest.mock('lib/epoch/bridge-in-lock-scan', () => ({
   compactLockId: () => 42n,
   readCompactLockConfig: jest.fn().mockResolvedValue({
@@ -3227,7 +3242,7 @@ describe('user-visible bridge deposit producers', () => {
     act(() => publishSnapshot({ ...mockSnapshot }));
     await flushBridgePromises();
   };
-  const ethQuote = { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } };
+  const ethQuote = { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
 
   it('reports a ceiling the typed deposit passes by its own copy on the amount field', async () => {
     mockTokenPrices = ethQuote;
@@ -4036,7 +4051,7 @@ describe('user-visible bridge deposit producers', () => {
 
   it('holds an ERC-20 deposit its own quote takes past the ceiling, though it would clear at par', async () => {
     mockPriceSymbols.set(WBTC_FAUCET, 'BTC');
-    mockTokenPrices = { BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } };
+    mockTokenPrices = { BTC: { price: 60000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
     mockBridgeInCapUsd = 100;
     mockDepositTokens = [WBTC_LISTING];
     await typeErc20Amount();
@@ -4058,7 +4073,7 @@ describe('user-visible bridge deposit producers', () => {
     mockTokenApiUrl = 'https://tokens.test';
     mockHeldErc20s = [{ contractAddress: WBTC_LISTING.contractAddress, symbol: 'WBTC', decimals: 8, value: FUNDED }];
     mockPendingUsdMarkets.add('WBTC');
-    mockTokenPrices = { WBTC: { price: 1, change24h: 0, percentageChange24h: 0 } };
+    mockTokenPrices = { WBTC: { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
     mockBridgeInCapUsd = 100;
     await typeErc20Amount();
     expect(screen.getByText(/^bridgeDepositBalanceCapUnpriced /)).toBeInTheDocument();

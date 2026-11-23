@@ -1,3 +1,4 @@
+import type { AccountScope } from 'lib/miden-chain/account-scope';
 import {
   getActiveOverride,
   getEffectiveNetworkName,
@@ -13,6 +14,11 @@ export interface BalanceSnapshot {
   /** Set only while a saved endpoint-free network choice held for the whole read; readers take it as that network. */
   selectedNetwork?: string;
   accountNonce?: string;
+  /** Captured during the account read, not when the rows later land. */
+  capturedAt?: number;
+  rpcUrl?: string;
+  effectiveNetwork?: string;
+  accountId?: string;
 }
 
 /**
@@ -25,15 +31,18 @@ export function beginBalanceSnapshot(): (
 ) => BalanceSnapshot {
   const override = getActiveOverride();
   const overridden = override !== null;
-  const selectedNetwork = override && isNetworkChoiceOverride(override) ? getEffectiveNetworkName() : undefined;
-  const network = overridden ? 'override' : getEffectiveNetworkName();
+  const readNetwork = getEffectiveNetworkName();
+  const selectedNetwork = override && isNetworkChoiceOverride(override) ? readNetwork : undefined;
+  const network = overridden ? 'override' : readNetwork;
   const rpc = getEffectiveRpcUrl();
   return account => {
     const currentOverride = getActiveOverride();
     const sameRpc = getEffectiveRpcUrl() === rpc;
+    const sameNetwork = getEffectiveNetworkName() === readNetwork;
     return {
-      network: sameRpc && (currentOverride !== null) === overridden ? network : 'changed',
+      network: sameRpc && sameNetwork && (currentOverride !== null) === overridden ? network : 'changed',
       accountNonce: account ? account.nonce().asInt().toString() : undefined,
+      ...(sameRpc && sameNetwork && { rpcUrl: rpc, effectiveNetwork: readNetwork, capturedAt: Date.now() }),
       ...(selectedNetwork &&
       sameRpc &&
       getEffectiveNetworkName() === selectedNetwork &&
@@ -54,8 +63,26 @@ export interface BalanceRequirement {
 // Proof belongs to the exact rows landed in Zustand, not to an address or a fetch timestamp.
 // Replacing/clearing balances drops the proof, and nothing is persisted across wallet resets.
 const snapshots = new WeakMap<readonly TokenBalanceData[], BalanceSnapshot>();
-export function tagBalanceSnapshot(rows: readonly TokenBalanceData[], snapshot: BalanceSnapshot): void {
-  snapshots.set(rows, snapshot);
+export function tagBalanceSnapshot(
+  rows: readonly TokenBalanceData[],
+  snapshot: BalanceSnapshot,
+  accountId?: string
+): void {
+  snapshots.set(rows, { ...snapshot, accountId });
+}
+
+/** Scope-checked read of the existing row-bound proof; legacy nonce/badge readers retain their own checks. */
+export function readBalanceSnapshot(rows: readonly TokenBalanceData[], scope: AccountScope): BalanceSnapshot | null {
+  const snapshot = snapshots.get(rows);
+  return snapshot?.accountId === scope.accountId &&
+    snapshot.network !== 'changed' &&
+    snapshot.effectiveNetwork === scope.network &&
+    snapshot.rpcUrl === scope.rpcUrl &&
+    snapshot.accountNonce !== undefined &&
+    /^\d+$/.test(snapshot.accountNonce) &&
+    Number.isFinite(snapshot.capturedAt)
+    ? snapshot
+    : null;
 }
 
 /** True only for the exact synchronized vault rows from the selected network. */

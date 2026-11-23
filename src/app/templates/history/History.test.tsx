@@ -3158,6 +3158,72 @@ describe('History USDCx entry plumbing', () => {
       bridgeInPhase: 'received'
     });
   });
+
+  it('projects only a local original pre-source stop into the Activity list, not a restored copy', async () => {
+    const stopped = {
+      version: 1,
+      owner: 'wallet',
+      operationId: 'original',
+      revision: 'claim',
+      review: {},
+      sourceAttempt: { phase: 'stopped-before-source' }
+    };
+    const approval = {
+      chainId: 11155111,
+      account: `0x${'1'.repeat(40)}`,
+      token: `0x${'2'.repeat(40)}`,
+      spender: `0x${'3'.repeat(40)}`,
+      amount: '1000000',
+      hash: `0x${'4'.repeat(64)}`
+    };
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'ORIGINAL-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 3000,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      },
+      {
+        id: 'RESTORED-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 2000,
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', bridgeOperation: stopped }
+      },
+      {
+        id: 'APPROVED-STOP',
+        status: STATUS.Completed,
+        displayMessage: 'Bridging',
+        displayIcon: 'RECEIVE',
+        type: 'bridged-receive',
+        completedAt: 1000,
+        extraInputs: {
+          provider: 'agglayer',
+          phase: 'submitting',
+          bridgeOperation: { ...stopped, approvals: [approval] }
+        }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+    const entries = mockHistoryViewProps.entries;
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-ORIGINAL-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(true);
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-RESTORED-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(false);
+    expect(
+      entries.find((entry: { key: string }) => entry.key === 'completed-APPROVED-STOP')?.bridgeInStoppedBeforeSource
+    ).toBe(false);
+  });
 });
 
 // A batch claim's secondary assets are rendered on the row, so they have to
@@ -4597,5 +4663,48 @@ describe('patchLoadedActivityStatus', () => {
       new Map([[row.id, { ...row, outputNoteIds: ['n1'] }]])
     );
     expect(refreshed).toBe(loaded);
+  });
+
+  it('keeps the shown 1Click tracking when updatedAt is unchanged and replaces it when updatedAt changes', () => {
+    const tracking = { updatedAt: 1_000, phase: 'arriving' };
+    const row = {
+      id: 'near-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'bridged-receive',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'RECEIVE',
+      extraInputs: { provider: 'near-intents', phase: 'delivering', oneClick: tracking }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-near-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    const shown = loaded.entries[0]?.oneClickTracking;
+    const refreshed = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: { ...tracking } } }]])
+    );
+    expect(refreshed).toBe(loaded);
+    expect(refreshed.entries[0]?.oneClickTracking).toBe(shown);
+
+    const moved = { ...tracking, updatedAt: 2_000 };
+    const replaced = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: moved } }]])
+    );
+    expect(replaced).not.toBe(loaded);
+    expect(replaced.entries[0]?.oneClickTracking).toBe(moved);
   });
 });

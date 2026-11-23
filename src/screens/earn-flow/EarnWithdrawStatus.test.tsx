@@ -1,21 +1,27 @@
 import React from 'react';
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import type { IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import type { NativeAssetChainMetadata } from 'lib/miden-chain/native-asset';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
+import { resolveCommandRoute } from 'screens/command/command-routes';
+import { CommandOperation } from 'screens/command/CommandOperation';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import type { TransactionSuccessLayoutProps } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 
 import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 
-let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
+let mockRowState: { row?: ITransaction; loaded: boolean; readFailed?: true } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
+let mockRealSuccess = false;
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
 let mockNativeMetadata: NativeAssetChainMetadata | null = null;
+const mockRowSubscriptionStart = jest.fn();
 
 // Foreign delivery uses the store; native delivery uses resolved chain metadata.
 jest.mock('lib/store', () => ({
@@ -43,6 +49,7 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
 jest.mock('lib/woozie', () => ({
   HistoryAction: jest.requireActual<typeof import('lib/woozie/history')>('lib/woozie/history').HistoryAction,
   useLocation: () => ({ trigger: null, state: null }),
@@ -50,7 +57,16 @@ jest.mock('lib/woozie', () => ({
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
-  useTransactionRow: () => mockRowState
+  useTransactionRow: (id: string) => {
+    React.useEffect(() => {
+      mockRowSubscriptionStart(id);
+    }, [id]);
+    return mockRowState;
+  }
+}));
+
+jest.mock('screens/command/useCommandPrivacy', () => ({
+  useCommandPrivacy: () => [false, jest.fn()]
 }));
 
 jest.mock('components/ui/Spinner', () => ({
@@ -110,6 +126,12 @@ jest.mock('screens/generating-transaction/TransactionSummaryBadge', () => ({
 jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () => ({
   TransactionSuccessLayout: (props: TransactionSuccessLayoutProps) => {
     mockSuccessProps = props;
+    if (mockRealSuccess) {
+      const { TransactionSuccessLayout } = jest.requireActual<
+        typeof import('screens/generating-transaction/success/TransactionSuccessLayout')
+      >('screens/generating-transaction/success/TransactionSuccessLayout');
+      return <TransactionSuccessLayout {...props} />;
+    }
     return (
       <div data-testid="success-layout">
         <span>{props.headerTitle}</span>
@@ -168,17 +190,73 @@ describe('EarnWithdrawStatus', () => {
     jest.clearAllMocks();
     mockRowState = { row: undefined, loaded: false };
     mockSuccessProps = undefined;
+    mockRealSuccess = false;
     mockAssetsMetadata = {};
     mockNativeMetadata = null;
   });
 
-  it('shows a spinner until a transaction row is available', () => {
+  it('keeps a Compact missing-row view unchanged while its first query is pending and after it settles', () => {
     const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
     expect(screen.getByTestId('spinner')).toBeInTheDocument();
 
     mockRowState = { row: undefined, loaded: true };
     view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
     expect(screen.getByTestId('spinner')).toBeInTheDocument();
+  });
+
+  it('shows a safe exit for an unknown Command Earn operation only after the original row lookup settles', () => {
+    const route = resolveCommandRoute('/earn/withdraw-status/missing-id');
+    if (!route || route.kind !== 'operation') throw new Error('Earn withdrawal status did not resolve as an operation');
+    const view = () => (
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={route} container={document.body}>
+            <CommandOperation>
+              <EarnWithdrawStatus txId={route.id} />
+            </CommandOperation>
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const rendered = render(view());
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+    expect(screen.queryByText('historyDetailsLoadError')).not.toBeInTheDocument();
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+    expect(mockRowSubscriptionStart).toHaveBeenCalledWith('missing-id');
+
+    mockRowState = { row: undefined, loaded: true };
+    rendered.rerender(view());
+    expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByText('missing-id')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('summary-badge')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry|submit|withdraw|done|hide/i })).not.toBeInTheDocument();
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'viewInActivities' }));
+    expect(navigate).toHaveBeenCalledWith('/history');
+
+    mockRowState = { row: makeRow(makeInputs(), { id: route.id }), loaded: true };
+    rendered.rerender(view());
+    expect(screen.getByText('withdrawalProcessing')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'hide' })).toBeInTheDocument();
+    expect(screen.queryByText('historyDetailsLoadError')).not.toBeInTheDocument();
+    expect(mockRowSubscriptionStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('withholds a stale submitted receipt during a failed row read and restores it after recovery', () => {
+    const row = makeRow(makeInputs({ withdrawIntentNonce: 'owner:1' }));
+    mockRowState = { row, loaded: true };
+    const view = render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('withdrawalStarted')).toBeInTheDocument();
+
+    mockRowState = { row, loaded: true, readFailed: true };
+    view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByText('withdrawalStarted')).not.toBeInTheDocument();
+
+    mockRowState = { row, loaded: true };
+    view.rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByText('withdrawalStarted')).toBeInTheDocument();
   });
 
   it('shows the processing state before the intent is submitted', () => {
@@ -231,6 +309,45 @@ describe('EarnWithdrawStatus', () => {
     expect(screen.getByText('transactionErrorDescription')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'close' }));
     expect(navigate).toHaveBeenCalledWith('/');
+  });
+
+  it('pins the processing status action in the outer Command footer', () => {
+    mockRowState = { row: makeRow(makeInputs()), loaded: true };
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'operation', id: 'withdraw-1' }} container={document.body}>
+            <EarnWithdrawStatus txId="withdraw-1" />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const footer = screen.getByTestId('command-footer');
+    expect(within(footer).getByRole('button', { name: 'hide' })).toBeEnabled();
+    expect(screen.getAllByRole('button', { name: 'hide' })).toHaveLength(1);
+    expect(screen.getByTestId('earn-withdraw-status-page').querySelector('[data-slot="footer"]')).toBeNull();
+  });
+
+  it('pins a submitted withdrawal receipt in the outer Command footer, without a second action row', () => {
+    mockRealSuccess = true;
+    mockRowState = { row: makeRow(makeInputs({ withdrawIntentNonce: 'owner:1' })), loaded: true };
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'operation', id: 'withdraw-1' }} container={document.body}>
+            <EarnWithdrawStatus txId="withdraw-1" />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const footer = screen.getByTestId('command-footer');
+    expect(within(footer).getByRole('button', { name: 'done' })).toBeEnabled();
+    expect(within(footer).getByRole('button', { name: 'viewInActivities' })).toBeEnabled();
+    expect(screen.getAllByRole('button', { name: 'done' })).toHaveLength(1);
+    expect(screen.getAllByTestId('command-footer')).toHaveLength(1);
+    expect(screen.getByTestId('command-workbench').querySelector('[data-flow-footer]')).toBeNull();
+    fireEvent.click(within(footer).getByRole('button', { name: 'done' }));
+    expect(navigate).toHaveBeenCalledTimes(1);
   });
 
   it('shows a submitted redeeming intent in the success layout', () => {

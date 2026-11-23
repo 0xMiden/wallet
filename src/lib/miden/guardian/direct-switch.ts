@@ -31,6 +31,7 @@ import {
   GUARDIAN_RETRY_MAX_ATTEMPTS,
   guardianRegisterBackoffMs,
   isGuardianStateNotOnChain,
+  isNewGuardianAnswer,
   NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
 } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -181,15 +182,13 @@ export const isGuardianAccountReleased = (err: unknown): boolean => {
  * path is unavailable and the direct on-chain path needs nothing the operator
  * could have supplied.
  *
- * Both arms read `code` and ONLY `code`, which is a deliberate narrowing rather
- * than an oversight. A response whose body is not the operator's JSON error
- * envelope — a proxy's HTML 404, a gateway's bare 409 — arrives with `code`
- * undefined and is classified neither unknown nor released, so it does NOT reach
- * the direct path. Matching on status instead would widen the trigger for a
- * unilateral on-chain rotation to include any intermediary that happens to answer
- * 404 or 409 for an unrelated reason, and this escape hatch is one whose false
- * positives rotate a live guardian away. The narrow reading fails safe: the
- * coordinated path errors visibly and the user can still rotate deliberately.
+ * Both arms read `code` and ONLY `code`. A response whose body is not the
+ * operator's JSON error envelope — a proxy's HTML 404, a gateway's bare 409 —
+ * arrives with `code` undefined and is classified neither unknown nor released
+ * here. That reply still reaches the direct path: `isGuardianRefusal` reads the
+ * status, so `directSwitchTriggerFor` returns `refused the request` for it. The
+ * code-only reading here only selects the more specific reason label
+ * (`cannot co-sign for this account`) for a reply that carries a code.
  */
 export const isGuardianAccountUnusable = (err: unknown): boolean =>
   isGuardianAccountUnknown(err) || isGuardianAccountReleased(err);
@@ -197,9 +196,10 @@ export const isGuardianAccountUnusable = (err: unknown): boolean =>
 /**
  * Is this error the outgoing guardian being UNREACHABLE (connection refused,
  * DNS, timeout, TLS, or a proxy 5xx with no guardian body) — as opposed to a
- * semantic guardian rejection? Only unreachability triggers the direct-switch
- * fallback: a reachable guardian that answers with a real error (401, 409, …)
- * keeps the normal proposal flow's error handling.
+ * semantic guardian rejection? A reachable guardian that answers with a real
+ * error (401, 409, …) is not unreachable. The sync loop and the requeue rules
+ * read this difference; the switch pipeline does not, because a refusal also
+ * starts the direct switch (`directSwitchTriggerFor`).
  */
 export const isGuardianUnreachableError = (err: unknown): boolean => {
   // A local realm KILL is not evidence about the guardian, and it must never
@@ -253,6 +253,58 @@ export const isGuardianUnreachableError = (err: unknown): boolean => {
   // No status: a transport failure that never reached an HTTP response, which is
   // the only case where the message is the sole evidence available.
   return isLikelyNetworkError(err);
+};
+
+/**
+ * The Guardian answered and refused the request: an HTTP 4xx (a 401 for a signer it
+ * does not accept, a 403, a 409 conflict that did not clear, a 429).
+ *
+ * Only the numeric `status` is read, never the message, for the same reason as in
+ * `isGuardianUnreachableError`. An error without a status (a local failure, a
+ * rejected signature prompt, a node error) is not a Guardian answer and is not a
+ * refusal. A local kill is not a Guardian answer either.
+ *
+ * Only the OUTGOING Guardian's answer is a refusal. The NEW Guardian's key fetch is marked
+ * (`markNewGuardianAnswer`), and its 4xx is not a reason to leave the outgoing Guardian.
+ */
+export const isGuardianRefusal = (err: unknown): boolean => {
+  if (isKilledPipeline(err)) return false;
+  if (isNewGuardianAnswer(err)) return false;
+  if (typeof err !== 'object' || err === null) return false;
+  return 'status' in err && typeof err.status === 'number' && err.status >= 400 && err.status <= 499;
+};
+
+export type DirectSwitchTrigger = 'unreachable' | 'cannot co-sign for this account' | 'refused the request';
+
+/**
+ * Why a failed outgoing-Guardian step of a `switch-guardian` row starts the direct
+ * on-chain switch, or `undefined` when the failure must not start it.
+ *
+ * The user asked to leave this Guardian, and `update_guardian` needs only the hot
+ * and cold signatures. Thus no answer from the outgoing Guardian can block the
+ * switch: an operator that is down, one that holds no state for the account, and
+ * one that refuses the request for any reason all go to the direct path. Before
+ * this rule a persistent 401 had no exit, because the service load failed and the
+ * row has no requeue and no Retry.
+ *
+ * The first match gives the recorded reason, so a released account (a 409 with its
+ * code) keeps the more specific reason.
+ *
+ * A marked error (`markNewGuardianAnswer`) is the new Guardian's answer to its key fetch. It has
+ * no trigger unless it is unreachable (a 5xx or a network failure), so any other marked error
+ * fails the row with its own error.
+ *
+ * Three callers apply this before any chain submit: the service load and proposal
+ * push, the cold co-sign and the final co-sign. The reconcile in
+ * `reconcileStructuralApplyFailure` applies it AFTER the submit succeeded, and only
+ * to decide that the old operator can be skipped.
+ */
+export const directSwitchTriggerFor = (err: unknown): DirectSwitchTrigger | undefined => {
+  if (isGuardianUnreachableError(err)) return 'unreachable';
+  if (isNewGuardianAnswer(err)) return undefined;
+  if (isGuardianAccountUnusable(err)) return 'cannot co-sign for this account';
+  if (isGuardianRefusal(err)) return 'refused the request';
+  return undefined;
 };
 
 const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex);
@@ -883,8 +935,9 @@ export const finalizeDirectGuardianSwitch = async (
    * anyway, which a 0.18 Guardian accepts and whose 0.19 refusal leaves `registerFailed` for the self-heal.
    * `'require'`, the cadence self-heal's: one read, and a refusal as preflight unless it shows the state, so the
    * attempt is refunded and a later lap asks again.
+   * 'require-landed', for cold-auth recovery: require that same proof even for a local nonce-zero state.
    */
-  stateOnChain: 'await' | 'require' = 'await'
+  stateOnChain: 'await' | 'require' | 'require-landed' = 'await'
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
@@ -996,15 +1049,14 @@ export const finalizeDirectGuardianSwitch = async (
         'nothing to check the operator against'
     );
   }
-  // Past the hold, so no WASM lock is held while the node is read. A nonce-0 first state vouches for itself, and a
-  // never-used account is not on chain at all.
-  if (!firstState && stateOnChain === 'require') {
+  // Read the node outside the WASM hold. Ordinary registration accepts a first state for an unused account.
+  if (stateOnChain === 'require-landed' || (!firstState && stateOnChain === 'require')) {
     const onChain = await readChainAccountCommitment(accountIdHex, LANDED_COMMITMENT_READ_TIMEOUT_MS);
     if (onChain === undefined || !sameCommitment(onChain, stateCommitment)) {
       throw new GuardianStateOffChainRefusal(
         `Not registering on ${newGuardianEndpoint} yet: the node ` +
-          `${onChain === undefined ? 'could not be read' : 'does not hold this state'}, and a Guardian stores a ` +
-          'state past nonce 0 only once the chain does'
+          `${onChain === undefined ? 'could not be read' : 'does not hold this state'}, and automatic recovery ` +
+          'requires the node to confirm the state'
       );
     }
   } else if (!firstState && !(await waitForStateOnChain(accountIdHex, stateCommitment))) {
@@ -1089,7 +1141,7 @@ export const finalizeDirectGuardianSwitch = async (
       lastError = error;
       console.warn(`Direct guardian registration failed (attempt ${attempt}/${GUARDIAN_RETRY_MAX_ATTEMPTS})`, error);
       // The Guardian stored nothing, and the self-heal's next lap asks again.
-      if (stateOnChain === 'require' && isGuardianStateNotOnChain(error)) break;
+      if (stateOnChain !== 'await' && isGuardianStateNotOnChain(error)) break;
       if (attempt < GUARDIAN_RETRY_MAX_ATTEMPTS) {
         await delay(guardianRegisterBackoffMs(error, attempt));
       }

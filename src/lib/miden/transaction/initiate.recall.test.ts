@@ -14,7 +14,7 @@
  * and needs no hostile page at all — which is why the guard cannot live only in
  * the dApp request handler.
  */
-import type { OneClickAsset, OneClickConfig } from 'lib/one-click/types';
+import type { NearIntentsConfig, OneClickAsset } from 'lib/one-click/types';
 
 import type { IOneClickTrackingData, SendTransaction } from '../db/types';
 import { MAX_RECALL_BLOCKS } from '../helpers';
@@ -59,9 +59,25 @@ const evmAsset: OneClickAsset = {
   contractAddress: '0x1111111111111111111111111111111111111111',
   chainId: 1
 };
-const oneClickConfig: OneClickConfig = {
+const oneClickConfig: NearIntentsConfig = {
   serviceUrl: 'https://one-click.example',
-  midenAssets: [{ assetId: midenAsset.assetId, faucetId, decimals: midenAsset.decimals }]
+  chains: [
+    {
+      id: 'eth',
+      name: 'Ethereum',
+      addressKind: 'evm',
+      tokens: [
+        {
+          symbol: 'USDC',
+          assetId: evmAsset.assetId,
+          decimals: evmAsset.decimals,
+          contractAddress: evmAsset.contractAddress,
+          miden: ['usdc']
+        }
+      ]
+    }
+  ],
+  midenAssets: [{ id: 'usdc', assetId: midenAsset.assetId, faucetId, decimals: midenAsset.decimals }]
 };
 const oneClickMetadata: IOneClickTrackingData = {
   direction: 'miden-to-evm',

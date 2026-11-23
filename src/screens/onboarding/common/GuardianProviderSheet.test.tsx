@@ -71,6 +71,9 @@ describe('GuardianProviderSheet', () => {
 
     expect(card(OZ.endpoint)).toHaveTextContent('guardianKindOpenZeppelin · US-EAST');
     expect(card(KODA.endpoint)).toHaveTextContent('guardianKindKodax · Asia (SK)');
+    expect(
+      card(KODA.endpoint).compareDocumentPosition(card(OZ.endpoint)) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(within(card(KODA.endpoint)).getByText('guardianFastest')).toBeInTheDocument();
     expect(within(card(OZ.endpoint)).queryByText('guardianFastest')).toBeNull();
     expect(card(KODA.endpoint)).toHaveAttribute('aria-checked', 'true');
@@ -99,9 +102,10 @@ describe('GuardianProviderSheet', () => {
 
     fireEvent.keyDown(group, { key: 'ArrowDown' });
     expect(card(OZ.endpoint)).toHaveFocus();
-    fireEvent.keyDown(group, { key: 'End' });
-    expect(card(KODA.endpoint)).toHaveFocus();
+    // The fastest operator leads the list, so Home lands on it and End on the last card.
     fireEvent.keyDown(group, { key: 'Home' });
+    expect(card(KODA.endpoint)).toHaveFocus();
+    fireEvent.keyDown(group, { key: 'End' });
     expect(card(OZ.endpoint)).toHaveFocus();
     expect(onPick).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();

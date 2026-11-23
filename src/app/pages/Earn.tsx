@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPane } from 'app/layouts/HomeGroupPane';
 import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { CardButton } from 'components/ui/Card';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
@@ -12,6 +13,7 @@ import { TextAction } from 'components/ui/TextAction';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
+import { CommandEarn } from 'screens/earn-flow/CommandEarn';
 import {
   EarnAssetMark,
   EarnSubjectSubtitle,
@@ -27,6 +29,7 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const {
     summary,
     positions,
@@ -35,6 +38,7 @@ const Earn: FC = () => {
     isLoading,
     isRefreshing,
     error,
+    loadError,
     errorDiagnostics,
     notOnNetwork,
     refetch
@@ -45,6 +49,24 @@ const Earn: FC = () => {
   useUserVisibleError(notOnNetwork ? 'earnUnavailableOnNetwork' : null, 'inline');
   // The vault view's notice, said here too so the tab does not read as open before a vault is opened.
   const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !notOnNetwork });
+
+  if (command)
+    return (
+      <CommandEarn
+        summary={summary}
+        positions={positions}
+        vaults={vaults}
+        vaultsPending={vaultsPending}
+        isLoading={isLoading}
+        isRefreshing={isRefreshing}
+        error={error}
+        loadError={loadError}
+        notOnNetwork={notOnNetwork}
+        onRetry={refetch}
+        onDeposit={vaultId => navigate(`/earn/vaults/${encodeURIComponent(vaultId)}`)}
+        onWithdraw={positionId => navigate(`/earn/positions/${encodeURIComponent(positionId)}`)}
+      />
+    );
 
   // A network with no Earn has nothing to load or retry, so it gets neither the summary nor the load error.
   if (notOnNetwork) {

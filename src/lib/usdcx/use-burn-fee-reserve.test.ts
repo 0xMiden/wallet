@@ -273,3 +273,15 @@ it('does not retain a failure reason after a successful retry', async () => {
   expect(result.current.reserve).toBe(315n);
   expect(Reflect.get(result.current, 'failure')).toBeUndefined();
 });
+
+it('keeps raw estimate failure payloads out of newly reachable UI diagnostics', async () => {
+  mockEstimate.mockRejectedValue(new Error('private-native-fee-rpc-placeholder'));
+  const { result } = renderHook(() => useBurnFeeReserve(TARGET));
+  await waitFor(() => expect(result.current.status).toBe('failed'));
+  const diagnostics = jest
+    .mocked(console.warn)
+    .mock.calls.flat()
+    .map(value => (value instanceof Error ? value.message : String(value)));
+  expect(diagnostics.join(' ')).not.toContain('private-native-fee-rpc-placeholder');
+  expect(mockEstimate).toHaveBeenCalledTimes(2);
+});

@@ -29,7 +29,13 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/i18n/core', () => ({ getCurrentLocale: () => mockLocale }));
 let mockLocale = 'en';
 let mockQuote: TokenPriceInfo | undefined;
-const fresh = (price = 3): TokenPriceInfo => ({ price, observedAt: Date.now(), change24h: 0, percentageChange24h: 0 });
+const fresh = (price = 3): TokenPriceInfo => ({
+  price,
+  observedAt: Date.now(),
+  change24h: 0,
+  percentageChange24h: 0,
+  kind: 'market' as const
+});
 const field = () => screen.getByTestId('amount') as HTMLInputElement;
 const toggle = () => screen.getByTestId('amount-denomination-toggle');
 const changed = jest.fn();

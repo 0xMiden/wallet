@@ -63,8 +63,8 @@ export function useBurnFeeReserve(target: BurnFeeReserveTarget | undefined): Bur
           return { outcome: 'failed', failure: 'configuration_failed' };
         }
         return estimate;
-      } catch (err) {
-        console.warn('[usdcx burn fee] the estimate request failed', err);
+      } catch {
+        console.warn('[usdcx burn fee] the estimate request failed');
         return { outcome: 'failed', failure: 'request_failed' };
       }
     };

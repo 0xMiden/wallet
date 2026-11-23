@@ -27,11 +27,6 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => (messages as Record<string, string>)[key] ?? key })
 }));
 
-jest.mock('app/templates/AccountBanner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="account-banner" />
-}));
-
 jest.mock('components/Button', () => ({
   Button: ({ title, onClick, disabled }: { title: string; onClick: () => void; disabled?: boolean }) => (
     <button type="button" disabled={disabled} onClick={onClick}>

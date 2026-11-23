@@ -79,8 +79,10 @@ import type {
   NoteView,
   RawArg,
   SessionEvent,
-  TestDappWindowApi
+  TestDappWindowApi,
+  MeasuredSubmitContext
 } from './protocol';
+import { runMeasuredCustomSubmit } from './protocol.js';
 import { buildScriptRequest } from './script-request.js';
 
 /** A built custom request waits here until `submitCustom`, so a test can let the chain move in between. */
@@ -274,6 +276,26 @@ function toWire(value: unknown): RawArg {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null;
 }
 
+const syncHeight: DappHandlers['syncHeight'] = async () => {
+  const ownClient = client();
+  await fromNode('syncChain', () => ownClient.syncChain());
+  return { height: await ownClient.getSyncHeight() };
+};
+
+const submitCustom: DappHandlers['submitCustom'] = input =>
+  outcome(async () => {
+    const held = state.requests.get(input.requestId);
+    if (held === undefined) throw new HarnessCheckError(`no built request ${input.requestId}`);
+    const tx = Transaction.createCustomTransaction(
+      requireConnected().addressCanonical,
+      input.recipientAddress,
+      held.request,
+      input.inputNoteIds ?? [],
+      input.importNotes ? held.importNotes.map(bytes => b64ToU8(bytes)) : []
+    );
+    return { txId: await state.adapter.requestTransaction(tx) };
+  });
+
 const handlers: Partial<DappHandlers> = {
   // `autoSync: false` keeps the dApp's height its own, so a request binds the block the dApp saw, not the wallet's
   // (spec section 2.2). The fee faucet is passed because MidenClient.create says a non-mock client must name it. A
@@ -367,11 +389,7 @@ const handlers: Partial<DappHandlers> = {
     return runConformance([...getSurfaceCases(live), ...getBehaviorCases(live)]);
   },
 
-  syncHeight: async () => {
-    const ownClient = client();
-    await fromNode('syncChain', () => ownClient.syncChain());
-    return { height: await ownClient.getSyncHeight() };
-  },
+  syncHeight,
 
   // `reachedAtMs` is when the dApp first saw the target: the wallet's sync stamps must be later than this before the
   // request goes out (spec section 6, the "wallet synced past N" gate). A failed sync is tried again on the next lap,
@@ -654,19 +672,10 @@ const handlers: Partial<DappHandlers> = {
 
   // The sender is always the connected account: a custom request from any other address is refused before any popup
   // (R3), which a test drives through `raw` instead.
-  submitCustom: input =>
-    outcome(async () => {
-      const held = state.requests.get(input.requestId);
-      if (held === undefined) throw new HarnessCheckError(`no built request ${input.requestId}`);
-      const tx = Transaction.createCustomTransaction(
-        requireConnected().addressCanonical,
-        input.recipientAddress,
-        held.request,
-        input.inputNoteIds ?? [],
-        input.importNotes ? held.importNotes.map(bytes => b64ToU8(bytes)) : []
-      );
-      return { txId: await state.adapter.requestTransaction(tx) };
-    }),
+  submitCustom,
+  // Keep the real sync samples adjacent to the request, without driver transport between them.
+  submitCustomMeasured: (input, expiresAt, measured) =>
+    runMeasuredCustomSubmit(() => syncHeight({}), () => submitCustom(input), expiresAt, measured),
 
   waitForTransaction: ({ txId }) =>
     outcome(async () => {
@@ -847,10 +856,15 @@ const handlers: Partial<DappHandlers> = {
     })
 };
 
-async function call<K extends DappCommandName>(command: K, input: DappInput<K>): Promise<DappOutput<K>> {
+async function call<K extends DappCommandName>(
+  command: K,
+  input: DappInput<K>,
+  expiresAt?: number,
+  measured?: MeasuredSubmitContext
+): Promise<DappOutput<K>> {
   const handler = handlers[command];
   if (handler === undefined) throw new HarnessCheckError(`command ${command} is not implemented`);
-  return handler(input);
+  return handler(input, expiresAt, command === 'submitCustomMeasured' ? measured : undefined);
 }
 
 // Published only once every handler above exists, so a driver that waits for `ready` never calls a half-loaded page.

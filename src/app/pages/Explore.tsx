@@ -26,6 +26,7 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
+import { readBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
@@ -36,11 +37,13 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { selectDisplayQuotes, useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useHideDustTokens } from 'lib/settings/dust';
@@ -64,7 +67,7 @@ interface PullGesture {
   distance: number;
 }
 
-const Explore: FC = () => {
+const Explore: FC<{ balanceAction?: React.ReactNode }> = ({ balanceAction }) => {
   const { t } = useTranslation();
   const isMobileApp = isMobile();
   const account = useAccount();
@@ -79,6 +82,8 @@ const Explore: FC = () => {
     mutate: mutateBalances
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const cachedQuotes = useCachedDisplayQuotes();
+  const displayQuotes = selectDisplayQuotes(tokenPrices, cachedQuotes);
   useBridgeConfigSnapshot({ load: false });
 
   const {
@@ -91,7 +96,7 @@ const Explore: FC = () => {
 
   const address = account.publicKey;
 
-  const { isHidden, unhide } = useHiddenTokens(address);
+  const { isHidden, unhide, loaded: hiddenReady } = useHiddenTokens(address);
   const hideDust = useHideDustTokens();
 
   const [pullDistance, setPullDistance] = useState(0);
@@ -364,6 +369,7 @@ const Explore: FC = () => {
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}
+            displayQuotes={displayQuotes}
             balances={allTokenBalances}
             sortedTokens={sortedTokens}
             hiddenTokens={hiddenTokens}
@@ -371,6 +377,8 @@ const Explore: FC = () => {
             onUnhide={unhide}
             account={account}
             balancesLoading={balancesLoading}
+            hiddenReady={hiddenReady}
+            balanceAction={balanceAction}
             claimableNotes={manuallyClaimableNotes}
             // A faucet baseline has to be a LIVE list: the hook serves the list
             // saved last session first, and a native note newer than that cache
@@ -388,6 +396,7 @@ export default Explore;
 interface HomeOverviewProps {
   address: string;
   tokenPrices: TokenPrices;
+  displayQuotes: TokenPrices;
   balances: TokenBalanceData[];
   sortedTokens: TokenBalanceData[];
   hiddenTokens: TokenBalanceData[];
@@ -395,6 +404,8 @@ interface HomeOverviewProps {
   onUnhide: (tokenId: string) => Promise<boolean>;
   account: WalletAccount;
   balancesLoading: boolean;
+  hiddenReady: boolean;
+  balanceAction?: React.ReactNode;
   claimableNotes: readonly PendingNoteValue[] | undefined;
   fundingNotes: readonly PendingNoteValue[] | undefined;
 }
@@ -402,6 +413,7 @@ interface HomeOverviewProps {
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
+  displayQuotes,
   balances,
   sortedTokens,
   hiddenTokens,
@@ -409,6 +421,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   onUnhide,
   account,
   balancesLoading,
+  hiddenReady,
+  balanceAction,
   claimableNotes,
   fundingNotes
 }) => {
@@ -418,6 +432,25 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   const assetListRef = useRef<HTMLDivElement>(null);
   const assetsHeadingId = useId();
   const numberSymbols = getNumberSymbols();
+  const livePricesReady = pricesLoaded(tokenPrices, totalPriceSymbols);
+  const usesCachedTotal = totalPriceSymbols.some(
+    symbol => symbol !== undefined && displayQuotes[symbol] !== tokenPrices[symbol]
+  );
+  const snapshot = usesCachedTotal
+    ? readBalanceSnapshot(balances, {
+        accountId: address,
+        network: getEffectiveNetworkName(),
+        rpcUrl: getEffectiveRpcUrl()
+      })
+    : null;
+  const now = Date.now();
+  const totalReady = usesCachedTotal
+    ? !balancesLoading &&
+      hiddenReady &&
+      snapshot?.capturedAt !== undefined &&
+      snapshot.capturedAt <= now &&
+      now - snapshot.capturedAt <= 15 * 60_000
+    : livePricesReady;
   return (
     <>
       <Balance>
@@ -426,16 +459,13 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             accountName={account.name}
-            // The dash when there is no total to show: prices have not loaded yet (feed
-            // down or still loading), or tokens are held and none can be valued (Balance
-            // hands null). Once any real price lands (stale-but-real via keepPreviousData
-            // counts), the total shows.
-            // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
-            // prefer a skeleton or an explicit "prices unavailable" affordance.
+            // The dash when there is no total to show: the live feed has not loaded and a cached
+            // total is not ready (balances still loading, hidden tokens unread, or the rows are
+            // not this account's snapshot), or tokens are held and none can be valued (Balance
+            // hands null). Once any live price lands (stale-but-real via keepPreviousData
+            // counts), the total shows. The change pill stays on that live feed.
             amount={
-              !pricesLoaded(tokenPrices, totalPriceSymbols) || balance === null ? (
-                '—'
-              ) : (
+              balance !== null && totalReady ? (
                 // Keyed by the account: a switch lands on the new account's total instead of
                 // counting from the old one's (AnimatedNumber counts only within one subject).
                 <TokenAmount
@@ -446,6 +476,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
                   trimTrailingZeros={false}
                   separators={{ group: numberSymbols.group, decimal: numberSymbols.decimal }}
                 />
+              ) : (
+                '—'
               )
             }
             // Until the first balance read lands the store has no entry for this
@@ -455,7 +487,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             currency="USD"
             // The total's 24h move from the same quotes the asset rows show theirs with.
             delta={
-              change && pricesLoaded(tokenPrices, totalPriceSymbols)
+              change && livePricesReady && !usesCachedTotal
                 ? {
                     absolute: `${change.absolute < 0 ? '-' : '+'}${formatUsdDisplay(Math.abs(change.absolute), {
                       separators: { group: numberSymbols.group, decimal: numberSymbols.decimal }
@@ -465,6 +497,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
                 : undefined
             }
             onMore={() => setAccountsOpen(true)}
+            balanceAction={balanceAction}
           />
         )}
       </Balance>

@@ -90,6 +90,16 @@ it('waits for explicit submission, tracks the returned ID and enables the existi
   expect(screen.getByText('passkeySyncCapable')).toBeInTheDocument();
 });
 
+it('returns to onboarding after the side panel successfully enrolls a passkey', async () => {
+  const returnToOnboarding = jest.fn();
+  render(<PasskeyUnlockSettings returnToOnboarding={returnToOnboarding} />);
+  submit();
+  await screen.findByText('passkeyUnlockEnabled');
+  fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+  expect(returnToOnboarding).toHaveBeenCalledTimes(1);
+  expect(mockSend.mock.calls.map(([command]) => command.action)).toEqual(['begin', 'track', 'commit']);
+});
+
 it.each(['wrong password', 'Platform enrollment expired'])(
   'keeps the old credential when saving fails: %s',
   async reason => {
