@@ -3,6 +3,7 @@
 ## 1.18.2 (TBD)
 
 - [FIX][all] Route transaction detail sections and address roles through an explicit per-type policy so NEAR Intents deposits never inherit Agglayer routes or render refund addresses as Miden senders (#2145).
+- [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
 - [CHORE][ci] Simplify wallet nightly reporting and generate example reports on demand.
 - [FIX][extension] Use recent cached market prices to show the last synced balance when opening Sidebar or Command, and make optional passkey setup discoverable during onboarding and in Security settings.
 - [FIX][all] A deadline no longer closes the background document when its operation was re-armed with a fresh deadline while storage was being checked or while the close was waiting on the document, and a read deadline in that wait no longer tears down a write that has taken the document.
