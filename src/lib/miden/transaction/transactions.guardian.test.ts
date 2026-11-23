@@ -16611,7 +16611,7 @@ describe('generateTransaction - Guardian routing', () => {
 
       expect(row).toMatchObject({
         ...landedFields(replaceable.nativeFaucet),
-        displayMessage: 'Deposited to lending',
+        displayMessage: 'Deposited to Earn',
         outputNoteIds: ['note-collateral']
       });
       expect(replaceable.lateReads).toEqual([]);
