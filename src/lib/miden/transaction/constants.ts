@@ -6,6 +6,8 @@ import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
+import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
+import { snapshotOffscreenDeadline } from 'lib/telemetry/offscreen-deadline-diagnostics';
 
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
@@ -377,9 +379,35 @@ export const isUserCancelledTransaction = (error: unknown): boolean => error ===
  */
 const PROVING_STAGES: ITransactionStage[] = ['proving', 'sending'];
 
-/** The raw `name: message` string persisted on `ITransaction.rawError`. */
+function formatOffscreenDeadlineFacts(link: Error): string {
+  if (safeOwnDiagnosticData(link, 'name') !== 'OperationAbortedError') return '';
+  const reason = safeOwnDiagnosticData(link, 'reason');
+  if (reason !== 'deadline' && reason !== 'deadline-no-kill') return '';
+  const deadline = safeOwnDiagnosticData(safeOwnDiagnosticData(link, 'facts'), 'deadline');
+  const owner = safeOwnDiagnosticData(deadline, 'owner');
+  const timer = safeOwnDiagnosticData(deadline, 'timer');
+  const trigger = safeOwnDiagnosticData(deadline, 'killer');
+  const observed = snapshotOffscreenDeadline(link);
+  return (
+    ` [offscreen deadline: owner=${owner === 'own' || owner === 'collateral' ? owner : 'unavailable'};` +
+    ` timer=${['dispatch', 'backstop', 'started', 'resumed'].find(value => value === timer) ?? 'unavailable'};` +
+    ` trigger=${trigger === 'read' || trigger === 'write' ? trigger : 'unavailable'};` +
+    ` method=${observed?.offscreenDeadlineMethod ?? 'unobserved'};` +
+    ` stage=${observed?.offscreenDeadlineStage ?? 'not_observed'}]`
+  );
+}
+
+/** The raw error chain and validated deadline facts persisted on `ITransaction.rawError`. */
 export function formatRawTransactionError(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
+  return formatTransactionErrorChain(error).rawError;
+}
+
+/** Render both forms in one walk so diagnostic suffixes never affect telemetry classification. */
+export function formatTransactionErrorChain(error: unknown): { rawError: string; errorChain: string } {
+  if (!(error instanceof Error)) {
+    const text = String(error);
+    return { rawError: text, errorChain: text };
+  }
   // Walk `cause`. Several wrappers in this pipeline say "see the cause chain" in
   // their own message -- `WasmClientPoisonedError` among them -- while every
   // consumer printed only the outermost frame, so the sentence pointed at
@@ -388,6 +416,7 @@ export function formatRawTransactionError(error: unknown): string {
   // guardian send failure reads as "uncaught realm error" and names neither the
   // call that trapped nor the reason.
   const parts: string[] = [];
+  const localParts: string[] = [];
   for (const link of causeChain(error)) {
     if (parts.length >= 5) break;
     let isError = false;
@@ -396,16 +425,20 @@ export function formatRawTransactionError(error: unknown): string {
     try {
       if (link instanceof Error) {
         isError = true;
-        parts.push(`${link.name}: ${link.message}`);
+        const text = `${link.name}: ${link.message}`;
+        localParts.push(text + formatOffscreenDeadlineFacts(link));
+        parts.push(text);
       } else if (link !== undefined) {
-        parts.push(String(link));
+        const text = String(link);
+        localParts.push(text);
+        parts.push(text);
       }
     } catch {
       // An unreadable link costs its own text, not the links below it.
     }
     if (!isError) break;
   }
-  return parts.join(' <- caused by ');
+  return { rawError: localParts.join(' <- caused by '), errorChain: parts.join(' <- caused by ') };
 }
 
 /**
@@ -853,7 +886,7 @@ export function resolveTransactionErrorMessage(
   delegateTransaction?: boolean,
   abandonedPreWrite?: boolean
 ): string {
-  const raw = formatRawTransactionError(error);
+  const { errorChain: raw } = formatTransactionErrorChain(error);
   const message = classifyTransactionError(error, raw, stage, delegateTransaction, abandonedPreWrite);
   // Keep the raw failure reachable in logs whenever a mapping replaces it. The
   // friendly copy is deliberately non-technical, so a mapped error otherwise
