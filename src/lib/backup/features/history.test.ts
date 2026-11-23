@@ -2,6 +2,8 @@ import Dexie from 'dexie';
 
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { readsAsNotConfirmed } from 'lib/miden/transaction/submission-feedback';
+import { NoteTypeEnum } from 'lib/miden/types';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 import { HISTORY_BLOB_CAP, decryptEntry, encryptEntry } from '../crypto';
@@ -10,7 +12,6 @@ import { type BackupSession, BackupSessionClosedError, clearBackupSession, getBa
 import { type HistoryState, getBackupDeviceId, onBackupStorageCleared } from '../state';
 import {
   CHUNK_HEADROOM_BYTES,
-  MAX_ROW_NOTE_IDS,
   applyHistoryRows,
   flushHistory,
   historyEntryKey,
@@ -114,15 +115,15 @@ describe('history projection', () => {
     expect(historyEntryKey('dev', 3)).toBe('history:dev:3');
   });
 
-  it('appends only Completed rows of this device', () => {
+  it('appends only terminal rows of this device', () => {
     expect(isAppendableRow(row('a'))).toBe(true);
-    expect(isAppendableRow(row('a', { status: ITransactionStatus.Failed }))).toBe(false);
-    expect(isAppendableRow(row('a', { status: ITransactionStatus.Unconfirmed }))).toBe(false);
+    expect(isAppendableRow(row('a', { status: ITransactionStatus.Failed }))).toBe(true);
+    expect(isAppendableRow(row('a', { status: ITransactionStatus.Unconfirmed }))).toBe(true);
     expect(isAppendableRow(row('a', { restoredFromBackup: true }))).toBe(false);
     expect(isAppendableRow(row('a', { recovered: true }))).toBe(false);
   });
 
-  it('projects a row with unix ms, decimal amounts and at most 16 note ids', () => {
+  it('projects a row with unix ms, decimal amounts and all note ids', () => {
     const notes = Array.from({ length: 20 }, (_value, index) => `note-${index}`);
     const projected = projectTransaction(
       row('a', { feeAmount: 2n, noteId: 'note-0', outputNoteIds: notes, displayMessage: 'Sent' })
@@ -140,7 +141,7 @@ describe('history projection', () => {
       ca: 1_700_000_010_000,
       m: 'Sent'
     });
-    expect(projected.n).toHaveLength(MAX_ROW_NOTE_IDS);
+    expect(projected.n).toHaveLength(notes.length);
     expect(projected.x).toBeUndefined();
   });
 
@@ -173,6 +174,161 @@ describe('history projection', () => {
     expect(restored.extraInputs).not.toHaveProperty('secret', 'dropped');
   });
 
+  it('preserves fee, asset, note, origin, and outcome fields through the stored JSON', () => {
+    const original = row('receipt', {
+      type: 'consume',
+      status: ITransactionStatus.Unconfirmed,
+      feeFaucetId: 'fee-faucet',
+      feeAmount: 2n,
+      noteType: NoteTypeEnum.Private,
+      noteDelivery: 'confirmed',
+      dappOrigins: ['https://app.example'],
+      inputNoteIds: ['input'],
+      noteIds: ['input'],
+      outputNoteIds: ['change'],
+      assetTotals: [{ faucetId: 'f2', amount: 9n }],
+      error: 'Submission interrupted',
+      extraInputs: {
+        swapOrderTxId: 'swap',
+        swapSettleKind: 'reclaim',
+        bridgeIn: { provider: 'epoch', bridgeReceiveTxId: 'bridge', midenNoteId: 'input' }
+      }
+    });
+    const [stored] = parseHistoryChunk(JSON.stringify([projectTransaction(original)]));
+    if (!stored) throw new Error('The backup receipt must parse');
+    const restored = restoreTransaction(stored);
+    expect(restored).toMatchObject({
+      feeFaucetId: original.feeFaucetId,
+      feeAmount: original.feeAmount,
+      noteType: original.noteType,
+      noteDelivery: original.noteDelivery,
+      dappOrigins: original.dappOrigins,
+      inputNoteIds: original.inputNoteIds,
+      assetTotals: original.assetTotals,
+      error: original.error,
+      outputNoteIds: original.outputNoteIds,
+      extraInputs: original.extraInputs,
+      restoredFromBackup: true
+    });
+    expect(readsAsNotConfirmed(restored)).toBe(true);
+  });
+
+  it('keeps swap status and Guardian verdict details without retaining request bytes', () => {
+    const order = restoreTransaction(
+      projectTransaction(
+        row('order', {
+          type: 'swap',
+          extraInputs: { expiresAt: 123, orderId: 12n, autoConsume: true, requestBytes: [1, 2] }
+        })
+      )
+    );
+    expect(order.extraInputs).toMatchObject({ orderId: '12', expiresAt: 123, autoConsume: true });
+    expect(order.extraInputs).not.toHaveProperty('requestBytes');
+    const switched = restoreTransaction(
+      projectTransaction(
+        row('switch', { type: 'switch-guardian', extraInputs: { commitUnconfirmed: true, registerFailed: true } })
+      )
+    );
+    expect(switched.extraInputs).toMatchObject({ commitUnconfirmed: true, registerFailed: true });
+  });
+
+  it('keeps the exact USDCx payout and CCTP progress without a balance snapshot or attestation', () => {
+    const restoredSend = restoreTransaction(
+      projectTransaction(
+        row('burn', {
+          type: 'bridged-send',
+          extraInputs: {
+            intentNonce: 'intent',
+            epochStatus: 'confirmed',
+            outputAmount: '1.2',
+            usdcxBurn: {
+              noteId: 'burn-note',
+              destinationDomain: 1,
+              phase: 'confirmed',
+              destinationBalanceBefore: { balance: '100', blockNumber: '3' },
+              payout: { transactionHash: '0xabc', blockNumber: '4', value: '90' }
+            }
+          }
+        })
+      )
+    );
+    expect(restoredSend.extraInputs).toMatchObject({
+      intentNonce: 'intent',
+      epochStatus: 'confirmed',
+      outputAmount: '1.2',
+      usdcxBurn: { payout: { transactionHash: '0xabc', value: '90' } }
+    });
+    expect(restoredSend.extraInputs).not.toHaveProperty('usdcxBurn.destinationBalanceBefore');
+
+    const restoredDeposit = restoreTransaction(
+      projectTransaction(
+        row('deposit', {
+          type: 'bridged-receive',
+          extraInputs: {
+            cctp: { sourceDomain: 1, attestation: 'proof', forwardFee: '15' },
+            epochLockedDeposit: {
+              sponsorAddress: '0xabc',
+              chainId: 1,
+              withdrawnAt: 50,
+              intentData: { request: 'private' }
+            }
+          }
+        })
+      )
+    );
+    expect(restoredDeposit.extraInputs).toMatchObject({
+      cctp: { receiptBurnAttested: true, forwardFee: '15' },
+      epochLockedDeposit: { sponsorAddress: '0xabc', chainId: 1, withdrawnAt: 50 }
+    });
+    expect(restoredDeposit.extraInputs).not.toHaveProperty('cctp.attestation');
+    expect(restoredDeposit.extraInputs).not.toHaveProperty('epochLockedDeposit.intentData');
+  });
+
+  it('keeps NEAR Intents receipt fields without provider credentials or signed request data', () => {
+    const asset = { blockchain: 'sol', symbol: 'USDC', decimals: 6 };
+    const original = row('near', {
+      type: 'bridged-receive',
+      extraInputs: {
+        oneClick: {
+          direction: 'evm-to-miden',
+          phase: 'delivered',
+          network: 'mainnet',
+          amount: '150',
+          originAsset: asset,
+          destinationAsset: { ...asset, blockchain: 'miden' },
+          config: { serviceUrl: 'https://provider.example', chains: [{ id: 'sol', name: 'Solana' }] },
+          request: { refundTo: 'sender' },
+          quote: { signature: 'signed', quote: { amountIn: '160', amountOut: '150', minAmountOut: '140' } },
+          statusResponse: {
+            swapDetails: { originChainTxHashes: [{ hash: 'id', explorerUrl: 'https://explorer.example/id' }] }
+          }
+        }
+      }
+    });
+    const [stored] = parseHistoryChunk(JSON.stringify([projectTransaction(original)]));
+    if (!stored) throw new Error('The backup receipt must parse');
+    const restored = restoreTransaction(stored);
+    expect(restored.extraInputs).toMatchObject({
+      oneClick: {
+        phase: 'delivered',
+        config: { chains: [{ id: 'sol', name: 'Solana' }] },
+        quote: { quote: { minAmountOut: '140' } },
+        statusResponse: { swapDetails: { originChainTxHashes: [{ hash: 'id' }] } }
+      }
+    });
+    expect(restored.extraInputs).not.toHaveProperty('oneClick.quote.signature');
+    expect(restored.extraInputs).not.toHaveProperty('oneClick.config.serviceUrl');
+  });
+
+  it('restores the delivery note ID of an Earn withdrawal', () => {
+    const withdrawal = row('withdrawal', {
+      type: 'earn-withdraw',
+      extraInputs: { phase: 'received', midenNoteId: '0x1234' }
+    });
+    const restored = restoreTransaction(projectTransaction(withdrawal));
+    expect(restored.extraInputs).toMatchObject({ phase: 'received', midenNoteId: '0x1234' });
+  });
+
   it('puts the note ids of a consume in noteIds and of any other row in outputNoteIds', () => {
     const consume = restoreTransaction(projectTransaction(row('c', { type: 'consume', noteIds: ['n1', 'n2'] })));
     expect(consume.noteIds).toEqual(['n1', 'n2']);
@@ -189,14 +345,13 @@ describe('history projection', () => {
     });
     expect(restoreTransaction(projectTransaction(swap)).extraInputs).toMatchObject({
       requestedAmount: 9n,
-      reclaimedAt: 1_700_000_010_000
+      reclaimedAt: 1
     });
   });
 
   it.each([
     ['a Queued row', { s: ITransactionStatus.Queued }],
     ['a generating row', { s: ITransactionStatus.GeneratingTransaction }],
-    ['an Unconfirmed row', { s: ITransactionStatus.Unconfirmed }],
     ['an unknown type', { t: 'mint' }],
     ['an unknown icon', { ic: 'STAR' }],
     ['an empty id', { id: '' }],
@@ -232,6 +387,50 @@ describe('applyHistoryRows', () => {
     await applyHistoryRows([projectTransaction(row('a'))]);
     await expect(applyHistoryRows([projectTransaction(row('a', { displayMessage: 'Claimed' }))])).resolves.toBe(1);
     expect((await Repo.transactions.get('a'))?.displayMessage).toBe('Claimed');
+  });
+
+  it.each([false, true])('restores a bridge and its claim in either order (reversed: %s)', async reversed => {
+    const bridge = row('bridge', {
+      type: 'bridged-receive',
+      transactionId: 'shared',
+      extraInputs: { provider: 'epoch', phase: 'received', midenNoteId: 'note' }
+    });
+    const consume = row('claim', {
+      type: 'consume',
+      transactionId: 'shared',
+      noteIds: ['note'],
+      extraInputs: { bridgeIn: { provider: 'epoch', bridgeReceiveTxId: 'bridge' } }
+    });
+    const projected = (reversed ? [consume, bridge] : [bridge, consume]).map(projectTransaction);
+    await expect(applyHistoryRows(projected)).resolves.toBe(2);
+    expect(await Repo.transactions.get('bridge')).toMatchObject({ type: 'bridged-receive', restoredFromBackup: true });
+    expect(await Repo.transactions.get('claim')).toMatchObject({
+      extraInputs: { bridgeIn: { bridgeReceiveTxId: 'bridge' } }
+    });
+  });
+
+  it('keeps each bridge delivery in a shared batch claim', async () => {
+    const receipts = ['note-a', 'note-b', 'note-a'].map((note, index) =>
+      projectTransaction(
+        row(`bridge-${index}`, {
+          type: 'bridged-receive',
+          transactionId: 'batch-claim',
+          extraInputs: { provider: 'epoch', phase: 'received', midenNoteId: note }
+        })
+      )
+    );
+    await expect(applyHistoryRows(receipts)).resolves.toBe(2);
+    expect((await Repo.transactions.toArray()).map(tx => tx.id)).toEqual(['bridge-0', 'bridge-1']);
+  });
+
+  it('replaces a generic Guardian receipt when the exact note set arrives in a peer backup', async () => {
+    await Repo.transactions.add(
+      row('guardian-claim', { type: 'consume', noteIds: ['0xAB'], recovered: true, restoredFromBackup: true })
+    );
+    const receipt = row('peer-claim', { type: 'consume', noteIds: ['ab'], displayMessage: 'Bridged from EVM' });
+    await expect(applyHistoryRows([projectTransaction(receipt)])).resolves.toBe(1);
+    expect(await Repo.transactions.get('guardian-claim')).toBeUndefined();
+    expect(await Repo.transactions.get('peer-claim')).toMatchObject({ displayMessage: 'Bridged from EVM' });
   });
 
   it("never touches this device's own row, a recovered row or a row with the same on-chain id", async () => {
@@ -411,7 +610,7 @@ describe('history sync', () => {
     await expect(flushHistory(session)).resolves.toBe(1);
   });
 
-  it('appends Completed rows, oldest first, to chunk 0 and uploads it once', async () => {
+  it('appends receipt rows, oldest first, to chunk 0 and uploads it once', async () => {
     await Repo.transactions.bulkAdd([
       row('late', { completedAt: 1_700_000_100 }),
       row('early', { completedAt: 1_700_000_050 }),
@@ -421,9 +620,9 @@ describe('history sync', () => {
     ]);
 
     await expect(flushHistory(session)).resolves.toBe(1);
-    expect(session.state.history.chunks).toEqual([{ n: 0, ids: ['early', 'late'] }]);
+    expect(session.state.history.chunks).toEqual([{ n: 0, ids: ['failed', 'early', 'late'] }]);
     expect(session.state.history.dirty).toEqual([]);
-    await expect(chunkRows(0)).resolves.toEqual(['early', 'late']);
+    await expect(chunkRows(0)).resolves.toEqual(['failed', 'early', 'late']);
 
     const mark = server.requests.length;
     await expect(flushHistory(session)).resolves.toBe(0);

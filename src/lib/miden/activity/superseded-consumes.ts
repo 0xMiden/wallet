@@ -10,8 +10,7 @@ const noteIdsOf = (tx: ITransaction): string[] => tx.noteIds ?? (tx.noteId ? [tx
  * The failed claims (`isFailedClaim`) in `transactions` whose every note this account has claimed (#771). Failed
  * rows are never deleted, because the auto-consume backoff counts them, so without this a note the wallet now holds
  * shows one "Transaction failed" per earlier attempt. The evidence is read from the database rather than the batch,
- * since the successful claim can sit on another page, and it follows the claim dedup's rule: a Completed consume row
- * of the same account that was not restored from a backup.
+ * since the successful claim can sit on another page. A recovered failure can use a recovered success as evidence.
  */
 export async function supersededFailedConsumeIds(transactions: ITransaction[]): Promise<Set<string>> {
   const nowSec = Math.floor(Date.now() / 1000);
@@ -25,12 +24,17 @@ export async function supersededFailedConsumeIds(transactions: ITransaction[]): 
     Repo.transactions.where('noteIds').anyOf(noteIds).toArray()
   ]);
   const claims = [...byScalar, ...byBatch].filter(
-    tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed && !tx.restoredFromBackup
+    tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed
   );
   const superseded = new Set<string>();
   for (const tx of failed) {
     const claimed = (noteId: string) =>
-      claims.some(claim => compareAccountIds(claim.accountId, tx.accountId) && noteIdsOf(claim).includes(noteId));
+      claims.some(
+        claim =>
+          (!claim.restoredFromBackup || tx.restoredFromBackup) &&
+          compareAccountIds(claim.accountId, tx.accountId) &&
+          noteIdsOf(claim).includes(noteId)
+      );
     if (noteIdsOf(tx).every(claimed)) superseded.add(tx.id);
   }
   return superseded;

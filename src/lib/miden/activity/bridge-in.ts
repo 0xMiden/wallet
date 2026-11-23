@@ -7,6 +7,7 @@ import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { normalizedCommitment } from 'lib/miden/sdk/note-details-commitment';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { BridgeToken } from 'lib/remote-config/derive';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
@@ -848,6 +849,40 @@ export async function findPendingBridgeInByEarnWithdrawTxId(
   return intent ? { intentNonce: intent.intentNonce, userAddress: intent.userAddress } : undefined;
 }
 
+async function restoredDeliveryConsumeIds(transactions: ITransaction[]): Promise<Set<string>> {
+  const consumes = transactions.flatMap(tx => {
+    if (tx.type !== 'consume' || !tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed) return [];
+    const notes = new Set(
+      [...(tx.noteIds ?? []), ...(tx.inputNoteIds ?? []), tx.noteId]
+        .filter((id): id is string => Boolean(id))
+        .map(normalizedCommitment)
+    );
+    const [noteId] = notes;
+    return notes.size === 1 && noteId ? [{ tx, noteId }] : [];
+  });
+  if (consumes.length === 0) return new Set();
+
+  const deliveries = await Promise.all(
+    ['earn-withdraw', 'bridged-receive'].map(type =>
+      Repo.transactions
+        .where('type')
+        .equals(type)
+        .filter(row => row.status === ITransactionStatus.Completed && row.extraInputs?.phase === 'received')
+        .toArray()
+    )
+  );
+  const suppressed = new Set<string>();
+  for (const row of deliveries.flat()) {
+    const deliveryId = row.extraInputs?.midenNoteId;
+    if (typeof deliveryId !== 'string' || !deliveryId) continue;
+    const deliveryNote = normalizedCommitment(deliveryId);
+    for (const { tx, noteId } of consumes) {
+      if (deliveryNote === noteId && sameWalletAccountId(row.accountId, tx.accountId)) suppressed.add(tx.id);
+    }
+  }
+  return suppressed;
+}
+
 /** Return consumes represented by a current linked primary, retaining prior-attempt receipts in history. */
 export async function suppressedLinkedConsumeIds(transactions: ITransaction[]): Promise<Set<string>> {
   const linked = transactions.flatMap(tx => {
@@ -858,16 +893,19 @@ export async function suppressedLinkedConsumeIds(transactions: ITransaction[]): 
       tx.extraInputs?.bridgeIn?.bridgeReceiveTxId;
     return id ? [{ tx, id }] : [];
   });
-  if (linked.length === 0) return new Set();
-  const rows = await Repo.transactions
-    .where('id')
-    .anyOf([...new Set(linked.map(({ id }) => id))])
-    .toArray();
+  const [suppressed, rows] = await Promise.all([
+    restoredDeliveryConsumeIds(transactions),
+    linked.length
+      ? Repo.transactions
+          .where('id')
+          .anyOf([...new Set(linked.map(({ id }) => id))])
+          .toArray()
+      : []
+  ]);
   const primaries = new Map(rows.map(row => [row.id, row]));
-  const suppressed = new Set<string>();
   for (const { tx, id } of linked) {
     const row = primaries.get(id);
-    if (!row) continue;
+    if (!row || (tx.restoredFromBackup && !sameWalletAccountId(row.accountId, tx.accountId))) continue;
     if (row.type === 'earn-withdraw') {
       const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
       const info: IBridgeInInfo | undefined = tx.extraInputs?.bridgeIn;

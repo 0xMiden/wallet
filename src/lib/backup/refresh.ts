@@ -11,9 +11,9 @@
  * | Activity opens                | `history`, with `since`                      | `AllHistory` when its page turns active     |
  * | Guardian sync adopts a state  | `history`, with `since`; on a 304 again      | `signalGuardianStateAdopted`                |
  * |                               | after 10, 30 and 60 s, then stop             |                                             |
- * | A row reaches Completed       | upload the history                           | `signalTransactionCompleted`                |
- * | A recovered wallet's Guardian | `history`, with `since`; a peer's history    | `restoreHistoryFromBackup` from the         |
- * | pass reaches its history step | found ends the pass, no Guardian history read| Guardian recovery (`guardian-recovery.ts`)  |
+ * | A row reaches a final status  | upload the history                           | `signalTransactionCompleted`                |
+ * | A recovered wallet's Guardian | `history`, with `since`                      | `restoreHistoryFromBackup` from the         |
+ * | pass reaches its history step | before the Guardian history read             | Guardian recovery (`guardian-recovery.ts`)  |
  *
  * Each refresh also uploads the local changes of its features. A completed
  * transaction flushes history at once ({@link flushHistoryNow}).
@@ -192,12 +192,7 @@ export async function refreshHistory(reason: HistoryRefreshReason): Promise<Back
 }
 
 /**
- * Restore the history of a recovered wallet from the backup. True when the
- * backup holds the history of another device, applied now: the backup is then
- * the record of history, and the Guardian history pass does not run. False
- * when the backup is off, cannot be read, or holds no peer history (a profile
- * this device just made, or peers that never uploaded), so the Guardian pass
- * runs instead. Never throws.
+ * Apply peer backup receipts before Guardian recovery fills gaps. Returns true if the backup contains peer history.
  */
 export async function restoreHistoryFromBackup(): Promise<boolean> {
   if (!(await checkWalletApiEnabled())) return false;
@@ -212,7 +207,7 @@ export async function restoreHistoryFromBackup(): Promise<boolean> {
   }
 }
 
-/** A row reached Completed: append it and upload its chunk now, with no quiet period. */
+/** Upload the terminal receipt and other changed history rows. */
 export function flushHistoryNow(): Promise<BackupRefreshOutcome> {
   return withSession('history flush', async session => (await flushHistory(session)) > 0);
 }

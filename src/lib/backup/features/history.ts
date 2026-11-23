@@ -4,11 +4,10 @@
  * PROJECTION (6.1, 6.3). A synced row is a projection of `ITransaction`, not
  * the row: raw bytes, retry counters, relay state, stage stamps, diagnostics
  * and the Guardian candidate stay on the device that made the row. `x` holds
- * the type-specific fields of the table in 6.3. Times are unix ms. A row
- * carries at most 16 note ids.
+ * the type-specific fields of the table in 6.3. Times are unix ms.
  *
  * CHUNKS (6.4). Each device writes only its own stream, `history:<deviceId>:<n>`.
- * A row is appended to the open chunk when it reaches Completed; a chunk that
+ * A row is appended to the open chunk when it reaches a terminal status; a chunk that
  * the row would take past the 25 KiB blob cap closes and chunk n + 1 opens.
  * A later receipt change rewrites the row in its own chunk. Receipt changes
  * can grow a closed chunk past the cap (a claim hash on every bridge row):
@@ -19,10 +18,10 @@
  *
  * RESTORE (6.2). A row of another device lands in the local table with
  * `restoredFromBackup`, which keeps it away from the processing loop, Retry,
- * `waitForTransaction` and every reconciler. Only Completed and Failed rows
- * are restored; a live status from the server is refused.
+ * `waitForTransaction` and every reconciler. Restore accepts only receipt statuses.
  */
 import {
+  type IConsumedAssetTotal,
   ITransaction,
   ITransactionIcon,
   ITransactionStatus,
@@ -30,15 +29,18 @@ import {
   isLiveTransaction
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { normalizedCommitment } from 'lib/miden/sdk/note-details-commitment';
+import { readsAsNotConfirmed } from 'lib/miden/transaction/submission-feedback';
+import { NoteTypeEnum } from 'lib/miden/types';
 import { isRecord } from 'lib/update/guards';
 
+import { type ReceiptFields, readReceiptExtra } from './history-receipt';
 import { HISTORY_BLOB_CAP, encryptedBlobLength, plaintextDigest } from '../crypto';
 import { type IncomingEntry, hashedKeyOf, readFeature, uploadEntries } from '../entries';
 import { type BackupSession, assertSessionLive } from '../session';
 import { type HistoryState, getBackupDeviceId, persistBackupState } from '../state';
 
-/** The most note ids one row carries. */
-export const MAX_ROW_NOTE_IDS = 16;
 /**
  * Room kept free in each chunk for later receipt changes (a claim hash, a
  * received amount). An append that would leave less closes the chunk.
@@ -60,6 +62,16 @@ export interface HistoryRow {
   f?: string;
   am?: string;
   fa?: string;
+  ff?: string;
+  nt?: NoteTypeEnum;
+  nd?: ITransaction['noteDelivery'];
+  at?: { faucetId: string; amount: string }[];
+  d?: string[];
+  e?: string;
+  u?: boolean;
+  ni?: string[];
+  no?: string[];
+  r?: ReceiptFields;
   tx?: string;
   n?: string[];
   ia: number;
@@ -72,9 +84,9 @@ export function historyEntryKey(deviceId: string, n: number): string {
   return `history:${deviceId}:${n}`;
 }
 
-/** A row this device appends: its own, and Completed. */
+/** Append terminal rows that originated on this device. */
 export function isAppendableRow(tx: ITransaction): boolean {
-  return tx.status === ITransactionStatus.Completed && !tx.restoredFromBackup && !tx.recovered;
+  return readTerminalStatus(tx.status) !== null && !tx.restoredFromBackup && !tx.recovered;
 }
 
 function pickString(record: Record<string, unknown>, key: string): string | undefined {
@@ -151,6 +163,7 @@ export function projectExtra(tx: ITransaction): HistoryRowExtra | undefined {
         mu: pickString(raw, 'marketUid'),
         er: pickString(raw, 'evmOwner'),
         in: pickString(raw, 'withdrawIntentNonce'),
+        mn: pickString(raw, 'midenNoteId'),
         eh: pickString(raw, 'evmTxHash'),
         es: pickString(raw, 'phase'),
         pr: pickString(raw, 'protocol'),
@@ -197,10 +210,11 @@ function settlementKindOf(raw: Record<string, unknown>): string | undefined {
 
 function noteIdsOf(tx: ITransaction): string[] | undefined {
   const ids = new Set<string>();
-  for (const id of [...(tx.noteIds ?? []), ...(tx.noteId ? [tx.noteId] : []), ...(tx.outputNoteIds ?? [])]) {
+  const output = tx.type === 'consume' ? [] : (tx.outputNoteIds ?? []);
+  for (const id of [...(tx.noteIds ?? []), ...(tx.noteId ? [tx.noteId] : []), ...output]) {
     if (id) ids.add(id);
   }
-  const list = [...ids].slice(0, MAX_ROW_NOTE_IDS);
+  const list = [...ids];
   return list.length > 0 ? list : undefined;
 }
 
@@ -217,6 +231,16 @@ export function projectTransaction(tx: ITransaction): HistoryRow {
     f: tx.faucetId,
     am: tx.amount === undefined ? undefined : tx.amount.toString(),
     fa: tx.feeAmount === undefined ? undefined : tx.feeAmount.toString(),
+    ff: tx.feeFaucetId,
+    nt: tx.noteType,
+    nd: tx.noteDelivery,
+    at: tx.assetTotals?.map(({ faucetId, amount }) => ({ faucetId, amount: amount.toString() })),
+    d: tx.dappOrigins,
+    e: tx.error,
+    u: readsAsNotConfirmed(tx) || undefined,
+    ni: tx.inputNoteIds,
+    no: tx.outputNoteIds,
+    r: isRecord(tx.extraInputs) ? readReceiptExtra(tx.type, tx.extraInputs) : undefined,
     tx: tx.transactionId,
     n: noteIdsOf(tx),
     ia: tx.initiatedAt * 1000,
@@ -265,7 +289,8 @@ function readTerminalStatus(value: unknown): ITransactionStatus | null {
     case ITransactionStatus.Completed:
       return ITransactionStatus.Completed;
     case ITransactionStatus.Failed:
-      return ITransactionStatus.Failed;
+    case ITransactionStatus.Unconfirmed:
+      return value;
     default:
       return null;
   }
@@ -294,8 +319,28 @@ function readExtra(value: unknown): HistoryRowExtra | undefined | null {
 function readNoteIds(value: unknown): string[] | undefined | null {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) return null;
-  const ids = value.filter((id): id is string => typeof id === 'string').slice(0, MAX_ROW_NOTE_IDS);
+  const ids = value.filter((id): id is string => typeof id === 'string');
   return ids;
+}
+
+function readAssetTotals(value: object[]): HistoryRow['at'] {
+  return value.flatMap(item => {
+    if (!isRecord(item) || typeof item.faucetId !== 'string') return [];
+    const amount = optionalDecimal(item.amount);
+    return typeof amount === 'string' ? [{ faucetId: item.faucetId, amount }] : [];
+  });
+}
+
+function readDelivery(value: unknown): HistoryRow['nd'] {
+  switch (value) {
+    case 'pending':
+    case 'relayed':
+    case 'confirmed':
+    case 'undelivered':
+      return value;
+    default:
+      return undefined;
+  }
 }
 
 /** Parse one row of a decrypted chunk. Null for any other shape. */
@@ -332,7 +377,34 @@ export function parseHistoryRow(value: unknown): HistoryRow | null {
   }
   // The restore reads a swap's requested amount with BigInt, so it must be what the projection writes.
   if (t === 'swap' && x?.ra !== undefined && optionalDecimal(x.ra) === null) return null;
-  return { v: 1, id, t, s, ic, a, sa, f, am, fa, tx, n, ia, ca, m, x };
+  return {
+    v: 1,
+    id,
+    t,
+    s,
+    ic,
+    a,
+    sa,
+    f,
+    am,
+    fa,
+    tx,
+    n,
+    ia,
+    ca,
+    m,
+    x,
+    ff: optionalString(value.ff) ?? undefined,
+    nt: value.nt === NoteTypeEnum.Public || value.nt === NoteTypeEnum.Private ? value.nt : undefined,
+    nd: readDelivery(value.nd),
+    at: Array.isArray(value.at) ? readAssetTotals(value.at) : undefined,
+    d: readNoteIds(value.d) ?? undefined,
+    e: optionalString(value.e) ?? undefined,
+    u: value.u === true || undefined,
+    ni: readNoteIds(value.ni) ?? undefined,
+    no: readNoteIds(value.no) ?? undefined,
+    r: isRecord(value.r) ? readReceiptExtra(t, value.r) : undefined
+  };
 }
 
 /** Parse a decrypted chunk: a JSON array of rows. Rows of another shape are dropped. */
@@ -407,6 +479,7 @@ export function restoreExtraInputs(row: HistoryRow): Record<string, unknown> | u
         marketUid: extraString(x, 'mu'),
         evmOwner: extraString(x, 'er'),
         withdrawIntentNonce: extraString(x, 'in'),
+        midenNoteId: extraString(x, 'mn'),
         evmTxHash: extraString(x, 'eh'),
         phase: extraString(x, 'es'),
         protocol: extraString(x, 'pr'),
@@ -417,8 +490,8 @@ export function restoreExtraInputs(row: HistoryRow): Record<string, unknown> | u
       return {
         requestedFaucetId: extraString(x, 'rf'),
         requestedAmount: requested === undefined ? undefined : BigInt(requested),
-        settledAt: extraString(x, 'sk') === 'settle' ? row.ca : undefined,
-        reclaimedAt: extraString(x, 'sk') === 'reclaim' ? row.ca : undefined
+        settledAt: extraString(x, 'sk') === 'settle' && row.ca !== undefined ? Math.floor(row.ca / 1000) : undefined,
+        reclaimedAt: extraString(x, 'sk') === 'reclaim' && row.ca !== undefined ? Math.floor(row.ca / 1000) : undefined
       };
     }
     case 'consume':
@@ -454,6 +527,12 @@ export function restoreTransaction(row: HistoryRow): ITransaction {
   const initiatedAt = Math.floor(row.ia / 1000);
   const notes = row.n ?? [];
   const isConsume = row.t === 'consume';
+  const legacyExtra = restoreExtraInputs(row);
+  const receipt = readReceiptExtra(row.t, row.r);
+  const assetTotals: IConsumedAssetTotal[] | undefined = row.at?.map(({ faucetId, amount }) => ({
+    faucetId,
+    amount: BigInt(amount)
+  }));
   return {
     id: row.id,
     type: row.t,
@@ -467,19 +546,46 @@ export function restoreTransaction(row: HistoryRow): ITransaction {
     faucetId: row.f,
     amount: row.am === undefined ? undefined : BigInt(row.am),
     feeAmount: row.fa === undefined ? undefined : BigInt(row.fa),
+    feeFaucetId: row.ff,
+    noteType: row.nt,
+    noteDelivery: row.nd,
+    assetTotals,
+    dappOrigins: row.d,
+    error: row.e,
+    restoredOutcomeUnconfirmed: row.u,
+    inputNoteIds: row.ni ?? (isConsume && notes.length > 0 ? notes : undefined),
     transactionId: row.tx,
     noteId: notes[0],
     noteIds: isConsume && notes.length > 0 ? notes : undefined,
-    outputNoteIds: !isConsume && notes.length > 0 ? notes : undefined,
-    extraInputs: restoreExtraInputs(row),
+    outputNoteIds: row.no ?? (!isConsume && notes.length > 0 ? notes : undefined),
+    extraInputs: receipt ? { ...legacyExtra, ...receipt } : legacyExtra,
     restoredFromBackup: true
   };
+}
+
+async function findGuardianReceipt(restored: ITransaction): Promise<ITransaction | undefined> {
+  if (restored.status !== ITransactionStatus.Completed) return undefined;
+  const notes = restored.type === 'consume' ? restored.noteIds : restored.outputNoteIds;
+  const [first, ...rest] = (notes ?? []).map(normalizedCommitment);
+  if (!first) return undefined;
+  const expected = new Set([first, ...rest]);
+  return Repo.transactions
+    .where('noteIds')
+    .anyOfIgnoreCase(first, `0x${first}`)
+    .filter(row => {
+      if (!row.recovered || row.type !== restored.type || !sameWalletAccountId(row.accountId, restored.accountId)) {
+        return false;
+      }
+      const candidate = row.type === 'consume' ? row.noteIds : row.outputNoteIds;
+      return candidate?.length === expected.size && candidate.every(id => expected.has(normalizedCommitment(id)));
+    })
+    .first();
 }
 
 /**
  * Write peer rows into the local table. A row this device holds as its own is
  * never touched. A row restored before is replaced by the newer projection. A
- * row whose on-chain id another local row holds is skipped.
+ * second receipt of the same type and on-chain transaction is skipped.
  */
 export async function applyHistoryRows(rows: readonly HistoryRow[]): Promise<number> {
   if (rows.length === 0) return 0;
@@ -495,7 +601,24 @@ export async function applyHistoryRows(rows: readonly HistoryRow[]): Promise<num
         }
         continue;
       }
-      if (row.tx !== undefined && (await Repo.transactions.where('transactionId').equals(row.tx).count()) > 0) continue;
+      if (row.tx !== undefined) {
+        const matches = await Repo.transactions.where('transactionId').equals(row.tx).toArray();
+        const duplicate = matches.some(match => {
+          if (match.type !== restored.type || !sameWalletAccountId(match.accountId, restored.accountId)) return false;
+          if (restored.type !== 'bridged-receive') return true;
+          const savedNote = match.extraInputs?.midenNoteId;
+          const restoredNote = restored.extraInputs?.midenNoteId;
+          if (typeof savedNote !== 'string' || typeof restoredNote !== 'string') return true;
+          return normalizedCommitment(savedNote) === normalizedCommitment(restoredNote);
+        });
+        if (duplicate) continue;
+      }
+      // Guardian recovery may run before this peer uploads the detailed receipt.
+      const matchingGuardianRow = await findGuardianReceipt(restored);
+      if (matchingGuardianRow) {
+        restored.recovery = matchingGuardianRow.recovery;
+        await Repo.transactions.delete(matchingGuardianRow.id);
+      }
       await Repo.transactions.add(restored);
       written += 1;
     }
@@ -608,7 +731,7 @@ async function flushPass(session: BackupSession): Promise<number> {
     }
   }
 
-  // New Completed rows, oldest first, appended to the open chunk.
+  // Append new terminal rows in time order.
   const candidates = await Repo.transactions
     .filter(tx => isAppendableRow(tx) && history.assigned[tx.id] === undefined)
     .toArray();

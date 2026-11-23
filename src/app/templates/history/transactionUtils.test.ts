@@ -817,10 +817,10 @@ describe('bridgeBadgeStatusOf for an Epoch deposit locked in The Compact (#2120)
     expect(bridgeBadgeStatusOf(retried)).toBe('pending');
   });
 
-  it('reads plain Failed for a restored row', () => {
+  it('shows the recorded lock status for a restored row', () => {
     const restored = locked({ restoredFromBackup: true });
-    expect(hasOwnBridgeBadge(restored)).toBe(false);
-    expect(bridgeBadgeStatusOf(restored)).toBe('failed');
+    expect(hasOwnBridgeBadge(restored)).toBe(true);
+    expect(bridgeBadgeStatusOf(restored)).toBe('depositLocked');
   });
 });
 
@@ -1510,10 +1510,10 @@ describe('swap settlement state', () => {
     );
   });
 
-  // Settlement never acts on a restored row (localSwapOrders drops it), so its stamp cannot become reclaimed.
-  it('reports the return only for an order the settlement acts on', () => {
+  // A restored receipt keeps the recorded return-in-progress status.
+  it('reports a recorded return on both local and restored orders', () => {
     const stamped = { orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 };
-    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('pending');
+    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('reclaiming');
     expect(swapSettlementOf(swap(stamped))).toBe('reclaiming');
     expect(swapSettlementOf(swap({ expiresAt: 100, expiryTriggeredAt: 101 }))).toBeUndefined();
   });

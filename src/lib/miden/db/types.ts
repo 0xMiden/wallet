@@ -385,6 +385,8 @@ export interface IUsdcxCctpLeg {
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
   message?: string;
   attestation?: string;
+  /** The backup receipt records the attestation step without its proof. */
+  receiptBurnAttested?: boolean;
   /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
   executeTxHash?: string;
   /** Unix seconds the current `executeTxHash` was saved, from either side. */
@@ -987,6 +989,8 @@ export interface ITransaction {
    * row, and the delivery sweep to receipt checks.
    */
   recovered?: boolean;
+  /** The original device's outcome for a read-only backup receipt. */
+  restoredOutcomeUnconfirmed?: boolean;
   recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;

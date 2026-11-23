@@ -15,11 +15,7 @@ import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import {
-  getAllUncompletedTransactions,
-  hasRestoredTransactionsOf,
-  isRotationAwaitingFunding
-} from 'lib/miden/transaction/get';
+import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -959,19 +955,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       console.log(`[GuardianRecovery] Notes recovered for ${account.publicKey}; history waits for the key rotation`);
       return;
     }
-    // The encrypted backup is the record of history once it holds another device's
-    // rows OF THIS ACCOUNT: a Guardian operator retains only proposals and note ids, so
-    // its history pass runs only when the backup gives this account nothing. The backup's
-    // own answer is wallet-wide, and an account the peer never held, or history from
-    // before the backup existed, is recovered only by the Guardian pass. The notes pass
-    // above always runs.
-    if ((await restoreHistoryFromBackup()) && (await hasRestoredTransactionsOf(account.publicKey))) {
-      console.log(`[GuardianRecovery] History for ${account.publicKey} restored from the encrypted backup`);
-      if ((await clearPendingFlag(account, generation)) !== 'cleared') return;
-      await clearGuardianNoteRecoveryProgress(account.publicKey);
-      keepReservation(account.publicKey, { generation, failed: false });
-      return;
-    }
+    // Load backup receipts before the Guardian fills gaps in the account history.
+    await restoreHistoryFromBackup();
     // History shares the seed-restore flag: the flag clears once every Guardian
     // source is read or history fails terminally, and a failed source retries
     // in the next session.

@@ -1,5 +1,6 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import { isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
@@ -307,6 +308,7 @@ export const cancelTransaction = async (
     );
   }
   if (committed !== undefined && !committed.restoredFromBackup) {
+    signalTransactionCompleted();
     const failureReason = reportedReason ?? reportedWalletReason(error);
     reportTransactionFailure({
       point: 'pipeline',
@@ -563,6 +565,7 @@ export const markTransactionUnconfirmed = async (
     logOperationEnd('swap', 'unconfirmed', elapsedMsSince(committed.initiatedAt));
   }
   if (committed !== undefined && !committed.restoredFromBackup) {
+    signalTransactionCompleted();
     reportTransactionFailure({
       point: 'pipeline',
       type: committed.type,

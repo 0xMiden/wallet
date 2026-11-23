@@ -142,7 +142,9 @@ export function submissionFeedback(row: FeedbackRow | undefined): SubmissionFeed
   return undefined;
 }
 
-type FinishedRow = FeedbackRow & Parameters<typeof isOutcomeUnconfirmed>[0];
+type FinishedRow = FeedbackRow &
+  Parameters<typeof isOutcomeUnconfirmed>[0] &
+  Pick<ITransaction, 'restoredFromBackup' | 'restoredOutcomeUnconfirmed'>;
 
 // The rotation gate reads these through `isUnconfirmedFailure`, which decides whether it offers its key-pair exit, so
 // Activity reads them by that rule, whatever text they stored.
@@ -158,6 +160,7 @@ const readByRotationGate = (row: FinishedRow): boolean =>
  * said.
  */
 export function readsAsNotConfirmed(row: FinishedRow, nowSec: number = nowSeconds()): boolean {
+  if (row.restoredFromBackup && row.restoredOutcomeUnconfirmed === true) return true;
   const feedback = submissionFeedback(row);
   if (feedback === undefined || row.neverCommittedAt !== undefined || readByRotationGate(row)) {
     return isOutcomeUnconfirmed(row);

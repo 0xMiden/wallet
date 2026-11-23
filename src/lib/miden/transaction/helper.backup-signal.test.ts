@@ -3,7 +3,7 @@ import * as Repo from 'lib/miden/repo';
 import { updateTransactionStatus } from './helper';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
-// The backup signal is the boundary: a Completed row of this device asks for a history upload at once.
+// The backup signal is the boundary: a terminal receipt from this device asks for a history upload at once.
 const mockSignalTransactionCompleted = jest.fn<void, []>();
 jest.mock('lib/backup/adopt-signal', () => ({
   signalTransactionCompleted: () => mockSignalTransactionCompleted()
@@ -43,16 +43,20 @@ describe('updateTransactionStatus signals the encrypted backup', () => {
     expect(mockSignalTransactionCompleted).not.toHaveBeenCalled();
   });
 
-  it.each([ITransactionStatus.Failed, ITransactionStatus.Unconfirmed, ITransactionStatus.GeneratingTransaction])(
-    'does not signal for status %s',
+  it.each([ITransactionStatus.Failed, ITransactionStatus.Unconfirmed])(
+    'signals for receipt status %s',
     async status => {
-      await Repo.transactions.put(generating({ status: ITransactionStatus.Queued }));
-
+      await Repo.transactions.put(generating());
       await updateTransactionStatus('tx-1', status, {});
-
-      expect(mockSignalTransactionCompleted).not.toHaveBeenCalled();
+      expect(mockSignalTransactionCompleted).toHaveBeenCalledTimes(1);
     }
   );
+
+  it('does not signal when generation starts', async () => {
+    await Repo.transactions.put(generating({ status: ITransactionStatus.Queued }));
+    await updateTransactionStatus('tx-1', ITransactionStatus.GeneratingTransaction, {});
+    expect(mockSignalTransactionCompleted).not.toHaveBeenCalled();
+  });
 
   it('does not signal when the row already left the queue and the write is refused', async () => {
     await Repo.transactions.put(generating({ status: ITransactionStatus.Failed }));

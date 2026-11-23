@@ -28,7 +28,8 @@ import {
   ITransactionStage,
   ITransactionStatus,
   SubmitEvidenceFields,
-  TransactionOutput
+  TransactionOutput,
+  isLiveTransaction
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
 import { recordedSwapOrder } from '../sdk/apply-after-submit';
@@ -310,10 +311,8 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     if (tx.type === 'swap' && status === ITransactionStatus.Completed) {
       logOperationEnd('swap', 'completed', elapsedMsSince(tx.initiatedAt));
     }
-    // A Completed row of this device goes to the encrypted backup at once (architecture doc 6.4).
-    // A restored row is a peer's and is never uploaded again.
-    if (status === ITransactionStatus.Completed && !tx.restoredFromBackup) signalTransactionCompleted();
   }
+  if (!isLiveTransaction({ status }) && !tx.restoredFromBackup) signalTransactionCompleted();
 };
 
 /**

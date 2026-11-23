@@ -219,9 +219,7 @@ export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlemen
   if (extra.settledAt != null) return undefined;
   if (extra.reclaimedAt != null) return 'reclaimed';
   if (tx.recovered === true) return undefined;
-  // Returning funds only for an order settlement acts on: it never settles a restored row, so that stamp stays put.
-  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null && !tx.restoredFromBackup)
-    return 'reclaiming';
+  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null) return 'reclaiming';
   if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
   return undefined;
 };
@@ -321,9 +319,9 @@ export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' |
 
 /** The state of an Epoch deposit in The Compact without an allocation, for a row that is not restored. */
 export const lockedDepositStateOf = (
-  entry: Pick<IHistoryEntry, 'bridgeInLockedDeposit' | 'bridgeInPhase' | 'restoredFromBackup'>
+  entry: Pick<IHistoryEntry, 'bridgeInLockedDeposit' | 'bridgeInPhase'>
 ): EpochLockedDepositState | undefined =>
-  epochLockedDepositState(entry.bridgeInLockedDeposit, entry.bridgeInPhase, entry.restoredFromBackup === true);
+  epochLockedDepositState(entry.bridgeInLockedDeposit, entry.bridgeInPhase, false);
 
 /** A bridge row whose badge is `bridgeBadgeStatusOf` and not the plain Pending/Confirmed/Failed status. */
 export const hasOwnBridgeBadge = (entry: IHistoryEntry): boolean =>

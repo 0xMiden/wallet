@@ -1504,15 +1504,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       )
                     )}
                   </DetailSection>
-                  {transaction && isOpenNearIntentsDeposit(entry.oneClickTracking) && (
-                    <Button
-                      data-testid="history-near-intents-deposit-button"
-                      variant={ButtonVariant.Secondary}
-                      title={t('nearIntentsOpenDeposit')}
-                      onClick={() => navigate(`/receive/near-intents/${encodeURIComponent(transaction.id)}`)}
-                      className="mt-5 w-full max-w-none"
-                    />
-                  )}
+                  {transaction &&
+                    !transaction.restoredFromBackup &&
+                    isOpenNearIntentsDeposit(entry.oneClickTracking) && (
+                      <Button
+                        data-testid="history-near-intents-deposit-button"
+                        variant={ButtonVariant.Secondary}
+                        title={t('nearIntentsOpenDeposit')}
+                        onClick={() => navigate(`/receive/near-intents/${encodeURIComponent(transaction.id)}`)}
+                        className="mt-5 w-full max-w-none"
+                      />
+                    )}
                 </div>
               </div>
             )}
@@ -1602,8 +1604,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         className="mt-4"
                       />
                     )}
-                  {/* An Epoch deposit in The Compact without an allocation: only its sponsor can recover it (#2120).
-                      `lockedDepositStateOf` leaves out a restored row. */}
+
                   {(() => {
                     const lockedState = lockedDepositStateOf(entry);
                     if (!entry.txId || !entry.bridgeInLockedDeposit || lockedState === undefined) return null;
@@ -1612,6 +1613,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         txId={entry.txId}
                         lock={entry.bridgeInLockedDeposit}
                         state={lockedState}
+                        readOnly={entry.restoredFromBackup}
                         amountLabel={[entry.bridgeInSourceAmount, entry.bridgeInSourceSymbol].filter(Boolean).join(' ')}
                         className="mt-4"
                       />
