@@ -18,7 +18,7 @@ async function json(url) {
 }
 
 const document = await json('https://raw.githubusercontent.com/0xMiden/wallet-config/main/mainnet.json');
-const service = document?.swap?.oneClick?.serviceUrl ?? 'https://1click.chaindefuser.com';
+const service = document?.nearIntents?.serviceUrl ?? 'https://1click.chaindefuser.com';
 assert.equal(typeof service, 'string', 'Invalid public 1Click service');
 const url = new URL(service);
 assert.ok(

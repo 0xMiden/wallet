@@ -64,6 +64,9 @@ export interface RecallCalendarDrawerProps {
   onRecallBlocksChange: (blocks: string) => void;
   onRecallDateChange: (date: Date | undefined) => void;
   onRecallTimeChange: (time: string) => void;
+  onCalendarTargetChange: (date: Date, time: string) => void;
+  /** Command's untouched Confirm must not replace an approved relative offset. */
+  skipUnchangedConfirm?: boolean;
   /** Clear the reclaim height entirely — sends a plain P2ID note (no recall window). */
   onRecallNever: () => void;
 }
@@ -82,6 +85,8 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   onRecallBlocksChange,
   onRecallDateChange,
   onRecallTimeChange,
+  onCalendarTargetChange,
+  skipUnchangedConfirm = false,
   onRecallNever
 }) => {
   const { t } = useTranslation();
@@ -89,7 +94,6 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
     const anchor = recallDate ?? new Date();
     return new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   });
-
   // Re-anchor the visible month to the selected date each time the drawer
   // opens: the mount-time initializer can run before the parent seeds the
   // default 7-day date, and near month-end that default lives in the NEXT
@@ -117,15 +121,27 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   useUserVisibleError(open && selectionInPast ? 'recallTimeInPast' : null, 'inline');
 
   const applyDateTimeSelection = useCallback(
-    (date: Date, time: string) => {
+    (date: Date, time: string, explicitSelection = false) => {
       const dateWithTime = combineDateAndTime(date, time);
       if (dateWithTime <= new Date()) return;
+      if (skipUnchangedConfirm && !explicitSelection) {
+        onOpenChange(false);
+        return;
+      }
       onRecallDateChange(date);
       onRecallTimeChange(time);
       onRecallBlocksChange(String(dateTimeToRecallBlocks(dateWithTime)));
+      onCalendarTargetChange(date, time);
       onOpenChange(false);
     },
-    [onRecallBlocksChange, onOpenChange, onRecallDateChange, onRecallTimeChange]
+    [
+      onRecallBlocksChange,
+      onOpenChange,
+      onRecallDateChange,
+      onRecallTimeChange,
+      onCalendarTargetChange,
+      skipUnchangedConfirm
+    ]
   );
 
   return (
@@ -149,11 +165,19 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
             selected={recallDate}
             onSelect={date => {
               if (date) {
+                if (
+                  skipUnchangedConfirm &&
+                  recallDate &&
+                  combineDateAndTime(date, recallTime).getTime() ===
+                    combineDateAndTime(recallDate, recallTime).getTime()
+                )
+                  return;
                 onRecallDateChange(date);
                 // Keep recallBlocks in lockstep with the date so the review row's
                 // label/note can never disagree with what is actually sent — even
                 // if the drawer is dismissed without pressing Confirm.
                 onRecallBlocksChange(String(dateTimeToRecallBlocks(combineDateAndTime(date, recallTime))));
+                onCalendarTargetChange(date, recallTime);
                 setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
               }
             }}
@@ -177,12 +201,14 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
                     data-testid="recall-time-input"
                     value={recallTime}
                     onChange={e => {
+                      if (skipUnchangedConfirm && e.target.value === recallTime) return;
                       onRecallTimeChange(e.target.value);
                       // Keep recallBlocks in lockstep with the time too (see onSelect).
                       if (recallDate) {
                         onRecallBlocksChange(
                           String(dateTimeToRecallBlocks(combineDateAndTime(recallDate, e.target.value)))
                         );
+                        onCalendarTargetChange(recallDate, e.target.value);
                       }
                     }}
                     className={clsx(
@@ -205,7 +231,7 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
                 key={i}
                 onClick={() => {
                   const date = preset.fn(new Date());
-                  applyDateTimeSelection(date, format(date, 'HH:mm'));
+                  applyDateTimeSelection(date, format(date, 'HH:mm'), true);
                 }}
               >
                 {preset.label}

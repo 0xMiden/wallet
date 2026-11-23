@@ -573,10 +573,10 @@ async function launchWalletInstance(
     });
 
     try {
-      // Wait for either the onboarding welcome screen OR the main Explore page.
+      // Wait for onboarding, the ready FullPage Command shell, unlock, or telemetry consent.
       await page
         .locator('[data-testid="onboarding-welcome"]')
-        .or(page.locator('[data-testid="explore-page"]'))
+        .or(page.locator('[data-testid="command-shell"]'))
         .or(page.locator('[data-testid="unlock-password"]'))
         .or(page.locator('[data-testid="onboarding-help-improve-wallet"]'))
         .first()

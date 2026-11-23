@@ -5,7 +5,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
-import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
+import { quotedPrice } from 'lib/prices/binance';
 import { usdMarketPending } from 'lib/prices/feed';
 import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -102,7 +102,7 @@ export function depositTokenPrice(
   if (quote === undefined) return { priceUsd: undefined, pending: usdMarketPending(priceSymbol) };
   // An expired quote can sit far below the market; weighing a deposit at it would clear a deposit over the ceiling.
   if (usdQuoteStatus(quote, now) === 'stale') return { priceUsd: undefined, pending: true };
-  if (isNominalQuote(quote)) return { priceUsd: undefined, pending: false };
+  if (quote?.kind === 'nominal') return { priceUsd: undefined, pending: false };
   return { priceUsd: quote.price, pending: false, expiresAt: quoteExpiryMs(quote, now) };
 }
 

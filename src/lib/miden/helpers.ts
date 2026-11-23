@@ -138,6 +138,43 @@ export const assertValidRecallBlocks = (recallBlocks: number | undefined | null)
   }
 };
 
+export function parseCalendarRecallTarget(target: unknown): Date | undefined {
+  if (typeof target !== 'string' || !target) return undefined;
+  const date = new Date(target);
+  return Number.isFinite(date.getTime()) && date.toISOString() === target ? date : undefined;
+}
+
+export class CalendarRecallReviewRequiredError extends Error {
+  readonly errorBeforeSubmit = true;
+
+  constructor() {
+    super('The approved calendar recall target is no longer valid for a new request.');
+    this.name = 'CalendarRecallReviewRequiredError';
+  }
+}
+
+/** Project a reviewed date at first build, not at queue admission. Relative sends keep their exact offset. */
+export function resolveSendReclaimHeight(
+  syncHeight: number,
+  recallBlocks: number | undefined,
+  calendarRecallTarget?: string
+): number | undefined {
+  if (calendarRecallTarget === undefined) return recallBlocks ? syncHeight + recallBlocks : undefined;
+  const target = parseCalendarRecallTarget(calendarRecallTarget);
+  const blocks = target ? Math.floor((target.getTime() - Date.now()) / ESTIMATED_MS_PER_BLOCK) : 0;
+  const height = syncHeight + blocks;
+  if (
+    !Number.isSafeInteger(syncHeight) ||
+    syncHeight < 0 ||
+    blocks < 1 ||
+    blocks > MAX_RECALL_BLOCKS ||
+    height > 0xffffffff
+  ) {
+    throw new CalendarRecallReviewRequiredError();
+  }
+  return height;
+}
+
 // P2IDE note storage layout (miden-standards 0.16 `src/note/p2ide.rs`,
 // `impl From<P2ideNoteStorage> for NoteStorage`):
 // [reclaimer.suffix, reclaimer.prefix, target.suffix, target.prefix,

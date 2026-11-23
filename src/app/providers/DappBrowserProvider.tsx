@@ -65,6 +65,7 @@ import {
 } from '@miden/dapp-browser';
 import breadLogoSvg from 'app/icons/brand/new-bread.svg?raw';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
+import { DappIncomingTransferSheet } from 'app/pages/Browser/DappIncomingTransferSheet';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
 import { MidenDAppErrorType } from 'lib/adapter/types';
@@ -96,8 +97,10 @@ import { PRESENTATION_SCRIPT } from 'lib/dapp-browser/presentation-script';
 import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect, rectsEqual } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
 import { faucetNoTopInsetScript, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
+import { registerIncomingNoteTapHandler } from 'lib/mobile/native-notifications';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
@@ -486,10 +489,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const restoreWithIntentRef = useRef<((id: string, revision: number) => Promise<boolean>) | null>(null);
   const parkRef = useRef<((sessionId: string, guard?: ParkGuard) => Promise<void>) | null>(null);
   const nativeMinimizations = useRef(new Set<string>());
+  const [incomingOwner, setIncomingOwner] = useState<DappSessionState | null>(null);
+  const incomingOwnerRef = useRef<DappSessionState | null>(null);
+  const incomingOwnerScopeRef = useRef<string | null>(null);
+  const currentIncomingScopeRef = useRef('');
+  const walletShellActiveRef = useRef(false);
 
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
   }, [sessionStates]);
+  walletShellActiveRef.current = walletShellActive;
   useEffect(() => {
     foregroundIdRef.current = foregroundId;
   }, [foregroundId]);
@@ -498,6 +507,29 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   }, [slotRect]);
 
   const setActiveDappSession = useWalletStore(s => s.setActiveDappSession);
+
+  useEffect(
+    () =>
+      registerIncomingNoteTapHandler(() => {
+        if (!walletShellActiveRef.current) return false;
+        const foreground = sessionStatesRef.current.find(
+          state => state.session.id === foregroundIdRef.current && state.status === 'active' && state.instance
+        );
+        if (!foreground) return false;
+        if (incomingOwnerRef.current)
+          return (
+            incomingOwnerRef.current.session.id === foreground.session.id &&
+            incomingOwnerRef.current.session === foreground.session &&
+            incomingOwnerRef.current.instance === foreground.instance &&
+            incomingOwnerScopeRef.current === currentIncomingScopeRef.current
+          );
+        incomingOwnerRef.current = foreground;
+        incomingOwnerScopeRef.current = currentIncomingScopeRef.current;
+        setIncomingOwner(foreground);
+        return true;
+      }),
+    []
+  );
 
   // Mutation helper — updates a single session by id via a functional updater.
   const updateSession = useCallback((id: string, updater: (s: DappSessionState) => DappSessionState) => {
@@ -2518,6 +2550,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
     return null;
   }, [currentAccount, accounts]);
+  const currentIncomingScope = `${accountId ?? ''}|${getEffectiveNetworkName()}|${getEffectiveRpcUrl()}`;
+  currentIncomingScopeRef.current = currentIncomingScope;
 
   // E2E-only observability. The dApp itself renders in a native webview that
   // CDP cannot see, so the suite needs the wallet's own view of the world to
@@ -2568,6 +2602,32 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     };
   }, [foregroundId, switcherOpen, slotRect, sessionStates, motion]);
 
+  const stillOwnsIncomingSheet =
+    incomingOwner !== null &&
+    walletShellActive &&
+    foregroundId === incomingOwner.session.id &&
+    incomingOwnerScopeRef.current === currentIncomingScope &&
+    sessionStates.some(
+      state =>
+        state.session.id === incomingOwner.session.id &&
+        state.session === incomingOwner.session &&
+        state.instance === incomingOwner.instance &&
+        state.session.url === incomingOwner.session.url &&
+        state.status === 'active'
+    );
+  useEffect(() => {
+    if (incomingOwner && !stillOwnsIncomingSheet) {
+      incomingOwnerRef.current = null;
+      incomingOwnerScopeRef.current = null;
+      setIncomingOwner(null);
+    }
+  }, [incomingOwner, stillOwnsIncomingSheet]);
+  const closeIncomingSheet = useCallback(() => {
+    incomingOwnerRef.current = null;
+    incomingOwnerScopeRef.current = null;
+    setIncomingOwner(null);
+  }, []);
+
   return (
     <DappBrowserContext.Provider value={contextValue}>
       {children}
@@ -2590,6 +2650,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         {request && (
           <DappConfirmationModal key={request.id} request={request} accountId={accountId} onResolve={resolve} />
         )}
+        {stillOwnsIncomingSheet && !request && <DappIncomingTransferSheet onClose={closeIncomingSheet} />}
       </AnimatePresence>
     </DappBrowserContext.Provider>
   );

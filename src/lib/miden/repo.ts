@@ -21,7 +21,8 @@ import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
   Transactions = 'transactions',
-  SpendingLimits = 'spendingLimits'
+  SpendingLimits = 'spendingLimits',
+  PortfolioObservations = 'portfolioObservations'
 }
 
 /**
@@ -52,7 +53,7 @@ export const SPENDING_LIMITS_V17_STORE = indexes('[accountId+faucetId]', 'accoun
 /** The current `transactions` shape (2): the 1.7 indexes plus `type`. */
 export const TRANSACTIONS_V2_STORE = indexes(TRANSACTIONS_V17_STORE, 'type');
 
-const TRANSACTIONS_V3_2_STORE = indexes(
+export const TRANSACTIONS_V3_2_STORE = indexes(
   TRANSACTIONS_V2_STORE,
   '[badgeNetwork+status+type]',
   '[badgeNetwork+status+type+badgeEvidenceRevision]',
@@ -404,6 +405,13 @@ function defineSchema(target: Dexie): void {
         });
     });
 
+  target.version(3.3).stores({
+    [Table.Transactions]: TRANSACTIONS_V3_2_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE,
+    [Table.PortfolioObservations]:
+      '[accountId+network+rpcUrl+currency+bucket],[accountId+network+rpcUrl+currency+capturedAt]'
+  });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -652,6 +660,7 @@ function isPlaceableInitiatedAt(value: unknown): value is number {
 }
 
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
+export const portfolioObservations = db.table(Table.PortfolioObservations);
 
 /**
  * Builds an independent, uniquely-named database running the exact same version chain as the
@@ -754,13 +763,27 @@ const bytesFromArray = (value: unknown[], key: string): Uint8Array => {
   return Uint8Array.from(value);
 };
 
-const toSerializable = (value: unknown, _key?: string, depth = 0): unknown => {
+const toSerializable = (value: unknown, key?: string, depth = 0, withinBridgeOperation = false): unknown => {
+  const bridgeOperation = withinBridgeOperation || key === 'bridgeOperation';
   if (depth > MAX_WALK_DEPTH) throw new Error('exportDb: transaction row nested too deeply');
   if (typeof value === 'bigint') return { [BIGINT_TAG]: value.toString() };
   if (value instanceof Uint8Array) return Array.from(value);
-  if (Array.isArray(value)) return value.map(entry => toSerializable(entry, undefined, depth + 1));
+  if (Array.isArray(value)) return value.map(entry => toSerializable(entry, undefined, depth + 1, bridgeOperation));
   if (typeof value === 'object' && value !== null) {
-    const mapped = mapValues(value, (entry, key) => toSerializable(entry, key, depth + 1));
+    // Native asset scopes contain the private wallet RPC too; export history, never local source authority.
+    const mapped = Object.fromEntries(
+      Object.entries(value)
+        .filter(
+          ([entryKey]) =>
+            !(key === 'extraInputs' && entryKey === 'epochCollateralRequestBytes') &&
+            (!bridgeOperation ||
+              !(
+                (key === 'bridgeOperation' && entryKey === 'walletScope') ||
+                (key === 'nativeAsset' && entryKey === 'scope')
+              ))
+        )
+        .map(([entryKey, entry]) => [entryKey, toSerializable(entry, entryKey, depth + 1, bridgeOperation)])
+    );
     const sole = soleKeyOf(mapped);
     // Real data wearing the tag's shape, escaped so the import walk gives it
     // back rather than reading it as a number this code wrote.

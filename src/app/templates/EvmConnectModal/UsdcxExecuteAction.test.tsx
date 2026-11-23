@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { NativeSessionChainNotApprovedError } from 'lib/walletconnect/native';
 
 import { UsdcxExecuteAction } from './UsdcxExecuteAction';
@@ -17,7 +18,12 @@ const execute = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, string>) => (values ? `${key}:${Object.values(values).join(',')}` : key)
+    t: (key: string, values?: Record<string, string>) =>
+      key === 'bridgeReviewChanged'
+        ? 'localized bridge terms changed'
+        : values
+          ? `${key}:${Object.values(values).join(',')}`
+          : key
   })
 }));
 jest.mock('./useCctpExecute', () => ({ useCctpExecute: () => execute }));
@@ -183,6 +189,26 @@ describe('user-visible USDCx execution errors', () => {
     });
     expect(screen.getByRole('alert')).toHaveTextContent(String(copy));
     await expectErrorAfterDwell(String(id), 'inline');
+  });
+
+  it('localizes an owned execution refusal', async () => {
+    execute.mockRejectedValueOnce(new UsdcxBurnError('bridgeReviewChanged'));
+    render(<UsdcxExecuteAction txId="owned-row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
+    expect(screen.getByTestId('usdcx-execute-button')).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('localized bridge terms changed');
+  });
+
+  it('reports the existing closed producer for an owned execution refusal', async () => {
+    execute.mockRejectedValueOnce(new UsdcxBurnError('bridgeReviewChanged'));
+    render(<UsdcxExecuteAction txId="owned-row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
+    expect(screen.getByTestId('usdcx-execute-button')).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('usdcx-execute-button'));
+    });
+    await expectErrorAfterDwell('bridgeReviewChanged', 'inline');
   });
 
   it('clears a failed episode while the retry is pending and after success', async () => {

@@ -1,0 +1,772 @@
+import React from 'react';
+
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+
+import { deriveBridgeRoutes } from 'lib/bridge/catalog';
+import { bindTransferQuote, type QuoteRequest, type TransferQuote } from 'lib/bridge/core/quote';
+import type { BridgeReviewContext } from 'lib/bridge/core/review';
+import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
+import { submitReviewedBridge } from 'lib/bridge/wallet-submit';
+import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
+import {
+  cancelLockWithdrawal,
+  finishLockWithdrawal,
+  retryLockedDeposit,
+  startLockWithdrawal
+} from 'lib/epoch/bridge-in-recovery';
+import { switchWebWalletChain } from 'lib/epoch/client';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
+import { createLocationState, HistoryAction } from 'lib/woozie';
+
+import { CommandDraftProvider, useCommandDrafts } from '../command-drafts';
+import { CommandWorkbench } from '../CommandWorkbench';
+import { CommandBridge } from './CommandBridge';
+import { selectCommandBridgeRoute } from './testing/select-route';
+import { useCommandBridge } from './useCommandBridge';
+
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+let mockSnapshot: BridgeConfigSnapshot;
+let mockLocked = false;
+let mockRpc = 'https://wallet-rpc.example/private';
+let mockAddress = accounts.evmAddress;
+let mockFee: BurnFeeReserve;
+let mockNativeCorroborated = true;
+let mockNativeScaleKnown = true;
+jest.mock('lib/usdcx/use-burn-fee-reserve', () => ({ useBurnFeeReserve: () => mockFee }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'rpc-a|testnet',
+  getNativeAssetIdSync: () => jest.requireActual('lib/bridge/testing/fixtures').native.faucetId,
+  getNativeAssetMetadataSync: () => ({ symbol: 'USDCx', decimals: 6, scaleIsUnknown: false }),
+  getSdkSyncedNativeAssetIdSync: () =>
+    mockNativeCorroborated ? jest.requireActual('lib/bridge/testing/fixtures').native.faucetId : null
+}));
+jest.mock('lib/miden/metadata/resolve', () => ({
+  resolveDisplayMetadata: () => ({
+    symbol: mockNativeScaleKnown ? 'USDCx' : 'Unknown',
+    name: mockNativeScaleKnown ? 'USDCx' : 'Unknown',
+    decimals: 6,
+    scaleIsUnknown: !mockNativeScaleKnown
+  })
+}));
+const mockState = {
+  currentAccount: { publicKey: accounts.midenAccount },
+  balances: {} satisfies Record<string, TokenBalanceData[]>,
+  balancesLoading: {},
+  balanceReadFailed: {},
+  tokenPricesStatus: 'ready',
+  tokenPrices: {}
+};
+jest.mock('@reown/appkit/react', () => ({
+  useAppKitNetwork: () => ({ chainId: 11155111 }),
+  useDisconnect: () => ({ disconnect: jest.fn() })
+}));
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => null }));
+jest.mock('lib/miden/front', () => ({
+  useMidenContext: () => ({ locked: mockLocked, signTransaction: jest.fn() }),
+  useAllBalances: () => ({}),
+  useAllTokensBaseMetadata: () => ({})
+}));
+jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => mockSnapshot }));
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockSnapshot }));
+jest.mock('lib/bridge/wallet-transport', () => ({ quoteBridgeTransfer: jest.fn() }));
+jest.mock('lib/bridge/wallet-submit', () => ({
+  ...jest.requireActual('lib/bridge/wallet-submit'),
+  submitReviewedBridge: jest.fn()
+}));
+jest.mock('lib/epoch/bridge-in-recovery', () => ({
+  cancelLockWithdrawal: jest.fn(),
+  finishLockWithdrawal: jest.fn(),
+  retryLockedDeposit: jest.fn(),
+  startLockWithdrawal: jest.fn()
+}));
+jest.mock('lib/epoch/client', () => ({
+  buildEpochWalletClient: jest.fn(),
+  getEvmConnection: jest.fn(),
+  switchWebWalletChain: jest.fn()
+}));
+jest.mock('lib/walletconnect/native', () => ({ ensureNativeSessionChain: jest.fn() }));
+jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
+  useEvmWalletConnection: () => ({
+    address: mockAddress,
+    connected: true,
+    nativeReown: {},
+    useNativeReownWallet: false
+  })
+}));
+jest.mock('lib/store', () => ({
+  useWalletStore: Object.assign((select: (state: typeof mockState) => unknown) => select(mockState), {
+    getState: () => mockState
+  })
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: jest.fn(() => 'testnet'),
+  getEffectiveRpcUrl: () => mockRpc
+}));
+
+const scope = { accountId: accounts.midenAccount, network: 'testnet', rpcUrl: 'https://wallet-rpc.example/private' };
+const wrapper = ({ children }: { children: React.ReactNode }) => (
+  <CommandDraftProvider scope={{ ...scope, accountId: mockState.currentAccount.publicKey, rpcUrl: mockRpc }}>
+    {children}
+  </CommandDraftProvider>
+);
+const useConsumer = () => ({ bridge: useCommandBridge(), drafts: useCommandDrafts() });
+function quote(request: QuoteRequest, received = '1'): TransferQuote {
+  if (
+    request.route.provider === 'xreserve' &&
+    request.route.mode === 'receive' &&
+    request.route.source.network === 'sepolia'
+  )
+    return bindTransferQuote(request, {
+      kind: 'cctp',
+      received,
+      fee: '0.01',
+      authorization: { signedQuote: '0x1234', feeTotalAmount: 10000n },
+      validity: { kind: 'time', expiresAt: now + 60000 }
+    });
+  return bindTransferQuote(request, {
+    kind:
+      request.route.provider === 'epoch'
+        ? 'epoch'
+        : request.route.provider === 'xreserve'
+          ? request.route.mode === 'send'
+            ? 'withdrawal'
+            : 'arc-deposit'
+          : 'agglayer',
+    received,
+    validity: { kind: 'time', expiresAt: now + 60000 }
+  });
+}
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.mocked(submitReviewedBridge).mockReset();
+  jest.spyOn(Date, 'now').mockReturnValue(now);
+  mockSnapshot = referenceSnapshot('testnet');
+  mockLocked = false;
+  mockRpc = scope.rpcUrl;
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  mockState.currentAccount.publicKey = accounts.midenAccount;
+  mockAddress = accounts.evmAddress;
+  mockFee = {
+    status: 'measured',
+    reserve: 300n,
+    faucetId: native.faucetId,
+    scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+  };
+  mockNativeCorroborated = true;
+  mockNativeScaleKnown = true;
+  jest.mocked(quoteBridgeTransfer).mockImplementation(async request => quote(request));
+});
+afterEach(() => {
+  cleanup();
+  jest.restoreAllMocks();
+});
+
+it('disables both selectors and review when the current catalog offers no route', () => {
+  mockSnapshot = { ...mockSnapshot, config: null, derived: null, status: 'loading' };
+  render(<CommandBridge />, { wrapper });
+  expect(screen.getByTestId('command-bridge-source')).toBeDisabled();
+  expect(screen.getByTestId('command-bridge-destination')).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeDisabled();
+  expect(screen.getByText('commandBridgeNoRoutes')).toBeVisible();
+  expect(quoteBridgeTransfer).not.toHaveBeenCalled();
+  expect(submitReviewedBridge).not.toHaveBeenCalled();
+});
+
+it('the real Bridge consumer stores exact unsigned direction, amount and external account in the shared Command draft', () => {
+  const { result } = renderHook(useConsumer, { wrapper });
+  act(() => {
+    result.current.bridge.setDirection('out');
+    result.current.bridge.setAmount('1.000001');
+    result.current.bridge.setExternalAccountId('0x2222222222222222222222222222222222222222');
+  });
+  expect(result.current.drafts.readDraft('bridge')).toEqual(
+    expect.objectContaining({
+      direction: 'out',
+      amount: '1.000001',
+      externalAccountId: '0x2222222222222222222222222222222222222222'
+    })
+  );
+  expect(result.current.bridge.amount).toBe('1.000001');
+});
+
+it('retains literal source input on a compatible provider change but discards the actual reviewed consent', async () => {
+  const { result } = renderHook(useConsumer, { wrapper });
+  const agglayer = result.current.bridge.routes.find(
+    item => item.provider === 'agglayer' && item.source.symbol === 'USDC'
+  );
+  const epoch = result.current.bridge.routes.find(item => item.provider === 'epoch' && item.source.symbol === 'USDC');
+  if (!agglayer || !epoch) throw new Error('Missing compatible real catalog sources');
+  act(() => result.current.bridge.selectRoute(agglayer.id));
+  act(() => result.current.bridge.setAmount('1.00000000'));
+  // No ceiling is needed to isolate provider selection; current cap guard remains real.
+  mockSnapshot.config!.limits = undefined;
+  act(() => result.current.bridge.setAmount('1.00000000'));
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  expect(result.current.bridge.review?.amount).toBe('1.00000000');
+  act(() => result.current.bridge.selectRoute(epoch.id));
+  expect(result.current.bridge.amount).toBe('1.00000000');
+  expect(result.current.bridge.review).toBeUndefined();
+  expect(result.current.bridge.quote).toBeNull();
+  expect(result.current.bridge.blocked).toBe(true);
+});
+
+it('source asset changes clear input while withdrawal destination browsing never switches the EVM source', () => {
+  const { result } = renderHook(useConsumer, { wrapper });
+  act(() => result.current.bridge.setDirection('out'));
+  const routes = result.current.bridge.routes;
+  const usdc = routes.find(item => item.provider === 'agglayer' && item.source.symbol === 'USDC');
+  const eth = routes.find(item => item.provider === 'agglayer' && item.source.symbol === 'ETH');
+  if (!usdc || !eth) throw new Error('Missing real native source choices');
+  act(() => result.current.bridge.selectRoute(usdc.id));
+  act(() => result.current.bridge.setAmount('1.00000000'));
+  act(() => result.current.bridge.selectRoute(eth.id));
+  expect(result.current.bridge.amount).toBe('');
+  expect(switchWebWalletChain).not.toHaveBeenCalled();
+});
+
+it('a late quote cannot replace the current amount or grant its review', async () => {
+  const pending: Array<{ request: QuoteRequest; resolve: (quote: TransferQuote) => void }> = [];
+  jest
+    .mocked(quoteBridgeTransfer)
+    .mockImplementation(request => new Promise(resolve => pending.push({ request, resolve })));
+  const { result } = renderHook(useConsumer, { wrapper });
+  act(() => result.current.bridge.setDirection('out'));
+  const route = result.current.bridge.routes.find(item => item.provider === 'agglayer');
+  if (!route) throw new Error('Missing real source');
+  act(() => result.current.bridge.selectRoute(route.id));
+  act(() => result.current.bridge.setExternalAccountId(accounts.evmAddress));
+  act(() => result.current.bridge.setAmount('1'));
+  act(() => result.current.bridge.setAmount('2'));
+  expect(pending).toHaveLength(2);
+  const [first, second] = pending;
+  if (!first || !second) throw new Error('Missing actual pending quote requests');
+  await act(async () => second.resolve(quote(second.request, '2')));
+  expect(result.current.bridge.quote?.received).toBe('2');
+  await act(async () => first.resolve(quote(first.request, '1')));
+  expect(result.current.bridge.amount).toBe('2');
+  expect(result.current.bridge.quote?.received).toBe('2');
+  expect(result.current.bridge.review).toBeUndefined();
+});
+
+it.each(['account', 'rpc', 'lock'])('scope %s clears unsigned selections and rejects retained stale setters', kind => {
+  const { result, rerender } = renderHook(useConsumer, { wrapper });
+  const staleSetter = result.current.bridge.setAmount;
+  act(() => result.current.bridge.setAmount('1.00000000'));
+  if (kind === 'account') mockState.currentAccount.publicKey = '0x287149ae66116cf114eebd60bb7381';
+  if (kind === 'rpc') mockRpc = 'https://changed-rpc.example';
+  if (kind === 'lock') mockLocked = true;
+  rerender();
+  expect(result.current.bridge.amount).toBe('');
+  act(() => staleSetter('99'));
+  expect(result.current.bridge.amount).toBe('');
+  expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+});
+
+it('A to B to A never revives a retained setter from the original account scope', () => {
+  const { result, rerender } = renderHook(useConsumer, { wrapper });
+  const staleSetter = result.current.bridge.setAmount;
+  act(() => result.current.bridge.setAmount('1.00000000'));
+  mockState.currentAccount.publicKey = '0x287149ae66116cf114eebd60bb7381';
+  rerender();
+  mockState.currentAccount.publicKey = accounts.midenAccount;
+  rerender();
+  act(() => staleSetter('99'));
+  expect(result.current.bridge.amount).toBe('');
+  expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+  act(() => result.current.bridge.setAmount('2.00000000'));
+  expect(result.current.bridge.amount).toBe('2.00000000');
+});
+
+it('a retained setter after minimize/unmount cannot overwrite the reopened consumer shared draft', () => {
+  let setter: (value: string) => void = () => undefined;
+  let readDraft: ReturnType<typeof useCommandDrafts>['readDraft'] | undefined;
+  function Consumer() {
+    const bridge = useCommandBridge();
+    setter = bridge.setAmount;
+    readDraft = useCommandDrafts().readDraft;
+    return <span data-testid="amount">{bridge.amount}</span>;
+  }
+  const view = (show: boolean) => <CommandDraftProvider scope={scope}>{show && <Consumer />}</CommandDraftProvider>;
+  const { rerender } = render(view(true));
+  act(() => setter('1.00000000'));
+  const staleSetter = setter;
+  rerender(view(false));
+  rerender(view(true));
+  act(() => staleSetter('99'));
+  expect(screen.getByTestId('amount')).toHaveTextContent('1.00000000');
+  expect(readDraft?.('bridge')?.amount).toBe('1.00000000');
+  act(() => setter('2.00000000'));
+  expect(screen.getByTestId('amount')).toHaveTextContent('2.00000000');
+  expect(readDraft?.('bridge')?.amount).toBe('2.00000000');
+});
+
+it('minimize/reopen restores only unsigned literals, never quote/review/signature or submit permission', async () => {
+  function Consumer() {
+    const bridge = useCommandBridge();
+    return (
+      <>
+        <span data-testid="amount">{bridge.amount}</span>
+        <span data-testid="review">{String(Boolean(bridge.review))}</span>
+        <button
+          onClick={() => {
+            bridge.setDirection('out');
+            bridge.setAmount('1.000001');
+            bridge.setExternalAccountId(accounts.evmAddress);
+          }}
+        >
+          edit
+        </button>
+      </>
+    );
+  }
+  const view = (show: boolean) => <CommandDraftProvider scope={scope}>{show && <Consumer />}</CommandDraftProvider>;
+  const { rerender } = render(view(true));
+  act(() => screen.getByText('edit').click());
+  expect(screen.getByTestId('amount')).toHaveTextContent('1.000001');
+  rerender(view(false));
+  rerender(view(true));
+  expect(screen.getByTestId('amount')).toHaveTextContent('1.000001');
+  expect(screen.getByTestId('review')).toHaveTextContent('false');
+  await waitFor(() => expect(quoteBridgeTransfer).toHaveBeenCalled());
+  rerender(
+    <CommandDraftProvider key="reload" scope={scope}>
+      <Consumer />
+    </CommandDraftProvider>
+  );
+  expect(screen.getByTestId('amount')).toBeEmptyDOMElement();
+  expect(screen.getByTestId('review')).toHaveTextContent('false');
+});
+
+function composeCircle() {
+  const consumer = renderHook(useConsumer, { wrapper });
+  act(() => consumer.result.current.bridge.setDirection('out'));
+  const route = consumer.result.current.bridge.routes.find(item => item.provider === 'xreserve');
+  if (!route) throw new Error('Missing available actual Circle catalog route');
+  act(() => consumer.result.current.bridge.selectRoute(route.id));
+  act(() => {
+    consumer.result.current.bridge.setAmount('6');
+    consumer.result.current.bridge.setExternalAccountId(accounts.evmAddress);
+  });
+  expect(consumer.result.current.bridge.route?.provider).toBe('xreserve');
+  return consumer;
+}
+
+it('captures only the measured displayed native cap in Circle review, never in its unsigned draft', async () => {
+  const { result } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  expect(result.current.bridge.review?.networkFeeBudget).toEqual({
+    faucetId: native.faucetId,
+    maxAmount: '300',
+    scope: mockFee.scope
+  });
+  expect(result.current.drafts.readDraft('bridge')).not.toHaveProperty('networkFeeBudget');
+});
+
+it.each(['pending', 'failed', 'wrong faucet', 'wrong source', 'unknown scale', 'uncorroborated native'])(
+  'cannot review Circle from a %s native fee measurement',
+  async kind => {
+    if (kind === 'pending') mockFee = { status: 'pending' };
+    if (kind === 'failed') mockFee = { status: 'failed' };
+    if (kind === 'wrong faucet') mockFee.faucetId = 'other';
+    if (kind === 'wrong source') mockFee.scope = 'b'.repeat(64);
+    if (kind === 'unknown scale') mockNativeScaleKnown = false;
+    if (kind === 'uncorroborated native') mockNativeCorroborated = false;
+    const { result } = composeCircle();
+    await waitFor(() => expect(result.current.bridge.quote).not.toBeNull());
+    expect(result.current.bridge.canReview).toBe(false);
+    act(() => result.current.bridge.reviewTransfer());
+    expect(result.current.bridge.review).toBeUndefined();
+  }
+);
+
+it('invalidates actual Circle review on a changed displayed native cap, not same-cap transport churn', async () => {
+  const { result, rerender } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  const original = result.current.bridge.review;
+  expect(original).toBeDefined();
+  mockFee = { ...mockFee };
+  rerender();
+  expect(result.current.bridge.review).toBe(original);
+  mockFee = { ...mockFee, reserve: 301n };
+  rerender();
+  expect(result.current.bridge.review).toBeUndefined();
+});
+
+it('opens the wallet recovery list from Bridge entry without starting a recovery or a transfer', () => {
+  const previousUrl = window.location.href;
+  const previousState: unknown = window.history.state;
+  window.history.replaceState(null, '', '#/bridge/deposit');
+  try {
+    render(
+      <CommandDraftProvider scope={scope}>
+        <CommandWorkbench route={{ kind: 'flow', action: 'bridge' }} container={null}>
+          <CommandBridge />
+        </CommandWorkbench>
+      </CommandDraftProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'recoverLockedFunds' }));
+    expect(createLocationState()).toMatchObject({
+      pathname: '/settings/recover-funds',
+      search: '',
+      trigger: HistoryAction.Push
+    });
+    expect(screen.queryByRole('button', { name: 'confirm' })).not.toBeInTheDocument();
+    expect(quoteBridgeTransfer).not.toHaveBeenCalled();
+    expect(submitReviewedBridge).not.toHaveBeenCalled();
+    expect(startLockWithdrawal).not.toHaveBeenCalled();
+    expect(finishLockWithdrawal).not.toHaveBeenCalled();
+    expect(cancelLockWithdrawal).not.toHaveBeenCalled();
+    expect(retryLockedDeposit).not.toHaveBeenCalled();
+  } finally {
+    window.history.replaceState(previousState, '', previousUrl);
+  }
+});
+
+it('shows the exact reviewed native maximum in the actual Command Bridge workbench disclosure', async () => {
+  render(
+    <CommandDraftProvider scope={scope}>
+      <CommandWorkbench route={{ kind: 'flow', action: 'bridge' }} container={null}>
+        <CommandBridge />
+      </CommandWorkbench>
+    </CommandDraftProvider>
+  );
+  fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
+  const route = deriveBridgeRoutes(mockSnapshot).find(item => item.provider === 'xreserve' && item.mode === 'send');
+  if (!route) throw new Error('Missing native Circle fixture');
+  selectCommandBridgeRoute(route);
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
+    target: { value: accounts.evmAddress }
+  });
+  fireEvent.click(screen.getByText('commandDetails'));
+  const details = screen.getByTestId('command-details');
+  await waitFor(() => expect(within(details).getByText('6 USDCx', { exact: true })).toBeVisible());
+  expect(within(details).getByText('amount', { exact: true })).toBeVisible();
+  expect(within(details).queryByText('commandBridgeSourceTotal')).toBeNull();
+  expect(within(details).getByText('networkFeeMax')).toBeVisible();
+  expect(within(details).getByText('0.0003 USDCx')).toBeVisible();
+
+  fireEvent.click(screen.getByRole('radio', { name: 'bridgeInTitle' }));
+  const incoming = deriveBridgeRoutes(mockSnapshot).find(
+    item => item.provider === 'xreserve' && item.mode === 'receive' && item.source.network === 'sepolia'
+  );
+  if (!incoming) throw new Error('Missing actual CCTP source fixture');
+  selectCommandBridgeRoute(incoming);
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1' } });
+  await waitFor(() => expect(within(details).getByText('1.01 USDC', { exact: true })).toBeVisible());
+  expect(within(details).getByText('commandBridgeSourceTotal')).toBeVisible();
+  expect(within(details).queryByText('networkFeeMax')).toBeNull();
+
+  fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
+  selectCommandBridgeRoute(route);
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
+    target: { value: accounts.evmAddress }
+  });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
+  const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
+  if (!form) throw new Error('Missing real Command Bridge form');
+  fireEvent.submit(form);
+  expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'recoverLockedFunds' })).not.toBeInTheDocument();
+  expect(screen.getByText('networkFeeMax')).toBeVisible();
+  expect(screen.getByText('0.0003 USDCx')).toBeVisible();
+});
+
+function removeCircleWithdrawals() {
+  if (!mockSnapshot.config) throw new Error('Missing current configuration');
+  for (const chain of Object.values(mockSnapshot.config.supportedEvmChains)) {
+    if (chain.bridges.usdcx) chain.bridges.usdcx.withdrawalEnabled = false;
+  }
+}
+
+it('clears source input before quoting a different fallback when the selected provider disappears', async () => {
+  const { result, rerender } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.quote).not.toBeNull());
+  expect(result.current.bridge.amount).toBe('6');
+  jest.mocked(quoteBridgeTransfer).mockClear();
+  removeCircleWithdrawals();
+  rerender();
+  expect(result.current.bridge.route?.provider).not.toBe('xreserve');
+  expect(result.current.bridge.amount).toBe('');
+  expect(result.current.bridge.quote).toBeNull();
+  expect(result.current.bridge.review).toBeUndefined();
+  expect(result.current.drafts.readDraft('bridge')?.amount ?? '').toBe('');
+  expect(jest.mocked(quoteBridgeTransfer).mock.calls.filter(([request]) => request.amount === '6')).toHaveLength(0);
+});
+
+it('does not resurrect a minimized amount under a different source when its saved route disappears', async () => {
+  let consumer: ReturnType<typeof useConsumer> | undefined;
+  function Consumer() {
+    consumer = useConsumer();
+    return <span data-testid="source-amount">{consumer.bridge.amount}</span>;
+  }
+  function current() {
+    if (!consumer) throw new Error('Missing actual draft consumer');
+    return consumer;
+  }
+  const view = (shown: boolean) => <CommandDraftProvider scope={scope}>{shown && <Consumer />}</CommandDraftProvider>;
+  const { rerender } = render(view(true));
+  act(() => current().bridge.setDirection('out'));
+  const route = current().bridge.routes.find(item => item.provider === 'xreserve');
+  if (!route) throw new Error('Missing real Circle source');
+  act(() => current().bridge.selectRoute(route.id));
+  act(() => {
+    current().bridge.setAmount('6');
+    current().bridge.setExternalAccountId(accounts.evmAddress);
+  });
+  await waitFor(() => expect(current().bridge.quote).not.toBeNull());
+  expect(current().drafts.readDraft('bridge')?.route).toBe(route.id);
+  rerender(view(false));
+  removeCircleWithdrawals();
+  jest.mocked(quoteBridgeTransfer).mockClear();
+  rerender(view(true));
+  expect(current().bridge.route?.provider).not.toBe('xreserve');
+  expect(screen.getByTestId('source-amount')).toBeEmptyDOMElement();
+  expect(current().drafts.readDraft('bridge')?.amount ?? '').toBe('');
+  expect(current().drafts.readDraft('bridge')?.route).not.toBe(route.id);
+  expect(jest.mocked(quoteBridgeTransfer).mock.calls.filter(([request]) => request.amount === '6')).toHaveLength(0);
+});
+
+it('same-scope batched route selection and literal input never reattach the previous rendered route', () => {
+  const { result } = renderHook(useConsumer, { wrapper });
+  act(() => result.current.bridge.setDirection('out'));
+  const previous = result.current.bridge.route;
+  const next = result.current.bridge.routes.find(item => item.source.symbol === 'ETH' && item.id !== previous?.id);
+  if (!previous || !next) throw new Error('Missing different actual source choices');
+  const currentScopeSetter = result.current.bridge.setAmount;
+  act(() => {
+    result.current.bridge.selectRoute(next.id);
+    currentScopeSetter('2.000000');
+  });
+  expect(result.current.bridge.route?.id).toBe(next.id);
+  expect(result.current.bridge.amount).toBe('2.000000');
+  expect(result.current.drafts.readDraft('bridge')).toMatchObject({ route: next.id, amount: '2.000000' });
+});
+
+it('same-named assets on another source network clear input and never silently switch the wallet', () => {
+  const { result } = renderHook(useConsumer, { wrapper });
+  const first = result.current.bridge.routes.find(
+    item => item.source.symbol === 'USDC' && item.source.network === 'sepolia'
+  );
+  const other = result.current.bridge.routes.find(
+    item => item.source.symbol === 'USDC' && item.source.network !== 'sepolia'
+  );
+  if (!first || !other) throw new Error('Missing supported different source networks');
+  act(() => result.current.bridge.selectRoute(first.id));
+  act(() => result.current.bridge.setAmount('1.000000'));
+  expect(result.current.bridge.amount).toBe('1.000000');
+  act(() => result.current.bridge.selectRoute(other.id));
+  expect(result.current.bridge.route?.id).toBe(other.id);
+  expect(result.current.bridge.amount).toBe('');
+  expect(result.current.bridge.canReview).toBe(false);
+  expect(switchWebWalletChain).not.toHaveBeenCalled();
+});
+
+it('keeps the admitted review as readonly original facts when a later measurement or catalog changes', async () => {
+  // UI outcome boundary only; actual queue/CAS and source execution are covered by the native-owner suites.
+  jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+    deps.onOperation('original-row');
+    return { kind: 'started', operationId: 'original-row' };
+  });
+  const { result, rerender } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  const original = result.current.bridge.review;
+  await act(async () => result.current.bridge.submit());
+  expect(result.current.bridge.operationId).toBe('original-row');
+  mockFee = { ...mockFee, reserve: 301n };
+  rerender();
+  removeCircleWithdrawals();
+  rerender();
+  expect(result.current.bridge.review).toBe(original);
+  expect(result.current.bridge.review?.networkFeeBudget?.maxAmount).toBe('300');
+  expect(result.current.bridge.operationId).toBe('original-row');
+  expect(result.current.bridge.canReview).toBe(false);
+  expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+  await act(async () => result.current.bridge.submit());
+  expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+});
+
+it.each(['rpc', 'network'])(
+  'the actual live getter refuses an authoritative %s change before any React rerender',
+  async changed => {
+    const observed: { before?: BridgeReviewContext; returned?: BridgeReviewContext; error?: unknown } = {};
+    jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+      observed.before = deps.getContext();
+      if (changed === 'rpc') mockRpc = 'https://changed-source-rpc.example';
+      else jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+      try {
+        observed.returned = deps.getContext();
+      } catch (error) {
+        observed.error = error;
+      }
+      return { kind: 'rejected' };
+    });
+    const { result } = renderHook(useConsumer, { wrapper });
+    act(() => result.current.bridge.setDirection('out'));
+    const route = result.current.bridge.routes.find(item => item.provider === 'agglayer');
+    if (!route) throw new Error('Missing supported non-Circle native source');
+    act(() => result.current.bridge.selectRoute(route.id));
+    act(() => {
+      result.current.bridge.setAmount('1');
+      result.current.bridge.setExternalAccountId(accounts.evmAddress);
+    });
+    await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+    act(() => result.current.bridge.reviewTransfer());
+    await act(async () => result.current.bridge.submit());
+    expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+    expect(observed.before).toMatchObject({ amount: '1', accounts, route: { id: route.id } });
+    expect(observed.returned).toBeUndefined();
+    expect(observed.error).toBeInstanceOf(EpochReviewChangedError);
+  }
+);
+
+it.each(['amount', 'review', 'submit'])(
+  'a retained pre-admission %s callback cannot edit or resubmit the original admitted review',
+  async callback => {
+    // This observes UI entry guards, not mocked execution authority; real queue/CAS controls stay in owner suites.
+    let originalDriveContext: (() => BridgeReviewContext) | undefined;
+    jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+      originalDriveContext = deps.getContext;
+      deps.onOperation('original-row');
+      return { kind: 'started', operationId: 'original-row' };
+    });
+    const { result } = composeCircle();
+    await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+    const retainedReview = result.current.bridge.reviewTransfer;
+    act(() => retainedReview());
+    const original = result.current.bridge.review;
+    expect(original).toBeDefined();
+    const retainedAmount = result.current.bridge.setAmount;
+    const retainedSubmit = result.current.bridge.submit;
+    await act(async () => retainedSubmit());
+    expect(result.current.bridge.operationId).toBe('original-row');
+    expect(originalDriveContext?.()).toMatchObject({ amount: '6', accounts: original?.accounts });
+    await act(async () => {
+      if (callback === 'amount') retainedAmount('99');
+      else if (callback === 'review') retainedReview();
+      else await retainedSubmit();
+    });
+    expect(result.current.bridge.review).toBe(original);
+    expect(result.current.bridge.amount).toBe('6');
+    expect(result.current.bridge.operationId).toBe('original-row');
+    expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+    expect(result.current.bridge.canReview).toBe(false);
+    expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+    expect(originalDriveContext?.()).toMatchObject({ amount: '6', accounts: original?.accounts });
+  }
+);
+
+it('revokes authority but retains original admitted facts after a rejected public outcome', async () => {
+  // UI outcome characterization; the original DB/source owners determine what actually happened.
+  let originalDriveContext: (() => BridgeReviewContext) | undefined;
+  jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+    originalDriveContext = deps.getContext;
+    deps.onOperation('original-row');
+    return { kind: 'rejected', operationId: 'original-row' };
+  });
+  const { result, rerender } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  const original = result.current.bridge.review;
+  await act(async () => result.current.bridge.submit());
+  expect(result.current.bridge.operationId).toBe('original-row');
+  expect(result.current.bridge.error).toBe(true);
+  expect(result.current.bridge.isSubmitting).toBe(false);
+  expect(result.current.bridge.canReview).toBe(false);
+  expect(result.current.drafts.readDraft('bridge')).toBeUndefined();
+  expect(originalDriveContext).toBeDefined();
+  expect(() => originalDriveContext?.()).toThrow(EpochReviewChangedError);
+  expect(result.current.bridge.review?.amount).toBe('6');
+  expect(result.current.bridge.review?.networkFeeBudget?.maxAmount).toBe('300');
+  expect(result.current.bridge.review).toBe(original);
+  mockFee = { ...mockFee, reserve: 301n };
+  removeCircleWithdrawals();
+  rerender();
+  expect(result.current.bridge.review).toBe(original);
+  expect(result.current.bridge.review?.networkFeeBudget?.maxAmount).toBe('300');
+  await act(async () => result.current.bridge.submit());
+  expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+});
+
+it('still clears review and authority for a rejection without an admitted row', async () => {
+  let originalDriveContext: (() => BridgeReviewContext) | undefined;
+  jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+    originalDriveContext = deps.getContext;
+    return { kind: 'rejected' };
+  });
+  const { result } = composeCircle();
+  await waitFor(() => expect(result.current.bridge.canReview).toBe(true));
+  act(() => result.current.bridge.reviewTransfer());
+  await act(async () => result.current.bridge.submit());
+  expect(result.current.bridge.operationId).toBeUndefined();
+  expect(result.current.bridge.review).toBeUndefined();
+  expect(result.current.bridge.error).toBe(true);
+  expect(result.current.drafts.readDraft('bridge')?.amount).toBe('6');
+  expect(() => originalDriveContext?.()).toThrow(EpochReviewChangedError);
+  await act(async () => result.current.bridge.submit());
+  expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the rejected admitted workbench readonly with original disclosure and original-row status', async () => {
+  jest.mocked(submitReviewedBridge).mockImplementation(async (_review, deps) => {
+    deps.onOperation('original-row');
+    return { kind: 'rejected', operationId: 'original-row' };
+  });
+  const view = () => (
+    <CommandDraftProvider scope={scope}>
+      <CommandWorkbench route={{ kind: 'flow', action: 'bridge' }} container={null}>
+        <CommandBridge />
+      </CommandWorkbench>
+    </CommandDraftProvider>
+  );
+  const { rerender } = render(view());
+  fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
+  const route = deriveBridgeRoutes(mockSnapshot).find(item => item.provider === 'xreserve' && item.mode === 'send');
+  if (!route) throw new Error('Missing enabled Circle source');
+  selectCommandBridgeRoute(route);
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '6' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'commandBridgeExternalAccount' }), {
+    target: { value: accounts.evmAddress }
+  });
+  fireEvent.click(screen.getByText('commandDetails'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
+  const form = screen.getByRole('textbox', { name: 'amount' }).closest('form');
+  if (!form) throw new Error('Missing original Command form');
+  fireEvent.submit(form);
+  expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled();
+  await act(async () => {
+    fireEvent.submit(form);
+  });
+  expect(screen.getByRole('button', { name: 'commandBridgeViewStatus' })).toHaveAttribute('type', 'button');
+  expect(screen.getByText('bridgeReviewChanged')).toBeVisible();
+  expect(screen.getByText('commandBridgeAdmitted')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'recoverLockedFunds' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: 'amount' })).toBeNull();
+  mockFee = { ...mockFee, reserve: 301n };
+  removeCircleWithdrawals();
+  rerender(view());
+  expect(screen.getByText('0.0003 USDCx')).toBeVisible();
+  expect(screen.queryByText('0.000301 USDCx')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'confirm' })).toBeNull();
+  fireEvent.submit(form);
+  expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+});

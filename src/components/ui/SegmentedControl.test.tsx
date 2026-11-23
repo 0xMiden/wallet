@@ -243,6 +243,32 @@ describe('SegmentedControl — structure and semantics', () => {
     screen.getAllByRole('radio').forEach(radio => expect(radio).toHaveAttribute('type', 'button'));
   });
 
+  it('draws the badge and the rainbow ring only on the item that asks for them', () => {
+    renderControl({
+      items: [
+        { id: 'all', label: 'All' },
+        { id: 'pending', label: 'Pending', badge: 'BETA', ring: 'rainbow' }
+      ]
+    });
+
+    // The badge is outside the button, on the edge of the pill, so the name of the button states it.
+    const marked = getRadio('Pending BETA');
+    const wrapper = marked.parentElement;
+    const ring = wrapper?.querySelector('[data-testid="segmented-control-rainbow-ring"]');
+    expect(ring).toHaveAttribute('aria-hidden', 'true');
+    expect(ring).toHaveClass('pointer-events-none', 'absolute', 'inset-0');
+    // The ring and the badge are siblings of the button: they take the size of the pill, not of its text.
+    expect(marked.querySelector('[data-testid="segmented-control-rainbow-ring"]')).toBeNull();
+    const badge = wrapper?.querySelector('[data-testid="segmented-control-badge"]');
+    expect(badge).toHaveTextContent('BETA');
+    expect(badge).toHaveAttribute('aria-hidden', 'true');
+    expect(marked).not.toHaveTextContent('BETA');
+
+    expect(screen.getAllByTestId('segmented-control-rainbow-ring')).toHaveLength(1);
+    expect(screen.getAllByTestId('segmented-control-badge')).toHaveLength(1);
+    expect(getRadio('All')).not.toHaveAttribute('aria-label');
+  });
+
   it('keeps item and control test ids', () => {
     renderControl({ 'data-testid': 'filters' });
 

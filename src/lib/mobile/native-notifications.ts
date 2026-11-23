@@ -10,6 +10,15 @@ import { navigate } from 'lib/woozie';
 // Notification ID for note received - using a fixed ID so new notes replace old notification
 const NOTE_RECEIVED_NOTIFICATION_ID = 1001;
 
+let incomingNoteTapHandler: (() => boolean) | undefined;
+
+export function registerIncomingNoteTapHandler(handler: () => boolean): () => void {
+  incomingNoteTapHandler = handler;
+  return () => {
+    if (incomingNoteTapHandler === handler) incomingNoteTapHandler = undefined;
+  };
+}
+
 // Android notification channel for high-priority notifications (heads-up display)
 const NOTE_CHANNEL_ID = 'miden_notes';
 
@@ -128,6 +137,7 @@ export async function setupNotificationTapListener(): Promise<void> {
       console.log('[NativeNotifications] Notification tapped:', action);
 
       const extra = action.notification.extra;
+      if (extra?.type === 'note_received' && incomingNoteTapHandler?.() === true) return;
       if (extra?.navigateTo) {
         // Close any open dApp browser webviews so the user lands on the
         // intended route without an obscuring webview.

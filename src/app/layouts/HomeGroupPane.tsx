@@ -3,6 +3,7 @@ import React from 'react';
 import clsx from 'clsx';
 
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 
 /**
@@ -101,39 +102,46 @@ export const HomeGroupPaneBody: React.FC<HomeGroupPaneBodyProps> = ({
   top = 'root',
   footer,
   children
-}) => (
-  <>
-    <div
-      data-testid={testId}
-      data-home-pane-body="true"
-      // Both axes pan: vertical scrolls this body, horizontal reaches the pager that scrolls the panes.
-      // Declared here and nowhere else, so no pane can quietly block the swipe.
-      style={{ touchAction: 'pan-x pan-y' }}
-      className={clsx(
-        // The body is the page's scroller: a flex child that clips (`overflow-hidden`, as reveal
-        // animations need) would otherwise shrink to the space left and hide its overflow instead
-        // of letting the body scroll (#1291).
-        'no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain [&>*]:shrink-0',
-        PANE_GUTTER,
-        PANE_TOP[top],
-        // With a footer the cushion is the footer's; without one it is the body's, from the same
-        // expression, so both kinds of pane end the same distance above the bar.
-        !footer && stepFooterCushionClass()
-      )}
-    >
-      {title !== undefined && (
-        <header className="shrink-0">
-          <h1 data-testid={titleTestId} className="min-w-0 text-title-tab text-ink">
-            {title}
-          </h1>
-        </header>
-      )}
-      {children}
-    </div>
+}) => {
+  const command = useFlowPresentation() === 'command';
+  return (
+    <>
+      <div
+        data-testid={testId}
+        data-home-pane-body="true"
+        // Both axes pan: vertical scrolls this body, horizontal reaches the pager that scrolls the panes.
+        // Declared here and nowhere else, so no pane can quietly block the swipe.
+        style={{ touchAction: command ? 'pan-y' : 'pan-x pan-y' }}
+        className={clsx(
+          // The body is the page's scroller: a flex child that clips (`overflow-hidden`, as reveal
+          // animations need) would otherwise shrink to the space left and hide its overflow instead
+          // of letting the body scroll (#1291).
+          'no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain [&>*]:shrink-0',
+          PANE_GUTTER,
+          PANE_TOP[top],
+          // With a footer the cushion is the footer's; without one it is the body's, from the same
+          // expression, so both kinds of pane end the same distance above the bar.
+          !footer && (command ? 'pb-4' : stepFooterCushionClass())
+        )}
+      >
+        {title !== undefined && (
+          <header className="shrink-0">
+            <h1 data-testid={titleTestId} className="min-w-0 text-title-tab text-ink">
+              {title}
+            </h1>
+          </header>
+        )}
+        {children}
+      </div>
 
-    {footer && <FlowFooter className={PANE_GUTTER}>{footer}</FlowFooter>}
-  </>
-);
+      {footer && (
+        <FlowFooter navbarCushion={!command} className={PANE_GUTTER}>
+          {footer}
+        </FlowFooter>
+      )}
+    </>
+  );
+};
 
 export interface HomeGroupPaneProps extends HomeGroupPaneBodyProps {
   /** The pane's own test id, on the root. */

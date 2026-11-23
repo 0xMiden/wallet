@@ -9,13 +9,14 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { createNodeReads, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import type { ITransaction } from '../db/types';
-import { swapOrderOf } from '../sdk/apply-after-submit';
+import { recordedSwapOrder, swapOrderOf } from '../sdk/apply-after-submit';
+import { accountRefToSdk } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { landedOrderFacts, type LandedTransaction, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
 
 export type PinnedReplayCheck =
-  /** No saved request, or one that creates no own note, so a replay cannot re-create one. */
+  /** No saved request, or one that creates no own note (nor, for an execute, an approved one) to check. */
   | { kind: 'none' }
   | { kind: 'absent'; noteIds: string[] }
   | {
@@ -30,10 +31,11 @@ export type PinnedReplayCheck =
       order?: Pick<LandedTransaction, 'orderId' | 'orderNoteId'>;
     }
   /**
-   * `decode`: the saved request's bytes do not deserialize, so no Retry can resend it. `read`: the SDK, the WASM
-   * engine (a trap), the WASM lock or the node gave no answer this time.
+   * `decode`: the saved request's bytes do not deserialize, so no Retry can resend it. `sender`: an execute's request
+   * declares a note in another account's name, which no run as its own account creates, so no Retry can send it
+   * either. `read`: the SDK, the WASM engine (a trap), the WASM lock or the node gave no answer this time.
    */
-  | { kind: 'unknown'; cause: 'decode' | 'read' };
+  | { kind: 'unknown'; cause: 'decode' | 'sender' | 'read' };
 
 interface PinnedNotes {
   noteIds: string[];
@@ -43,19 +45,44 @@ interface PinnedNotes {
 /** The saved request's own bytes did not deserialize, so no Retry can resend them. */
 class SavedRequestUnreadable extends Error {}
 
+/** An execute's saved request declares a note under another account, so no run as the row's account can send it. */
+class SavedRequestForeignSender extends Error {}
+
+const NOTE_ID_HEX = /^0x[0-9a-f]{64}$/i;
+
+/**
+ * The notes an execute's approval recorded, which the signing guard lets an attempt create only from (by id), added
+ * to its own notes. The store can hold anything here (`importDb`), and the node read takes every id or none, so an id
+ * that is not note-id shaped is left out.
+ */
+const withApprovedNoteIds = (
+  noteIds: string[],
+  approvedEffects: ITransaction['approvedEffects'] | undefined
+): string[] => {
+  const approved: unknown = approvedEffects?.approvedOutputNoteIds;
+  if (!Array.isArray(approved)) return noteIds;
+  const ids = new Set(noteIds);
+  for (const noteId of approved) {
+    if (typeof noteId === 'string' && NOTE_ID_HEX.test(noteId)) ids.add(normalizeHex(noteId));
+  }
+  return [...ids];
+};
+
 /** `swapOrderOf` on the saved request's notes, with the fee note not set aside. */
 const pinnedOrderOf = (notes: Note[]): ReturnType<typeof swapOrderOf> =>
   swapOrderOf({ feeNote: undefined, userNotes: notes });
 
 /**
- * True when `completedSwapFields` would still open an order from `read`: a swap row with `extraInputs`,
- * no `orderId`, and no well-formed held order (`landedOrderFacts` keeps an id and `expiresAt` is a safe integer).
+ * True when a landed writer still needs its saved request decoded for the order `completedSwapFields` opens: a swap
+ * row with `extraInputs`, no `orderId`, no well-formed held order (`landedOrderFacts` keeps an id and `expiresAt` is a
+ * safe integer), and no well-formed order recorded from those bytes (`requestOrder`), which a decode would only repeat.
  */
 export const swapOpensOrderFromRead = (row: Pick<ITransaction, 'type' | 'extraInputs'>): boolean => {
   if (row.type !== 'swap') return false;
   const extra: unknown = row.extraInputs;
   if (extra === null || typeof extra !== 'object') return false;
   if ('orderId' in extra && extra.orderId != null) return false;
+  if (recordedSwapOrder(extra) !== undefined) return false;
   const landed = 'landedOrder' in extra ? extra.landedOrder : undefined;
   if (landed === null || typeof landed !== 'object') return true;
   const held = landedOrderFacts(
@@ -99,12 +126,13 @@ export const orderFromSavedRequest = async (bytes: Uint8Array | undefined): Prom
 };
 
 /**
- * Ask the node whether a note `row`'s request bytes create is committed. The decode is static but runs in a labelled
- * hold that catches nothing, so a trap reaches the lock, which retires the client it trapped on. Every failure answers
- * `unknown`, never `absent`: the caller replays nothing on it.
+ * Ask the node whether a note `row`'s request bytes create is committed, and for an execute a note its approval
+ * recorded, counted only as `row.accountId` created it. The decode is static but runs in a labelled hold that catches
+ * nothing, so a trap reaches the lock, which retires the client it trapped on. Every failure answers `unknown`, never
+ * `absent`: the caller replays nothing on it.
  */
 export async function checkPinnedReplayNotes(
-  row: Pick<ITransaction, 'type' | 'requestBytes'>,
+  row: Pick<ITransaction, 'type' | 'accountId' | 'requestBytes' | 'approvedEffects'>,
   deps: { createReads?: () => Promise<NodeReads> } = {}
 ): Promise<PinnedReplayCheck> {
   const bytes = row.requestBytes;
@@ -128,6 +156,16 @@ export async function checkPinnedReplayNotes(
           throw new SavedRequestUnreadable('the saved request does not deserialize', { cause: error });
         }
         const notes = request.expectedOutputOwnNotes();
+        // The SDK refuses a note declared under another account only when it executes the request, and the wallet once
+        // queued a dApp's request whose approval run failed: such bytes never run as this row, so they are refused here
+        // rather than asked about on every Retry. The account parse catches nothing, so a trap leaves as itself for the
+        // lock and an id that does not parse is a read with no answer, never a foreign sender.
+        if (row.type === 'execute' && notes.length > 0) {
+          const owner = normalizeHex(accountRefToSdk(row.accountId).toString());
+          if (notes.some(note => normalizeHex(note.metadata().sender().toString()) !== owner)) {
+            throw new SavedRequestForeignSender('the saved request declares a note under another account');
+          }
+        }
         const noteIds = notes.map(note => normalizeHex(note.id().toString()));
         if (row.type !== 'swap') return { noteIds };
         const order = pinnedOrderOf(notes);
@@ -136,10 +174,15 @@ export async function checkPinnedReplayNotes(
       { label: 'retry-pinned-notes' }
     );
   } catch (error) {
+    if (error instanceof SavedRequestForeignSender) {
+      console.warn('[retry] the saved request declares a note under another account, so no Retry sends it');
+      return { kind: 'unknown', cause: 'sender' };
+    }
     console.warn('[retry] could not read the notes the saved request creates', error);
     return { kind: 'unknown', cause: error instanceof SavedRequestUnreadable ? 'decode' : 'read' };
   }
-  if (pinned.noteIds.length === 0) return { kind: 'none' };
+  const noteIds = row.type === 'execute' ? withApprovedNoteIds(pinned.noteIds, row.approvedEffects) : pinned.noteIds;
+  if (noteIds.length === 0) return { kind: 'none' };
 
   const scope = getEffectiveRpcUrl();
   let node: NodeReads;
@@ -149,19 +192,25 @@ export async function checkPinnedReplayNotes(
     console.warn('[retry] could not reach the node to check the saved request', error);
     return { kind: 'unknown', cause: 'read' };
   }
-  const held = await node.noteInclusions(pinned.noteIds, RPC_READ_TIMEOUT_MS);
+  // An execute's notes are its own account's: its request's, as checked above, and its approval's, from its own run. A
+  // note's id commits to its sender, so a copy the node holds only under another sender contradicts its id and answers
+  // nothing, never absent, since absent replays. The wallet built a send's and a swap's request itself.
+  const held =
+    row.type === 'execute'
+      ? await node.noteInclusions(noteIds, RPC_READ_TIMEOUT_MS, row.accountId)
+      : await node.noteInclusions(noteIds, RPC_READ_TIMEOUT_MS);
   if (held === undefined) return { kind: 'unknown', cause: 'read' };
-  for (const noteId of pinned.noteIds) {
+  for (const noteId of noteIds) {
     const block = held.get(noteId);
     if (block === undefined) continue;
     return {
       kind: 'committed',
-      noteIds: pinned.noteIds,
+      noteIds,
       noteId,
       block,
       scope,
       ...(pinned.order ? { order: pinned.order } : {})
     };
   }
-  return { kind: 'absent', noteIds: pinned.noteIds };
+  return { kind: 'absent', noteIds };
 }

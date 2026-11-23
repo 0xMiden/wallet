@@ -1,16 +1,17 @@
 import { isAddress, isHash, isHex, type Address, type Hash, type Hex } from 'viem';
 
-import { assertOneClickQuoteBinding, ONE_CLICK_EVM_CHAIN_IDS } from '../../../src/lib/one-click/client';
-import { buildEvmOneClickTransaction } from '../../../src/lib/one-click/evm-transfer';
+import { assertOneClickQuoteBinding } from '../../../src/lib/one-click/client';
 import type {
   OneClickAsset,
-  OneClickConfig,
+  NearIntentsConfig,
   OneClickQuoteRequest,
   OneClickQuoteResponse
 } from '../../../src/lib/one-click/types';
 import type { CounterpartyTransaction } from '../ios/helpers/wc-counterparty-request';
+import { MAINNET_ONE_CLICK_EVM_CHAIN_IDS } from './mainnet-one-click-config';
 import {
   assertMainnetEvmFunding,
+  buildMainnetEvmTransfer,
   createMainnetOneClickEvmSender,
   type MainnetEvmClient,
   type MainnetEvmHolding
@@ -42,7 +43,7 @@ const account = testAddress('0x1111111111111111111111111111111111111111');
 const deposit = '0x2222222222222222222222222222222222222222';
 const token = testAddress('0x3333333333333333333333333333333333333333');
 const chain = testAddress('0x4444444444444444444444444444444444444444');
-const config: OneClickConfig = { serviceUrl: 'https://one-click.example', midenAssets: [] };
+const config: NearIntentsConfig = { serviceUrl: 'https://one-click.example', chains: [], midenAssets: [] };
 const asset: OneClickAsset = {
   assetId: 'nep141:eth-0x3333333333333333333333333333333333333333.omft.near',
   blockchain: 'eth',
@@ -162,14 +163,7 @@ function bind(sender: ReturnType<typeof makeSender>): { request: OneClickQuoteRe
 }
 
 function transaction(patch: Partial<CounterpartyTransaction> = {}): CounterpartyTransaction {
-  const built = buildEvmOneClickTransaction(asset, deposit, '1000000', account);
-  if (!built.to) throw new Error('The production transfer builder omitted its target');
-  return {
-    to: testAddress(built.to),
-    data: testHex(built.data ?? '0x'),
-    value: built.value === undefined ? 0n : BigInt(built.value),
-    ...patch
-  };
+  return { ...buildMainnetEvmTransfer(asset, deposit, '1000000'), ...patch };
 }
 
 describe('mainnet 1Click EVM sender', () => {
@@ -182,8 +176,26 @@ describe('mainnet 1Click EVM sender', () => {
     expect(sender.broadcastCount).toBe(0);
   });
 
-  it('retains the production EVM chain mapping when the quote binding is isolated', () => {
-    expect(ONE_CLICK_EVM_CHAIN_IDS).toEqual({ eth: 1, base: 8453, arb: 42161, op: 10, arc: 5042 });
+  it('funds only Ethereum L1 and Arbitrum One from the catalog chain names', () => {
+    expect(MAINNET_ONE_CLICK_EVM_CHAIN_IDS).toEqual({ eth: 1, arb: 42161 });
+  });
+
+  it('builds the exact ERC20 transfer to the deposit address with no native value', () => {
+    expect(buildMainnetEvmTransfer(asset, deposit, '1000000')).toEqual({
+      to: token,
+      data: `0xa9059cbb${'22'.repeat(20).padStart(64, '0')}${(1_000_000).toString(16).padStart(64, '0')}`,
+      value: 0n
+    });
+  });
+
+  it.each([
+    ['a non-EVM deposit address', asset, 'mm1qqqqqqqqqqqqqqqqqqqqqqqqqqq', '1000000'],
+    ['a native asset', { ...asset, contractAddress: 'native' }, deposit, '1000000'],
+    ['an asset with no contract', { ...asset, contractAddress: undefined }, deposit, '1000000'],
+    ['a zero amount', asset, deposit, '0'],
+    ['a non-integer amount', asset, deposit, '1.5']
+  ])('refuses to build a transfer for %s', (_label, origin, depositAddress, amount) => {
+    expect(() => buildMainnetEvmTransfer(origin, depositAddress, amount)).toThrow();
   });
 
   it('fails closed for Base where the sender has no proven all-in fee bound', () => {

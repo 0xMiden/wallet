@@ -1,11 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 
+import { userEvent } from '@storybook/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
+import type { QuoteValidity } from 'lib/bridge/core/quote';
+import { accounts, connections, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { bridgeEpochSend } from 'lib/epoch';
+import { EpochCollateralNoteMismatchError } from 'lib/epoch/collateral-guard';
 import {
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
@@ -15,6 +20,7 @@ import { deserializeInternalError, serializeInternalError } from 'lib/intercom/h
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
@@ -27,6 +33,8 @@ import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
 import { useBurnFeeReserve, type BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
+import { CommandDraftProvider, type CommandSendRecall, useCommandDrafts } from 'screens/command/command-drafts';
+import { CommandShell } from 'screens/command/CommandShell';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
@@ -56,14 +64,22 @@ afterAll(() => _setSwapTokensForTest(undefined));
 // they are legal to reference from hoisted jest.mock factories.
 // ---------------------------------------------------------------------------
 let mockSearch = '';
+let mockReviewNetwork = 'devnet';
+let mockReviewRpcUrl = 'https://rpc.review.example';
 let mockFullPage = false;
+let mockHistoryPosition = 1;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
 const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
+const reviewedEpochBinding: { address: string; validity: QuoteValidity } = {
+  address: '0x2222222222222222222222222222222222222222',
+  validity: { kind: 'provider' }
+};
 let mockEpochQuote: {
+  validity?: QuoteValidity;
   amount?: string;
   loading: boolean;
   error: null;
@@ -153,7 +169,8 @@ afterEach(() => {
 });
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveRpcUrl: () => 'https://rpc.review.example',
+  getEffectiveRpcUrl: () => mockReviewRpcUrl,
+  getEffectiveNetworkName: () => mockReviewNetwork,
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
@@ -292,6 +309,7 @@ jest.mock('components/ui/DetailCard', () => ({
       {children !== undefined && <span data-testid="row-children">{children}</span>}
       {action && (
         <button
+          type="button"
           data-testid={action['data-testid']}
           aria-haspopup={action['aria-haspopup']}
           disabled={action.disabled}
@@ -301,7 +319,7 @@ jest.mock('components/ui/DetailCard', () => ({
         </button>
       )}
       {onClick && (
-        <button data-testid="row-open" aria-haspopup={hasPopup} disabled={disabled} onClick={onClick}>
+        <button type="button" data-testid="row-open" aria-haspopup={hasPopup} disabled={disabled} onClick={onClick}>
           open
         </button>
       )}
@@ -309,12 +327,23 @@ jest.mock('components/ui/DetailCard', () => ({
     </div>
   ),
   // Like the real one, the rows inside render only while open and the summary only while closed.
-  DetailDisclosure: ({ title, summary, summaryEmphasis, open, onOpenChange, children, 'data-testid': testId }: any) => (
+  DetailDisclosure: ({
+    title,
+    summary,
+    summarySub,
+    summaryEmphasis,
+    open,
+    onOpenChange,
+    children,
+    'data-testid': testId
+  }: any) => (
     <div data-testid={testId} data-open={String(open)} data-emphasis={String(Boolean(summaryEmphasis))}>
-      <button data-testid={`${testId}-toggle`} onClick={() => onOpenChange(!open)}>
+      <button type="button" data-testid={`${testId}-toggle`} onClick={() => onOpenChange(!open)}>
         {title}
       </button>
-      {!open && summary && <span data-testid={`${testId}-summary`}>{summary}</span>}
+      {!open && summary && (
+        <span data-testid={`${testId}-summary`}>{summarySub ? `${summary} · ${summarySub}` : summary}</span>
+      )}
       {open && children}
     </div>
   )
@@ -322,13 +351,13 @@ jest.mock('components/ui/DetailCard', () => ({
 jest.mock('./TransferTypeDrawer', () => ({
   TransferTypeDrawer: (props: any) => (
     <div data-testid="transfer-type-drawer" data-open={String(props.open)} data-value={props.value}>
-      <button data-testid="transfer-type-pick-public" onClick={() => props.onChange('public')}>
+      <button type="button" data-testid="transfer-type-pick-public" onClick={() => props.onChange('public')}>
         public
       </button>
-      <button data-testid="transfer-type-pick-private" onClick={() => props.onChange('private')}>
+      <button type="button" data-testid="transfer-type-pick-private" onClick={() => props.onChange('private')}>
         private
       </button>
-      <button data-testid="transfer-type-close" onClick={() => props.onOpenChange(false)}>
+      <button type="button" data-testid="transfer-type-close" onClick={() => props.onOpenChange(false)}>
         close
       </button>
     </div>
@@ -365,6 +394,10 @@ jest.mock('lib/agglayer/b2agg', () => ({
 jest.mock('lib/epoch', () => ({
   EPOCH_DESTINATION_CHAIN_ID: 11155111,
   bridgeEpochSend: jest.fn()
+}));
+const mockReviewReadEpochSdk = jest.fn();
+jest.mock('../../lib/epoch/sdk', () => ({
+  getEpochReadOnlySdk: (...args: unknown[]) => mockReviewReadEpochSdk(...args)
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -443,7 +476,18 @@ jest.mock('lib/store', () => ({
   )
 }));
 
+jest.mock('app/hooks/useBackWithFallback', () => ({
+  useBackWithFallback: jest.requireActual<typeof import('app/hooks/useBackWithFallback')>(
+    'app/hooks/useBackWithFallback'
+  ).useBackWithFallback
+}));
+jest.mock('screens/command/CommandDock', () => ({ CommandDock: () => null }));
+jest.mock('screens/command/CommandHeader', () => ({ CommandHeader: () => null }));
+jest.mock('screens/command/CommandPalette', () => ({ CommandPalette: () => null }));
+jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
 jest.mock('lib/woozie', () => ({
+  createLocationState: () => ({ href: `/#/send/review?${mockSearch}`, historyPosition: mockHistoryPosition }),
+  listen: () => () => undefined,
   goBack: jest.fn(),
   navigate: jest.fn(),
   HistoryAction: { Push: 'pushstate', Replace: 'replacestate' },
@@ -461,21 +505,65 @@ jest.mock('utils/miden', () => {
 });
 
 jest.mock('./RecallCalendarDrawer', () => ({
+  combineDateAndTime:
+    jest.requireActual<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer').combineDateAndTime,
   SECONDS_PER_BLOCK: 3,
   dateTimeToRecallBlocks: jest.fn(() => 999),
   RecallCalendarDrawer: (props: any) => (
     <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime}>
-      <button data-testid="recall-pick-never" onClick={() => props.onRecallNever()}>
+      <button type="button" data-testid="recall-pick-never" onClick={() => props.onRecallNever()}>
         recall-never
       </button>
-      <button data-testid="recall-pick-blocks" onClick={() => props.onRecallBlocksChange('42')}>
+      <button type="button" data-testid="recall-pick-blocks" onClick={() => props.onRecallBlocksChange('42')}>
         recall-blocks
       </button>
-      <button data-testid="recall-pick-time" onClick={() => props.onRecallTimeChange('changed-time')}>
+      <button type="button" data-testid="recall-pick-time" onClick={() => props.onRecallTimeChange('09:37')}>
         recall-time
       </button>
-      <button data-testid="recall-pick-date" onClick={() => props.onRecallDateChange(new Date(0))}>
+      <button
+        type="button"
+        data-testid="recall-pick-date"
+        onClick={() => props.onRecallDateChange(new Date(Date.now() + 86_400_000))}
+      >
         recall-date
+      </button>
+      <button
+        type="button"
+        data-testid="recall-pick-calendar"
+        onClick={() => {
+          const date = new Date();
+          date.setDate(date.getDate() + 2);
+          date.setHours(0, 0, 0, 0);
+          const picker = jest.requireActual<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer');
+          const conversion = jest.requireMock<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer');
+          props.onRecallDateChange(date);
+          props.onRecallTimeChange('14:00');
+          props.onRecallBlocksChange(
+            String(conversion.dateTimeToRecallBlocks(picker.combineDateAndTime(date, '14:00')))
+          );
+          props.onCalendarTargetChange(date, '14:00');
+          props.onOpenChange(false);
+        }}
+      >
+        pick-calendar-target
+      </button>
+      <button
+        type="button"
+        data-testid="recall-pick-same-preset"
+        onClick={() => {
+          const date = props.recallDate;
+          if (!date) throw new Error('Expected seeded default date');
+          const time = props.recallTime;
+          const picker = jest.requireActual<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer');
+          const conversion = jest.requireMock<typeof import('./RecallCalendarDrawer')>('./RecallCalendarDrawer');
+          props.onRecallDateChange(date);
+          props.onRecallTimeChange(time);
+          props.onRecallBlocksChange(String(conversion.dateTimeToRecallBlocks(picker.combineDateAndTime(date, time))));
+          props.onCalendarTargetChange(date, time);
+          props.onOpenChange(false);
+        }}
+      >
+        pick-same-preset
       </button>
     </div>
   )
@@ -610,7 +698,10 @@ beforeEach(() => {
 
   // Base route state.
   mockSearch = '';
+  mockReviewNetwork = 'devnet';
+  mockReviewRpcUrl = 'https://rpc.review.example';
   mockFullPage = false;
+  mockHistoryPosition = 1;
   mockPublicKey = 'pubkey-1';
   mockIsNewRecipient = undefined;
   mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
@@ -630,6 +721,778 @@ beforeEach(() => {
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
   delete (globalThis as any).__TEST_SET_SHARE_PRIVATELY__;
+});
+
+describe('Command Send review controller', () => {
+  function DraftReader() {
+    const { readDraft } = useCommandDrafts();
+    const draft = readDraft('send');
+    return <output data-testid="command-send-draft">{JSON.stringify(draft)}</output>;
+  }
+  const renderCommandReview = () =>
+    render(
+      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}>
+        <FlowPresentationProvider value="command">
+          <DraftReader />
+          <ReviewTransaction />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+
+  it('routes a cold Command review Back to Send once instead of traversing wallet history', () => {
+    setValidRoute();
+    mockHistoryPosition = 0;
+    render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <ReviewTransaction />
+      </CommandShell>
+    );
+    const back = screen.getByRole('button', { name: 'back' });
+    fireEvent.click(back);
+    fireEvent.click(back);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith('/send', 'replacestate');
+    expect(goBackMock).not.toHaveBeenCalled();
+  });
+
+  it('traverses only once to the existing composer when Command review has history', () => {
+    setValidRoute();
+    mockHistoryPosition = 2;
+    render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <ReviewTransaction />
+      </CommandShell>
+    );
+    const back = screen.getByRole('button', { name: 'back' });
+    fireEvent.click(back);
+    fireEvent.click(back);
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('pins the real controller submit inside the one Command footer without a second button', () => {
+    setValidRoute();
+    render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <ReviewTransaction />
+      </CommandShell>
+    );
+    const submit = screen.getByTestId('send-review-submit');
+    expect(submit.closest('footer')).toHaveAttribute('data-command-footer', 'true');
+    expect(submit).toHaveAttribute('type', 'submit');
+    const form = screen.getByTestId('command-send-review');
+    expect(submit).toHaveAttribute('form', form.id);
+    if (!(submit instanceof HTMLButtonElement)) throw new Error('Submit must be a button');
+    expect(submit.form).toBe(form);
+    expect(screen.getAllByTestId('send-review-submit')).toHaveLength(1);
+    expect(screen.getAllByTestId('command-workbench')).toHaveLength(1);
+  });
+
+  it('refuses concurrent form Enter/click while admission is pending and uses the same private initiator', async () => {
+    setValidRoute();
+    const pending = deferred();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+    renderCommandReview();
+    expect(screen.getByTestId('command-send-review')).toBeInTheDocument();
+    const form = screen.getByTestId('command-send-review');
+    expect(form.tagName).toBe('FORM');
+    const submit = screen.getByTestId('send-review-submit');
+    submit.focus();
+    await userEvent.keyboard('{Enter}');
+    await userEvent.click(submit);
+    pending.resolve();
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the original Command payment pending across review departure and opens its admitted row without another confirmation', async () => {
+    setValidRoute();
+    mockFullPage = true;
+    const queued = deferred<string>();
+    initiateMock.mockReturnValue(queued.promise);
+    const scope = { accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' };
+    function AdmissionSend({ reviewOpen }: { reviewOpen: boolean }) {
+      const drafts = useCommandDrafts();
+      const [prepared, setPrepared] = useState(false);
+      return (
+        <>
+          <button
+            onClick={() => {
+              drafts.writeDraft('send', { amount: '5', recipientAddress: '0xrecipient', tokenId: 'tok1' });
+              setPrepared(true);
+            }}
+          >
+            Prepare payment
+          </button>
+          <DraftReader />
+          {prepared && reviewOpen && <ReviewTransaction />}
+        </>
+      );
+    }
+    const shell = (reviewOpen: boolean) => (
+      <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+        <AdmissionSend reviewOpen={reviewOpen} />
+      </CommandShell>
+    );
+    const view = render(shell(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare payment' }));
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    view.rerender(shell(false));
+    view.rerender(shell(true));
+    await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeDisabled());
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      queued.resolve('tx-original');
+      await queued.promise;
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction-full/tx-original')
+    );
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['agglayer', 'usdcx'] as const)(
+    'resumes the pending Command %s review after Back and keeps its receipt when worker wake-up fails',
+    async route => {
+      mockDetectedChain = 'ethereum';
+      mockFullPage = true;
+      isExtensionMock.mockReturnValue(true);
+      const bridge =
+        route === 'agglayer'
+          ? { tokenId: 'tok1', network: 'sepolia', metadata: VALID_TOKEN.metadata }
+          : { tokenId: USDCX_FAUCET_ID_BECH32, network: 'arc-testnet', metadata: { symbol: 'USDCX', decimals: 6 } };
+      const amount = '5.000001';
+      const to = '0x1111111111111111111111111111111111111111';
+      const reviewId = 'original-handoff';
+      mockSearch = `amount=${amount}&to=${to}&tokenId=${bridge.tokenId}&network=${bridge.network}&route=${route}&commandReviewId=${reviewId}`;
+      mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: bridge.tokenId, metadata: bridge.metadata }];
+      const queue = route === 'agglayer' ? initiateB2AggBridgeMock : jest.mocked(initiateUsdcxBurn);
+      const queued = deferred<string>();
+      queue.mockReturnValueOnce(queued.promise);
+      requestSWMock.mockImplementationOnce(() => {
+        throw new Error('worker unavailable');
+      });
+      const scope = { accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' };
+      function Session({ reviewOpen }: { reviewOpen: boolean }) {
+        const drafts = useCommandDrafts();
+        const [prepared, setPrepared] = useState(false);
+        return (
+          <>
+            <button
+              onClick={() => {
+                drafts.writeDraft('send', {
+                  amount,
+                  recipientAddress: to,
+                  tokenId: bridge.tokenId,
+                  bridgeNetwork: bridge.network,
+                  bridgeRoute: route,
+                  reviewId
+                });
+                setPrepared(true);
+              }}
+            >
+              Prepare payment
+            </button>
+            {prepared && reviewOpen && <ReviewTransaction />}
+          </>
+        );
+      }
+      const shell = (reviewOpen: boolean) => (
+        <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+          <Session reviewOpen={reviewOpen} />
+        </CommandShell>
+      );
+      const view = render(shell(true));
+      fireEvent.click(screen.getByRole('button', { name: 'Prepare payment' }));
+      await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeEnabled());
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(queue).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole('button', { name: 'back' }));
+      view.rerender(shell(false));
+      view.rerender(shell(true));
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      await act(async () => queued.resolve('original-bridge-row'));
+      await waitFor(() =>
+        expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction-full/original-bridge-row')
+      );
+      expect(requestSWMock).toHaveBeenCalledTimes(1);
+      expect(queue).toHaveBeenCalledTimes(1);
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  function ReviewSession({ recall }: { recall?: CommandSendRecall }) {
+    const drafts = useCommandDrafts();
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button
+          onClick={() => {
+            if (!drafts.readDraft('send'))
+              drafts.writeDraft('send', {
+                amount: '7.123456',
+                recipientAddress: '0xrecipient',
+                tokenId: 'tok1',
+                recall
+              });
+            setOpen(true);
+          }}
+        >
+          Open review
+        </button>
+        <button onClick={() => setOpen(false)}>Leave review</button>
+        <output data-testid="saved-review-input">{JSON.stringify(drafts.readDraft('send'))}</output>
+        <output data-testid="saved-send-admission">{JSON.stringify(drafts.readSendAdmission())}</output>
+        {open && <ReviewTransaction />}
+      </>
+    );
+  }
+  const reviewSession = (recall?: CommandSendRecall) => (
+    <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}>
+      <FlowPresentationProvider value="command">
+        <ReviewSession recall={recall} />
+      </FlowPresentationProvider>
+    </CommandDraftProvider>
+  );
+  const openSession = (recall?: CommandSendRecall, balancesLoaded = true) => {
+    mockSearch = 'amount=7.123456&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = balancesLoaded ? [VALID_TOKEN] : undefined;
+    const view = render(reviewSession(recall));
+    fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    return view;
+  };
+
+  it('requires the existing spending-limit challenge in Command before any native send', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    renderCommandReview();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument());
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(initiateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+    await waitFor(() =>
+      expect(initiateMock).toHaveBeenCalledWith(
+        'pubkey-1',
+        '0xrecipient',
+        'tok1',
+        'private',
+        12345n,
+        999,
+        false,
+        expect.objectContaining({ accountId: 'pubkey-1', revision: 'revision-1' })
+      )
+    );
+  });
+
+  it('does not start a send after the account changes while admission is pending', async () => {
+    setValidRoute();
+    const pending = deferred();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+    const view = renderCommandReview();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    mockPublicKey = 'another-account';
+    view.rerender(
+      <CommandDraftProvider scope={{ accountId: 'another-account', network: 'devnet', rpcUrl: 'rpc' }}>
+        <FlowPresentationProvider value="command">
+          <DraftReader />
+          <ReviewTransaction />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    await act(async () => pending.resolve());
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['network', 'RPC'] as const)(
+    'refuses a pending real review admission after %s changes and does not revive its draft on return',
+    async kind => {
+      mockSearch = 'amount=7.123456&to=0xrecipient&tokenId=tok1';
+      mockBalanceData = [VALID_TOKEN];
+      const pending = deferred();
+      mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+      const scope = { accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' };
+      const review = (nextScope: typeof scope) => (
+        <CommandDraftProvider scope={nextScope}>
+          <FlowPresentationProvider value="command">
+            <DraftReader />
+            <ReviewSession />
+          </FlowPresentationProvider>
+        </CommandDraftProvider>
+      );
+      const view = render(review(scope));
+      fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+      expect(screen.getByTestId('command-send-draft')).toHaveTextContent('7.123456');
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      if (kind === 'network') mockReviewNetwork = 'testnet';
+      else mockReviewRpcUrl = 'https://another-rpc.example';
+      view.rerender(review({ ...scope, [kind === 'network' ? 'network' : 'rpcUrl']: 'changed' }));
+      await act(async () => pending.resolve());
+      expect(initiateMock).not.toHaveBeenCalled();
+      expect(confirmMock).not.toHaveBeenCalled();
+      mockReviewNetwork = 'devnet';
+      mockReviewRpcUrl = 'https://rpc.review.example';
+      view.rerender(review(scope));
+      expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+      expect(initiateMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not submit or resurrect a real pending review draft across account A → B → A', async () => {
+    setValidRoute();
+    const pending = deferred();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+    function PreparedReview() {
+      const { writeDraft } = useCommandDrafts();
+      const [ready, setReady] = useState(false);
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              writeDraft('send', { amount: '5', recipientAddress: '0xrecipient', tokenId: 'tok1' });
+              setReady(true);
+            }}
+          >
+            Prepare review
+          </button>
+          <DraftReader />
+          {ready && <ReviewTransaction />}
+        </>
+      );
+    }
+    const review = (accountId: string) => (
+      <CommandShell
+        key={accountId}
+        scope={{ accountId, network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <PreparedReview />
+      </CommandShell>
+    );
+    const view = render(review('pubkey-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare review' }));
+    expect(screen.getByTestId('command-send-draft')).toHaveTextContent('0xrecipient');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    mockPublicKey = 'account-b';
+    view.rerender(review('account-b'));
+    expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+    mockPublicKey = 'pubkey-1';
+    view.rerender(review('pubkey-1'));
+    await act(async () => pending.resolve());
+    expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original Command row after an optional worker nudge throws', async () => {
+    setValidRoute();
+    isExtensionMock.mockReturnValue(true);
+    requestSWMock.mockImplementation(() => {
+      throw new Error('worker nudge unavailable');
+    });
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      renderCommandReview();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction/tx-abc'));
+      expect(requestSWMock).toHaveBeenCalledTimes(1);
+      expect(initiateMock).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('releases a rejected local atomic Send queue so the same Command review can retry', async () => {
+    setValidRoute();
+    initiateMock.mockRejectedValueOnce(new Error('local queue rejected before insert'));
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      renderCommandReview();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeEnabled());
+      expect(screen.getByTestId('review-error')).toHaveTextContent('local queue rejected before insert');
+      expect(navigateMock).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(2));
+      expect(confirmMock).toHaveBeenCalledTimes(2);
+      expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('refuses a stale Command-authored review link after its in-memory handoff is gone', () => {
+    setValidRoute();
+    mockSearch += '&commandReviewId=old-handoff';
+    renderCommandReview();
+    expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts a matching live Command handoff but not its link after the provider unmounts', () => {
+    setValidRoute();
+    mockSearch += '&commandReviewId=matching-handoff';
+    function AuthoredReview({ reviewId = 'matching-handoff' }: { reviewId?: string }) {
+      const { writeDraft } = useCommandDrafts();
+      const [ready, setReady] = useState(false);
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              writeDraft('send', {
+                amount: '5',
+                recipientAddress: '0xrecipient',
+                tokenId: 'tok1',
+                reviewId
+              });
+              setReady(true);
+            }}
+          >
+            Prepare review
+          </button>
+          {ready && <ReviewTransaction />}
+        </>
+      );
+    }
+    const view = render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <AuthoredReview />
+      </CommandShell>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare review' }));
+    expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    view.unmount();
+    const other = render(
+      <CommandShell
+        scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <AuthoredReview reviewId="different-handoff" />
+      </CommandShell>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare review' }));
+    expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+    other.unmount();
+    renderCommandReview();
+    expect(screen.getByTestId('redirect')).toHaveTextContent('/send');
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('allows a newly prepared Command draft with identical terms after the original row was admitted', async () => {
+    openSession({ kind: 'never' });
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction/tx-abc'));
+    expect(screen.getByTestId('saved-review-input')).toBeEmptyDOMElement();
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Leave review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(2));
+    expect(confirmMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('abandons a pending review on lock/remount without reviving an old draft or submitting', async () => {
+    const pending = deferred();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(pending.promise);
+    const view = openSession();
+    expect(screen.getByTestId('saved-review-input')).toHaveTextContent('7.123456');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    view.unmount(); // Locked wallet removes the review and its draft provider.
+    await act(async () => pending.resolve());
+    renderCommandReview();
+    expect(screen.getByTestId('command-send-draft')).toBeEmptyDOMElement();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('restores public and Never across review Back without retaining authorization', async () => {
+    openSession();
+    fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
+    fireEvent.click(screen.getByTestId('recall-pick-never'));
+    expect(screen.getByTestId('saved-review-input')).toHaveTextContent('"kind":"never"');
+    fireEvent.click(screen.getByRole('button', { name: 'Leave review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('sendPublicly');
+    await openAdvancedOptions();
+    expect(screen.queryByTestId('review-advanced-options-summary')).not.toBeInTheDocument();
+    expect(screen.getByTestId('review-row-expiration')).toHaveTextContent('never');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'public', 12345n, undefined, false)
+    );
+  });
+
+  it('restores the literal custom date/time/relative blocks instead of the default seven days', async () => {
+    openSession();
+    fireEvent.click(screen.getByTestId('recall-pick-date'));
+    fireEvent.click(screen.getByTestId('recall-pick-time'));
+    fireEvent.click(screen.getByTestId('recall-pick-blocks'));
+    expect(screen.getByTestId('saved-review-input')).toHaveTextContent('"blocks":"42"');
+    fireEvent.click(screen.getByRole('button', { name: 'Leave review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+    expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-recall-time', '09:37');
+    expect(screen.getByTestId('saved-review-input')).toHaveTextContent('"blocks":"42"');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 42, false)
+    );
+  });
+
+  it('reprojects a user-picked calendar instant at the original queue edge after reopening', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 1, 12));
+      openSession();
+      dateTimeToRecallBlocksMock.mockClear().mockReturnValueOnce(42).mockReturnValue(20);
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-open', 'true');
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-open', 'false');
+      expect(dateTimeToRecallBlocksMock).toHaveBeenLastCalledWith(new Date(2030, 0, 3, 14));
+      const pickedRecall = JSON.parse(screen.getByTestId('saved-review-input').textContent ?? '{}').recall;
+      expect(pickedRecall).toBeDefined();
+      const reviewedExpiration = screen.getByTestId('review-row-expiration').textContent;
+
+      fireEvent.click(screen.getByRole('button', { name: 'Leave review' }));
+      jest.setSystemTime(new Date(2030, 0, 2, 12));
+      fireEvent.click(screen.getByRole('button', { name: 'Open review' }));
+      expect(JSON.parse(screen.getByTestId('saved-review-input').textContent ?? '{}').recall).toEqual(pickedRecall);
+      await openAdvancedOptions();
+      const reopenedExpiration = screen.getByTestId('review-row-expiration').textContent;
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+      expect(initiateMock).toHaveBeenLastCalledWith(
+        'pubkey-1',
+        '0xrecipient',
+        'tok1',
+        'private',
+        12345n,
+        20,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        new Date(2030, 0, 3, 14).toISOString()
+      );
+      expect(dateTimeToRecallBlocksMock).toHaveBeenLastCalledWith(new Date(2030, 0, 3, 14));
+      expect(reopenedExpiration).toBe(reviewedExpiration);
+      expect(reopenedExpiration).toMatch(/2030/);
+      expect(reopenedExpiration).toMatch(/14:00|2:00/);
+      expect(reopenedExpiration).toMatch(/estim/i);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows fresh-review copy when calendar admission can no longer reserve a block', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 3, 13, 59, 59));
+      openSession();
+      dateTimeToRecallBlocksMock.mockReturnValue(1);
+      initiateMock.mockRejectedValueOnce(new CalendarRecallReviewRequiredError());
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+
+      expect(await screen.findByTestId('review-error')).toHaveTextContent('recallReviewChanged');
+      expect(initiateMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('saved-send-admission')).toBeEmptyDOMElement();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refuses a calendar instant expired during spending assessment before admission and permits a fresh choice', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 1, 12));
+      const assessment = deferred<undefined>();
+      mockWalletStoreState.assessSpendingLimit.mockReturnValueOnce(assessment.promise);
+      openSession();
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      jest.setSystemTime(new Date(2030, 0, 4, 12));
+      await act(async () => assessment.resolve(undefined));
+      await waitFor(() => {
+        if (!screen.queryByTestId('review-error') && initiateMock.mock.calls.length === 0)
+          throw new Error('Assessment has not reached a terminal outcome');
+      });
+      expect(initiateMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('saved-send-admission')).toBeEmptyDOMElement();
+      expect(screen.getByTestId('review-error')).toHaveTextContent('recallTimeInPast');
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('treats an explicit same-minute seven-day preset as calendar, not a new relative offset', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 1, 12));
+      openSession();
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-recall-time', '12:00');
+      fireEvent.click(screen.getByTestId('recall-pick-same-preset'));
+      expect(screen.getByTestId('saved-review-input')).toHaveTextContent('"kind":"calendar"');
+      expect(screen.getByTestId('review-row-expiration')).toHaveTextContent('recallEstimated');
+      expect(initiateMock).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refuses a calendar instant expired while the spending-limit authorization is open', async () => {
+    jest.useFakeTimers({ doNotFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      jest.setSystemTime(new Date(2030, 0, 1, 12));
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      openSession();
+      await openAdvancedOptions();
+      fireEvent.click(screen.getByTestId('review-expiration-edit'));
+      fireEvent.click(screen.getByTestId('recall-pick-calendar'));
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument());
+      expect(initiateMock).not.toHaveBeenCalled();
+      jest.setSystemTime(new Date(2030, 0, 4, 12));
+      fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' }));
+      await waitFor(() => expect(screen.getByTestId('review-error')).toHaveTextContent('recallTimeInPast'));
+      expect(initiateMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('saved-send-admission')).toBeEmptyDOMElement();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['Never', { kind: 'never' } as CommandSendRecall, 'never', undefined],
+    [
+      'custom',
+      {
+        kind: 'scheduled',
+        date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        time: '23:59',
+        blocks: '42'
+      } as CommandSendRecall,
+      'expiresInSeconds',
+      42
+    ]
+  ])(
+    'keeps restored %s after late balance readiness without seeding the seven-day default',
+    async (_name, recall, label, blocks) => {
+      const view = openSession(recall, false);
+      expect(screen.getByTestId('saved-review-input')).toHaveTextContent(`"kind":"${recall.kind}"`);
+      mockBalanceData = [VALID_TOKEN];
+      view.rerender(reviewSession(recall));
+      await openAdvancedOptions();
+      expect(screen.getByTestId('review-row-expiration')).toHaveTextContent(label);
+      expect(screen.getByTestId('recall-drawer')).toHaveAttribute(
+        'data-recall-time',
+        recall.kind === 'scheduled' ? '23:59' : '12:00'
+      );
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() =>
+        expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, blocks, false)
+      );
+      expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('refuses an expired restored custom date until Never is explicitly reselected', () => {
+    openSession({ kind: 'scheduled', date: new Date(0).toISOString(), time: '09:37', blocks: '42' });
+    expect(screen.getByTestId('review-error')).toHaveTextContent('recallTimeInPast');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(initiateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('recall-pick-never'));
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
+
+  it('revalidates a Command deep link rather than trusting its missing network', () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [VALID_TOKEN];
+    renderCommandReview();
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a review URL after its draft recipient was edited', () => {
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    mockBalanceData = [VALID_TOKEN];
+    function Seed() {
+      const { writeDraft } = useCommandDrafts();
+      const [ready, setReady] = useState(false);
+      return (
+        <>
+          <button
+            onClick={() => {
+              writeDraft('send', { amount: '5', recipientAddress: '0xdifferent', tokenId: 'tok1' });
+              setReady(true);
+            }}
+          >
+            Edit recipient
+          </button>
+          {ready && <ReviewTransaction />}
+        </>
+      );
+    }
+    render(
+      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' }}>
+        <FlowPresentationProvider value="command">
+          <Seed />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit recipient' }));
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(initiateMock).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1069,7 +1932,7 @@ describe('ReviewTransaction — rendering', () => {
     'passes the reviewed output in exact $decimals-decimal base units to Epoch before signing',
     async ({ amount, decimals, minimum }) => {
       mockDetectedChain = 'ethereum';
-      mockEpochQuote = { amount, decimals, loading: false, error: null, symbol: 'USDC' };
+      mockEpochQuote = { ...reviewedEpochBinding, amount, decimals, loading: false, error: null, symbol: 'USDC' };
       mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
       mockBalanceData = [VALID_TOKEN];
       render(<ReviewTransaction />);
@@ -1079,6 +1942,59 @@ describe('ReviewTransaction — rendering', () => {
       });
       await flush();
       expect(bridgeEpochSendMock).toHaveBeenCalledWith(expect.objectContaining({ minimumOutputBaseUnits: minimum }));
+    }
+  );
+
+  it('passes actual quote validity and token identity together with the reviewed positive floor', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = {
+      amount: '4.8',
+      decimals: 6,
+      address: '0x2222222222222222222222222222222222222222',
+      validity: { kind: 'provider' },
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+    expect(bridgeEpochSendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        minimumOutputBaseUnits: 4800000n,
+        reviewedQuote: {
+          validity: { kind: 'provider' },
+          outputTokenDecimals: 6,
+          outputTokenAddress: '0x2222222222222222222222222222222222222222'
+        }
+      })
+    );
+  });
+
+  it.each<QuoteValidity | undefined>([undefined, { kind: 'time', expiresAt: 0 }])(
+    'cannot authorize compact Epoch output without live provider validity case %#',
+    async validity => {
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = {
+        amount: '4.8',
+        decimals: 6,
+        address: '0x2222222222222222222222222222222222222222',
+        validity,
+        loading: false,
+        error: null,
+        symbol: 'USDC'
+      };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(bridgeEpochSendMock).not.toHaveBeenCalled();
     }
   );
 
@@ -1726,7 +2642,14 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('reopens an Epoch bridge challenge when external preparation outlives authorization', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     const firstAssessment = breachAssessment({
@@ -1776,7 +2699,14 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('cancels a bridge challenge before any external bridge work', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '4.8', decimals: 6, loading: false, error: null, symbol: 'USDC' };
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(
@@ -2398,6 +3328,91 @@ describe('ReviewTransaction user-visible errors', () => {
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
     mockSearch = `amount=${amount}&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   };
+
+  const setEpochRoute = () => {
+    const connection = connections.testnet.find(
+      entry => entry.provider === 'epoch' && entry.evm.symbol === 'DAI' && !entry.disabled && entry.routes.send
+    );
+    const faucetId = connection?.miden.faucetId;
+    const outputAddress = connection?.evm.address;
+    if (!connection || !faucetId || !outputAddress) throw new Error('Missing active Epoch DAI fixture');
+    const snapshot = referenceSnapshot('testnet');
+    stringToBigIntMock.mockImplementation(
+      jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').stringToBigInt
+    );
+    mockBridgeSnapshot = snapshot;
+    mockReviewNetwork = 'testnet';
+    mockPublicKey = accounts.midenAccount;
+    mockDetectedChain = 'ethereum';
+    mockBalanceData = [
+      {
+        ...VALID_TOKEN,
+        tokenId: faucetId,
+        metadata: { symbol: connection.miden.symbol, decimals: connection.miden.decimals }
+      }
+    ];
+    mockEpochQuote = {
+      amount: '4.8',
+      loading: false,
+      error: null,
+      symbol: connection.evm.symbol,
+      address: outputAddress,
+      decimals: connection.evm.decimals,
+      validity: { kind: 'provider' }
+    };
+    mockSearch = `amount=5&to=${accounts.evmAddress}&tokenId=${faucetId}&network=${connection.evm.network}&route=epoch`;
+    return snapshot;
+  };
+
+  it('localizes and reports the actual Epoch review refusal after its SDK initialization await', async () => {
+    const snapshot = setEpochRoute();
+    const changed = structuredClone(snapshot);
+    const allocator = changed.config?.['bridge-providers'].epoch;
+    if (!allocator) throw new Error('Missing Epoch allocator fixture');
+    const originalAllocatorUrl = allocator.allocatorUrl;
+    allocator.allocatorUrl = 'https://changed-allocator.example/private';
+    const solve = jest.fn();
+    mockReviewReadEpochSdk.mockImplementation(async () => {
+      mockBridgeSnapshot = changed;
+      return { getTaskData: jest.fn(), getIntentQuote: jest.fn(), solveIntent: solve };
+    });
+    bridgeEpochSendMock.mockImplementation(
+      jest.requireActual<typeof import('lib/epoch/epoch-send')>('lib/epoch/epoch-send').bridgeEpochSend
+    );
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1);
+    expect(mockReviewReadEpochSdk).toHaveBeenCalledTimes(1);
+    expect(mockReviewReadEpochSdk).toHaveBeenCalledWith(accounts.evmAddress, originalAllocatorUrl);
+    expect(solve).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect({
+      text: screen.getByTestId('review-error').textContent,
+      reports: jest.mocked(reportUserVisibleError).mock.calls
+    }).toEqual({ text: 'bridgeReviewChanged', reports: [['bridgeReviewChanged', 'review']] });
+  });
+
+  it.each([
+    new Error('Epoch SDK failed at https://sdk.example/private?amount=123.45'),
+    new EpochCollateralNoteMismatchError('amount')
+  ])('preserves the Epoch SDK or localized collateral failure without sending its text (%s)', async reason => {
+    setEpochRoute();
+    bridgeEpochSendMock.mockRejectedValue(reason);
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('review-error')).toHaveTextContent(reason.message);
+    await expectReport('raw_send_submit_failed');
+  });
 
   it('reports a raw burn submit failure by its site code while retaining its message', async () => {
     setBurnRoute();

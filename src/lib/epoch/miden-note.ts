@@ -1,3 +1,7 @@
+import { assertReviewedBridge } from 'lib/bridge/core/review';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
+import { captureBridgeWalletScope, type BridgeOperationInput } from 'lib/bridge/operation';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -9,9 +13,11 @@ import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { type SpendingLimitAuthorization, spendingLimitAssessmentFromError } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
+import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { isExtension } from 'lib/platform';
 
 import { buildEpochCollateralRequestBytes } from './collateral-note';
+import type { EpochReviewedOutput } from './types';
 
 export interface BridgeNoteDeps {
   /**
@@ -75,6 +81,10 @@ export interface CreateBridgeP2IDENoteArgs {
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   allocatorUrl?: string;
+  operation?: BridgeOperationInput;
+  reviewedOutput?: EpochReviewedOutput;
+  expectedWalletScope?: Pick<AccountScope, 'network' | 'rpcUrl'>;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }
 
 /**
@@ -113,8 +123,19 @@ export async function createBridgeP2IDENote(
     onRowCreated,
     spendingLimitAuthorization
   } = args;
+  let ownedTxId: string | undefined;
+  let queuedSendId: string | undefined;
   try {
-    console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
+    const expectedWalletScope =
+      args.expectedWalletScope === undefined
+        ? args.operation
+          ? captureBridgeWalletScope()
+          : undefined
+        : { ...args.expectedWalletScope };
+    if (args.operation) {
+      if (!args.checks) throw new EpochReviewChangedError();
+      assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
+    }
     const {
       requestBytes,
       reclaimHeight,
@@ -127,6 +148,13 @@ export async function createBridgeP2IDENote(
       recallBlocks,
       bindingAttachmentFelts
     });
+    if (args.operation && args.checks)
+      assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
+    if (expectedWalletScope) {
+      const current = captureBridgeWalletScope();
+      if (expectedWalletScope.network !== current.network || expectedWalletScope.rpcUrl !== current.rpcUrl)
+        throw new EpochReviewChangedError();
+    }
     const txId = await initiateBridgedSendTransaction(
       ifHextoBech32(senderAccountId),
       BigInt(amount),
@@ -150,8 +178,23 @@ export async function createBridgeP2IDENote(
       undefined,
       undefined,
       undefined,
-      args.allocatorUrl
+      args.allocatorUrl,
+      args.operation,
+      args.reviewedOutput
     );
+    // A regular Send insert returned its own durable row; reading it is still required before solving.
+    if (!args.operation) queuedSendId = txId;
+    const admitted = await Repo.transactions.where({ id: txId }).first();
+    const originalRequestBytes = admitted?.extraInputs?.epochCollateralRequestBytes;
+    if (
+      admitted?.approvedOutputNoteIds?.length !== 1 ||
+      admitted.approvedOutputNoteIds[0] !== reclaimNoteId ||
+      !(originalRequestBytes instanceof Uint8Array) ||
+      originalRequestBytes.length !== requestBytes.length ||
+      !requestBytes.every((byte, index) => originalRequestBytes[index] === byte)
+    )
+      return queuedSendId ? { success: false, txId: queuedSendId } : { success: false };
+    ownedTxId = txId;
 
     // Row exists now (Queued) - let the caller navigate to the progress screen
     // before we block on proving/submission below.
@@ -175,11 +218,12 @@ export async function createBridgeP2IDENote(
       console.error('[epoch] bridge note tx completed but no outputNoteIds');
       return { success: false, txId };
     }
-    console.log('[epoch] bridge note created', { noteId, txHash: result.txHash });
     return { success: true, noteId, txId };
   } catch (err) {
-    if (spendingLimitAssessmentFromError(err) !== undefined) throw err;
+    const originalId = ownedTxId ?? queuedSendId;
+    if (!originalId && (spendingLimitAssessmentFromError(err) !== undefined || err instanceof EpochReviewChangedError))
+      throw err;
     console.error('[epoch] createBridgeP2IDENote threw', err);
-    return { success: false };
+    return originalId ? { success: false, txId: originalId } : { success: false };
   }
 }

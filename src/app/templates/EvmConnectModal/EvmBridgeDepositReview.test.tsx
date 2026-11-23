@@ -180,7 +180,13 @@ describe('EvmBridgeDepositReview', () => {
         <EvmBridgeDepositReview
           {...baseProps({
             fiat: 100.5,
-            sourceQuote: { price: 10.05, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+            sourceQuote: {
+              price: 10.05,
+              change24h: 0,
+              percentageChange24h: 0,
+              observedAt: Date.now(),
+              kind: 'market' as const
+            }
           })}
         />
       );

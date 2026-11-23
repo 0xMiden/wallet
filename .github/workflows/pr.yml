@@ -194,7 +194,7 @@ jobs:
         run: |
           yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
           yarn lint:e2e
-          E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list
+          E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list --reporter list
 
       - name: Run ESLint
         uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
@@ -298,6 +298,15 @@ jobs:
 
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
+
+      - name: Upload Command wallet screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: command-wallet-screenshots
+          path: test-results/**/command-*.png
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Upload wallet access screenshots
         if: always()

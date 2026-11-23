@@ -90,7 +90,13 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
     onOpenChange(false);
   };
 
-  const items: ChoiceCardItem[] = options.map(option => {
+  // The fastest operator, the one the step starts with, leads the list; the rest keep the network's order.
+  // `fastestId` never moves once set, so the cards do not reshuffle while the sheet is open.
+  const ordered = fastestId
+    ? [...options.filter(option => option.id === fastestId), ...options.filter(option => option.id !== fastestId)]
+    : options;
+
+  const items: ChoiceCardItem[] = ordered.map(option => {
     return guardianOperatorCard({
       option,
       // The region is kept on one line: a break inside "EU-NORTH" reads as two words.
@@ -101,7 +107,7 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
           <span className="whitespace-nowrap">{option.location}</span>
         </>
       ),
-      tag: option.id === fastestId ? t('guardianFastest') : undefined,
+      edgeTag: option.id === fastestId ? t('guardianFastest') : undefined,
       offline: verdicts[option.endpoint]?.status === 'offline'
     });
   });
@@ -115,18 +121,26 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
         <DrawerHeader>
           <DrawerTitle>{t('guardianProviderSheetTitle')}</DrawerTitle>
         </DrawerHeader>
-        <DrawerDescription>{t('guardianProviderSheetDescription')}</DrawerDescription>
+        <DrawerDescription className="text-body font-semibold face-heading">
+          {t('guardianProviderSheetDescription')}
+        </DrawerDescription>
 
-        <div className="no-scrollbar flex min-h-0 flex-col gap-4 overflow-y-auto px-4 pt-2 pb-4">
+        {/* 20px on top: room for the Fastest pill, which sits on the first card's top edge. */}
+        <div className="no-scrollbar flex min-h-0 flex-col gap-4 overflow-y-auto px-4 pt-5 pb-4">
           <ChoiceCardGroup
             items={items}
             value={value}
             onChange={pick}
             onReselect={pick}
             arrowKeys="focus"
+            // White cards inside a hairline edge; only the chosen one fills, so the pick stands out.
+            surface="outline"
             aria-label={t('guardianProviderSheetTitle')}
           />
-          <p className="text-center text-caption text-muted">{t('guardianProviderSheetFootnote')}</p>
+          {/* A pill on the action-bar grey (#f9f9f9) in the cards' hairline edge, Nunito semibold. */}
+          <p className="mx-auto w-fit rounded-full border border-hairline bg-action-bar px-3 py-1.5 text-center text-caption font-semibold text-muted face-heading">
+            {t('guardianProviderSheetFootnote')}
+          </p>
         </div>
       </DrawerContent>
     </Drawer>
