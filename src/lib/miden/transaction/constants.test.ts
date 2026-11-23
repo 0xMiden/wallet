@@ -1012,6 +1012,27 @@ describe('an error whose cause getter throws (#1313)', () => {
 });
 
 describe('offscreen deadline evidence (#2203)', () => {
+  it.each([false, true])('keeps deadline facts out of the warning (wrapped=%s)', wrapped => {
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    annotateOffscreenDeadline(abort, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving'
+    });
+    if (wrapped) abort.cause = new Error('inner');
+    const error = wrapped ? new Error('outer', { cause: abort }) : abort;
+    const expected = wrapped ? `Error: outer <- caused by ${abort} <- caused by Error: inner` : String(abort);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(resolveTransactionErrorMessage(error, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+      expect(warn).toHaveBeenCalledWith('[transaction] error classified, raw cause:', expected);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('distinguishes own and collateral deadlines with the same id', () => {
     const own = new OperationAbortedError('op-1', 'deadline', {
       started: true,
