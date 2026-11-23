@@ -1,4 +1,9 @@
-import { GuardianHttpClient, GuardianHttpError, type HistoryEntry, type HistoryPage } from '@openzeppelin/guardian-client';
+import {
+  GuardianHttpClient,
+  GuardianHttpError,
+  type HistoryEntry,
+  type HistoryPage
+} from '@openzeppelin/guardian-client';
 import Dexie from 'dexie';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
@@ -193,6 +198,8 @@ const invalidDataHistorySources = new Set<string>();
 const abortedDecodeHistorySources = new Set<string>();
 const deferredFailureHistorySources = new Set<string>();
 let unsupportedHistorySession = 0;
+// Read through a function so a closure made inside the pass's loops carries no reference to the variable itself.
+const currentHistorySession = () => unsupportedHistorySession;
 
 export function forgetUnsupportedHistorySources(): void {
   unsupportedHistorySession++;
@@ -499,7 +506,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             for (const row of local) {
               if (!row.resultBytes || commitments.has(row.id) || row.recovery) continue;
               await checkCheap();
-              const commitmentSession = unsupportedHistorySession;
+              const commitmentSession = currentHistorySession();
               try {
                 commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));
               } catch (error) {

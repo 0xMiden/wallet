@@ -1,10 +1,10 @@
 import React from 'react';
-import { clearInterval, setInterval, setTimeout as realSetTimeout } from 'timers';
 
-import { act, cleanup, render } from '@testing-library/react';
 import type { DeltaObject, HistoryEntry, HistoryPage, Signer } from '@openzeppelin/guardian-client';
+import { act, cleanup, render } from '@testing-library/react';
 import type { Transaction } from 'dexie';
 import { SWRConfig } from 'swr';
+import { clearInterval, setInterval, setTimeout as realSetTimeout } from 'timers';
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import History from 'app/templates/history/History';
@@ -98,7 +98,10 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 jest.mock('lib/miden/guardian/signer', () => ({
   WalletSigner: class {
     readonly scheme = 'ecdsa';
-    constructor(readonly publicKey: string, readonly commitment: string) {}
+    constructor(
+      readonly publicKey: string,
+      readonly commitment: string
+    ) {}
     signRequest = async () => mockHarness.authenticate();
     signAccountIdWithTimestamp = async () => mockHarness.authenticate();
     signCommitment = async () => mockHarness.authenticate();
@@ -232,22 +235,25 @@ function summary(nonce: number): GuardianSummary {
   return {
     accountId: account.publicKey,
     inputNotes: consume
-      ? [{
-          id: `synthetic-input-${nonce}`,
-          visibility: 'public',
-          sender: 'synthetic-sender',
-          assets: [{ faucetId: nonce === PAYBACK_NONCE ? 'synthetic-requested' : 'synthetic-asset', amount: '7' }],
-          swap: nonce === PAYBACK_NONCE ? { orderId: '77' } : undefined
-        }]
+      ? [
+          {
+            id: `synthetic-input-${nonce}`,
+            visibility: 'public',
+            sender: 'synthetic-sender',
+            assets: [{ faucetId: nonce === PAYBACK_NONCE ? 'synthetic-requested' : 'synthetic-asset', amount: '7' }],
+            swap: nonce === PAYBACK_NONCE ? { orderId: '77' } : undefined
+          }
+        ]
       : [],
     outputNotes: [0, 1].map(index => ({
       id: `synthetic-output-${nonce}-${index}`,
       visibility: 'public',
       recipient: 'synthetic-recipient',
       assets: consume ? [] : [{ faucetId: 'synthetic-asset', amount: '7' }],
-      swap: nonce === ORDER_NONCE && index === 0
-        ? { orderId: '77', requestedAsset: { faucetId: 'synthetic-requested', amount: '14' } }
-        : undefined
+      swap:
+        nonce === ORDER_NONCE && index === 0
+          ? { orderId: '77', requestedAsset: { faucetId: 'synthetic-requested', amount: '14' } }
+          : undefined
     }))
   };
 }
@@ -305,34 +311,37 @@ class SyntheticHistory {
     this.events[event] = { fakeMs: Date.now() - this.startFake, wallMs: wallNow() - this.startWall };
   }
   reportProgress() {
-    console.info('guardian-history-synthetic-progress', JSON.stringify({
-      fakeMs: Date.now() - this.startFake,
-      wallMs: wallNow() - this.startWall,
-      pages: this.pageCount,
-      requested: this.requested.length,
-      decoded: this.decoded.length,
-      completedNotes: this.completedNotes.length,
-      raw: this.raw,
-      consumers: this.consumers,
-      activeWasm: this.activeWasm,
-      lockHeld: this.hold !== null,
-      due: this.due.size,
-      nextDueMs: this.due.size ? Math.min(...this.due.values()) - Date.now() : null,
-      commits: this.commits,
-      checkpointSnapshots: this.checkpointSnapshots.length,
-      firstPersisted: Boolean(this.events.t_first_persisted_recent_row),
-      firstVisible: Boolean(this.events.t_first_visible_recent_row),
-      allCheckpointsDone: Boolean(this.events.t_all_checkpoints_done),
-      historyRuns: this.historyRuns,
-      directReturns: this.directResults.length,
-      uncompletedQueriesStarted: this.uncompletedQueries.started,
-      uncompletedQueriesSettled: this.uncompletedQueries.settled,
-      uncompletedQueriesOutstanding: this.uncompletedQueries.started - this.uncompletedQueries.settled,
-      uncompletedQueriesSettledMs: this.uncompletedQueries.settledMs,
-      uncompletedQueriesMaxSettledMs: this.uncompletedQueries.maxSettledMs,
-      pending: this.pending,
-      cancelling: this.cancelling
-    }));
+    console.info(
+      'guardian-history-synthetic-progress',
+      JSON.stringify({
+        fakeMs: Date.now() - this.startFake,
+        wallMs: wallNow() - this.startWall,
+        pages: this.pageCount,
+        requested: this.requested.length,
+        decoded: this.decoded.length,
+        completedNotes: this.completedNotes.length,
+        raw: this.raw,
+        consumers: this.consumers,
+        activeWasm: this.activeWasm,
+        lockHeld: this.hold !== null,
+        due: this.due.size,
+        nextDueMs: this.due.size ? Math.min(...this.due.values()) - Date.now() : null,
+        commits: this.commits,
+        checkpointSnapshots: this.checkpointSnapshots.length,
+        firstPersisted: Boolean(this.events.t_first_persisted_recent_row),
+        firstVisible: Boolean(this.events.t_first_visible_recent_row),
+        allCheckpointsDone: Boolean(this.events.t_all_checkpoints_done),
+        historyRuns: this.historyRuns,
+        directReturns: this.directResults.length,
+        uncompletedQueriesStarted: this.uncompletedQueries.started,
+        uncompletedQueriesSettled: this.uncompletedQueries.settled,
+        uncompletedQueriesOutstanding: this.uncompletedQueries.started - this.uncompletedQueries.settled,
+        uncompletedQueriesSettledMs: this.uncompletedQueries.settledMs,
+        uncompletedQueriesMaxSettledMs: this.uncompletedQueries.maxSettledMs,
+        pending: this.pending,
+        cancelling: this.cancelling
+      })
+    );
   }
   observeCheckpoints(value: unknown) {
     if (!value || typeof value !== 'object') return;
@@ -351,9 +360,11 @@ class SyntheticHistory {
         notes: this.completedNotes.length
       });
     }
-    if (rows.length === this.operators.length && rows.every(row =>
-      row !== null && typeof row === 'object' && Reflect.get(row, 'completed') === true
-    )) this.stamp('t_all_checkpoints_done');
+    if (
+      rows.length === this.operators.length &&
+      rows.every(row => row !== null && typeof row === 'object' && Reflect.get(row, 'completed') === true)
+    )
+      this.stamp('t_all_checkpoints_done');
   }
   async delay(ms: number) {
     if (this.cancelling) return;
@@ -583,12 +594,16 @@ async function pump(diagnostics: HistoryTestDiagnostics, done: () => boolean, li
   }
   try {
     while (!done() && Date.now() - start <= limit) {
-      await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(0);
+      });
       if (done()) return;
       const due = Math.min(...mockHarness.due.values());
       if (Number.isFinite(due)) {
         idle = 0;
-        await act(async () => { await jest.advanceTimersByTimeAsync(Math.max(0, due - Date.now())); });
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(Math.max(0, due - Date.now()));
+        });
       } else {
         // No fake timer is due: real async work (IndexedDB) may be pending, so wait real time and count a stall only
         // when no harness counter moves for STALL_WALL_MS of wall time.
@@ -598,18 +613,22 @@ async function pump(diagnostics: HistoryTestDiagnostics, done: () => boolean, li
           lastProgressWall = wallNow();
         }
         if (++idle === 1) idleStartWall = wallNow();
-        await new Promise<void>(resolve => { realSetTimeout(resolve, 5); });
+        await new Promise<void>(resolve => {
+          realSetTimeout(resolve, 5);
+        });
         if (wallNow() - lastProgressWall > STALL_WALL_MS) {
-          throw new Error(`Synthetic barrier not reached: ${JSON.stringify({
-            events: mockHarness.events,
-            raw: mockHarness.raw,
-            notes: mockHarness.completedNotes.length,
-            stalledWallMs: wallNow() - lastProgressWall,
-            idleIterations: idle,
-            idleStartWall,
-            queriesStarted: mockHarness.uncompletedQueries.started,
-            queriesSettled: mockHarness.uncompletedQueries.settled
-          })}`);
+          throw new Error(
+            `Synthetic barrier not reached: ${JSON.stringify({
+              events: mockHarness.events,
+              raw: mockHarness.raw,
+              notes: mockHarness.completedNotes.length,
+              stalledWallMs: wallNow() - lastProgressWall,
+              idleIterations: idle,
+              idleStartWall,
+              queriesStarted: mockHarness.uncompletedQueries.started,
+              queriesSettled: mockHarness.uncompletedQueries.settled
+            })}`
+          );
         }
       }
     }
@@ -624,7 +643,9 @@ async function pump(diagnostics: HistoryTestDiagnostics, done: () => boolean, li
 
 const originalFetch = globalThis.fetch;
 const originalMatchMedia = window.matchMedia;
-const mockUnexpectedFetch = jest.fn(async () => { throw new Error('Unexpected live fetch in synthetic recovery'); });
+const mockUnexpectedFetch = jest.fn(async () => {
+  throw new Error('Unexpected live fetch in synthetic recovery');
+});
 beforeAll(() => {
   globalThis.fetch = mockUnexpectedFetch;
   window.matchMedia = (media: string): MediaQueryList => ({
@@ -702,14 +723,23 @@ async function fixture(overlap: boolean, diagnostics: HistoryTestDiagnostics) {
     dispose: async () => {
       mockHarness.cancel();
       try {
-        await pump(diagnostics, () => mockHarness.raw === 0 && mockHarness.consumers === 0 &&
-          mockHarness.directResults.length === mockHarness.historyRuns);
+        await pump(
+          diagnostics,
+          () =>
+            mockHarness.raw === 0 &&
+            mockHarness.consumers === 0 &&
+            mockHarness.directResults.length === mockHarness.historyRuns
+        );
         for (let index = 0; index < 20; index++) {
-          await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+          await act(async () => {
+            await jest.advanceTimersByTimeAsync(0);
+          });
         }
       } finally {
         try {
-          await act(async () => { view?.unmount(); });
+          await act(async () => {
+            view?.unmount();
+          });
         } finally {
           observer.disconnect();
           backend.dispose();
@@ -743,7 +773,7 @@ async function finish(backend: Backend, diagnostics: HistoryTestDiagnostics) {
   const rows = await transactions.toArray();
   mockHarness.uniqueRows = rows.length;
   expect(rows.map(row => row.id).sort()).toEqual(
-    mockHarness.nonces.map(nonce => nonce === LOCAL_NONCE ? 'synthetic-rich-local' : rowId(nonce)).sort()
+    mockHarness.nonces.map(nonce => (nonce === LOCAL_NONCE ? 'synthetic-rich-local' : rowId(nonce))).sort()
   );
   expect(Object.values(state.checkpoints).map(checkpoint => checkpoint.entryCount)).toEqual(
     mockHarness.overlap ? [22, RECORDS] : [RECORDS]
@@ -773,16 +803,29 @@ function measurements(label: string) {
   const firstVisibleMs = events.t_first_visible_recent_row?.fakeMs ?? Infinity;
   const fullCompletionMs = events.t_pending_flag_cleared?.fakeMs ?? Infinity;
   const result = {
-    label, events, firstPersistedMs, firstVisibleMs, fullCompletionMs,
-    pages: mockHarness.pageCount, rawEntries: mockHarness.rawEntries,
-    deltaCalls: mockHarness.requested.length, completedOutputs: mockHarness.completedNotes.length,
-    uniqueRows: mockHarness.uniqueRows, preexistingLocalRows: 1, notesAtFlagClear: mockHarness.notesAtFlagClear,
+    label,
+    events,
+    firstPersistedMs,
+    firstVisibleMs,
+    fullCompletionMs,
+    pages: mockHarness.pageCount,
+    rawEntries: mockHarness.rawEntries,
+    deltaCalls: mockHarness.requested.length,
+    completedOutputs: mockHarness.completedNotes.length,
+    uniqueRows: mockHarness.uniqueRows,
+    preexistingLocalRows: 1,
+    notesAtFlagClear: mockHarness.notesAtFlagClear,
     uniqueOutputs: new Set(mockHarness.completedNotes).size,
-    commits: mockHarness.commits, inserts: mockHarness.inserts,
-    authCalls: mockHarness.authCalls, commitmentCalls: mockHarness.commitmentCalls,
-    peakRaw: mockHarness.peakRaw, peakLogical: mockHarness.peakLogical,
-    peakWasmByRealm: { inline: mockHarness.peakWasm }, peakSdkConsumers: mockHarness.peakConsumers,
-    headIdentity: rowId(RECORDS), checkpoints: mockHarness.checkpointSnapshots,
+    commits: mockHarness.commits,
+    inserts: mockHarness.inserts,
+    authCalls: mockHarness.authCalls,
+    commitmentCalls: mockHarness.commitmentCalls,
+    peakRaw: mockHarness.peakRaw,
+    peakLogical: mockHarness.peakLogical,
+    peakWasmByRealm: { inline: mockHarness.peakWasm },
+    peakSdkConsumers: mockHarness.peakConsumers,
+    headIdentity: rowId(RECORDS),
+    checkpoints: mockHarness.checkpointSnapshots,
     controlledOverheadMs: { page: 0, metadata: 0, signerSetup: 0, commitment: 5, pendingNoteScan: 0 }
   };
   console.info('guardian-history-synthetic', JSON.stringify(result));
@@ -792,8 +835,10 @@ function measurements(label: string) {
 const SAMPLES = 5;
 // One sample per test so each is selectable with -t and has its own wall timeout; the whole-loop 180s limit was
 // smaller than a single sample's real wall time.
-for (let index = 0; index < SAMPLES; index++) {
-  it(`benchmarks first visible history and complete recovery for 1214 synthetic records sample ${index + 1}`, async () => {
+it.each(Array.from({ length: SAMPLES }, (_, index) => index + 1))(
+  'benchmarks first visible history and complete recovery for 1214 synthetic records sample %d',
+  async sampleNumber => {
+    const index = sampleNumber - 1;
     const diagnostics = testDiagnostics;
     const test = await fixture(false, diagnostics);
     try {
@@ -801,7 +846,9 @@ for (let index = 0; index < SAMPLES; index++) {
       await finish(test.backend, diagnostics);
       // The normal SWR poll is allowed to draw the known head, never forced through mutate or a shorter interval.
       if (!mockHarness.events.t_first_visible_recent_row) {
-        await act(async () => { await jest.advanceTimersByTimeAsync(10_000); });
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(10_000);
+        });
         await pump(diagnostics, () => Boolean(mockHarness.events.t_first_visible_recent_row));
       }
       expect(mockHarness.pageCount).toBe(25);
@@ -815,27 +862,31 @@ for (let index = 0; index < SAMPLES; index++) {
       const buckets: number[] = [];
       for (let start = 0; start < durations.length; start += 200) {
         const slice = durations.slice(start, start + 200);
-        buckets.push(Math.round(slice.reduce((sum, value) => sum + value, 0) / slice.length * 100) / 100);
+        buckets.push(Math.round((slice.reduce((sum, value) => sum + value, 0) / slice.length) * 100) / 100);
       }
-      console.info('guardian-history-synthetic-sample', JSON.stringify({
-        sample: index + 1,
-        wallMsAtFlagCleared: sample.events.t_pending_flag_cleared?.wallMs,
-        wallMsAtAllCheckpointsDone: sample.events.t_all_checkpoints_done?.wallMs,
-        wallMsAtFirstVisible: sample.events.t_first_visible_recent_row?.wallMs,
-        queriesStarted: mockHarness.uncompletedQueries.started,
-        queriesSettled: mockHarness.uncompletedQueries.settled,
-        queriesSettledMs: mockHarness.uncompletedQueries.settledMs,
-        queriesMaxMs: mockHarness.uncompletedQueries.maxSettledMs,
-        meanQueryMsPer200Queries: buckets
-      }));
+      console.info(
+        'guardian-history-synthetic-sample',
+        JSON.stringify({
+          sample: index + 1,
+          wallMsAtFlagCleared: sample.events.t_pending_flag_cleared?.wallMs,
+          wallMsAtAllCheckpointsDone: sample.events.t_all_checkpoints_done?.wallMs,
+          wallMsAtFirstVisible: sample.events.t_first_visible_recent_row?.wallMs,
+          queriesStarted: mockHarness.uncompletedQueries.started,
+          queriesSettled: mockHarness.uncompletedQueries.settled,
+          queriesSettledMs: mockHarness.uncompletedQueries.settledMs,
+          queriesMaxMs: mockHarness.uncompletedQueries.maxSettledMs,
+          meanQueryMsPer200Queries: buckets
+        })
+      );
       expect(sample.firstPersistedMs).toBeLessThanOrEqual(200);
       expect(sample.firstVisibleMs).toBeLessThanOrEqual(10_200);
       expect(sample.fullCompletionMs).toBeLessThanOrEqual(203_000);
     } finally {
       await test.dispose();
     }
-  }, 3_000_000);
-}
+  },
+  3_000_000
+);
 
 it('completes overlapping synthetic sources without duplicate receipts', async () => {
   const diagnostics = testDiagnostics;
@@ -864,7 +915,9 @@ it('resumes synthetic history without skipping note completion', async () => {
     await pump(diagnostics, () => mockHarness.pauseReached);
     const headRow = await transactions.get(rowId(RECORDS));
     expect(headRow).toBeDefined();
-    await act(async () => { await jest.advanceTimersByTimeAsync(10_000); });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
     await pump(diagnostics, () => Boolean(mockHarness.events.t_first_visible_recent_row));
     expect(document.querySelector(`[data-entry-key="${headKey}"]`)).not.toBeNull();
     const headSnapshot = await readGuardianHistoryState();

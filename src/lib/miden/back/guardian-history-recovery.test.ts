@@ -805,8 +805,10 @@ it('publishes the page head while its first output import is pending', async () 
   const firstImport = held();
   const completedNotes: string[] = [];
   const checkpoints: Array<{ completed: boolean; notes: string[] }> = [];
-  const actualSave = jest.requireActual<typeof import('../guardian/history-storage')>('../guardian/history-storage')
-    .saveGuardianHistoryCheckpoint;
+  const actualSave =
+    jest.requireActual<typeof import('../guardian/history-storage')>(
+      '../guardian/history-storage'
+    ).saveGuardianHistoryCheckpoint;
   source('https://one', [{ entries: [entry(3), entry(2)] }]);
   source('https://two', []);
   jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => ({
@@ -847,9 +849,9 @@ it('publishes the page head while its first output import is pending', async () 
     firstImport.release();
     await until(() => pass.state.resolved);
     expect(completedNotes).toEqual(['note-3-0', 'note-3-1', 'note-2-0', 'note-2-1']);
-    expect(checkpoints.filter(checkpoint => checkpoint.completed).every(checkpoint => checkpoint.notes.length === 4)).toBe(
-      true
-    );
+    expect(
+      checkpoints.filter(checkpoint => checkpoint.completed).every(checkpoint => checkpoint.notes.length === 4)
+    ).toBe(true);
     expect((await operatorCheckpoint('https://one'))?.completed).toBe(true);
     expect(await transactions.count()).toBe(2);
   } finally {
