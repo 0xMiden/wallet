@@ -37,7 +37,6 @@ import {
   ISwapExtraInputs,
   ITransaction,
   ITransactionStatus,
-  ITransactionType,
   ISwitchGuardianExtraInputs,
   IOneClickTrackingData
 } from 'lib/miden/db/types';
@@ -209,18 +208,108 @@ interface RequestedTokenInfo {
   scaleIsKnown: boolean;
 }
 
+export type HistoryAddressRole = 'account' | 'secondary' | 'none';
+
+export interface HistoryDetailsSectionPolicy {
+  bridgeClaim: boolean;
+  inboundBridge: boolean;
+  oneClick: boolean;
+  from: HistoryAddressRole;
+  to: HistoryAddressRole;
+}
+
+const assertUnreachable = (value: never): never => {
+  throw new Error(`Unhandled transaction type in HistoryDetails section policy: ${String(value)}`);
+};
+
+const receiveSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy => {
+  const hasOneClick = entry.oneClickTracking !== undefined;
+  const isNearIntents = entry.bridgeInProvider === 'near-intents';
+  const isInboundBridge =
+    !isNearIntents && (entry.txType === 'bridged-receive' || entry.bridgeInProvider !== undefined);
+
+  return {
+    bridgeClaim: false,
+    inboundBridge: isInboundBridge,
+    oneClick: hasOneClick,
+    from: isInboundBridge || isNearIntents ? 'none' : 'secondary',
+    to: 'account'
+  };
+};
+
 /**
- * Transaction types that move value OUT of the wallet's own account, i.e. whose
- * Transfer Details read "From: this account / To: `secondaryAccountId`".
- *
- *  - `send` - `secondaryAccountId` is the recipient.
- *  - `earn-deposit` - `secondaryAccountId` is the Epoch allocator the P2IDE
- *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
- *  - `bridged-send` - normally short-circuited by `isBridgeOut` (which hides the
- *    Miden "to" row in favour of the BridgeClaimSection), but an UNSTAMPED
- *    user-cancelled bridge falls through to this rule and is still outbound.
+ * Explicit section and address-role policy for `HistoryDetails`, switched exhaustively over
+ * `entry.txType` so new transaction types cannot silently inherit another type's sections.
  */
-const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send'];
+export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy => {
+  switch (entry.txType) {
+    case 'send':
+      return {
+        bridgeClaim: false,
+        inboundBridge: false,
+        oneClick: entry.oneClickTracking !== undefined,
+        from: 'account',
+        to: 'secondary'
+      };
+    case 'earn-deposit':
+      return {
+        bridgeClaim: false,
+        inboundBridge: false,
+        oneClick: false,
+        from: 'account',
+        to: 'secondary'
+      };
+    case 'bridged-send': {
+      // An unstamped user cancel or a Guardian-recovered row keeps no bridge claim UI
+      // and falls back to a standard outbound transfer's From/To addresses.
+      const bridgeClaim = (!entry.isCancelled || entry.isUnconfirmed === true) && entry.guardianRecovered !== true;
+      return {
+        bridgeClaim,
+        inboundBridge: false,
+        oneClick: false,
+        from: 'account',
+        to: bridgeClaim ? 'none' : 'secondary'
+      };
+    }
+    case 'consume':
+    case 'bridged-receive':
+      return receiveSectionPolicy(entry);
+    case 'execute':
+    case 'earn-withdraw':
+    case 'swap':
+      return {
+        bridgeClaim: false,
+        inboundBridge: false,
+        oneClick: false,
+        from: 'secondary',
+        to: 'account'
+      };
+    case 'switch-guardian':
+    case 'replace-hot-key':
+    case 'update-procedure-threshold':
+      return {
+        bridgeClaim: false,
+        inboundBridge: false,
+        oneClick: false,
+        from: 'none',
+        to: 'none'
+      };
+    default:
+      return assertUnreachable(entry.txType);
+  }
+};
+
+const resolvePolicyAddress = (role: HistoryAddressRole, entry: IHistoryEntry | null): string | undefined => {
+  if (!entry) return undefined;
+  switch (role) {
+    case 'account':
+      return entry.address;
+    case 'secondary':
+      return entry.secondaryAddress;
+    case 'none':
+      return undefined;
+  }
+};
 
 const DISPLAY_DECIMAL_PLACES = 3;
 
@@ -720,13 +809,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     expiresAt: swapExpiresAt
   });
 
+  const sectionPolicy = entry ? getHistoryDetailsSectionPolicy(entry) : undefined;
   // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
   // may have landed, so it reads through the section's own unconfirmed rule like any
   // other unconfirmed bridge-out (#1250).
-  const isBridgeOut =
-    entry?.txType === 'bridged-send' && (!entry.isCancelled || entry.isUnconfirmed === true) && !transaction?.recovered;
+  const isBridgeOut = sectionPolicy?.bridgeClaim ?? false;
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -765,42 +854,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // The guardian the rotation ran under, as its record stored it. A row recorded without one names
   // no guardian: the account's current endpoint may belong to a later switch.
   const rotationGuardianEndpoint = isHotKeyRotation ? entry?.rotationGuardianEndpoint : undefined;
-  // Which way the money moved is a property of the transaction TYPE, not of its
-  // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
-  // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
-  // rewrites it to 'Failed' (or "Interrupted…"). Keying the direction off the
-  // message therefore reversed From/To on every send that had not completed - a
-  // cancelled 500 TST send read "From: <recipient> / To: <your own account>".
-  //
-  // Every outbound type has to be listed here, not just `send`. An `earn-deposit`
-  // moves collateral OUT of the account and into the Epoch allocator
-  // (`secondaryAccountId` = `sendParams.recipientId`) and its `displayMessage` is
-  // 'Depositing' / 'Deposited to lending' - never 'Sent' - so keying only on `send`
-  // rendered it exactly backwards in every state. An UNSTAMPED user-cancelled
-  // `bridged-send` falls out of `isBridgeOut` (which excludes only that case, so the
-  // bridge claim UI stays hidden for a cancel that never reached the pipeline) and
-  // lands here too, still outbound. The message check is kept as a fallback for rows
-  // persisted before `txType` existed.
-  const isOutboundTransfer =
-    (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
-  const fromAddress = isBridgeOut
-    ? entry?.address
-    : guardianOp
-      ? undefined
-      : isBridgeIn
-        ? undefined
-        : isOutboundTransfer
-          ? entry?.address
-          : entry?.secondaryAddress;
-  const toAddress = isBridgeOut
-    ? undefined
-    : guardianOp
-      ? undefined
-      : isBridgeIn
-        ? entry?.address
-        : isOutboundTransfer
-          ? entry?.secondaryAddress
-          : entry?.address;
+  const fromAddress = sectionPolicy ? resolvePolicyAddress(sectionPolicy.from, entry) : undefined;
+  const toAddress = sectionPolicy ? resolvePolicyAddress(sectionPolicy.to, entry) : undefined;
   const settledTransactions = settlementNotes?.settledTransactions ?? [];
   const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
   const consumedNoteIds = entry?.consumedNoteIds ?? [];
@@ -1050,7 +1105,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
                   {/* A NEAR Intents row stores the refund address in this field, not the sender: the wallet does
                       not know which address paid the deposit. Its section below shows it as the refund address. */}
-                  {isBridgeIn && entry.bridgeInSourceAddress && entry.bridgeInProvider !== 'near-intents' && (
+                  {sectionPolicy?.inboundBridge && entry.bridgeInSourceAddress && (
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
@@ -1354,8 +1409,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 </div>
               )}
 
-            {/* Bridge route + EVM-side claim (bridged-send only) */}
-            {entry.oneClickTracking && (
+            {/* NEAR Intents (1Click) details and open-deposit action */}
+            {sectionPolicy?.oneClick && entry.oneClickTracking && (
               <div className="mt-6 mb-4" data-testid="one-click-history-details">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
@@ -1504,7 +1559,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
-            {isBridgeOut && (
+            {sectionPolicy?.bridgeClaim && (
               <>
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
@@ -1521,7 +1576,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
             {/* Inbound bridge details. A NEAR Intents row has its own section above; this one would name the
                 Agglayer route and a note id that the row never has. */}
-            {isBridgeIn && entry.bridgeInProvider !== 'near-intents' && (
+            {sectionPolicy?.inboundBridge && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
                 {/* The steps between Pending and Confirmed of a USDCx deposit, read off the row. */}
