@@ -3,6 +3,7 @@
 ## 1.18.2 (TBD)
 
 - [FIX][extension] Use recent cached market prices to show the last synced balance when opening Sidebar or Command, and make optional passkey setup discoverable during onboarding and in Security settings.
+- [FIX][extension] Retain timeout ownership and validated offscreen deadline facts in saved transaction errors and local exports.
 
 - [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
 
