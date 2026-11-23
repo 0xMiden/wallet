@@ -205,9 +205,22 @@ describe('send helper ownership after a driver timeout', () => {
       .fn<ReturnType<ChromeWalletPageApi['sendTokens']>, Parameters<ChromeWalletPageApi['sendTokens']>>()
       .mockResolvedValueOnce(undefined)
       .mockImplementationOnce(() => new Promise(() => {}));
-    const result = expect(run(send, 1)).rejects.toThrow(/secondary.*send helper is still active/);
+    let settled = false;
+    let rejected: unknown;
+    const resultPromise = run(send, 1).then(
+      () => {
+        settled = true;
+      },
+      err => {
+        settled = true;
+        rejected = err;
+      }
+    );
     await jest.runAllTimersAsync();
-    await result;
+    await resultPromise;
+    expect(settled).toBe(true);
+    expect(rejected).toBeInstanceOf(Error);
+    expect(rejected instanceof Error ? rejected.message : '').toMatch(/secondary.*send helper is still active/);
     expect(send).toHaveBeenCalledTimes(2);
   });
 });

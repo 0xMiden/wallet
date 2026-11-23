@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { runStressDriver, type StressOptions } from './stress-driver';
-import { auditStressSends } from './stress-send-audit';
+import { auditStressSends, evaluateStressSendAudit } from './stress-send-audit';
 import { expect, test } from '../fixtures/two-wallets';
 import { hexFaucetToBech32 } from '../helpers/faucet-address';
 import { readTransactionRowsOrNull } from '../helpers/history';
@@ -627,14 +627,6 @@ test.describe('Stress - random send/claim', () => {
       // ── Invariants ─────────────────────────────────────────────────────
       // At least some sends must have succeeded.
       expect(result.completed, 'no sends succeeded — environment issue').toBeGreaterThan(0);
-      expect(
-        sendAudit?.links.filter(link => link.outcome === 'duplicate'),
-        'each send must have unique wallet and chain evidence'
-      ).toEqual([]);
-      expect(
-        sendAudit?.confirmedPrimary,
-        'every driver-accepted primary send must match a completed wallet transaction'
-      ).toBe(result.completed);
 
       // Everything below reads the wallets' own transaction tables, so establish
       // FIRST that those reads describe reality. Both failure modes are silent
@@ -687,12 +679,19 @@ test.describe('Stress - random send/claim', () => {
           `wallet ${label}'s send-row buckets do not add up to its ${u.totalCount} send rows`
         ).toBe(u.totalCount);
       }
+      expect(
+        sendAudit,
+        'could not read the wallets transaction rows for sendAudit - the run is unmeasurable, not clean'
+      ).not.toBeNull();
+      if (!sendAudit) {
+        throw new Error('sendAudit is null after non-null assertion');
+      }
 
       // A Failed send the wallet flagged as possibly-submitted may or may not
       // have moved value, so it is the one term the reconciliation below cannot
-      // resolve. Computed and reported HERE, ahead of every assertion, because
-      // the run where it matters is the run where an assertion throws — behind
-      // one of them it would be printed only when nobody needed it.
+      // resolve. Computed and reported HERE, ahead of every outcome assertion,
+      // because the run where it matters is the run where an assertion throws —
+      // behind one of them it would be printed only when nobody needed it.
       const maybeSubmitted = unlandedA.failedMaybeSubmittedCount + unlandedB.failedMaybeSubmittedCount;
       const maybeSubmittedValue = unlandedA.failedMaybeSubmitted + unlandedB.failedMaybeSubmitted;
       if (maybeSubmitted > 0) {
@@ -703,6 +702,50 @@ test.describe('Stress - random send/claim', () => {
             `each wallet's own share in its own direction, not the sum in both`
         );
       }
+
+      // Via floatEnv, not Number(process.env.X ?? default): `??` does not fire on
+      // an empty string, so `STRESS_MAX_FAILED_SEND_RATE=` in a CI env file would
+      // silently mean 0 — the strictest possible ceiling, on exactly the guardian
+      // run that needs the loosest — and a typo would mean NaN, which reds every
+      // run including a flawless one.
+      const maxFailedSendRate = floatEnv('STRESS_MAX_FAILED_SEND_RATE', useGuardian ? 0.05 : 0);
+      // Range-checked, because `floatEnv` rejects only a value that parses to
+      // NaN — `parseFloat('5%')` is 5, which would silently raise this ceiling to
+      // 500% and disable the check while looking like it had been tightened.
+      if (!(maxFailedSendRate >= 0 && maxFailedSendRate <= 1)) {
+        throw new Error(`STRESS_MAX_FAILED_SEND_RATE=${maxFailedSendRate} is not a rate in [0,1]`);
+      }
+
+      const sendAuditEval = evaluateStressSendAudit(sendAudit, {
+        conservationStrict,
+        maxFailedSendRate
+      });
+      expect(sendAuditEval.acceptedPrimary, 'sendAudit primary accepted count must match driver completed count').toBe(
+        result.completed
+      );
+      expect(sendAuditEval.duplicateLinks, 'each send must have unique wallet and chain evidence').toEqual([]);
+      expect(
+        sendAuditEval.unlinkedLinks,
+        'every recorded send attempt must link to a valid send row (with transactionId when completed)'
+      ).toEqual([]);
+      expect(
+        sendAuditEval.disallowedPendingLinks,
+        'no audited send may remain pending when STRESS_CONSERVATION_STRICT=true'
+      ).toEqual([]);
+      expect(
+        sendAuditEval.failedAcceptedRate,
+        `${sendAuditEval.failedAcceptedLinks.length}/${sendAuditEval.acceptedCount} driver-accepted sends ` +
+          `were marked Failed by the wallet (${(100 * sendAuditEval.failedAcceptedRate).toFixed(1)}%), ` +
+          `over the ${(100 * maxFailedSendRate).toFixed(1)}% ceiling`
+      ).toBeLessThanOrEqual(maxFailedSendRate);
+      expect(
+        sendAudit.confirmedPrimary,
+        'driver-accepted primary sends must match completed wallet transactions (modulo tolerated failures/pending)'
+      ).toBe(sendAuditEval.expectedConfirmedPrimary);
+      expect(
+        sendAudit.confirmedSecondary,
+        'driver-accepted secondary sends must match completed wallet transactions (modulo tolerated failures/pending)'
+      ).toBe(sendAuditEval.expectedConfirmedSecondary);
 
       // Strict conservation: total balance must match initial.
       // Any deviation means a note was lost somewhere — a real bug.
@@ -840,18 +883,6 @@ test.describe('Stress - random send/claim', () => {
             `by the wallet (${(100 * failedSendRate).toFixed(1)}% of counted sends, ` +
             `${maybeSubmitted} of them possibly submitted) — see settlement.unlandedSends in the summary`
         );
-      }
-      // Via floatEnv, not Number(process.env.X ?? default): `??` does not fire on
-      // an empty string, so `STRESS_MAX_FAILED_SEND_RATE=` in a CI env file would
-      // silently mean 0 — the strictest possible ceiling, on exactly the guardian
-      // run that needs the loosest — and a typo would mean NaN, which reds every
-      // run including a flawless one.
-      const maxFailedSendRate = floatEnv('STRESS_MAX_FAILED_SEND_RATE', useGuardian ? 0.05 : 0);
-      // Range-checked, because `floatEnv` rejects only a value that parses to
-      // NaN — `parseFloat('5%')` is 5, which would silently raise this ceiling to
-      // 500% and disable the check while looking like it had been tightened.
-      if (!(maxFailedSendRate >= 0 && maxFailedSendRate <= 1)) {
-        throw new Error(`STRESS_MAX_FAILED_SEND_RATE=${maxFailedSendRate} is not a rate in [0,1]`);
       }
       expect(
         failedSendRate,
