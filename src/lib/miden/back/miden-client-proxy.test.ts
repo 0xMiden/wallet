@@ -5274,17 +5274,21 @@ describe('MidenClientProxy - a deadline re-armed while its probe runs (#2148)', 
   };
 
   it('leaves the realm alone when the start signal re-armed the op during the probe', async () => {
-    const { __test, markOpStarted, op_id, finishProbe } = await parkOnProbe();
+    const { __test, markOpStarted, op_id, finishProbe, p } = await parkOnProbe();
     markOpStarted(op_id);
     finishProbe();
     await flush();
 
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
     expect(__test.inFlightSize()).toBe(1);
+
+    // The fresh deadline is still live: let it fire so no timer outlives the test.
+    await wait(60);
+    await p;
   });
 
   it('leaves the realm alone when a sign pause and resume re-armed the op during the probe', async () => {
-    const { __test, handleOffscreenSignRequest, op_id, finishProbe } = await parkOnProbe();
+    const { __test, handleOffscreenSignRequest, op_id, finishProbe, p } = await parkOnProbe();
     const release = __test.allowDefaultSigner(op_id);
     await handleOffscreenSignRequest(signRequestFor(op_id), async () => new Uint8Array([0x7]));
     release();
@@ -5293,5 +5297,9 @@ describe('MidenClientProxy - a deadline re-armed while its probe runs (#2148)', 
 
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
     expect(__test.inFlightSize()).toBe(1);
+
+    // The fresh deadline is still live: let it fire so no timer outlives the test.
+    await wait(60);
+    await p;
   });
 });
