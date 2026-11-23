@@ -1,5 +1,5 @@
 import React from 'react';
-import { clearInterval, setInterval } from 'timers';
+import { clearInterval, setInterval, setTimeout as realSetTimeout } from 'timers';
 
 import { act, cleanup, render } from '@testing-library/react';
 import type { DeltaObject, HistoryEntry, HistoryPage, Signer } from '@openzeppelin/guardian-client';
@@ -162,6 +162,7 @@ jest.mock('./guardian-history-recovery', () => {
 });
 
 const RECORDS = 1_214;
+const STALL_WALL_MS = 300_000;
 const CURRENT = 'https://current.synthetic.invalid';
 const PREVIOUS = 'https://previous.synthetic.invalid';
 const LOCAL_NONCE = 1_190;
@@ -559,6 +560,9 @@ let testDiagnostics: HistoryTestDiagnostics;
 async function pump(diagnostics: HistoryTestDiagnostics, done: () => boolean, limit = 400_000) {
   const start = Date.now();
   let idle = 0;
+  let idleStartWall = 0;
+  let lastProgress = '';
+  let lastProgressWall = wallNow();
   let reports = 0;
   let diagnostic: ReturnType<typeof setInterval> | undefined;
   if (!diagnostics.closed) {
@@ -584,12 +588,28 @@ async function pump(diagnostics: HistoryTestDiagnostics, done: () => boolean, li
       if (Number.isFinite(due)) {
         idle = 0;
         await act(async () => { await jest.advanceTimersByTimeAsync(Math.max(0, due - Date.now())); });
-      } else if (++idle > 2_000) {
-        throw new Error(`Synthetic barrier not reached: ${JSON.stringify({
-          events: mockHarness.events,
-          raw: mockHarness.raw,
-          notes: mockHarness.completedNotes.length
-        })}`);
+      } else {
+        // No fake timer is due: real async work (IndexedDB) may be pending, so wait real time and count a stall only
+        // when no harness counter moves for STALL_WALL_MS of wall time.
+        const progress = `${mockHarness.requested.length}|${mockHarness.decoded.length}|${mockHarness.completedNotes.length}|${mockHarness.commits}|${mockHarness.pageCount}|${mockHarness.uncompletedQueries.settled}`;
+        if (progress !== lastProgress) {
+          lastProgress = progress;
+          lastProgressWall = wallNow();
+        }
+        if (++idle === 1) idleStartWall = wallNow();
+        await new Promise<void>(resolve => { realSetTimeout(resolve, 5); });
+        if (wallNow() - lastProgressWall > STALL_WALL_MS) {
+          throw new Error(`Synthetic barrier not reached: ${JSON.stringify({
+            events: mockHarness.events,
+            raw: mockHarness.raw,
+            notes: mockHarness.completedNotes.length,
+            stalledWallMs: wallNow() - lastProgressWall,
+            idleIterations: idle,
+            idleStartWall,
+            queriesStarted: mockHarness.uncompletedQueries.started,
+            queriesSettled: mockHarness.uncompletedQueries.settled
+          })}`);
+        }
       }
     }
     if (!done()) throw new Error('Synthetic fake-clock safety ceiling exceeded');
