@@ -118,6 +118,18 @@ describe('TransactionIcon', () => {
     expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'close');
   });
 
+  it('greys an expired NEAR Intents deposit, which is not a failure', () => {
+    mockBridgeStatusOf.mockReturnValue('expired');
+
+    const { getByTestId, container } = render(
+      <TransactionIcon entry={makeEntry({ txType: 'bridged-receive', bridgeInProvider: 'near-intents' })} />
+    );
+
+    expect(root(container)).toHaveClass('bg-gray-400');
+    expect(root(container)).not.toHaveClass('bg-status-negative');
+    expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'close');
+  });
+
   describe('bridge branch', () => {
     // Every bridge shape — outbound, inbound by txType, and inbound recognised
     // only by its provider stamp — resolves to the same slate swap square.
@@ -273,6 +285,13 @@ describe('TransactionIcon', () => {
     it('reddens a failed bridge', () => {
       mockBridgeStatusOf.mockReturnValue('failed');
       expect(getTransactionIconBackgroundColor(makeEntry({ txType: 'bridged-send' }))).toBe('#CC5D5D');
+    });
+
+    it('greys an expired NEAR Intents deposit', () => {
+      mockBridgeStatusOf.mockReturnValue('expired');
+      expect(
+        getTransactionIconBackgroundColor(makeEntry({ txType: 'bridged-receive', bridgeInProvider: 'near-intents' }))
+      ).toBe('#9E9E9E');
     });
 
     it('uses the faucet accent for a faucet request', () => {

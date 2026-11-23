@@ -1,12 +1,4 @@
-import {
-  isNominalQuote,
-  quotedPrice,
-  type BasketComponent,
-  type KlinePoint,
-  type KlineSeries,
-  type TokenPrices
-} from './binance';
-import { isFixedQuote } from './fixed';
+import { quotedPrice, type BasketComponent, type KlinePoint, type KlineSeries, type TokenPrices } from './binance';
 
 /**
  * A basket holds fixed amounts of its tokens between rebalances, so its value moves as the value-weighted sum of
@@ -18,7 +10,7 @@ import { isFixedQuote } from './fixed';
 /** A market quote for the token: never the nominal rate, a fixed price or another basket's value. */
 function marketQuote(prices: TokenPrices, priceSymbol: string) {
   const quote = quotedPrice(prices, priceSymbol);
-  return quote && !isNominalQuote(quote) && !isFixedQuote(quote) && quote.source !== 'basket' ? quote : undefined;
+  return quote?.kind === 'market' ? quote : undefined;
 }
 
 /**

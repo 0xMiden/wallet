@@ -16,7 +16,6 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 
-import { OneClickNetworkPicker } from './OneClickPickers';
 import type { SwapAmountsProps } from './SwapAmounts';
 
 export function CommandSwap({
@@ -39,12 +38,7 @@ export function CommandSwap({
   statusMessage,
   statusIsError,
   statusErrorId,
-  feeAssetMissing,
-  oneClickNetworks,
-  offerNetwork,
-  requestNetwork,
-  onOfferNetworkChange,
-  onRequestNetworkChange
+  feeAssetMissing
 }: SwapAmountsProps): React.ReactElement {
   const { t } = useTranslation();
   const formId = useId();
@@ -86,14 +80,6 @@ export function CommandSwap({
           if (canProceed) onConfirm();
         }}
       >
-        {oneClickNetworks && offerNetwork && onOfferNetworkChange && (
-          <OneClickNetworkPicker
-            side="pay"
-            network={offerNetwork}
-            networks={oneClickNetworks}
-            onSelect={onOfferNetworkChange}
-          />
-        )}
         <SelectAmount
           embedded
           showAmountShortcuts
@@ -141,20 +127,17 @@ export function CommandSwap({
         data-testid="command-swap-receive"
         className="flex min-w-0 flex-col gap-3 rounded-2xl border border-accent-tint-ink/25 bg-accent-tint p-4 sm:p-5"
       >
-        {oneClickNetworks && requestNetwork && onRequestNetworkChange && (
-          <OneClickNetworkPicker
-            side="receive"
-            network={requestNetwork}
-            networks={oneClickNetworks}
-            onSelect={onRequestNetworkChange}
-          />
-        )}
         <DetailCard surface="fill">
           <DetailRow label={t('youReceive')} stacked>
             {requestLoading ? (
               <WaveDots label={t('calculatingQuote')} />
             ) : requestAmount ? (
-              <span className="break-all text-title-tab tabular-nums text-ink">{requestAmount}</span>
+              <span
+                data-testid="command-swap-receive-amount"
+                className="break-all text-title-tab tabular-nums text-ink"
+              >
+                {requestAmount}
+              </span>
             ) : (
               t('calculatingQuote')
             )}
@@ -162,6 +145,7 @@ export function CommandSwap({
           <button
             ref={requestTokenAnchorRef}
             type="button"
+            data-testid="command-swap-receive-token"
             aria-haspopup={requestTokenAnchorRef ? 'dialog' : undefined}
             className="flex w-full items-center gap-2 px-4 py-3 text-action text-accent-swap-ink hover:bg-fill-pressed focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-swap-ink"
             onClick={() => {

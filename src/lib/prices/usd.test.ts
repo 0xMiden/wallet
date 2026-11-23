@@ -93,7 +93,9 @@ describe('getPriceMicro', () => {
 
   it('refetches when the cached entry is older than the freshness bound', async () => {
     mockedRead.mockResolvedValue({ ETH: { priceMicro: '4000000000', fetchedAt: 1_000 } });
-    mockedFetch.mockResolvedValue({ ETH: { price: 4100, change24h: 0, percentageChange24h: 0 } });
+    mockedFetch.mockResolvedValue({
+      ETH: { price: 4100, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+    });
 
     await expect(getPriceMicro('ETH', 1_000 + 601)).resolves.toBe(4_100_000_000n);
     expect(mockedFetch).toHaveBeenCalledTimes(1);
@@ -113,8 +115,8 @@ describe('getPriceMicro', () => {
 
   it('fetches each requested asset across concurrent callers', async () => {
     mockedFetch.mockResolvedValue({
-      ETH: { price: 4100, change24h: 0, percentageChange24h: 0 },
-      BTC: { price: 90000, change24h: 0, percentageChange24h: 0 }
+      ETH: { price: 4100, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+      BTC: { price: 90000, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
     });
 
     const [eth, btc] = await Promise.all([getPriceMicro('ETH', 1_000), getPriceMicro('BTC', 1_000)]);
@@ -126,7 +128,9 @@ describe('getPriceMicro', () => {
   });
 
   it('persists a refreshed price for the other realm to read', async () => {
-    mockedFetch.mockResolvedValue({ ETH: { price: 4100, change24h: 0, percentageChange24h: 0 } });
+    mockedFetch.mockResolvedValue({
+      ETH: { price: 4100, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+    });
 
     await getPriceMicro('ETH', 1_000);
 
@@ -161,13 +165,15 @@ describe('getPriceMicro', () => {
 
   it('treats a cache read failure as empty rather than letting it crash the lookup', async () => {
     mockedRead.mockRejectedValue(new Error('storage offline'));
-    mockedFetch.mockResolvedValue({ ETH: { price: 4100, change24h: 0, percentageChange24h: 0 } });
+    mockedFetch.mockResolvedValue({
+      ETH: { price: 4100, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+    });
 
     await expect(getPriceMicro('ETH', 1_000)).resolves.toBe(4_100_000_000n);
   });
 
   it('drops a covered symbol whose feed price cannot be converted, rather than caching garbage', async () => {
-    mockedFetch.mockResolvedValue({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } });
+    mockedFetch.mockResolvedValue({ ETH: { price: 0, change24h: 0, percentageChange24h: 0, kind: 'market' as const } });
 
     await expect(getPriceMicro('ETH', 1_000)).resolves.toBeUndefined();
     expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {});
@@ -175,7 +181,9 @@ describe('getPriceMicro', () => {
 
   it('treats a cache write failure as a slower next read, not a broken refresh', async () => {
     mockedWrite.mockRejectedValue(new Error('storage full'));
-    mockedFetch.mockResolvedValue({ ETH: { price: 4100, change24h: 0, percentageChange24h: 0 } });
+    mockedFetch.mockResolvedValue({
+      ETH: { price: 4100, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+    });
 
     await expect(getPriceMicro('ETH', 1_000)).resolves.toBe(4_100_000_000n);
   });
@@ -198,7 +206,9 @@ describe('getPriceMicro', () => {
 
   it('rejects a cached entry whose price decodes to zero, refreshing instead of trusting it', async () => {
     mockedRead.mockResolvedValue({ ETH: { priceMicro: '0', fetchedAt: 1_000 } });
-    mockedFetch.mockResolvedValue({ ETH: { price: 4100, change24h: 0, percentageChange24h: 0 } });
+    mockedFetch.mockResolvedValue({
+      ETH: { price: 4100, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+    });
 
     await expect(getPriceMicro('ETH', 1_000)).resolves.toBe(4_100_000_000n);
     expect(mockedFetch).toHaveBeenCalledTimes(1);
@@ -209,7 +219,7 @@ describe('writeUsdPriceCache', () => {
   it('merges into the stored cache rather than replacing it', async () => {
     mockedRead.mockResolvedValue({ BTC: { priceMicro: '1', fetchedAt: 10 } });
 
-    await writeUsdPriceCache({ ETH: { price: 2, change24h: 0, percentageChange24h: 0 } }, 20);
+    await writeUsdPriceCache({ ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }, 20);
 
     expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {
       BTC: { priceMicro: '1', fetchedAt: 10 },
@@ -217,8 +227,23 @@ describe('writeUsdPriceCache', () => {
     });
   });
 
+  it('keeps only market quotes: a basket value or a nominal or fixed rate never values a spend', async () => {
+    const quote = { price: 2, change24h: 0, percentageChange24h: 0 };
+    await writeUsdPriceCache(
+      {
+        ETH: { ...quote, kind: 'market' },
+        BTC: { ...quote, kind: 'basket' },
+        ARB: { ...quote, kind: 'nominal' },
+        USDC: { ...quote, kind: 'fixed' }
+      },
+      20
+    );
+
+    expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', { ETH: { priceMicro: '2000000', fetchedAt: 20 } });
+  });
+
   it('drops an uncovered symbol the feed volunteered', async () => {
-    await writeUsdPriceCache({ DOGE: { price: 1, change24h: 0, percentageChange24h: 0 } }, 20);
+    await writeUsdPriceCache({ DOGE: { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }, 20);
 
     expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {});
   });
@@ -236,7 +261,9 @@ describe('fixed USDCX micro-dollar price', () => {
 });
 
 it('fetches and caches a dynamic verified asset without a static feed entry', async () => {
-  mockedFetch.mockResolvedValue({ ARB: { price: 0.75, change24h: 0, percentageChange24h: 0 } });
+  mockedFetch.mockResolvedValue({
+    ARB: { price: 0.75, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+  });
   await expect(getPriceMicro('ARB', 100)).resolves.toBe(750_000n);
   expect(mockedFetch).toHaveBeenCalledWith(['ARB']);
   expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {
@@ -246,10 +273,13 @@ it('fetches and caches a dynamic verified asset without a static feed entry', as
 
 it('allows a later cache write after an earlier write fails', async () => {
   await expect(
-    writeUsdPriceCache({ ETH: { price: Number.MAX_VALUE, change24h: 0, percentageChange24h: 0 } }, 100)
+    writeUsdPriceCache(
+      { ETH: { price: Number.MAX_VALUE, change24h: 0, percentageChange24h: 0, kind: 'market' as const } },
+      100
+    )
   ).rejects.toBeInstanceOf(RangeError);
   await expect(
-    writeUsdPriceCache({ ETH: { price: 1000, change24h: 0, percentageChange24h: 0 } }, 101)
+    writeUsdPriceCache({ ETH: { price: 1000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }, 101)
   ).resolves.toBeUndefined();
   expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {
     ETH: { priceMicro: '1000000000', fetchedAt: 101 }
@@ -257,7 +287,7 @@ it('allows a later cache write after an earlier write fails', async () => {
 });
 
 describe('prefetchUsdPrices', () => {
-  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0, kind: 'market' as const });
 
   it('fetches every cold covered symbol in one request and leaves them cached', async () => {
     let stored: unknown = null;

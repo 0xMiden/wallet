@@ -64,6 +64,8 @@ const mergeIntoCache = (
 const mergePrices = async (prices: TokenPrices, now: number, requested: readonly string[]): Promise<UsdPriceCache> => {
   const cache = await readCache();
   for (const [symbol, info] of Object.entries(prices)) {
+    // Only an exchange quote may value a spend: a basket's value or a nominal rate is for display.
+    if (info.kind !== 'market') continue;
     if (!requested.includes(symbol) && !isCoveredSymbol(symbol)) continue;
     const priceMicro = toPriceMicro(info.price);
     if (priceMicro === undefined) continue;

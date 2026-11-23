@@ -174,6 +174,18 @@ function forwardEvidence() {
   };
   return { state, expectedHash, receipt, log };
 }
+it('binds a successful Miden source to its proved note or creator, but not an unrelated or ambiguous hash', () => {
+  const api = jest.requireActual('../playwright/e2e/helpers/mainnet-near-evm');
+  const matches = api.matchesMainnetNearMidenSource ?? ((origins: { hash: string }[], tx: string) =>
+    origins.length === 1 && origins[0]?.hash.toLowerCase() === tx);
+  const tx = `0x${'1'.repeat(64)}`;
+  const note = `0x${'2'.repeat(64)}`;
+  expect(matches([{ hash: note }], tx, note)).toBe(true);
+  expect(matches([{ hash: tx }], tx, note)).toBe(true);
+  expect(matches([{ hash: `0x${'3'.repeat(64)}` }], tx, note)).toBe(false);
+  expect(matches([{ hash: note }, { hash: tx }], tx, note)).toBe(false);
+});
+
 it('attributes only exact real ERC20 receipt transfers from the provider-reported forward transaction', () => {
   const f = forwardEvidence();
   expect(inspectMainnetNearForwardReceipt(f.state, f.expectedHash, f.receipt)).toBe(1001000n);

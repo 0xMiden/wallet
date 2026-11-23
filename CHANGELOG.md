@@ -1,9 +1,49 @@
 # Changelog
 
-## 1.18.1 (TBD)
+## 1.18.2 (TBD)
 
 - [FIX][extension] Retain timeout ownership and validated offscreen deadline facts in saved transaction errors and local exports.
 
+- [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
+
+- [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
+- [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
+- [FIX][ci] Reconcile the exact cancelled nightly Swap checkpoint after verifying that custody did not change.
+
+## 1.18.1 (2026-11-23)
+
+- [FIX][ci] Bound nightly NEAR return authorization by both the original checkpoint allowance and the current dispatch allowance.
+
+- [FIX][ios][android][extension] Show the USD value of USDT, SOL, NEAR and PAXG in the Swap token picker, priced from the verified token list like home, not only ETH and WBTC.
+- [FIX][extension] Tell the user to restart the browser when its IndexedDB storage stops answering, instead of showing an empty wallet, restarting the offscreen document in a loop, piling up sync retries until memory runs out, or reporting a node outage.
+- [FIX][ci] Use the authorized plain P2ID note for nightly NEAR deposits and reconcile the exact unused Green13 quote.
+- [FIX][ci] Reconcile the exact expired Green12 NEAR quote without renewing its authority.
+- [FIX][ci] Report the last NEAR forward stage without uploading private worker logs.
+- [FIX][ci] Report bounded queue diagnostics when NEAR forward authorization fails.
+- [FIX][ci] Reconcile the exact expired Green11 NEAR quote without renewing it or funding a new loop.
+- [FIX][ci] Reconcile the exact expired Green08 NEAR quote without renewing it or funding a new loop.
+
+- [FIX][ci] Open the compact fixed-output Bridge form for nightly Epoch returns without changing the quote or signing requirements.
+
+- [FIX][ci] Drive the fullscreen Command Swap composer in the nightly without skipping the rendered quote and amount checks.
+
+- [FIX][ci] Discover and verify the nightly NEAR claim note before pausing the transaction queue for authorization.
+
+- [FIX][ci] Recognize the exact provider-reported Miden note on NEAR nightly returns without changing refund verification.
+
+- [FIX][ci] Allow one manual recovery of the held nightly NEAR proceeds after verifying the expired return was never submitted. Preserve the retired authorization and prevent fresh funding in that run.
+
+- [FIX][all] A NEAR Intents deposit that got no funds before its quote deadline reads Expired in Activity, not Pending or Failed, with a grey icon, not the red of a failure.
+- [ADD][mobile] The NEAR Intents deposit page shows installed Trust Wallet, MetaMask, Rainbow, and Phantom apps for supported source assets, with payment links that include the address and exact amount. Phantom is hidden when Trust Wallet is installed. Reown's keychain group follows the Xcode signing prefix and bundle ID.
+- [CHANGE][all] NEAR Intents (1Click) moves from Swap to a "Near Intents" tab on Receive: pick an origin chain and token (Ethereum, Solana, Bitcoin, NEAR), get a 1Click deposit address with a QR code, and pay from any wallet with no wallet connection; the pairs come from the new `nearIntents` section of the wallet-config document, and Swap is the DEX flow only.
+- [FIX][ci] The nightly NEAR loop reads the nearIntents config and drives the Receive deposit-address flow, and its owned config overlay writes that section instead of swap.oneClick.
+- [CHANGE][ci] Emit a sanitized mainnet nightly report for the Wallet E2E dashboard with test and recovery evidence.
+- [FIX][ci] Report the last NEAR return stage reached when the mainnet nightly fails, without uploading private worker logs.
+
+- [FIX][ci] Verify the original NEAR deposit fee against Guardian history when a restored nightly wallet lacks the local send record.
+- [FIX][extension] Restore the selected account’s last synced balance when reopening the wallet, without waiting for another sync.
+
+- [FIX][ci] Recognize a 1Click mainnet payout that identifies the independently verified Miden deposit note instead of its creator transaction, without relaxing quote or payout verification.
 - [CHANGE][extension] Give fullscreen Bread Command a wider portfolio, steadier action switching, and desktop controls for sending, bridging, and viewing activity.
 
 - [FIX][all] Match the bundled testnet Explore catalog to the published catalog.
@@ -85,6 +125,7 @@
 - [CHANGE][extension] Redesign the dApp signature windows (sign-in, raw value, arbitrary, blind, transaction summary): the Bread and site tiles up top, a heading with a short explanation (a key for sign-in, a caution for values Bread can't preview), the raw value shown open, the transaction summary with the transaction windows' amount header, and the request's site and network on every window.
 - [CHANGE][extension] Restyle the dApp data-request windows (private notes, assets, consumable notes, private-note import) to open like Connect: the Bread and site tiles with the site up top, what it asks for under it, the payload as a titled card, and the private-note download below it; a failed Confirm shows the Couldn't confirm notice and offers Try again.
 - [CHANGE][all] Tidy the Send review: drop the recipient bubble and amount and fee pills that repeated the card below, show the full recipient address right-aligned in the To row, set the USD value and the pending-transfer note in Nunito at 16px, and lay out Advanced options like the other rows, with the transfer type on the right and the expiration under it.
+- [CHANGE][all] dApp signing: a Guardian account signs only arbitrary signing inputs of at most 256 elements that carry their preimage, and the wallet refuses every other `signBytes` request for it before it can be approved. The approval for a Guardian account lists the elements being signed. Other accounts are unchanged.
 
 ## 1.18.0 (2026-11-17)
 
