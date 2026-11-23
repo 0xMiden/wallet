@@ -667,8 +667,8 @@ async function onDeadline(op_id: string): Promise<void> {
     return;
   }
   if (closeResult === 'absent' && downgradeReadDeadline(op_id, op)) return;
-  // Closing the doc killed every concurrent op's realm — reject them all. A start signal that
-  // lands while closeDocument itself is in flight does not supersede that kill.
+  // Closing the doc killed every concurrent op's realm — reject them all.
+  // A start signal that lands while closeDocument itself is in flight does not supersede that kill.
   // TODO(slice 4): there is a small window where an op whose sendMessage is
   // mid-flight (but whose result would have been fine) gets rejected as a
   // collateral 'deadline' abort. Harmless for idempotent reads; slice 4 must
