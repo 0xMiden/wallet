@@ -432,6 +432,8 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
   );
 }
 
+export { valid as isMainnetSwapCheckpoint };
+
 export function loadMainnetSwapCheckpoint(path: string): MainnetSwapCheckpoint | undefined {
   let text: string;
   try {

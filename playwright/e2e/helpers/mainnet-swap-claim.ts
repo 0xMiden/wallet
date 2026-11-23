@@ -33,6 +33,15 @@ export interface MainnetSwapPaybackScope extends TestMainnetSwapScope {
 }
 
 export function inspectMainnetSwapPayback(original: Note, payback: Note, scope: MainnetSwapPaybackScope): bigint {
+  return inspectFirstSwapPayback(original, payback, scope, false);
+}
+
+function inspectFirstSwapPayback(
+  original: Note,
+  payback: Note,
+  scope: MainnetSwapPaybackScope,
+  partial: boolean
+): bigint {
   if (original.id().toString() !== scope.noteId) throw new Error('Original PSWAP identity changed');
   const request = new TransactionRequestBuilder()
     .withOwnOutputNotes(new NoteArray([original]))
@@ -46,7 +55,8 @@ export function inspectMainnetSwapPayback(original: Note, payback: Note, scope: 
     assets.length !== 1 ||
     payback.assets().assets().length !== 1 ||
     assets[0]?.faucetId().toString() !== scope.requestedFaucetId ||
-    assets[0].amount() < BigInt(scope.requestedAmount) ||
+    assets[0].amount() <= 0n ||
+    assets[0].amount() < BigInt(scope.requestedAmount) !== partial ||
     payback.metadata().sender().toString() === scope.accountId
   )
     throw new Error('Payback asset, minimum or maker differs from the original scope');
@@ -65,7 +75,7 @@ export function inspectMainnetSwapPayback(original: Note, payback: Note, scope: 
     [NoteAttachment.fromWord(new NoteAttachmentScheme(3), new Word(new BigUint64Array([amount, orderId, 1n, 0n])))]
   );
   if (expected.id().toString() !== payback.id().toString())
-    throw new Error('Payback differs from the exact original full-fill protocol note');
+    throw new Error('Payback differs from the exact original protocol note');
   return amount;
 }
 
@@ -162,10 +172,7 @@ export function authorizeMainnetSwapRecoveryReturn(
   const loss = BigInt(state.principal) - recoveryMinimum;
   const projected =
     ((loss > 0n ? loss : 0n) * price + unit - 1n) / unit + (BigInt(state.feeBudget) * price + unit - 1n) / unit;
-  if (
-    projected > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP) ||
-    (recoveryMinimum * price) / unit < 1_000_000n
-  )
+  if (projected > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP) || (recoveryMinimum * price) / unit < 1_000_000n)
     throw new Error('Original recovery price envelope exceeds the loss budget or wallet minimum');
   return {
     ...state,
@@ -464,7 +471,8 @@ export function prepareMainnetSwapClaimRecovery(
 export async function readMainnetSwapPayback(
   rpcUrl: string,
   scope: MainnetSwapPaybackScope,
-  onOriginalIncluded?: () => void
+  onOriginalIncluded?: () => void,
+  observeCanary?: { originalConsumed: () => void; partialFill: () => void }
 ): Promise<MainnetSwapPaybackEvidence | undefined> {
   const url = new URL(rpcUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
@@ -504,6 +512,7 @@ export async function readMainnetSwapPayback(
   if (consumedHeight === undefined) return undefined;
   if (!Number.isSafeInteger(consumedHeight) || consumedHeight < originalHeight)
     throw new Error('Invalid original PSWAP consumption block');
+  observeCanary?.originalConsumed();
   const notes = await withRpcTimeout(
     () =>
       rpc.syncNotes(consumedHeight, consumedHeight, [NoteTag.withAccountTarget(AccountId.fromHex(scope.accountId))]),
@@ -534,11 +543,17 @@ export async function readMainnetSwapPayback(
   const candidateNote = candidate.note;
   if (candidateNote.id().toString() !== candidate.noteId.toString())
     throw new Error('Public payback body differs from its committed identity');
-  const amount = inspectMainnetSwapPayback(originalNote, candidateNote, exactScope);
+  const candidateAmount = candidateNote.assets().fungibleAssets()[0]?.amount();
+  const partial = !!observeCanary && candidateAmount !== undefined && candidateAmount < BigInt(scope.requestedAmount);
+  const amount = inspectFirstSwapPayback(originalNote, candidateNote, exactScope, partial);
   if (candidate.inclusionProof.location().blockNum() !== consumedHeight)
     throw new Error('Payback does not share the original consumption block');
   const noteId = candidate.noteId.toString();
   await verifyMainnetMidenNoteInclusion(rpcUrl, noteId, consumedHeight, candidate.metadata.sender().toString());
+  if (partial) {
+    observeCanary?.partialFill();
+    return undefined;
+  }
   const claimedAtBlock = await readMainnetSwapCommitHeight(rpc, candidateNote, consumedHeight);
   const serialZeroOrderId = originalNote.recipient().serialNum().toU64s()[0]?.toString();
   if (serialZeroOrderId === undefined) throw new Error('Missing original serial identity');

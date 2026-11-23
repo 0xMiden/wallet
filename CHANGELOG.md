@@ -2,6 +2,8 @@
 
 ## 1.18.2 (TBD)
 
+- [ADD][ci] Prepare a disabled one-way wallet canary that records on-chain orders and spendable receipts and reconciles interrupted runs without submitting again.
+
 - [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
 
 - [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.

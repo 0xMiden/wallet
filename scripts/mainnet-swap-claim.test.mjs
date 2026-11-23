@@ -200,6 +200,50 @@ test('verifies the actual SDK full payback using protocol order serial[1] and th
   const { original, payback, scope } = fixture();
   assert.equal(inspectMainnetSwapPayback(original, payback, scope), 1010890n);
 });
+
+test('observes an exact canonical first partial fill without granting a full claim', async () => {
+  const { original, payback, scope } = fixture({ amount: 501_000n });
+  const record = (note, height) => ({
+    note,
+    noteId: note.id(),
+    metadata: note.metadata(),
+    inclusionProof: {
+      location: () => ({ blockNum: () => height, blockNoteTreeIndex: () => 0 }),
+      notePath: () => ({ verify: () => true })
+    }
+  });
+  const originalGet = RpcClient.prototype.getNotesById;
+  const originalHeader = RpcClient.prototype.getBlockHeaderByNumber;
+  const originalCommitHeight = RpcClient.prototype.getNullifierCommitHeight;
+  const originalSync = RpcClient.prototype.syncNotes;
+  RpcClient.prototype.getNotesById = async ([id]) => [
+    id.toString() === scope.noteId ? record(original, 123) : record(payback, 124)
+  ];
+  RpcClient.prototype.getBlockHeaderByNumber = async block => ({
+    blockNum: () => block,
+    noteRoot: () => Word.fromHex(scope.noteId)
+  });
+  RpcClient.prototype.getNullifierCommitHeight = async () => 124;
+  RpcClient.prototype.syncNotes = async () => ({ blockTo: () => 124, notes: () => [{ noteId: () => payback.id() }] });
+  const observed = [];
+  try {
+    assert.equal(
+      await claims.readMainnetSwapPayback('https://rpc.mainnet.miden.io', scope, () => observed.push('included'), {
+        originalConsumed: () => observed.push('consumed'),
+        partialFill: () => observed.push('partial')
+      }),
+      undefined
+    );
+    assert.deepEqual(observed, ['included', 'consumed', 'partial']);
+    await assert.rejects(() => claims.readMainnetSwapPayback('https://rpc.mainnet.miden.io', scope), /minimum/);
+  } finally {
+    RpcClient.prototype.getNotesById = originalGet;
+    RpcClient.prototype.getBlockHeaderByNumber = originalHeader;
+    RpcClient.prototype.getNullifierCommitHeight = originalCommitHeight;
+    RpcClient.prototype.syncNotes = originalSync;
+  }
+});
+
 for (const [name, change] of [
   ['another original principal', { originalAmount: 1010429n }],
   ['another original script', { originalScript: true }],

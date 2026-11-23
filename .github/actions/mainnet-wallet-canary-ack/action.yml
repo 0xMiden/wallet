@@ -1,0 +1,63 @@
+name: Acknowledge a wallet canary authorization
+description: Upload and verify a digest of the private checkpoint before releasing the held request.
+inputs:
+  stage:
+    description: Either send or claim.
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: snapshot
+      shell: bash
+      env:
+        STAGE: ${{ inputs.stage }}
+      run: |
+        set -euo pipefail
+        gate="$MAINNET_SWAP_SDK_GATE"
+        case "$STAGE" in
+          send) ;;
+          claim) gate="$gate.claim" ;;
+          *) exit 1 ;;
+        esac
+        deadline=$((SECONDS + 1100))
+        while [ ! -f "$gate.ready" ]; do
+          if [ -f "$MAINNET_CANARY_RUN_DIR/browser.exit" ]; then exit 0; fi
+          read -r pid < "$MAINNET_CANARY_RUN_DIR/browser.pid"
+          if ! [[ "$pid" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+            echo 'Wallet canary browser exited before the authorization gate.' >&2
+            exit 1
+          fi
+          if [ "$SECONDS" -ge "$deadline" ]; then
+            echo 'Wallet canary authorization did not become ready.' >&2
+            exit 1
+          fi
+          sleep 1
+        done
+        node scripts/mainnet-wallet-canary-ack.mjs snapshot "$MAINNET_CANARY_CHECKPOINT_PATH" "$gate" "$MAINNET_CANARY_RUN_DIR/$STAGE"
+    - id: upload
+      if: steps.snapshot.outputs.path != ''
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: wallet-canary-${{ inputs.stage }}-ack-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ steps.snapshot.outputs.path }}
+        if-no-files-found: error
+        retention-days: 1
+    - if: steps.snapshot.outputs.path != ''
+      shell: bash
+      env:
+        STAGE: ${{ inputs.stage }}
+        GH_TOKEN: ${{ github.token }}
+        ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+      run: |
+        set -euo pipefail
+        [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+        gate="$MAINNET_SWAP_SDK_GATE"
+        if [ "$STAGE" = claim ]; then gate="$gate.claim"; fi
+        directory="$MAINNET_CANARY_RUN_DIR/$STAGE"
+        resource="repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+        timeout 30s gh api --method GET "$resource" > "$directory/metadata.json"
+        timeout 30s gh api --method GET "$resource/zip" > "$directory/digest.zip"
+        [ "$(wc -c < "$directory/digest.zip")" -le 4096 ]
+        [ "$(unzip -Z1 "$directory/digest.zip")" = authorization.sha256 ]
+        unzip -p "$directory/digest.zip" authorization.sha256 | head -c 66 > "$directory/downloaded.sha256"
+        node scripts/mainnet-wallet-canary-ack.mjs acknowledge "$MAINNET_CANARY_CHECKPOINT_PATH" "$gate" "$directory/authorization.sha256" "$directory/downloaded.sha256" "$directory/metadata.json" "$ARTIFACT_ID" "$STAGE"
