@@ -1,8 +1,11 @@
 # Changelog
 
-## 1.18.1 (2026-11-23)
+## 1.18.2 (TBD)
 
 - [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
+
+## 1.18.1 (2026-11-23)
+
 - [FIX][ci] Bound nightly NEAR return authorization by both the original checkpoint allowance and the current dispatch allowance.
 
 - [FIX][ios][android][extension] Show the USD value of USDT, SOL, NEAR and PAXG in the Swap token picker, priced from the verified token list like home, not only ETH and WBTC.
