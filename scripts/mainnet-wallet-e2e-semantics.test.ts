@@ -437,12 +437,15 @@ const authorizationReleased = () =>
   ]);
 
 const originalIncluded = () =>
-  createStage({
-    key: 'inclusion',
-    status: 'passed',
-    origin: 'sdk_read',
-    endpoint: 'miden_mainnet_rpc'
-  });
+  operation('swap-forward', 'swap', 'included', [
+    createStage({ key: 'inclusion', status: 'passed', origin: 'sdk_read', endpoint: 'miden_mainnet_rpc' })
+  ]);
+
+const fullFillProved = () =>
+  operation('swap-forward', 'swap', 'fully_filled', [
+    stage('payback', 'passed', 'sdk_read'),
+    stage('order', 'passed', 'sdk_read')
+  ]);
 
 it('keeps releasing authorization separate from proof and network submission', async () => {
   await observe('swap-forward', 'failed', [authorizationReleased()]);
@@ -461,7 +464,7 @@ it('keeps releasing authorization separate from proof and network submission', a
 it('keeps canonical original inclusion when the wait for exact payback expires', async () => {
   await observe('swap-forward', 'failed', [
     authorizationReleased(),
-    operation('swap-forward', 'swap', 'included', [originalIncluded()]),
+    originalIncluded(),
     operation('swap-forward', 'swap', 'unknown', [
       createStage({
         key: 'payback',
@@ -491,11 +494,8 @@ it('keeps canonical original inclusion when the wait for exact payback expires',
 it('keeps an unclaimed payment separate from funds verified in the wallet', async () => {
   await observe('swap-forward', 'failed', [
     authorizationReleased(),
-    operation('swap-forward', 'swap', 'included', [originalIncluded()]),
-    operation('swap-forward', 'swap', 'fully_filled', [
-      stage('payback', 'passed', 'sdk_read'),
-      stage('order', 'passed', 'sdk_read')
-    ]),
+    originalIncluded(),
+    fullFillProved(),
     operation('swap-forward', 'swap', 'payment_unclaimed', [])
   ]);
   const report = await assembled({}, 'payment-unclaimed');
@@ -510,11 +510,8 @@ it('reports usable received funds after inclusion, full-fill proof and native cl
   const received = { asset: 'USDC', baseUnits: '1200000', decimals: 6 };
   await observe('swap-forward', 'passed', [
     authorizationReleased(),
-    operation('swap-forward', 'swap', 'included', [originalIncluded()]),
-    operation('swap-forward', 'swap', 'fully_filled', [
-      stage('payback', 'passed', 'sdk_read'),
-      stage('order', 'passed', 'sdk_read')
-    ]),
+    originalIncluded(),
+    fullFillProved(),
     operation('swap-forward', 'swap', 'claimed', [stage('claim')]),
     {
       ...createOperation({

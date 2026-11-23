@@ -1,35 +1,36 @@
 'use strict';
 
-/** @type {[string, string, string, string][]} */
+/** @type {[id: string, mode: string, suite: string, spec: string, timeoutMinutes?: number][]} */
 const DEFINITIONS = [
   ['swap-recovery-grant', 'authorize_recovery_return', 'solver', 'swap-loop'],
-  ['swap-recover', 'recover', 'solver', 'swap-loop'],
-  ['swap-recovered-return', 'reverse', 'solver', 'swap-loop'],
-  ['epoch-recover', 'recover', 'epoch', 'epoch-loop'],
-  ['near-recover', 'recover', 'near', '1click-loop'],
+  ['swap-recover', 'recover', 'solver', 'swap-loop', 31],
+  ['swap-recovered-return', 'reverse', 'solver', 'swap-loop', 31],
+  ['epoch-recover', 'recover', 'epoch', 'epoch-loop', 21],
+  ['near-recover', 'recover', 'near', '1click-loop', 21],
   ['swap-prepare', 'prepare', 'solver', 'swap-loop'],
-  ['swap-forward', 'forward', 'solver', 'swap-loop'],
-  ['swap-reverse', 'reverse', 'solver', 'swap-loop'],
+  ['swap-forward', 'forward', 'solver', 'swap-loop', 31],
+  ['swap-reverse', 'reverse', 'solver', 'swap-loop', 31],
   ['epoch-prepare', 'prepare', 'epoch', 'epoch-loop'],
-  ['epoch-forward', 'forward', 'epoch', 'epoch-loop'],
-  ['epoch-reverse', 'reverse', 'epoch', 'epoch-loop'],
+  ['epoch-forward', 'forward', 'epoch', 'epoch-loop', 21],
+  ['epoch-reverse', 'reverse', 'epoch', 'epoch-loop', 21],
   ['near-prepare', 'prepare', 'near', '1click-loop'],
-  ['near-forward', 'forward', 'near', '1click-loop'],
-  ['near-reverse', 'reverse', 'near', '1click-loop'],
+  ['near-forward', 'forward', 'near', '1click-loop', 21],
+  ['near-reverse', 'reverse', 'near', '1click-loop', 21],
   ['native-round-trip', 'round_trip', 'native', 'round-trip'],
   ['usdcx-round-trip', 'round_trip', 'usdcx', 'bridge-loop'],
   ['agglayer-round-trip', 'round_trip', 'agglayer', 'agglayer-loop']
 ];
 
 const INVOCATIONS = new Map(
-  DEFINITIONS.map(([id, mode, suite, basename]) => [
+  DEFINITIONS.map(([id, mode, suite, basename, timeoutMinutes]) => [
     id,
     {
       id,
       mode,
       suite,
       spec: 'mainnet-' + basename + '.spec.ts',
-      jobKey: suite === 'agglayer' ? 'agglayer' : 'mainnet'
+      jobKey: suite === 'agglayer' ? 'agglayer' : 'mainnet',
+      timeoutMs: timeoutMinutes === undefined ? undefined : timeoutMinutes * 60_000
     }
   ])
 );
@@ -46,19 +47,6 @@ const TITLES = new Map([
   ['agglayer', ['loops ETH from Ethereum to Miden and back over AggLayer']]
 ]);
 
-const STAGE_TIMEOUTS = new Map([
-  ['swap-recover', 31 * 60_000],
-  ['swap-recovered-return', 31 * 60_000],
-  ['swap-forward', 31 * 60_000],
-  ['swap-reverse', 31 * 60_000],
-  ['epoch-recover', 21 * 60_000],
-  ['epoch-forward', 21 * 60_000],
-  ['epoch-reverse', 21 * 60_000],
-  ['near-recover', 21 * 60_000],
-  ['near-forward', 21 * 60_000],
-  ['near-reverse', 21 * 60_000]
-]);
-
 const STATUS = new Map([
   ['passed', 'passed'],
   ['failed', 'failed'],
@@ -68,4 +56,4 @@ const STATUS = new Map([
   ['interrupted', 'interrupted']
 ]);
 
-module.exports = { INVOCATIONS, TITLES, STAGE_TIMEOUTS, STATUS };
+module.exports = { INVOCATIONS, TITLES, STATUS };

@@ -1,9 +1,9 @@
 'use strict';
 
 const { createHash } = require('node:crypto');
-const { createReadStream, existsSync, readFileSync, readdirSync, rmSync, statSync } = require('node:fs');
+const { createReadStream, readFileSync, readdirSync, rmSync, statSync } = require('node:fs');
 const { join, resolve } = require('node:path');
-const { INVOCATIONS, STAGE_TIMEOUTS } = require('./invocations.cjs');
+const { INVOCATIONS } = require('./invocations.cjs');
 const {
   MAX_REPORT_BYTES,
   REPORT_FILENAME,
@@ -70,7 +70,6 @@ function trustedEnvironment(env) {
 }
 
 function readOptional(path) {
-  if (!existsSync(path)) return undefined;
   try {
     if (statSync(path).size > MAX_REPORT_BYTES) return undefined;
     return JSON.parse(readFileSync(path, 'utf8'));
@@ -135,8 +134,6 @@ async function recordBuild(root) {
 }
 
 function invocationMarkers(root, command, id, codeText) {
-  const identity = INVOCATIONS.get(id);
-  if (!identity) throw new Error('Unknown wallet E2E invocation');
   const path = join(root, 'invocations', id);
   if (command === 'invocation-start') return writeInternal(join(path, 'start.json'), { startAt: utcNow() });
   if (!/^(0|[1-9][0-9]{0,2})$/.test(codeText ?? '') || Number(codeText) > 255) {
@@ -179,7 +176,7 @@ function invocationState(root, expected) {
     endAt: exit?.endAt ? known(exit.endAt) : (report?.endAt ?? unknown('report_incomplete')),
     elapsedMs: report?.elapsedMs ?? unknown('report_incomplete'),
     deadlineAt: unknown('not_observed'),
-    timeoutMs: valueOrUnknown(STAGE_TIMEOUTS.get(expected.id), 'not_applicable'),
+    timeoutMs: valueOrUnknown(expected.timeoutMs, 'not_applicable'),
     exitCode,
     playwrightOutcome,
     tests: report?.tests ?? []
