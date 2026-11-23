@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][e2e] Link stress-test sends to wallet transaction receipts, wait for timed-out send UI helpers to settle, and audit send completion against the configured failure budget.
 - [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
 - [CHORE][ci] Simplify wallet nightly reporting and generate example reports on demand.
 - [FIX][extension] Use recent cached market prices to show the last synced balance when opening Sidebar or Command, and make optional passkey setup discoverable during onboarding and in Security settings.
