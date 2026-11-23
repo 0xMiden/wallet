@@ -4227,6 +4227,14 @@
     "message": "Trocar Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "O armazenamento do navegador não está respondendo",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Os dados da sua carteira não foram perdidos, mas o navegador parou de responder às solicitações relacionadas a eles. Feche e reabra o navegador completamente para restaurá-los.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Revelar a chave diária",
     "englishSource": "Reveal everyday key"
@@ -8093,6 +8101,10 @@
   "bridgeConnectWalletAction": {
     "message": "Conectar carteira",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "Não foi possível abrir o seletor de carteira. Tente novamente.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "Sua carteira",

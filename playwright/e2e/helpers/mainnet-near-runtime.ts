@@ -20,9 +20,10 @@ import {
 } from './mainnet-near-checkpoint';
 import { verifyRetiredNearReturnAbsence } from './mainnet-near-return-absence';
 import { nearNativeRequestDiagnostic } from './mainnet-near-native-request-diagnostic';
+import { armRecallBlocks } from './recall';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
-import { realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
+import { cappedMainnetRecoveryBudget, realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { restoreMainnetLoopGuardian } from './mainnet-loop-wallet';
 import { loadMainnetOneClickSetup } from './mainnet-one-click-config';
@@ -64,7 +65,11 @@ import {
   waitForTransactionRow,
   type TransactionRowSnapshot
 } from './history';
-import { readMainnetMidenOutputCandidates, readMainnetMidenOwnNoteCreator } from './mainnet-miden-indexer';
+import {
+  readMainnetMidenOutputCandidates,
+  readMainnetMidenOwnNoteCreator,
+  waitForMainnetMidenOwnNoteCreator
+} from './mainnet-miden-indexer';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
 import {
   createMainnetNearEvmBroadcast,
@@ -93,7 +98,8 @@ const auditedUnspentNearNonce = new Map([
   ['43999834254', 84],
   ['44970377919', 85],
   ['45055827591', 87],
-  ['45072272341', 87]
+  ['45072272341', 87],
+  ['45092013711', 87]
 ]);
 
 export async function runMainnetNearStage(
@@ -398,7 +404,18 @@ export async function runMainnetNearStage(
 }
 
 function recordNearForwardStage(
-  stage: 'preflight' | 'review' | 'arm' | 'submit' | 'queue' | 'release' | 'native-request' | 'acknowledged'
+  stage:
+    | 'preflight'
+    | 'review'
+    | 'arm'
+    | 'submit'
+    | 'queue'
+    | 'release'
+    | 'native-request'
+    | 'acknowledged'
+    | 'completed-row'
+    | 'creator-lookup'
+    | 'canonical-inclusion'
 ): void {
   try {
     writeFileSync('test-results/mainnet-near-forward-stage.json', JSON.stringify({ stage }), { mode: 0o600 });
@@ -535,12 +552,15 @@ export async function runMainnetNearForward(
   };
   await persist();
   recordNearForwardStage('review');
+  // NEAR's exact deposit authorization accepts plain P2ID, not the ordinary Send reclaim default.
+  await armRecallBlocks(wallet.page, null);
   await wallet.prepareSendReview({
     recipientAddress: quote.quote.depositAddress,
     amount: fromBaseUnits(BigInt(state.principal), 6),
     isPrivate: false,
     tokenSymbol: 'USDCX'
   });
+  await expect(wallet.page.getByTestId('review-recall-note')).toHaveCount(0);
   recordNearForwardStage('arm');
   const handle = await armMainnetSendAuthorization(wallet.page, {
     accountId: state.accountHex,
@@ -605,6 +625,7 @@ export async function runMainnetNearForward(
     requireTransactionId: true,
     timeoutMs: 300_000
   });
+  recordNearForwardStage('completed-row');
   const rows = (await readTransactionRowsWithBytes(wallet.page, 'send')).filter(row => row.id === queued.id);
   const row = rows[0];
   const noteId = acknowledged.noteId;
@@ -622,9 +643,11 @@ export async function runMainnetNearForward(
     canonicalMainnetLoopFaucet(row.feeFaucetId) !== state.native.hex
   )
     throw new Error('Missing actual native NEAR source transaction, output note or fee receipt');
-  const creator = await readMainnetMidenOwnNoteCreator(noteId, state.accountHex);
+  recordNearForwardStage('creator-lookup');
+  const creator = await waitForMainnetMidenOwnNoteCreator(noteId, state.accountHex, signal);
   if (creator.transactionId !== row.transactionId.toLowerCase())
     throw new Error('Native NEAR source transaction differs from its actual note creator');
+  recordNearForwardStage('canonical-inclusion');
   await verifyMainnetMidenNoteInclusion(getEnvironmentConfig().rpcUrl, noteId, creator.blockNumber, state.accountHex);
   state.forwardMidenTxId = creator.transactionId;
   state.paidMidenFees = row.feeAmount;
@@ -1071,9 +1094,9 @@ export async function runMainnetNearReverse(
       tokenValueUsdMicro(loss + BigInt(state.feeBudget), 6, nativePrice, true) +
         signedLoss +
         tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, gasPrice, true) >
-      BigInt(state.lossBudgetUsdMicros)
+      cappedMainnetRecoveryBudget(state.lossBudgetUsdMicros, process.env.MAINNET_LOOP_LOSS_BUDGET_USD_MICROS)
     )
-      throw new Error('Native NEAR actual return quote exceeds its original remaining shared allowance');
+      throw new Error('Native NEAR actual return quote exceeds the remaining shared allowance');
     const [latest, pending] = await Promise.all([
       client.getTransactionCount({ address: account, blockTag: 'latest' }),
       client.getTransactionCount({ address: account, blockTag: 'pending' })

@@ -1,8 +1,33 @@
 # Changelog
 
-## 1.18.1 (TBD)
+## 1.18.2 (TBD)
 
 - [FIX][ci] Reload the selected extension build before using a saved Playwright wallet profile.
+- [FIX][all] Read recent Activity history in bounded batches for the unread indicator, preserving History's newest 50 visible rows across timestamp ties and reusing claim checks within each scan (#2202).
+- [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
+- [CHORE][ci] Simplify wallet nightly reporting and generate example reports on demand.
+- [FIX][extension] Use recent cached market prices to show the last synced balance when opening Sidebar or Command, and make optional passkey setup discoverable during onboarding and in Security settings.
+- [FIX][all] A deadline no longer closes the background document when its operation was re-armed with a fresh deadline while storage was being checked or while the close was waiting on the document, and a read deadline in that wait no longer tears down a write that has taken the document.
+- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
+- [FIX][all] Match equivalent hex and bech32 account and faucet IDs across activity, badge, and recovered swap history with bounded canonical ID caching.
+- [FIX][mobile] Open incoming-note claims over the active dApp without closing or navigating away from its session.
+
+- [FIX][extension] Retain timeout ownership and validated offscreen deadline facts in saved transaction errors and local exports.
+
+- [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
+
+- [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
+- [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
+- [FIX][ci] Reconcile the exact cancelled nightly Swap checkpoint after verifying that custody did not change.
+- [CHANGE][mobile] Build the App Store iOS app, and compile iOS on every pull request, with Xcode 27 and the iOS 27 SDK, which App Store Connect makes mandatory from April 2027 (ITMS-90725). The iOS app now uses the UIScene life cycle, which that SDK needs for the app to start, so deep links and Universal Links arrive through the scene delegate; Capacitor moves to 8.6.2 on iOS and Android; the iOS hot key signer moves to `swift-secp256k1` 0.25.1, which that compiler needs, and makes the same public keys and signatures.
+
+## 1.18.1 (2026-11-23)
+
+- [FIX][ci] Bound nightly NEAR return authorization by both the original checkpoint allowance and the current dispatch allowance.
+
+- [FIX][ios][android][extension] Show the USD value of USDT, SOL, NEAR and PAXG in the Swap token picker, priced from the verified token list like home, not only ETH and WBTC.
+- [FIX][extension] Tell the user to restart the browser when its IndexedDB storage stops answering, instead of showing an empty wallet, restarting the offscreen document in a loop, piling up sync retries until memory runs out, or reporting a node outage.
+- [FIX][ci] Use the authorized plain P2ID note for nightly NEAR deposits and reconcile the exact unused Green13 quote.
 - [FIX][ci] Reconcile the exact expired Green12 NEAR quote without renewing its authority.
 - [FIX][ci] Report the last NEAR forward stage without uploading private worker logs.
 - [FIX][ci] Report bounded queue diagnostics when NEAR forward authorization fails.

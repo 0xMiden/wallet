@@ -7,7 +7,7 @@ import { readBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { strictPriceSymbolFor } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
-import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
+import { quotedPrice } from 'lib/prices/binance';
 import { useWalletStore } from 'lib/store';
 
 import {
@@ -61,7 +61,7 @@ export function walletBridgeBalanceCap(route: BridgeRoute, amount: string, accou
   for (const symbol of priceSymbolsForBalanceCap(route, balances)) {
     if (symbol === 'USDC') continue;
     const quote = quotedPrice(state.tokenPrices, symbol);
-    if (quote && !isNominalQuote(quote) && quote.observedAt !== undefined)
+    if (quote && quote.kind !== 'nominal' && quote.observedAt !== undefined)
       prices[symbol] = { usdDecimal: quote.price.toString(), fetchedAt: quote.observedAt };
   }
   return evaluateBalanceCap(route, amount, balances, prices, now);

@@ -4227,6 +4227,14 @@
     "message": "切换 Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "浏览器存储无响应",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "您的钱包数据并未丢失，只是浏览器已停止响应相关请求。请完全退出并重新打开浏览器以恢复数据。",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "显示日常密钥",
     "englishSource": "Reveal everyday key"
@@ -8087,6 +8095,10 @@
   "bridgeConnectWalletAction": {
     "message": "连接钱包",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "无法打开钱包选择器。请重试。",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "您的钱包",
