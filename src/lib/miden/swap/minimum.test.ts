@@ -4,7 +4,13 @@ import { fixedQuote } from 'lib/prices/fixed';
 import { swapMinimumError } from './minimum';
 
 describe('swap minimum', () => {
-  const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0, observedAt: Date.now() });
+  const quote = (price: number) => ({
+    price,
+    change24h: 0,
+    percentageChange24h: 0,
+    observedAt: Date.now(),
+    kind: 'market' as const
+  });
 
   it.each(['0', '0.99', '0.999999999999999999'])('rejects %s dollars without rounding', amount => {
     expect(swapMinimumError(amount, quote(1))).toBe('swapBelowMinimum');

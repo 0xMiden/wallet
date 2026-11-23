@@ -1,6 +1,6 @@
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
-import { isNominalQuote, quotedPrice } from 'lib/prices/binance';
+import { quotedPrice } from 'lib/prices/binance';
 
 import type { TokenBalanceData } from './balance';
 import { DUST_USD_THRESHOLD, isDustBalance } from './dust';
@@ -26,7 +26,8 @@ const row = (balance: number, overrides: Partial<TokenBalanceData> = {}): TokenB
   ...overrides
 });
 
-const quoteAt = (price: number) => mockTokenQuote.mockReturnValue({ price, change24h: 0, percentageChange24h: 0 });
+const quoteAt = (price: number) =>
+  mockTokenQuote.mockReturnValue({ price, change24h: 0, percentageChange24h: 0, kind: 'market' as const });
 
 describe('isDustBalance', () => {
   beforeEach(() => {
@@ -53,7 +54,7 @@ describe('isDustBalance', () => {
 
   it('does not treat a nominal quote as market value', () => {
     const nominalQuote = quotedPrice({}, 'UNLISTED_TEST_TOKEN');
-    expect(isNominalQuote(nominalQuote)).toBe(true);
+    expect(nominalQuote?.kind).toBe('nominal');
     mockTokenQuote.mockReturnValue(nominalQuote);
 
     expect(isDustBalance(row(0.0001), PRICES, NATIVE)).toBe(false);

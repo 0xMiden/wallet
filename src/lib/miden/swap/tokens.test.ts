@@ -379,7 +379,7 @@ describe('strictPriceSymbolFor', () => {
 
   it('leaves the display match lenient: the same entry failure gives no price instead of throwing', () => {
     usdcEntryFailsToParse();
-    const usdc = { price: 1, change24h: 0, percentageChange24h: 0 };
+    const usdc = { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
     expect(priceSymbolFor(`testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
     expect(tokenQuote({ USDC: usdc }, `testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
   });
@@ -387,13 +387,14 @@ describe('strictPriceSymbolFor', () => {
 
 describe('tokenQuote', () => {
   beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
-  const eth = { price: 3000, change24h: 40, percentageChange24h: 1.2 };
+  const eth = { price: 3000, change24h: 40, percentageChange24h: 1.2, kind: 'market' as const };
 
   it('quotes a registry token under its price symbol, IETH at ETH', () => {
     expect(tokenQuote({ ETH: eth }, TEST_TOKEN_IETH.faucetId, 'IETH')).toEqual({
       price: 3000,
       change24h: 40,
-      percentageChange24h: 1.2
+      percentageChange24h: 1.2,
+      kind: 'market' as const
     });
   });
 
@@ -405,7 +406,11 @@ describe('tokenQuote', () => {
 
   it('gives no quote for a zero price', () => {
     expect(
-      tokenQuote({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, TEST_TOKEN_IETH.faucetId, 'IETH')
+      tokenQuote(
+        { ETH: { price: 0, change24h: 0, percentageChange24h: 0, kind: 'market' as const } },
+        TEST_TOKEN_IETH.faucetId,
+        'IETH'
+      )
     ).toBeUndefined();
   });
 });
@@ -589,7 +594,12 @@ describe('SDK-confirmed native stablecoin pricing', () => {
   });
   it('prices the confirmed native faucet through either canonical spelling', () => {
     expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
-    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({
+      price: 1,
+      change24h: 0,
+      percentageChange24h: 0,
+      kind: 'fixed' as const
+    });
   });
   it('does not price a copied symbol or an arbitrary configured native override', () => {
     expect(tokenQuote({}, 'other-faucet', 'USDCX')).toBeUndefined();
@@ -598,7 +608,12 @@ describe('SDK-confirmed native stablecoin pricing', () => {
   });
   it('quotes the native USDCX unit independently of scale and respects a different chain symbol', () => {
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true });
-    expect(tokenQuote({}, '0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(tokenQuote({}, '0xfee', 'USDCX')).toEqual({
+      price: 1,
+      change24h: 0,
+      percentageChange24h: 0,
+      kind: 'fixed' as const
+    });
     expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
     expect(tokenQuote({}, '0xfee', 'MIDEN')).toBeUndefined();
@@ -613,7 +628,12 @@ describe('SDK-confirmed provisional native unit pricing', () => {
   });
   it('quotes the provisional native USDCX unit at one dollar before its scale resolves', () => {
     expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
-    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({
+      price: 1,
+      change24h: 0,
+      percentageChange24h: 0,
+      kind: 'fixed' as const
+    });
     expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
   });
   it('does not quote a copied symbol, missing SDK proof or an unsynced override', () => {

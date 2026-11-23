@@ -112,7 +112,7 @@ const renderChild =
     </span>
   );
 
-const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0, kind: 'market' as const });
 
 const total = () => screen.getByTestId('total');
 
