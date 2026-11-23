@@ -148,6 +148,12 @@ describe('funded nightly swap workflow', () => {
       /epoch-reverse\.log|near-(?:forward|recover|reverse)\.log|RUNNER_TEMP|epoch-reverse-results|mainnet-epoch-state\/\*/
     );
   });
+  it('selects plain P2ID on the NEAR forward review before arming the exact-byte gate', () => {
+    const source = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-near-runtime.ts'), 'utf8');
+    const forward = source.split('export async function runMainnetNearForward(')[1]!;
+    expect(forward).toMatch(/await armRecallBlocks\(wallet\.page, null\);\s*await wallet\.prepareSendReview\(/);
+    expect(forward).toMatch(/getByTestId\('review-recall-note'\)\)\.toHaveCount\(0\);\s*recordNearForwardStage\('arm'\)/);
+  });
   it('binds known unsigned NEAR reconciliation only to official artifact provenance without relabelling attempted funding', () => {
     expect(object(step('Recover prior mainnet NEAR').env)).toMatchObject({
       MAINNET_NEAR_FORWARD_ATTEMPTED: '${{ steps.near-attempts.outputs.forward_attempted }}',
