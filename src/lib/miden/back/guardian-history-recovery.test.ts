@@ -2437,6 +2437,71 @@ it("keeps a recovered swap row's recorded remainder when it derives the row agai
   );
 });
 
+// The page snapshot is read at its first save; swap tracking and Cancel can write the same rows while later entries
+// decode and import, so each write must start from the row as stored then (F-003).
+it('writes a recovered row from the row as stored, not from the page snapshot, when it changed mid-page', async () => {
+  serveOrderHistory(3);
+  await run();
+  const first = await transactions.toArray();
+  const reclaim = first.find(row => row.recovery?.nonce === 3);
+  const order = first.find(row => row.recovery?.nonce === 2);
+  if (!reclaim?.recovery || !order?.recovery) throw new Error('Missing recovered rows');
+  await transactions.put({ ...reclaim, extraInputs: { ...reclaim.extraInputs, swapOrderTxId: undefined } });
+  await transactions.put({ ...order, recovery: { ...order.recovery, version: GUARDIAN_HISTORY_VERSION - 1 } });
+  await clearGuardianHistoryCheckpoints();
+  serveOrderHistory(3);
+  const decodeOrder = jest.mocked(midenClientProxy.decodeGuardianHistory).getMockImplementation();
+  if (!decodeOrder) throw new Error('Missing order decode');
+  const recoveredTip = { noteId: 'remainder-1', depth: 1, remainingOffered: 24n };
+  // The reclaim is the page's first entry, so its save reads the snapshot; these writes land after it.
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => {
+    if (encoded === '2') await transactions.update(order.id, { 'extraInputs.recoveredTip': recoveredTip });
+    return decodeOrder(encoded);
+  });
+  jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async () => {
+    await transactions.update(reclaim.id, { 'extraInputs.destinationAddress': 'keep' });
+  });
+  try {
+    await run();
+  } finally {
+    jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementation(async () => undefined);
+  }
+
+  const upgraded = await transactions.get(order.id);
+  expect(upgraded?.recovery?.version).toBe(GUARDIAN_HISTORY_VERSION);
+  expect(upgraded?.extraInputs.recoveredTip).toEqual(recoveredTip);
+  const consume = await transactions.get(reclaim.id);
+  expect(consume?.extraInputs).toMatchObject({ swapOrderTxId: order.id, swapSettleKind: 'reclaim' });
+  expect(consume?.extraInputs.destinationAddress).toBe('keep');
+});
+
+// Rows are saved per entry, so the restored count follows each save rather than the end of the page (F-004).
+it('counts a saved row in the restored total when a later entry of its page stops recovery', async () => {
+  source('https://one', [{ entries: [entry(3), entry(2)] }]);
+  source('https://two', []);
+  jest.mocked(midenClientProxy.decodeGuardianHistory).mockImplementation(async encoded => {
+    if (encoded === '2') throw new GuardianHistoryFeeUnavailableError();
+    return { accountId: 'account', inputNotes: [], outputNotes: [] };
+  });
+  const result = await run();
+  expect(result.failed).toBe(true);
+  expect(await transactions.count()).toBe(1);
+  expect(result.restored).toBe(1);
+  expect((await operatorCheckpoint('https://one'))?.restored).toBe(0);
+});
+
+it('counts a saved row in the restored total when a lock after its save defers the page', async () => {
+  source('https://one', [{ entries: [entry(3), entry(2)] }]);
+  source('https://two', []);
+  jest.mocked(midenClientProxy.importGuardianHistoryP2ideNotes).mockImplementationOnce(async () => {
+    shouldYield.mockResolvedValue('wallet locked');
+  });
+  const result = await run();
+  expect(result.deferred).toBe(true);
+  expect(await transactions.count()).toBe(1);
+  expect(result.restored).toBe(1);
+});
+
 it('stops recovery and retains the failure when fee metadata is unavailable', async () => {
   jest.mocked(midenClientProxy.decodeGuardianHistory).mockRejectedValueOnce(new GuardianHistoryFeeUnavailableError());
   expect((await run()).sourceFailures).toBe(1);
