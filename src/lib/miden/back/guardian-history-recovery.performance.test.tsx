@@ -2,7 +2,7 @@ import React from 'react';
 
 import type { DeltaObject, HistoryEntry, HistoryPage, Signer } from '@openzeppelin/guardian-client';
 import { act, cleanup, render } from '@testing-library/react';
-import type { Transaction } from 'dexie';
+import Dexie, { type ThenShortcut, type Transaction } from 'dexie';
 import { SWRConfig } from 'swr';
 import { clearInterval, setInterval, setTimeout as realSetTimeout } from 'timers';
 
@@ -276,6 +276,11 @@ class SyntheticHistory {
   readonly checkpointSnapshots: Array<{ operator: string; cursor?: string; completed: boolean; notes: number }> = [];
   readonly uncompletedQueries = { started: 0, settled: 0, settledMs: 0, maxSettledMs: 0, durations: [] as number[] };
   historyRuns = 0;
+  accountIdReads = 0;
+  stalledSnapshotReads = 0;
+  snapshotStallsOutstanding = 0;
+  openTransactions = 0;
+  dueAtStallStart = 0;
   pending = true;
   locked = false;
   hold: object | null = null;
@@ -531,9 +536,64 @@ function freshBackend(): Backend {
     }
   });
   const seen = new WeakSet<Transaction>();
+  const trackedTransactions = new WeakSet<Transaction>();
+  const trackOpen = (transaction: Transaction) => {
+    if (trackedTransactions.has(transaction)) return;
+    if (!transaction.storeNames.includes(repo.transactions.name)) return;
+    trackedTransactions.add(transaction);
+    mockHarness.openTransactions += 1;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      mockHarness.openTransactions -= 1;
+    };
+    transaction.on('complete', release);
+    transaction.on('abort', release);
+    transaction.on('error', release);
+  };
+  const database = repo.db;
+  const createTransaction = database._createTransaction;
+  database._createTransaction = function (mode, storeNames, schema, parentTransaction) {
+    const transaction = createTransaction.call(this, mode, storeNames, schema, parentTransaction);
+    trackOpen(transaction);
+    return transaction;
+  };
+  const collectionPrototype = database.Collection.prototype;
+  const originalToArray = collectionPrototype.toArray;
+  const accountQuery = (collection: object) => {
+    const context: unknown = Reflect.get(collection, '_ctx');
+    if (!context || typeof context !== 'object') return false;
+    if (Reflect.get(context, 'index') !== 'accountId') return false;
+    const table: unknown = Reflect.get(context, 'table');
+    return !!table && typeof table === 'object' && Reflect.get(table, 'name') === repo.transactions.name;
+  };
+  collectionPrototype.toArray = Dexie.override(originalToArray, toArray => {
+    return function (this: typeof collectionPrototype, thenShortcut?: ThenShortcut<ITransaction[], ITransaction[]>) {
+      const read = () => (thenShortcut === undefined ? toArray.call(this) : toArray.call(this, thenShortcut));
+      if (!accountQuery(this)) return read();
+      mockHarness.accountIdReads += 1;
+      if (mockHarness.accountIdReads !== 2) return read();
+      const harness = mockHarness;
+      harness.stalledSnapshotReads += 1;
+      harness.dueAtStallStart = harness.due.size;
+      harness.snapshotStallsOutstanding += 1;
+      let openGate: () => void = () => undefined;
+      const gate = new Promise<void>(resolve => {
+        openGate = resolve;
+      });
+      realSetTimeout(openGate, 100);
+      return Dexie.Promise.resolve(gate)
+        .then(read)
+        .finally(() => {
+          harness.snapshotStallsOutstanding -= 1;
+        });
+    };
+  });
   const watch = (transaction: Transaction) => {
     if (seen.has(transaction)) return;
     seen.add(transaction);
+    trackOpen(transaction);
     transaction.on('complete', () => {
       mockHarness.commits++;
       mockHarness.stamp('t_last_row');
@@ -875,9 +935,13 @@ it.each(Array.from({ length: SAMPLES }, (_, index) => index + 1))(
           queriesSettled: mockHarness.uncompletedQueries.settled,
           queriesSettledMs: mockHarness.uncompletedQueries.settledMs,
           queriesMaxMs: mockHarness.uncompletedQueries.maxSettledMs,
-          meanQueryMsPer200Queries: buckets
+          meanQueryMsPer200Queries: buckets,
+          stalledSnapshotReads: mockHarness.stalledSnapshotReads,
+          dueAtStallStart: mockHarness.dueAtStallStart
         })
       );
+      expect(mockHarness.stalledSnapshotReads).toBeGreaterThanOrEqual(1);
+      expect(mockHarness.dueAtStallStart).toBeGreaterThan(0);
       expect(sample.firstPersistedMs).toBeLessThanOrEqual(200);
       // The History view polls every 10,000 ms, so this metric is quantized by that poll and the budget is margin over
       // it: the fake clock advances while the poll's database read is in flight. This test is our own measurement,
