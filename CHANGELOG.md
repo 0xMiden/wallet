@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.18.1 (TBD)
+## 1.18.1 (2026-11-23)
 
 - [FIX][ios][android][extension] Show the USD value of USDT, SOL, NEAR and PAXG in the Swap token picker, priced from the verified token list like home, not only ETH and WBTC.
 - [FIX][extension] Tell the user to restart the browser when its IndexedDB storage stops answering, instead of showing an empty wallet, restarting the offscreen document in a loop, piling up sync retries until memory runs out, or reporting a node outage.
