@@ -966,6 +966,8 @@ it('replays a page whose row was saved before an interrupted note import without
 
     crash = false;
     shouldYield.mockResolvedValue(null);
+    // The source answers the same first page again, as it does for a pass that never saved a cursor.
+    jest.mocked(clients.get('https://one')!.getDeltaHistory).mockResolvedValueOnce({ entries: [entry(3), entry(2)] });
     const second = await run();
     expect(second).toEqual({ deferred: false, sourceFailures: 0, restored: 2, deferredSources: 0 });
     expect(imported).toEqual(['note-3-0', 'note-3-1', 'note-2-0', 'note-2-1']);
