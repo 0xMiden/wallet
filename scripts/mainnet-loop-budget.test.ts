@@ -3,7 +3,23 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
-import { remainingMainnetLoopBudget, realizedMainnetLoopLoss } from '../playwright/e2e/helpers/mainnet-loop-budget';
+import {
+  remainingMainnetLoopBudget,
+  realizedMainnetLoopLoss,
+  cappedMainnetRecoveryBudget
+} from '../playwright/e2e/helpers/mainnet-loop-budget';
+
+it.each([
+  ['1218022', 1_218_022n],
+  ['2000000', 1_237_031n],
+  [undefined, 1_237_031n]
+])('bounds the original recovery allowance by the current dispatch cap (%s)', (configured, expected) => {
+  expect(cappedMainnetRecoveryBudget('1237031', configured)).toBe(expected);
+});
+
+it.each(['0', '-1', '1e6', '2000001'])('refuses invalid current recovery allowance %s', configured => {
+  expect(() => cappedMainnetRecoveryBudget('1237031', configured)).toThrow('Invalid remaining mainnet task loss allowance');
+});
 
 const evidence = (provider: string, cost: string, changes: Record<string, unknown> = {}) => ({
   provider,
