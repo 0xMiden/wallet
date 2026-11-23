@@ -1,4 +1,4 @@
-import { GuardianHttpClient, GuardianHttpError, type HistoryPage } from '@openzeppelin/guardian-client';
+import { GuardianHttpClient, GuardianHttpError, type HistoryEntry, type HistoryPage } from '@openzeppelin/guardian-client';
 import Dexie from 'dexie';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
@@ -315,13 +315,20 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
   const operators = normalizeHistoryOperators([current, ...getGuardianEndpointsForNetwork(network), ...previous]);
   const ownOperators = normalizeHistoryOperators([current, ...previous]);
   // Every write of this pass relies on this: reportHistory carries no guard of its own.
-  const interrupted = async () => {
-    if (await context.shouldYield()) return true;
+  const interruptedBy = (yields: () => Promise<string | null>) => async () => {
+    if (await yields()) return true;
     if (network !== getEffectiveNetworkName()) return true;
     return (await readGuardianHistoryGeneration()) !== context.generation;
   };
+  const interrupted = interruptedBy(context.shouldYield);
+  // `shouldYield` reads every queued and generating transaction, a scan that grows with the restored history, so
+  // the pass makes it once per entry (`check`) and gives every other check the wallet-lock part alone (`checkCheap`).
+  const interruptedCheaply = interruptedBy(context.shouldYieldCheap ?? context.shouldYield);
   const check = async () => {
     if (await interrupted()) throw new HistoryInterrupted();
+  };
+  const checkCheap = async () => {
+    if (await interruptedCheaply()) throw new HistoryInterrupted();
   };
   let sourceFailures = 0;
   let deferredSources = 0;
@@ -481,67 +488,40 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           const entryCount = (checkpoint.entryCount ?? 0) + page.entries.length;
           if (entryCount > MAX_HISTORY_ENTRIES_PER_SOURCE)
             throw new GuardianHistoryDataError('Guardian history exceeds the entry limit');
-          const records: ITransaction[] = [];
-          for (const entry of page.entries) {
-            const answer = await historyRequest(
-              session => guardian.getDelta(guardianAccountId, entry.nonce).then(delta => ({ delta, session })),
-              check
-            );
-            dataSession = answer.session;
-            // The delta already parsed and mapped inside getDelta, so a summary missing from it is the operator's data.
-            const encoded = answer.delta.deltaPayload?.txSummary?.data;
-            if (typeof encoded !== 'string' || encoded.length === 0)
-              throw new GuardianHistoryDataError('Guardian history delta carries no summary');
-            await check();
-            const decodeSession = unsupportedHistorySession;
-            decodeScope = cacheScope();
-            const summary = await midenClientProxy.decodeGuardianHistory(encoded).catch(async (error: unknown) => {
-              if (!isPipelineKillLink(error)) throw error;
-              if (await interrupted()) throw error;
-              throw new HistoryDecodeAborted(decodeSession, error);
-            });
-            const record = recoveredHistoryRecord(
-              account.publicKey,
-              canonicalAccountId,
-              network,
-              operator,
-              entry,
-              answer.delta,
-              summary
-            );
-            record.recoveredBadgeNetwork = provenBadgeNetwork() ?? '';
-            // Import one output per call so each operation releases the WASM lock.
-            for (const note of summary.outputNotes) {
-              await check();
-              await midenClientProxy.importGuardianHistoryP2ideNotes(encoded, account.publicKey, note.id);
-              await check();
-            }
-            records.push(record);
-          }
-          // Decode local results outside the database transaction and between yield checks, only for a page that has
-          // records to match: a page without any would be charged for an abort it has no use for.
-          for (const row of records.length > 0 ? local : []) {
-            if (!row.resultBytes || commitments.has(row.id) || row.recovery) continue;
-            await check();
-            const commitmentSession = unsupportedHistorySession;
-            try {
-              commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));
-            } catch (error) {
-              if (isPipelineKillLink(error)) {
-                if (await interrupted()) throw error;
-                throw new HistoryDecodeAborted(commitmentSession, error);
-              }
-              commitments.set(row.id, '');
-            }
-          }
-          await check();
+          const loaded: { rows?: ITransaction[] } = {};
           let added = 0;
-          await db.transaction('rw', transactions, async () => {
-            await Dexie.waitFor(check());
-            const existing = await transactions.where('accountId').equals(account.publicKey).toArray();
-            for (const record of records) {
+          let commitmentsDecoded = false;
+          // Decode local results outside the database transaction and between yield checks, only once the page has a
+          // record to match: a page without any would be charged for an abort it has no use for.
+          const decodeLocalCommitments = async () => {
+            if (commitmentsDecoded) return;
+            commitmentsDecoded = true;
+            for (const row of local) {
+              if (!row.resultBytes || commitments.has(row.id) || row.recovery) continue;
+              await checkCheap();
+              const commitmentSession = unsupportedHistorySession;
+              try {
+                commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));
+              } catch (error) {
+                if (isPipelineKillLink(error)) {
+                  if (await interrupted()) throw error;
+                  throw new HistoryDecodeAborted(commitmentSession, error);
+                }
+                commitments.set(row.id, '');
+              }
+            }
+          };
+          // A record is saved as soon as it is decoded, ahead of its note imports, so recent history shows while the
+          // rest is still importing. The checkpoint still moves only after every note of the page is imported, and
+          // a replay of an interrupted page finds the saved rows by id and imports the notes again.
+          const saveRecord = async (record: ITransaction) => {
+            await decodeLocalCommitments();
+            loaded.rows ??= await transactions.where('accountId').equals(account.publicKey).toArray();
+            const rows = loaded.rows;
+            await db.transaction('rw', transactions, async () => {
+              await Dexie.waitFor(checkCheap());
               const finalCommitment = record.recovery?.finalCommitment;
-              const match = existing.find(row => {
+              const match = rows.find(row => {
                 if (row.recovery && row.recovery.network !== network) return false;
                 if (row.id === record.id) return true;
                 const localCommitment = row.recovery?.finalCommitment ?? commitments.get(row.id);
@@ -599,14 +579,67 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
                   match.recovery = recovery;
                   await transactions.update(match.id, { recovery });
                 }
-                continue;
+                return;
               }
               await transactions.put(record);
-              existing.push(record);
+              rows.push(record);
               added++;
+            });
+          };
+          // The next entry's delta is requested while this one's notes import, and no entry further ahead.
+          const requestDelta = (entry: HistoryEntry) => {
+            const request = historyRequest(
+              session => guardian.getDelta(guardianAccountId, entry.nonce).then(delta => ({ delta, session })),
+              checkCheap
+            );
+            // An abandoned request must not surface as an unhandled rejection; the loop rethrows it when awaited.
+            request.catch(() => undefined);
+            return request;
+          };
+          let upcoming = page.entries[0] ? requestDelta(page.entries[0]) : undefined;
+          for (const [position, entry] of page.entries.entries()) {
+            await check();
+            const answer = await upcoming!;
+            const following = page.entries[position + 1];
+            upcoming = following ? requestDelta(following) : undefined;
+            dataSession = answer.session;
+            // The delta already parsed and mapped inside getDelta, so a summary missing from it is the operator's data.
+            const encoded = answer.delta.deltaPayload?.txSummary?.data;
+            if (typeof encoded !== 'string' || encoded.length === 0)
+              throw new GuardianHistoryDataError('Guardian history delta carries no summary');
+            await checkCheap();
+            const decodeSession = unsupportedHistorySession;
+            decodeScope = cacheScope();
+            const summary = await midenClientProxy.decodeGuardianHistory(encoded).catch(async (error: unknown) => {
+              if (!isPipelineKillLink(error)) throw error;
+              if (await interrupted()) throw error;
+              throw new HistoryDecodeAborted(decodeSession, error);
+            });
+            const record = recoveredHistoryRecord(
+              account.publicKey,
+              canonicalAccountId,
+              network,
+              operator,
+              entry,
+              answer.delta,
+              summary
+            );
+            record.recoveredBadgeNetwork = provenBadgeNetwork() ?? '';
+            await saveRecord(record);
+            // Import one output per call so each operation releases the WASM lock.
+            for (const note of summary.outputNotes) {
+              await checkCheap();
+              await midenClientProxy.importGuardianHistoryP2ideNotes(encoded, account.publicKey, note.id);
+              await checkCheap();
             }
-            for (const row of reconcileRecoveredSwaps(existing)) await transactions.put(row);
-          });
+          }
+          await checkCheap();
+          const settled = loaded.rows;
+          if (settled)
+            await db.transaction('rw', transactions, async () => {
+              await Dexie.waitFor(checkCheap());
+              for (const row of reconcileRecoveredSwaps(settled)) await transactions.put(row);
+            });
           restored += added;
           checkpoint = {
             ...checkpoint,

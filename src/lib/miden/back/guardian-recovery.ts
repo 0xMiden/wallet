@@ -949,9 +949,17 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     // History shares the seed-restore flag: the flag clears once every Guardian
     // source is read or history fails terminally, and a failed source retries
     // in the next session.
+    // The history pass reads the queue once per entry through `shouldYield` and checks the wallet lock, with that last
+    // queue verdict, on every other check, because the queue read scans a table that grows with each restored row.
+    let queueVerdict: 'transaction in flight' | null = null;
     const history = await recoverGuardianHistory(account, {
       createClient: createGuardianClientContext,
-      shouldYield,
+      shouldYield: async () => {
+        const verdict = await shouldYield();
+        queueVerdict = verdict === 'transaction in flight' ? verdict : null;
+        return verdict;
+      },
+      shouldYieldCheap: async () => (isWalletLocked() ? 'wallet locked' : queueVerdict),
       generation
     });
     if (history.deferred && history.evicted) {
