@@ -659,14 +659,21 @@ async function pump(diagnostics: HistoryTestDiagnostics, done: () => boolean, li
       });
       if (done()) return;
       const due = Math.min(...mockHarness.due.values());
-      if (Number.isFinite(due)) {
+      // A scripted delay() stays on the fake clock. Jump to the next one only while no IndexedDB work is outstanding:
+      // the page-snapshot stall, an open transactions-table transaction, or an uncompleted-transaction read.
+      // advanceTimersByTimeAsync(0) above still flushes timers that are already expired.
+      const indexedDbOutstanding =
+        mockHarness.snapshotStallsOutstanding > 0 ||
+        mockHarness.openTransactions > 0 ||
+        mockHarness.uncompletedQueries.started !== mockHarness.uncompletedQueries.settled;
+      if (Number.isFinite(due) && !indexedDbOutstanding) {
         idle = 0;
         await act(async () => {
           await jest.advanceTimersByTimeAsync(Math.max(0, due - Date.now()));
         });
       } else {
-        // No fake timer is due: real async work (IndexedDB) may be pending, so wait real time and count a stall only
-        // when no harness counter moves for STALL_WALL_MS of wall time.
+        // Real async work may be pending, so wait real time and count a stall only when no harness counter moves for
+        // STALL_WALL_MS of wall time.
         const progress = `${mockHarness.requested.length}|${mockHarness.decoded.length}|${mockHarness.completedNotes.length}|${mockHarness.commits}|${mockHarness.pageCount}|${mockHarness.uncompletedQueries.settled}`;
         if (progress !== lastProgress) {
           lastProgress = progress;
