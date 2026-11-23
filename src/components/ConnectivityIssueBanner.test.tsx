@@ -108,6 +108,12 @@ jest.mock('lib/miden/activity/use-connectivity-state', () => ({
   useConnectivityState: jest.fn()
 }));
 
+// The stall flag the service worker mirrors; a mutable holder lets a test arm it.
+const storageStall = { stalled: false };
+jest.mock('lib/miden/front/storage', () => ({
+  useStorage: () => [storageStall.stalled, jest.fn()]
+}));
+
 const mockUseConnectivityState = useConnectivityState as jest.MockedFunction<typeof useConnectivityState>;
 const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;
 const mockHapticLight = hapticLight as jest.MockedFunction<typeof hapticLight>;
@@ -139,6 +145,7 @@ describe('ConnectivityIssueBanner', () => {
     jest.clearAllMocks();
     guardianOutage.accounts.clear();
     guardianOutage.listeners.clear();
+    storageStall.stalled = false;
     currentAccount.publicKey = 'acct-1';
     mockIsExtension.mockReturnValue(false);
     mockRequest.mockResolvedValue(undefined);
@@ -214,6 +221,17 @@ describe('ConnectivityIssueBanner', () => {
   //
   // `guardian` sits above prover deliberately: a co-signer that cannot be reached
   // blocks every transaction, while a prover problem has a fallback.
+  it('shows a stalled browser storage ahead of every other category, with no CTA and no close button', () => {
+    storageStall.stalled = true;
+    setState({ network: true, node: true });
+    render(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-storage')).toBeInTheDocument();
+    expect(screen.getByText('storageStalledTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-node')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
   it('prefers network over every other active category', () => {
     setState({ network: true, node: true, prover: true, resolving: true });
     render(<ConnectivityIssueBanner />);

@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { isDistinctNearReplacementQuote } from '../../../scripts/mainnet-near-return-provenance.mjs';
 import { isRecord } from '../../../src/lib/update/guards';
 import { expectedOneClickFees, parseOneClickFeePolicy } from '../../../src/lib/one-click/fees';
 import { holding } from './mainnet-swap-checkpoint';
@@ -18,6 +19,12 @@ export interface MainnetNearQuoteAuthority {
   amountIn: string;
   minimumOutput: string;
   refundFee: string;
+}
+interface NearReturnValuation {
+  pricedAt: string;
+  nativeUsdMicros: string;
+  tokenUsdMicros: string;
+  gasUsdMicros: string;
 }
 export interface MainnetNearCheckpoint {
   version: 2;
@@ -62,7 +69,14 @@ export interface MainnetNearCheckpoint {
   reverseQuote?: MainnetNearQuoteAuthority;
   returnAmount?: string;
   evmNonceBefore?: number;
-  returnValuation?: { pricedAt: string; nativeUsdMicros: string; tokenUsdMicros: string; gasUsdMicros: string };
+  returnValuation?: NearReturnValuation;
+  retiredReturn?: {
+    runId: '44844609625';
+    replacementRunId: string;
+    quote: MainnetNearQuoteAuthority;
+    nonce: number;
+    valuation: NearReturnValuation;
+  };
   transactions?: { kind: 'transfer'; nonce: number; hash: string; feeWei?: string }[];
   returnProviderTxId?: string;
   returnNoteId?: string;
@@ -106,7 +120,12 @@ function quote(value: unknown): value is MainnetNearQuoteAuthority {
 function fingerprints(value: unknown, send: boolean): boolean {
   return (
     isRecord(value) &&
-    keys(value, ['nonce', 'sha256', 'canonicalSha256', ...(send ? ['noteId'] : ['requestCanonicalSha256', 'expiresAt'])]) &&
+    keys(value, [
+      'nonce',
+      'sha256',
+      'canonicalSha256',
+      ...(send ? ['noteId'] : ['requestCanonicalSha256', 'expiresAt'])
+    ]) &&
     typeof value.nonce === 'string' &&
     /^[0-9a-f-]{36}$/.test(value.nonce) &&
     typeof value.sha256 === 'string' &&
@@ -159,6 +178,7 @@ const fields = [
   'returnAmount',
   'evmNonceBefore',
   'returnValuation',
+  'retiredReturn',
   'transactions',
   'returnProviderTxId',
   'returnNoteId',
@@ -275,14 +295,28 @@ function shape(value: unknown): value is MainnetNearCheckpoint {
       value.evmNonceBefore < 0)
   )
     return false;
+  const valuation = (input: unknown): input is NearReturnValuation =>
+    isRecord(input) &&
+    keys(input, ['pricedAt', 'nativeUsdMicros', 'tokenUsdMicros', 'gasUsdMicros']) &&
+    timestamp(input.pricedAt) &&
+    positive(input.nativeUsdMicros) &&
+    positive(input.tokenUsdMicros) &&
+    positive(input.gasUsdMicros);
+  if (value.returnValuation !== undefined && !valuation(value.returnValuation)) return false;
+  const retired = value.retiredReturn;
   if (
-    value.returnValuation !== undefined &&
-    (!isRecord(value.returnValuation) ||
-      !keys(value.returnValuation, ['pricedAt', 'nativeUsdMicros', 'tokenUsdMicros', 'gasUsdMicros']) ||
-      !timestamp(value.returnValuation.pricedAt) ||
-      !positive(value.returnValuation.nativeUsdMicros) ||
-      !positive(value.returnValuation.tokenUsdMicros) ||
-      !positive(value.returnValuation.gasUsdMicros))
+    retired !== undefined &&
+    (!isRecord(retired) ||
+      !keys(retired, ['runId', 'replacementRunId', 'quote', 'nonce', 'valuation']) ||
+      retired.runId !== '44844609625' ||
+      typeof retired.replacementRunId !== 'string' ||
+      !/^[1-9]\d{0,19}$/.test(retired.replacementRunId) ||
+      BigInt(retired.replacementRunId) <= 44871541172n ||
+      !quote(retired.quote) ||
+      typeof retired.nonce !== 'number' ||
+      !Number.isSafeInteger(retired.nonce) ||
+      retired.nonce < 0 ||
+      !valuation(retired.valuation))
   )
     return false;
   if (
@@ -303,6 +337,11 @@ function shape(value: unknown): value is MainnetNearCheckpoint {
   )
     return false;
   return true;
+}
+// The nearIntents quotes carry no partner fee, so a leg that requests a fresh quote cannot continue a state
+// that was priced and status-checked under the retired fee policy. It fails closed before any spend.
+export function assertMainnetNearNoLegacyFees(state: MainnetNearCheckpoint, message: string): void {
+  if (state.appFees.length > 0 || state.feePolicy !== undefined) throw new Error(message);
 }
 export function parseMainnetNearCheckpoint(value: unknown): MainnetNearCheckpoint {
   if (!shape(value)) throw new Error('Invalid or private native NEAR checkpoint');
@@ -382,6 +421,21 @@ export function parseMainnetNearCheckpoint(value: unknown): MainnetNearCheckpoin
       state.phase === 'reverse-authorized' ||
       state.phase === 'complete') &&
     !reverseAuthorized
+  )
+    reject();
+  const retired = state.retiredReturn;
+  if (
+    retired &&
+    (!reverseAuthorized ||
+      state.sourceRunId !== '44318071333' ||
+      state.authorizationRunId !== state.sourceRunId ||
+      state.lossBudgetUsdMicros !== '1712349' ||
+      retired.nonce !== state.evmNonceBefore ||
+      retired.quote.amountIn !== state.returnAmount ||
+      state.returnAmount !== state.forwardReceived ||
+      BigInt(retired.quote.minimumOutput) < BigInt(state.reverseMinimum) ||
+      BigInt(state.reverseQuote!.minimumOutput) < BigInt(retired.quote.minimumOutput) ||
+      !isDistinctNearReplacementQuote(retired.quote, state.reverseQuote))
   )
     reject();
   const knownFees = (state.transactions ?? []).reduce((sum, tx) => sum + BigInt(tx.feeWei ?? '0'), 0n);

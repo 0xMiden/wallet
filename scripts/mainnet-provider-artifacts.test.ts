@@ -187,6 +187,87 @@ describe('known unsigned NEAR quote reconciliation', () => {
     head_sha: 'cca4608ecc222693a9f04124c671f06b48cd850f',
     head_branch: 'wiktor/nightly-green-01-outcome'
   });
+  it.each([
+    [
+      8,
+      'e0bf79730133f18a5c96629ce54edeb8fbbf322b99199f6e0c58259daf3767c4',
+      44970377919,
+      '77014fbfff1e297a144eb959f0e0d59553c11a2a',
+      44972260190,
+      '2de8aa885c2208fb24bd208d16a572cf81017cb5',
+      '2026-11-22T01:34:00Z'
+    ],
+    [
+      11,
+      '82aa24b5e2ca2c999103d2bda5482dfb2ba21645d9089d4043199a66fe701847',
+      45055827591,
+      '4cda551849cdc69c9990d6943696fbbbc34ac468',
+      45059426340,
+      '1c512f88dd7010175a4060ae59760a0079e5c1ce',
+      '2026-11-22T18:54:41Z'
+    ],
+    [
+      12,
+      'b3c2a1e3068644497325cbb3d39bbdccdeba04876bcff6e781f01ecc794405c4',
+      45072272341,
+      '239ada789a8f2fc06ce2afdec8896d4f2dbcd977',
+      45075171185,
+      'd0d014848aba5f291855fdd605e6e523e81b3f42',
+      '2026-11-22T21:47:09Z'
+    ],
+    [
+      13,
+      '5c71be7ebac3e379684182de9d120994193d0a7d1ba7cee5dc503bf0e214fa1e',
+      45092013711,
+      '22a5d73c0d09630b9075d574a4e3f4ad81cc7dbc',
+      45095113595,
+      'da07676ad625c2b1fb604b7df065377eea54cc8f',
+      '2026-11-23T01:20:03Z'
+    ]
+  ])(
+    'accepts only the exact audited Green%s pre-ACK stop after expiry',
+    (attempt, digest, producerId, producerSha, auditId, auditSha, afterExpiry) => {
+      const producer = {
+        ...freshRun(),
+        id: producerId,
+        head_sha: producerSha,
+        head_branch: 'main'
+      };
+      const proof = {
+        ...freshAudit(),
+        id: auditId,
+        head_sha: auditSha,
+        head_branch: `wiktor/green${String(attempt).padStart(2, '0')}-near-readonly`
+      };
+      const evidence = {
+        jobs: [
+          {
+            name: 'audit',
+            status: 'completed',
+            conclusion: 'success',
+            steps: [
+              { name: 'Verify exact settlement archive', status: 'completed', conclusion: 'success' },
+              {
+                name: 'Observe NEAR custody and Send review without arming',
+                status: 'completed',
+                conclusion: 'success'
+              }
+            ]
+          }
+        ]
+      };
+      const jobs = originalJobs();
+      jobs.jobs[0]!.steps.push({ name: 'Retain mainnet NEAR checkpoint', status: 'completed', conclusion: 'success' });
+      const expired = Date.parse(afterExpiry);
+      expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, evidence, expired)).toBe(true);
+      expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, evidence, expired - 60_000)).toBe(false);
+      expect(
+        knownUnspentNearPreAuthorization(digest, producer, jobs, { ...proof, run_attempt: 2 }, evidence, expired)
+      ).toBe(false);
+      expect(knownUnspentNearPreAuthorization(digest, producer, jobs, proof, auditJobs(), expired)).toBe(false);
+      expect(knownUnspentNearPreAuthorization('b'.repeat(64), producer, jobs, proof, evidence, expired)).toBe(false);
+    }
+  );
   it('recognizes only the exact independently audited unsigned attempt01 after its original windows expire', () => {
     expect(
       knownUnspentNearPreAuthorization(freshDigest, freshRun(), originalJobs(), freshAudit(), auditJobs(), freshNow)

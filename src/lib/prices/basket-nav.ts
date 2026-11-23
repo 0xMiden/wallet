@@ -9,7 +9,7 @@ import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { readWithOwnRpcClient } from 'lib/usdcx/rpc-client';
 
 import { basketChange24h } from './basket';
-import { isNominalQuote, quotedPrice, type BasketComponent, type TokenPriceInfo, type TokenPrices } from './binance';
+import { quotedPrice, type BasketComponent, type TokenPriceInfo, type TokenPrices } from './binance';
 
 /** One token a basket holds, as the token list names it. */
 export interface BasketConstituent {
@@ -143,7 +143,7 @@ export async function readBasketVault(source: BasketSource): Promise<BasketVault
 /** A quote that comes from a market (an exchange, or a fixed $1 stablecoin), never a nominal rate or another basket. */
 function marketQuote(prices: TokenPrices, priceSymbol: string): TokenPriceInfo | undefined {
   const quote = quotedPrice(prices, priceSymbol);
-  return quote && !isNominalQuote(quote) && quote.source !== 'basket' ? quote : undefined;
+  return quote && quote.kind !== 'nominal' && quote.kind !== 'basket' ? quote : undefined;
 }
 
 const asUnits = (amount: bigint, decimals: number): number => Number(amount) / 10 ** decimals;
@@ -223,7 +223,7 @@ export async function fetchBasketPrices(
             change24h: price - price / (1 + percentageChange24h / 100),
             percentageChange24h,
             observedAt: now(),
-            source: 'basket',
+            kind: 'basket',
             ...(composition ? { composition } : {})
           };
         }
@@ -233,8 +233,4 @@ export async function fetchBasketPrices(
     })
   );
   return quotes;
-}
-
-export function isBasketQuote(quote: TokenPriceInfo | undefined): boolean {
-  return quote?.source === 'basket';
 }

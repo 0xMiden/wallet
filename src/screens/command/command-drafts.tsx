@@ -13,25 +13,15 @@ export type CommandSendRecall =
 export interface CommandDrafts {
   send: SendDraft & { privacy?: 'public' | 'private'; recall?: CommandSendRecall; reviewId?: string };
   receive: { faucetId: string };
-  swap:
-    | {
-        engine: 'swap';
-        payTokenId: string;
-        receiveTokenId: string;
-        payAmount: string;
-        expirySeconds: string;
-        slippageBps: number;
-        autoAccept: boolean;
-      }
-    | {
-        engine: 'one-click';
-        payNetworkId: string;
-        receiveNetworkId: string;
-        payAssetId: string;
-        receiveAssetId: string;
-        payAmount: string;
-        externalAddress: string;
-      };
+  swap: {
+    engine: 'swap';
+    payTokenId: string;
+    receiveTokenId: string;
+    payAmount: string;
+    expirySeconds: string;
+    slippageBps: number;
+    autoAccept: boolean;
+  };
   earn: { mode: 'deposit' | 'withdraw'; subjectId: string; amount: string };
   bridge: { direction: 'in' | 'out'; route: string; amount: string; externalAccountId: string };
 }

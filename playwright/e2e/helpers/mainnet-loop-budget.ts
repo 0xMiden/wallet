@@ -17,15 +17,24 @@ const PRECEDING: Record<MainnetLoopProvider, readonly MainnetLoopProvider[]> = {
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+function mainnetLoopAllowance(configured = MAINNET_LOOP_LOSS_CAP.toString()): bigint {
+  if (!/^[1-9]\d{0,6}$/.test(configured) || BigInt(configured) > MAINNET_LOOP_LOSS_CAP)
+    throw new Error('Invalid remaining mainnet task loss allowance');
+  return BigInt(configured);
+}
+
+export function cappedMainnetRecoveryBudget(original: string, configured?: string): bigint {
+  const current = mainnetLoopAllowance(configured);
+  const saved = mainnetLoopAllowance(original);
+  return current < saved ? current : saved;
+}
+
 export function remainingMainnetLoopBudget(
   runId: string,
   provider: MainnetLoopProvider,
   completed: readonly unknown[]
 ): bigint {
-  const configured = process.env.MAINNET_LOOP_LOSS_BUDGET_USD_MICROS ?? MAINNET_LOOP_LOSS_CAP.toString();
-  if (!/^[1-9]\d{0,6}$/.test(configured) || BigInt(configured) > MAINNET_LOOP_LOSS_CAP)
-    throw new Error('Invalid remaining mainnet task loss allowance');
-  const allowance = BigInt(configured);
+  const allowance = mainnetLoopAllowance(process.env.MAINNET_LOOP_LOSS_BUDGET_USD_MICROS);
   const expected = PRECEDING[provider];
   if (
     typeof runId !== 'string' ||

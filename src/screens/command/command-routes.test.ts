@@ -26,6 +26,7 @@ it.each([
   '/send/unknown',
   '/earn/vaults',
   '/history-details/',
+  '/receive/near-intents/row-1',
   '/reset-wallet',
   '/explore'
 ])('leaves %s in the legacy router', path => {

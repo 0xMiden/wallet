@@ -76,7 +76,8 @@ function solverEnabled(value) {
   return true;
 }
 
-function oneClickEnabled(value) {
+// Reads the top-level `nearIntents` section. Its `midenAssets` and `chains` are maps keyed by id.
+function nearIntentsEnabled(value) {
   if (!record(value) || typeof value.serviceUrl !== 'string' || value.serviceUrl.length > 512) return false;
   let url;
   try {
@@ -85,10 +86,13 @@ function oneClickEnabled(value) {
     return false;
   }
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return false;
-  if (!Array.isArray(value.midenAssets) || value.midenAssets.length < 1 || value.midenAssets.length > 64) return false;
+  if (!record(value.chains) || Object.keys(value.chains).length < 1) return false;
+  if (!record(value.midenAssets)) return false;
+  const midenAssets = Object.values(value.midenAssets);
+  if (midenAssets.length < 1 || midenAssets.length > 64) return false;
   const assetIds = new Set();
   const faucetIds = new Set();
-  return value.midenAssets.every(asset => {
+  return midenAssets.every(asset => {
     if (
       !record(asset) ||
       typeof asset.assetId !== 'string' ||
@@ -123,8 +127,7 @@ function readPolicy(body, network) {
   ) {
     throw new Error('Invalid policy');
   }
-  const nearIntents =
-    features.nearIntents === true && oneClickEnabled(record(body.swap) ? body.swap.oneClick : undefined);
+  const nearIntents = features.nearIntents === true && nearIntentsEnabled(body.nearIntents);
   const enabled = { wallet: true, earn: features.earn === true, swap: solverEnabled(body.swap) || nearIntents };
   if (!record(body.geo) || !record(body.geo.wallet)) throw new Error('Invalid policy');
   const rules = { wallet: [], earn: [], swap: [] };

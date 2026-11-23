@@ -4,7 +4,6 @@ import {
   basketNav,
   basketPriceSources,
   fetchBasketPrices,
-  isBasketQuote,
   readBasketVault,
   type BasketSource,
   type BasketVault
@@ -36,6 +35,7 @@ const quote = (price: number, extra: Partial<TokenPriceInfo> = {}) => ({
   price,
   change24h: 0,
   percentageChange24h: 0,
+  kind: 'market' as const,
   ...extra
 });
 
@@ -117,7 +117,7 @@ describe('basketNav', () => {
 
   it('has no value while any constituent has no market quote', () => {
     expect(basketNav(SOURCE, VAULT, { BTC: quote(100_000) })).toBeUndefined();
-    expect(basketNav(SOURCE, VAULT, { ...PRICES, ETH: quote(1, { source: 'basket' }) })).toBeUndefined();
+    expect(basketNav(SOURCE, VAULT, { ...PRICES, ETH: quote(1, { kind: 'basket' }) })).toBeUndefined();
   });
 
   it('has no value with no supply', () => {
@@ -138,7 +138,7 @@ describe('fetchBasketPrices', () => {
         change24h: 0,
         percentageChange24h: 0,
         observedAt: 42,
-        source: 'basket',
+        kind: 'basket' as const,
         // $200 of ETH and $100 of BTC: the vault's own mix, largest first.
         composition: [
           { faucetId: 'mm1eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 2 / 3 },
@@ -151,8 +151,8 @@ describe('fetchBasketPrices', () => {
 
   it('carries the move its tokens give it, so every price surface reads the same move', async () => {
     const moving = {
-      BTC: quote(100_000, { percentageChange24h: 10 }),
-      ETH: quote(4_000, { percentageChange24h: -20 })
+      BTC: quote(100_000, { percentageChange24h: 10, kind: 'market' as const }),
+      ETH: quote(4_000, { percentageChange24h: -20, kind: 'market' as const })
     };
     const quotes = await fetchBasketPrices([SOURCE], moving, async () => VAULT);
     // ETH is 2/3 of the vault's value and BTC 1/3: 24h ago it was worth 2/3 / 0.8 + 1/3 / 1.1 of today.
@@ -301,12 +301,6 @@ describe('readBasketVault', () => {
       jest.useRealTimers();
     }
   });
-});
-
-it('tells a basket quote from the others', () => {
-  expect(isBasketQuote(quote(1, { source: 'basket' }))).toBe(true);
-  expect(isBasketQuote(quote(1))).toBe(false);
-  expect(isBasketQuote(undefined)).toBe(false);
 });
 
 it('splits a basket by the value each constituent holds, largest first', () => {

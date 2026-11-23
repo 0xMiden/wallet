@@ -463,7 +463,8 @@ export function prepareMainnetSwapClaimRecovery(
 
 export async function readMainnetSwapPayback(
   rpcUrl: string,
-  scope: MainnetSwapPaybackScope
+  scope: MainnetSwapPaybackScope,
+  onOriginalIncluded?: () => void
 ): Promise<MainnetSwapPaybackEvidence | undefined> {
   const url = new URL(rpcUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
@@ -492,6 +493,13 @@ export async function readMainnetSwapPayback(
   const exactScope = { ...scope, orderId: protocolOrder.toString() };
   const originalHeight = original.inclusionProof.location().blockNum();
   await verifyMainnetMidenNoteInclusion(rpcUrl, scope.noteId, originalHeight, scope.accountId);
+  if (onOriginalIncluded) {
+    try {
+      if (originalNote.id().toString() === scope.noteId) onOriginalIncluded();
+    } catch {
+      // A reporting failure cannot change settlement or recovery.
+    }
+  }
   const consumedHeight = await readMainnetSwapCommitHeight(rpc, originalNote, originalHeight);
   if (consumedHeight === undefined) return undefined;
   if (!Number.isSafeInteger(consumedHeight) || consumedHeight < originalHeight)

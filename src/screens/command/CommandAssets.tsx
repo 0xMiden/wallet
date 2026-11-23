@@ -14,8 +14,6 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
-import { isNominalQuote } from 'lib/prices/binance';
-import { isFixedQuote } from 'lib/prices/fixed';
 import { useWalletStore } from 'lib/store';
 
 export function CommandAssets({
@@ -82,11 +80,11 @@ export function CommandAssets({
               pricesReady &&
               known &&
               quote &&
-              !isNominalQuote(quote) &&
+              quote.kind !== 'nominal' &&
               Number.isFinite(quote.price) &&
               quote.price > 0 &&
               Number.isFinite(asset.balance) &&
-              (isFixedQuote(quote) ||
+              (quote.kind === 'fixed' ||
                 (quote.observedAt && quote.observedAt <= now && now - quote.observedAt <= 15 * 60_000));
             return (
               <ListRow

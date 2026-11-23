@@ -6,6 +6,7 @@ import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activi
 import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import { checkStorage, isStorageStalled, isStorageStalledError, isStorageStalledNow } from 'lib/miden/storage-health';
 import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -186,7 +187,7 @@ export function doSync(force = false): Promise<void> {
   // coalescing, nor the circuit breaker, nor the #777 fuse - which can hold this realm off the
   // node for 30 minutes at a time - has any business gating it. Self-throttled and fire-and-forget,
   // so it can neither slow a sync nor fail one.
-  void runTrimTick();
+  if (!isStorageStalled()) void runTrimTick();
 
   if (inFlight) {
     if (!force) return inFlight;
@@ -218,6 +219,11 @@ async function runSync(force: boolean): Promise<void> {
     // The `miden-sync` alarm can fire before start() has loaded the override; until then the note scope below and
     // the state sent to the offscreen document would be the build's network (#1482).
     await whenEndpointOverridesLoaded();
+    // Every step below reads IndexedDB; with the browser's backend not answering each one would park forever.
+    if (await isStorageStalledNow()) {
+      broadcastSyncCompleted();
+      return;
+    }
     // Skip if wallet not set up
     const vault = await getVault();
     const exists = await vault.isExist();
@@ -287,6 +293,20 @@ async function runSync(force: boolean): Promise<void> {
       // health and is owned by withProverFallback.
       clearReachabilityIssues();
     } catch (err) {
+      // A stalled IndexedDB is the browser's fault, not the node's (#2148): no failure streak, breaker window or
+      // connectivity banner, and nothing below may touch storage. The 30 s timeout fires before the offscreen
+      // deadline reports the stall, so a timeout is checked against the probe here.
+      // A sync timeout, or on the inline path a watchdog eviction, is probed afresh: the cached flag is false after a
+      // healthy start, and a stall must not feed the node-failure streak.
+      if (
+        isStorageStalledError(err) ||
+        ((isSyncWatchdogEviction(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) &&
+          (await checkStorage()))
+      ) {
+        console.warn('[SyncManager] sync skipped: browser storage is not answering');
+        broadcastSyncCompleted();
+        return;
+      }
       consecutiveSyncFailures++;
       // The FUSE (#777), same rule and constants as the mobile/desktop loop, because
       // this realm needs it for the same reason: after an eviction the SDK still
@@ -946,6 +966,14 @@ async function runSync(force: boolean): Promise<void> {
     } catch {
       // No frontends connected
     }
+  }
+}
+
+function broadcastSyncCompleted(): void {
+  try {
+    getIntercom()!.broadcast({ type: WalletMessageType.SyncCompleted });
+  } catch {
+    // No frontends connected
   }
 }
 
