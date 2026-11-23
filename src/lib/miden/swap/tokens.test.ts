@@ -233,6 +233,19 @@ describe('swap token price symbols', () => {
     expect(getSwapTokenBySymbol('IBTC')?.priceSymbol).toBe('BTC');
   });
 
+  // #2112: the solver's own asset (USDT, SOL, NEAR, PAXG) is dropped unless the feed's short list has it, so the
+  // picker showed no value for them while home, which reads the verified token list, did.
+  it('prices a registry token the verified token list prices, whatever asset the solver names', () => {
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(
+      new Map([
+        [TEST_TOKEN_IUSDT.faucetId, 'USDT'],
+        [TEST_TOKEN_IMIDEN.faucetId, 'SOL']
+      ])
+    );
+    expect(getSwapTokenBySymbol('IUSDT')?.priceSymbol).toBe('USDT');
+    expect(getSwapTokenBySymbol('IMIDEN')?.priceSymbol).toBe('SOL');
+  });
+
   it('leaves IUSDT and IMIDEN unpriced: the feed quotes neither asset the solver prices them with', () => {
     expect(getSwapTokenBySymbol('IUSDT')).toEqual(
       expect.objectContaining({ symbol: 'IUSDT', faucetId: canonical(TEST_TOKEN_IUSDT.faucetId) })

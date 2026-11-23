@@ -365,15 +365,22 @@ export function mobileCells(j: MobileJourney): Record<string, MobileCellImpl> {
         );
       }
     },
-    G1: {
-      budget: 'read',
-      run: async ctx => {
-        const result = await expectNoSheet(j.dapp, () => j.call('signWord', { wordHex: WORD }, ctx.deadline), ctx, {
-          refusal: true
-        });
-        expectRefusal(result, SIGN_RULE_REFUSED, ctx);
-      }
-    },
+    // Only a Guardian account is gated; a single-key account's word still prompts and signs.
+    G1:
+      j.axis.label === 'guardian'
+        ? {
+            budget: 'read',
+            run: async ctx => {
+              const result = await expectNoSheet(
+                j.dapp,
+                () => j.call('signWord', { wordHex: WORD }, ctx.deadline),
+                ctx,
+                { refusal: true }
+              );
+              expectRefusal(result, SIGN_RULE_REFUSED, ctx);
+            }
+          }
+        : signedCell('word', ctx => j.call('signWord', { wordHex: WORD }, ctx.deadline)),
     G2a: signedCell('signingInputs', ctx =>
       j.call('signSigningInputs', { variant: 'arbitrary', felts: ['1', '2', '3'] }, ctx.deadline)
     ),
