@@ -76,7 +76,7 @@ const MUTATIONS = [
   {
     name: 'the AppTrackingTransparency framework imported in AppDelegate',
     guards: 'never references AppTrackingTransparency',
-    edits: [{ file: APP_DELEGATE, find: `import Capacitor`, replace: `import AppTrackingTransparency\nimport Capacitor` }]
+    edits: [{ file: APP_DELEGATE, find: `import UIKit`, replace: `import AppTrackingTransparency\nimport UIKit` }]
   },
   {
     name: 'ATTrackingManager asked for tracking authorization',
