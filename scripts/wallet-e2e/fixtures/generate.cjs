@@ -110,7 +110,11 @@ function recoveryFixture(claimObserved = false) {
 }
 
 if (require.main === module) {
-  const directory = process.argv[2] ?? __dirname;
+  const directory = process.argv[2];
+  if (!directory) {
+    process.stderr.write('Usage: node scripts/wallet-e2e/fixtures/generate.cjs <output-directory>\n');
+    process.exit(1);
+  }
   publishAtomically(join(directory, REPORT_FILENAME), formatReport(recoveryFixture()));
   publishAtomically(join(directory, 'prior-run-claim-v1.json'), formatReport(recoveryFixture(true)));
   const refused = { ...recoveryFixture(), unexpectedAttachment: { seed: 'TEST_ONLY_SEED_SENTINEL' } };
