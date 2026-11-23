@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
 
+import { primeHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { MidenState } from 'lib/miden/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hasExtensionRuntime, isExtension } from 'lib/platform';
 import { primeCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { SyncData, WalletMessageType, WalletNotification, WalletStatus } from 'lib/shared/types';
+import { loadTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { getIntercom, useWalletStore } from '../index';
 import { updateBalancesFromSyncData } from '../utils/updateBalancesFromSyncData';
@@ -89,10 +91,13 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string, isCurrent:
       new Promise<void>(resolve => {
         readSyncData(accountPublicKey, syncData => {
           if (!syncData || !active || !isCurrent()) return resolve();
+          const network = getEffectiveNetworkName();
           const current = () => active && isCurrent() && matchesBalanceScope(syncData);
           void Promise.all([
             updateBalancesFromSyncData(accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot, current),
-            primeCachedDisplayQuotes(current).catch(() => undefined)
+            primeCachedDisplayQuotes(current).catch(() => undefined),
+            primeHiddenTokens(network, accountPublicKey),
+            loadTokenPriceAssets(network).catch(() => undefined)
           ]).then(
             () => resolve(),
             error => {

@@ -133,10 +133,16 @@ test.describe('Home network naming', () => {
     await expect.poll(readFaucetId).toEqual(expect.any(String));
     const faucetId: string = await readFaucetId();
     const metadata = { symbol: 'TST', name: 'Test', decimals: 6 };
+    const network = snapshot.balanceSnapshot?.effectiveNetwork;
+    expect(network).toBe('testnet');
     await worker.evaluate(values => chrome.storage.local.set(values), {
       [`${NATIVE_ASSET_ID_CACHE}:${scope}`]: faucetId,
       [`${NATIVE_ASSET_META_CACHE}:${scope}`]: { ...metadata, faucetId },
-      usd_price_cache: { TST: { priceMicro: '2000000', fetchedAt: Math.floor(Date.now() / 1000) } }
+      [`token_list_cache_v2:${network}`]: {
+        fetchedAt: Date.now(),
+        body: { tokens: [{ network, faucetId, symbol: metadata.symbol, decimals: metadata.decimals, binanceAsset: 'ETH' }] }
+      },
+      usd_price_cache: { ETH: { priceMicro: '2000000', fetchedAt: Math.floor(Date.now() / 1000) } }
     });
     await extensionContext.route(/https:\/\/(data-api\.binance\.vision|api\.kraken\.com)\//, route => route.abort());
     const fixture = { ...snapshot, vaultAssets: [{ faucetId, amountBaseUnits: '7250000', metadata }] };
