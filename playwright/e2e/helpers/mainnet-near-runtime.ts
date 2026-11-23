@@ -1,6 +1,6 @@
 import type { TestInfo } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { clearTimeout, setTimeout } from 'node:timers';
+import { setTimeout as delay } from 'node:timers/promises';
 import { privateKeyToAccount, privateKeyToAddress } from 'viem/accounts';
 import { expect } from '@playwright/test';
 import { createPublicClient, erc20Abi, getAddress, http, isHash, isHex, type Hash } from 'viem';
@@ -579,13 +579,11 @@ export async function runMainnetNearForward(
       await persist();
     }
   }).catch(async error => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const observation = new AbortController();
     try {
       const row = await Promise.race([
         readTransactionRow(wallet.page, queued.id).catch(() => undefined),
-        new Promise<undefined>(resolve => {
-          timer = setTimeout(resolve, 1500);
-        })
+        delay(1500, undefined, { signal: observation.signal, ref: false })
       ]);
       writeFileSync(
         'test-results/mainnet-near-forward-stage.json',
@@ -595,7 +593,7 @@ export async function runMainnetNearForward(
     } catch {
       // Preserve the original authorization failure if observation fails.
     } finally {
-      clearTimeout(timer);
+      observation.abort();
     }
     throw error;
   });
