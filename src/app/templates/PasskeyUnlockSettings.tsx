@@ -154,6 +154,8 @@ const PasskeyUnlockSettings = ({ returnToOnboarding }: { returnToOnboarding?: ()
         />
       </>
     );
+  } else if (returnToOnboarding) {
+    footer = <Button title={t('continue')} onClick={returnToOnboarding} />;
   } else if (canManage) {
     footer = (
       <>
@@ -175,8 +177,6 @@ const PasskeyUnlockSettings = ({ returnToOnboarding }: { returnToOnboarding?: ()
         />
       </>
     );
-  } else if (returnToOnboarding) {
-    footer = <Button title={t('continue')} onClick={returnToOnboarding} />;
   } else if (available) {
     footer = <Button title={t('openWallet')} onClick={openPanel} />;
   }
