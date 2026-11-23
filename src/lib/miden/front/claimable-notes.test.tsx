@@ -172,6 +172,8 @@ jest.mock('../metadata', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
+  __esModule: true,
+  ...jest.requireActual('../sdk/helpers'),
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech-stub')
 }));
 
