@@ -8,6 +8,7 @@ import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { useWalletStore } from 'lib/store';
 
 /** The valued total's move over 24 hours, in dollars and as a percentage of where it started. */
@@ -26,6 +27,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const cachedQuotes = useCachedDisplayQuotes();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const { isHidden } = useHiddenTokens(account.publicKey);
 
@@ -36,7 +38,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
     // `valuedBalanceTotal`'s rule, shared with the bridge-in ceiling.
     const { totalFiat, previousFiat, holdsAnything, valuedAnything } = valuedBalanceTotal(
       allTokenBalances,
-      tokenPrices,
+      cachedQuotes ? { ...cachedQuotes, ...tokenPrices } : tokenPrices,
       isHidden
     );
     // No change to show without a valued total, or from a starting value of zero.
@@ -62,7 +64,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
         })}
       </CSSTransition>
     );
-  }, [children, allTokenBalances, isHidden, tokenPrices, bridgeConfig]);
+  }, [children, allTokenBalances, isHidden, tokenPrices, cachedQuotes, bridgeConfig]);
 });
 
 export default Balance;

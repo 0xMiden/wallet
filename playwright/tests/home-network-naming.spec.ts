@@ -25,7 +25,8 @@ async function openPopup(
   extensionContext: BrowserContext,
   extensionId: string,
   locale: string,
-  snapshot?: SyncData
+  snapshot?: SyncData,
+  surface: 'popup' | 'sidepanel' = 'popup'
 ): Promise<Page> {
   const page = await extensionContext.newPage();
   // The extension fixture launches with no viewport (Playwright's 1280x720), and test.use({ viewport })
@@ -66,7 +67,7 @@ async function openPopup(
       });
     }, snapshot);
   }
-  await page.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`chrome-extension://${extensionId}/${surface}.html`, { waitUntil: 'domcontentloaded' });
   const card = page.getByTestId('balance-card-label');
   const unlock = page.getByTestId('unlock-password');
   await card.or(unlock).first().waitFor({ timeout: 30_000 });
@@ -113,6 +114,46 @@ test.describe('Home network naming', () => {
     });
     await expect(page.getByTestId('balance-card-currency')).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-first-balance', '7.25');
+  });
+
+  test('renders the same cached market balance in Sidebar and Command without a price feed', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    test.setTimeout(330_000);
+    await importWallet(extensionContext, extensionId);
+    const worker = extensionContext.serviceWorkers()[0] ?? (await extensionContext.waitForEvent('serviceworker'));
+    const readSnapshot = () =>
+      worker.evaluate(async () => (await chrome.storage.local.get('miden_sync_data')).miden_sync_data as SyncData);
+    await expect.poll(async () => (await readSnapshot())?.balanceSnapshot?.accountNonce).toBeDefined();
+    const snapshot = await readSnapshot();
+    const scope = `${snapshot.balanceSnapshot?.rpcUrl}|${snapshot.balanceSnapshot?.effectiveNetwork}`;
+    const syncedKey = `${NATIVE_ASSET_SYNCED_ID_CACHE}:${scope}`;
+    const readFaucetId = () => worker.evaluate(async key => (await chrome.storage.local.get(key))[key], syncedKey);
+    await expect.poll(readFaucetId).toEqual(expect.any(String));
+    const faucetId: string = await readFaucetId();
+    const metadata = { symbol: 'TST', name: 'Test', decimals: 6 };
+    await worker.evaluate(values => chrome.storage.local.set(values), {
+      [`${NATIVE_ASSET_ID_CACHE}:${scope}`]: faucetId,
+      [`${NATIVE_ASSET_META_CACHE}:${scope}`]: { ...metadata, faucetId },
+      usd_price_cache: { TST: { priceMicro: '2000000', fetchedAt: Math.floor(Date.now() / 1000) } }
+    });
+    await extensionContext.route(/https:\/\/(data-api\.binance\.vision|api\.kraken\.com)\//, route => route.abort());
+    const fixture = { ...snapshot, vaultAssets: [{ faucetId, amountBaseUnits: '7250000', metadata }] };
+    const sidebar = await openPopup(extensionContext, extensionId, 'en', fixture, 'sidepanel');
+    await expect(sidebar.locator('html')).toHaveAttribute('data-first-balance', /^14\.5(?:0)?$/);
+    const command = await extensionContext.newPage();
+    await command.addInitScript(syncData => {
+      const storage = chrome.storage.local;
+      storage.get = new Proxy(storage.get, {
+        apply: (target, receiver, args) => {
+          if (args[0] !== 'miden_sync_data' || typeof args[1] !== 'function') return Reflect.apply(target, receiver, args);
+          args[1]({ miden_sync_data: syncData });
+        }
+      });
+    }, fixture);
+    await command.goto(`chrome-extension://${extensionId}/fullpage.html#/`);
+    await expect(command.getByTestId('command-live-balance')).toHaveText(/^14\.5(?:0)? USD$/);
   });
 
   for (const locale of ['en', 'de'] as const) {

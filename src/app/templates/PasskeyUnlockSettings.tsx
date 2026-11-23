@@ -14,7 +14,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { createPlatformCredential } from 'lib/platform-auth/webauthn';
 import { useConfirm } from 'lib/ui/dialog';
 
-const PasskeyUnlockSettings = () => {
+const PasskeyUnlockSettings = ({ returnToOnboarding }: { returnToOnboarding?: () => void }) => {
   const { t } = useTranslation();
   const { sidePanel, confirmWindow } = useAppEnv();
   const { state, refresh } = usePlatformUnlock();
@@ -32,7 +32,8 @@ const PasskeyUnlockSettings = () => {
   const controller = useRef<AbortController | null>(null);
   const available = state.available && state.hasPassword;
   const canManage = available && sidePanel && !confirmWindow;
-  const enrolling = canManage && (editing || state.credential === null);
+  const canEnrollDuringSetup = available && Boolean(returnToOnboarding) && !confirmWindow && !state.credential;
+  const enrolling = canEnrollDuringSetup || (canManage && (editing || state.credential === null));
 
   useEffect(() => {
     mounted.current = true;
@@ -148,6 +149,7 @@ const PasskeyUnlockSettings = () => {
             controller.current?.abort();
             setEditing(false);
             setPassword('');
+            returnToOnboarding?.();
           }}
         />
       </>
@@ -173,6 +175,8 @@ const PasskeyUnlockSettings = () => {
         />
       </>
     );
+  } else if (returnToOnboarding) {
+    footer = <Button title={t('continue')} onClick={returnToOnboarding} />;
   } else if (available) {
     footer = <Button title={t('openWallet')} onClick={openPanel} />;
   }
@@ -209,7 +213,7 @@ const PasskeyUnlockSettings = () => {
           onChange={event => setPassword(event.target.value)}
         />
       )}
-      {available && !canManage && <Notice>{t('passkeySidePanelOnly')}</Notice>}
+      {available && !canManage && !returnToOnboarding && <Notice>{t('passkeySidePanelOnly')}</Notice>}
       <Notice>{t('passkeyProviderRemoval')}</Notice>
       <ErrorLine errorId={error === 'passkeyCanceled' ? null : error}>{error && t(error)}</ErrorLine>
     </SubPageLayout>

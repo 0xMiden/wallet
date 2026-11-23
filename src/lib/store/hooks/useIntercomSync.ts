@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { MidenState } from 'lib/miden/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hasExtensionRuntime, isExtension } from 'lib/platform';
+import { primeCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { SyncData, WalletMessageType, WalletNotification, WalletStatus } from 'lib/shared/types';
 
 import { getIntercom, useWalletStore } from '../index';
@@ -88,15 +89,17 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string, isCurrent:
       new Promise<void>(resolve => {
         readSyncData(accountPublicKey, syncData => {
           if (!syncData || !active || !isCurrent()) return resolve();
-          void updateBalancesFromSyncData(
-            accountPublicKey,
-            syncData.vaultAssets,
-            syncData.balanceSnapshot,
-            () => active && isCurrent() && matchesBalanceScope(syncData)
-          ).then(resolve, error => {
-            console.warn('[useIntercomSync] Initial balance rehydrate failed:', error);
-            resolve();
-          });
+          const current = () => active && isCurrent() && matchesBalanceScope(syncData);
+          void Promise.all([
+            updateBalancesFromSyncData(accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot, current),
+            primeCachedDisplayQuotes(current).catch(() => undefined)
+          ]).then(
+            () => resolve(),
+            error => {
+              console.warn('[useIntercomSync] Initial balance rehydrate failed:', error);
+              resolve();
+            }
+          );
         });
       }),
       new Promise<void>(resolve => (timer = setTimeout(resolve, 1_000)))
