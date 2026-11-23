@@ -118,6 +118,18 @@ final class BreadMorphController {
         listener.onFrame(p);
     }
 
+    void prepareTracking(BreadMorphCard landing, float from, float to) {
+        spring.cancel();
+        card = landing;
+        measure();
+        target = to;
+        progress = from;
+        velocity = 0;
+        boost();
+        apply(from);
+        listener.onFrame(from);
+    }
+
     float finishAtNearestEnd() {
         float end = progress >= 0.5f ? 1 : 0;
         spring.cancel();
