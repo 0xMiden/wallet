@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 
-import { primeHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { MidenState } from 'lib/miden/types';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hasExtensionRuntime, isExtension } from 'lib/platform';
@@ -96,7 +95,9 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string, isCurrent:
           void Promise.all([
             updateBalancesFromSyncData(accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot, current),
             primeCachedDisplayQuotes(current).catch(() => undefined),
-            primeHiddenTokens(network, accountPublicKey),
+            import('app/hooks/useHiddenTokens').then(({ primeHiddenTokens }) =>
+              primeHiddenTokens(network, accountPublicKey)
+            ),
             loadTokenPriceAssets(network).catch(() => undefined)
           ]).then(
             () => resolve(),
