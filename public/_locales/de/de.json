@@ -930,6 +930,8 @@
   "connectivityGuardianTitle": "Guardian nicht erreichbar",
   "connectivityGuardianBody": "Ihr guardian reagiert nicht, daher können Transaktionen nicht bestätigt werden.",
   "connectivityGuardianCta": "Guardian wechseln",
+  "storageStalledTitle": "Der Browserspeicher reagiert nicht",
+  "storageStalledBody": "Ihre Wallet-Daten sind nicht verloren gegangen, aber der Browser reagiert nicht mehr auf Anfragen danach. Beenden Sie den Browser vollständig und starten Sie ihn neu, um die Daten wiederherzustellen.",
   "revealHotKey": "Alltagsschlüssel offenlegen",
   "revealHotKeyDescription": "Dein Alltagsschlüssel kann unter „Einstellungen“ → „Alltagsschlüssel rotieren“ rotiert werden, sodass seine Offenlegung weniger riskant ist als die deiner Wiederherstellungsphrase – aber jeder, der ihn besitzt, kann Transaktionen signieren, bis du ihn rotiert hast.",
   "hotKeyRevealWarningTitle": "Bevor Sie Ihre privaten Schlüssel preisgeben",

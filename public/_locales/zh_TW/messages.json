@@ -4227,6 +4227,14 @@
     "message": "切換 Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "瀏覽器儲存空間無回應",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "您的錢包資料並未遺失，但瀏覽器已停止回應相關請求。請完全關閉並重新開啟瀏覽器以恢復正常。",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "揭露日常金鑰",
     "englishSource": "Reveal everyday key"

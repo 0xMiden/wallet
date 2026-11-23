@@ -4227,6 +4227,14 @@
     "message": "Changer de Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "Le stockage du navigateur ne répond pas",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Les données de votre portefeuille ne sont pas perdues, mais le navigateur a cessé de répondre aux requêtes les concernant. Fermez puis rouvrez complètement le navigateur pour les restaurer.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Révéler la clé quotidienne",
     "englishSource": "Reveal everyday key"

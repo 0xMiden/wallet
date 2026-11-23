@@ -4227,6 +4227,14 @@
     "message": "Switch Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "Browser storage is not responding",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Reveal everyday key",
     "englishSource": "Reveal everyday key"

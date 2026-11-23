@@ -931,6 +931,8 @@
   "connectivityGuardianTitle": "Guardian アクセス不可",
   "connectivityGuardianBody": "guardianが応答していないため、取引の承認が行えません。",
   "connectivityGuardianCta": "Guardian を切り替える",
+  "storageStalledTitle": "ブラウザのストレージが応答しません",
+  "storageStalledBody": "ウォレットのデータが失われたわけではありませんが、ブラウザがそのデータに対するリクエストに応答しなくなっています。ブラウザを完全に終了してから再起動することで復旧します。",
   "revealHotKey": "日常キーを公開する",
   "revealHotKeyDescription": "日常用キーは「設定」→「日常用キーのローテーション」からローテーション可能です。そのため、これを開示してもリカバリーフレーズほど重大なリスクにはなりませんが、ローテーションを行うまでは、このキーを保持している者は誰でもトランザクションに署名することができます。",
   "hotKeyRevealWarningTitle": "秘密鍵を開示する前に",

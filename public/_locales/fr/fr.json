@@ -931,6 +931,8 @@
   "connectivityGuardianTitle": "Guardian inaccessible",
   "connectivityGuardianBody": "Votre guardian ne répond pas, les transactions ne peuvent donc pas être validées.",
   "connectivityGuardianCta": "Changer de Guardian",
+  "storageStalledTitle": "Le stockage du navigateur ne répond pas",
+  "storageStalledBody": "Les données de votre portefeuille ne sont pas perdues, mais le navigateur a cessé de répondre aux requêtes les concernant. Fermez puis rouvrez complètement le navigateur pour les restaurer.",
   "revealHotKey": "Révéler la clé quotidienne",
   "revealHotKeyDescription": "Votre clé quotidienne peut être renouvelée depuis Paramètres → Renouveler la clé quotidienne ; sa divulgation présente donc moins de risques que celle de votre phrase de récupération — mais toute personne qui la détient peut signer des transactions jusqu’à ce que vous la renouveliez.",
   "hotKeyRevealWarningTitle": "Avant de divulguer vos clés privées",

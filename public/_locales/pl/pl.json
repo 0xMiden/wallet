@@ -931,6 +931,8 @@
   "connectivityGuardianTitle": "Guardian niedostępne",
   "connectivityGuardianBody": "Twój guardiana nie odpowiada, więc transakcje nie mogą zostać potwierdzone.",
   "connectivityGuardianCta": "Przełącz Guardian",
+  "storageStalledTitle": "Pamięć przeglądarki nie odpowiada",
+  "storageStalledBody": "Dane z portfela nie zostały utracone, ale przeglądarka przestała odpowiadać na żądania dotyczące tych danych. Aby je przywrócić, należy całkowicie zamknąć i ponownie otworzyć przeglądarkę.",
   "revealHotKey": "Ujawnij klucz codzienny",
   "revealHotKeyDescription": "Klucz codzienny można zmienić w sekcji Ustawienia → Zmień klucz codzienny, więc jego ujawnienie wiąże się z mniejszym ryzykiem niż w przypadku frazy odzyskiwania — jednak każdy, kto go posiada, może podpisywać transakcje do momentu jego zmiany.",
   "hotKeyRevealWarningTitle": "Zanim ujawnisz swoje klucze prywatne",

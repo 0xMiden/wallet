@@ -931,6 +931,8 @@
   "connectivityGuardianTitle": "Guardian 无法访问",
   "connectivityGuardianBody": "您的guardian未作响应，因此无法确认交易。",
   "connectivityGuardianCta": "切换 Guardian",
+  "storageStalledTitle": "浏览器存储无响应",
+  "storageStalledBody": "您的钱包数据并未丢失，只是浏览器已停止响应相关请求。请完全退出并重新打开浏览器以恢复数据。",
   "revealHotKey": "显示日常密钥",
   "revealHotKeyDescription": "您的日常密钥可通过“设置”→“轮换日常密钥”进行轮换，因此泄露该密钥的风险低于泄露恢复短语——但任何持有该密钥的人都能在您进行轮换之前签署交易。",
   "hotKeyRevealWarningTitle": "在您透露私钥之前",

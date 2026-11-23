@@ -931,6 +931,8 @@
   "connectivityGuardianTitle": "Guardian 無法連線",
   "connectivityGuardianBody": "您的guardian未回應，因此無法確認交易。",
   "connectivityGuardianCta": "切換 Guardian",
+  "storageStalledTitle": "瀏覽器儲存空間無回應",
+  "storageStalledBody": "您的錢包資料並未遺失，但瀏覽器已停止回應相關請求。請完全關閉並重新開啟瀏覽器以恢復正常。",
   "revealHotKey": "揭露日常金鑰",
   "revealHotKeyDescription": "您的「日常金鑰」可透過「設定」→「輪替日常金鑰」進行輪替，因此洩露此金鑰的風險低於洩露您的「恢復短語」——但任何持有此金鑰的人都能在您進行輪替前簽署交易。",
   "hotKeyRevealWarningTitle": "在您揭露私鑰之前",
