@@ -108,6 +108,7 @@ jest.mock('framer-motion', () => ({
 // ── UI subcomponents — return empty divs; we don't test their render ──
 // The confirmation modal records its props, so a test can drive the onResolve the provider hands it.
 let mockModalProps: { onResolve: (result: { confirmed: boolean }, requestId: string) => void } | null = null;
+jest.mock('app/pages/Browser/DappIncomingTransferSheet', () => ({ DappIncomingTransferSheet: () => null }));
 jest.mock('app/pages/Browser/DappConfirmationModal', () => ({
   DappConfirmationModal: (props: { onResolve: (result: { confirmed: boolean }, requestId: string) => void }) => {
     mockModalProps = props;

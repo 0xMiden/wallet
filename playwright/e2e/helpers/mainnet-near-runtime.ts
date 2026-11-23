@@ -65,7 +65,11 @@ import {
   waitForTransactionRow,
   type TransactionRowSnapshot
 } from './history';
-import { readMainnetMidenOutputCandidates, readMainnetMidenOwnNoteCreator } from './mainnet-miden-indexer';
+import {
+  readMainnetMidenOutputCandidates,
+  readMainnetMidenOwnNoteCreator,
+  waitForMainnetMidenOwnNoteCreator
+} from './mainnet-miden-indexer';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
 import {
   createMainnetNearEvmBroadcast,
@@ -400,7 +404,18 @@ export async function runMainnetNearStage(
 }
 
 function recordNearForwardStage(
-  stage: 'preflight' | 'review' | 'arm' | 'submit' | 'queue' | 'release' | 'native-request' | 'acknowledged'
+  stage:
+    | 'preflight'
+    | 'review'
+    | 'arm'
+    | 'submit'
+    | 'queue'
+    | 'release'
+    | 'native-request'
+    | 'acknowledged'
+    | 'completed-row'
+    | 'creator-lookup'
+    | 'canonical-inclusion'
 ): void {
   try {
     writeFileSync('test-results/mainnet-near-forward-stage.json', JSON.stringify({ stage }), { mode: 0o600 });
@@ -610,6 +625,7 @@ export async function runMainnetNearForward(
     requireTransactionId: true,
     timeoutMs: 300_000
   });
+  recordNearForwardStage('completed-row');
   const rows = (await readTransactionRowsWithBytes(wallet.page, 'send')).filter(row => row.id === queued.id);
   const row = rows[0];
   const noteId = acknowledged.noteId;
@@ -627,9 +643,11 @@ export async function runMainnetNearForward(
     canonicalMainnetLoopFaucet(row.feeFaucetId) !== state.native.hex
   )
     throw new Error('Missing actual native NEAR source transaction, output note or fee receipt');
-  const creator = await readMainnetMidenOwnNoteCreator(noteId, state.accountHex);
+  recordNearForwardStage('creator-lookup');
+  const creator = await waitForMainnetMidenOwnNoteCreator(noteId, state.accountHex, signal);
   if (creator.transactionId !== row.transactionId.toLowerCase())
     throw new Error('Native NEAR source transaction differs from its actual note creator');
+  recordNearForwardStage('canonical-inclusion');
   await verifyMainnetMidenNoteInclusion(getEnvironmentConfig().rpcUrl, noteId, creator.blockNumber, state.accountHex);
   state.forwardMidenTxId = creator.transactionId;
   state.paidMidenFees = row.feeAmount;
