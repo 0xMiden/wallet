@@ -42,6 +42,12 @@ jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   })
 }));
 
+let mockOpenConnectModal: jest.Mock = jest.fn();
+jest.mock('lib/walletconnect/appkit', () => ({
+  prepareAppKitConnection: jest.fn(async () => undefined),
+  openConnectModal: () => mockOpenConnectModal()
+}));
+
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { currentAccount: { publicKey: string } }) => unknown) =>
     select({ currentAccount: { publicKey: 'miden-account' } })
@@ -255,4 +261,35 @@ it('reports a displayed wallet connection failure after 1000 ms without its text
     mockConnectionError = null;
     jest.useRealTimers();
   }
+});
+
+describe('BridgeDeposit web connect failure (#2109)', () => {
+  beforeEach(() => {
+    mockConnection = { address: undefined, connected: false };
+    mockBridgeIn = { state: 'available' };
+    mockOpenConnectModal = jest.fn();
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('shows the failure when the connect modal cannot open instead of leaving the button dead', async () => {
+    mockOpenConnectModal = jest.fn().mockRejectedValue(new Error('WalletConnect relay unreachable'));
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'bridgeConnectWalletAction' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('WalletConnect relay unreachable');
+  });
+
+  it('clears the failure on the next attempt that opens', async () => {
+    mockOpenConnectModal = jest.fn().mockRejectedValueOnce(new Error('first failure')).mockResolvedValue(undefined);
+    render(<BridgeDeposit />);
+    const connect = screen.getByRole('button', { name: 'bridgeConnectWalletAction' });
+
+    fireEvent.click(connect);
+    expect(await screen.findByRole('alert')).toHaveTextContent('first failure');
+    fireEvent.click(connect);
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
 });

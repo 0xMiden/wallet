@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
@@ -85,8 +85,12 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
     navigate('/');
   }, [onClose]);
 
+  // The web picker's own failure (chain preparation or the modal refusing to open), shown instead of a dead button.
+  const [connectError, setConnectError] = useState<string | null>(null);
+
   const handleConnect = useCallback(async () => {
     hapticMedium();
+    setConnectError(null);
     try {
       if (useNativeReownWallet) {
         await nativeReown.present();
@@ -97,6 +101,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       await appkit.openConnectModal();
     } catch (err) {
       console.error('[BridgeDeposit] connect failed', err);
+      setConnectError(err instanceof Error && err.message ? err.message : 'Failed to open the wallet picker');
     }
   }, [nativeReown, useNativeReownWallet]);
 
@@ -219,9 +224,9 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
             {t('preparing')}
           </p>
         )}
-        {nativeReown.error && (
+        {(nativeReown.error ?? connectError) && (
           <Notice tone="negative" role="alert" className="mt-4" errorId="raw_bridge_connect_failed">
-            {nativeReown.error}
+            {nativeReown.error ?? connectError}
           </Notice>
         )}
         <FeatureUnavailableNotice availability={bridgeIn} className="mt-4" />
