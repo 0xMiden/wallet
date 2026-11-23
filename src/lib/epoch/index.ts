@@ -7,7 +7,7 @@ export { ensureEpochSmartAccount, getEpochSdk, getEpochSigningSdk, resetEpochSdk
 export { buildVaultEvmWalletClient } from './evm-account';
 export { useEpochStore } from './store';
 export type { EpochFlow, EpochStatus } from './store';
-export { bridgeEpochSend, quoteEpochSendOutput, pollEpochIntentFill } from './epoch-send';
+export { bridgeEpochSend, reviewedEpochMinimum, quoteEpochSendOutput, pollEpochIntentFill } from './epoch-send';
 export type { EpochSendArgs, EpochQuoteOutput, EpochIntentFill } from './epoch-send';
 export {
   openEarnPosition,
@@ -49,6 +49,8 @@ export {
 export type { CrossChainQuote, EVMToMidenQuote } from './bridge';
 export type {
   CrossChainIntentParams,
+  EpochReviewedQuote,
+  EpochReviewedOutput,
   EVMToMidenIntentParams,
   IntentResult,
   MidenAccount,

@@ -1,13 +1,14 @@
 import { BaseContract, BrowserProvider, ContractTransactionResponse, Overrides } from 'ethers';
 import { EIP1193Provider, toHex } from 'viem';
 
+import { getMessage } from 'lib/i18n';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 import { DEFAULT_CHAIN_ID } from 'lib/walletconnect/config';
 
 import { AGGLAYER_BRIDGE_ABI } from './constant';
-import { AgglayerDeposit, fetchMerkleProof } from './status';
+import { AgglayerDeposit, fetchMerkleProof, isAgglayerDepositClaimed, isAgglayerDepositReady } from './status';
 
 // ethers can't derive per-method types from a runtime ABI, so the dynamic
 // methods only exist on Contract via an index signature (and read as possibly
@@ -58,14 +59,18 @@ const ensureL1Chain = async (provider: EIP1193Provider, chainId = DEFAULT_CHAIN_
 // fixed-size SMT proof arrays, and submit `claimAsset` from the connected EVM
 // wallet (which must be the deposit's destination address).
 export const claimAgglayerDeposit = async ({
-  deposit,
+  deposit: originalDeposit,
   provider,
-  route
+  route: originalRoute
 }: {
   deposit: AgglayerDeposit;
   provider: EIP1193Provider;
   route?: AgglayerRecoveryConfig;
 }): Promise<ContractTransactionResponse> => {
+  const deposit = { ...originalDeposit };
+  const route = originalRoute && { ...originalRoute };
+  if (isAgglayerDepositClaimed(deposit)) throw new Error(getMessage('claimed'));
+  if (!isAgglayerDepositReady(deposit)) throw new Error(getMessage('claimPending'));
   // A row saved before its route was is from DEFAULT_CHAIN_ID, the chain ensureL1Chain defaults to.
   const l1Bridge = route?.contractAddress ?? getAgglayerL1Bridge(DEFAULT_CHAIN_ID);
   await ensureL1Chain(provider, route?.chainId);
@@ -73,6 +78,15 @@ export const claimAgglayerDeposit = async ({
 
   const ethersProvider = new BrowserProvider(provider);
   const signer = await ethersProvider.getSigner();
+  const accounts: unknown = await provider.request({ method: 'eth_accounts' });
+  const chainId: unknown = await provider.request({ method: 'eth_chainId' });
+  if (
+    !Array.isArray(accounts) ||
+    typeof accounts[0] !== 'string' ||
+    accounts[0].toLowerCase() !== deposit.dest_addr.toLowerCase() ||
+    Number(chainId) !== (route?.chainId ?? DEFAULT_CHAIN_ID)
+  )
+    throw new Error(getMessage('connectDestinationWalletToClaim'));
   const agglayerContract = BaseContract.from<AgglayerBridgeContract>(l1Bridge, AGGLAYER_BRIDGE_ABI, signer);
 
   return agglayerContract.claimAsset(
@@ -86,6 +100,7 @@ export const claimAgglayerDeposit = async ({
     deposit.dest_net,
     deposit.dest_addr,
     BigInt(deposit.amount),
-    deposit.metadata && deposit.metadata !== '0x' ? deposit.metadata : '0x'
+    deposit.metadata && deposit.metadata !== '0x' ? deposit.metadata : '0x',
+    { chainId: route?.chainId ?? DEFAULT_CHAIN_ID }
   );
 };

@@ -9,7 +9,7 @@ const primary = jest.mocked(binance);
 const fallback = jest.mocked(kraken);
 const mockPriceNow = 1800000000000;
 jest.spyOn(Date, 'now').mockReturnValue(mockPriceNow);
-const dollars = { observedAt: mockPriceNow, price: 1, change24h: 0, percentageChange24h: 0 };
+const dollars = { observedAt: mockPriceNow, price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
 
 beforeEach(() => {
   jest.resetAllMocks();
@@ -166,5 +166,87 @@ describe('usdMarketPending', () => {
     primary.isListedSymbol.mockReturnValue(false);
     expect(usdMarketPending('bad/pair')).toBe(false);
     expect(usdMarketPending(undefined)).toBe(false);
+  });
+});
+
+describe('feed output over a fixed symbol set', () => {
+  const quote = (price: number) => ({ price, change24h: 0.1, percentageChange24h: 1, observedAt: 1 });
+  const SYMBOLS = ['SOL', 'KPAIRA', 'KPAIRB', 'KABSENT', 'UNREACHABLE', 'bad/pair', 'SOL', 'USDT'];
+  const BINANCE_LISTED = new Set(['SOL', 'UNREACHABLE', 'USDT']);
+  const KRAKEN_PAIRS: Record<string, string | null> = { KPAIRA: 'KPAIRAUSD', KPAIRB: 'KPAIRBUSD', KABSENT: null };
+
+  beforeEach(() => {
+    primary.isListedSymbol.mockImplementation(symbol => symbol !== undefined && BINANCE_LISTED.has(symbol));
+    primary.fetchTokenPrices.mockResolvedValue({ USDT: quote(1), USDC: quote(1), SOL: quote(150) });
+    primary.fetchKlineSeries.mockImplementation(async symbol => ({
+      points: [{ time: 1, value: symbol.length }],
+      stepMs: 1
+    }));
+    fallback.findKrakenUsdMarket.mockImplementation(async symbol => KRAKEN_PAIRS[symbol] ?? null);
+    fallback.fetchKrakenPrices.mockResolvedValue({ KPAIRA: quote(0.9998), KPAIRB: quote(2) });
+    fallback.fetchKrakenKlineData.mockImplementation(async pair => [{ time: 2, value: pair.length }]);
+    fallback.krakenCandleMs.mockReturnValue(14_400_000);
+  });
+
+  it('quotes each symbol from the first source that lists it, all stamped with one retrieval time', async () => {
+    const prices = await fetchTokenPrices(SYMBOLS);
+    const market = (price: number) => ({
+      price,
+      change24h: 0.1,
+      percentageChange24h: 1,
+      observedAt: mockPriceNow,
+      kind: 'market'
+    });
+    expect(prices).toEqual({
+      USDT: market(1),
+      USDC: market(1),
+      SOL: market(150),
+      KPAIRA: market(0.9998),
+      KPAIRB: market(2)
+    });
+    expect(Object.keys(prices)).toEqual(['USDT', 'USDC', 'SOL', 'KPAIRA', 'KPAIRB']);
+    // Binance sees every symbol; Kraken only those Binance ruled out and the feed can send it, with a pair.
+    expect(primary.fetchTokenPrices.mock.calls[0]?.[0]).toEqual(expect.arrayContaining(SYMBOLS));
+    expect(fallback.findKrakenUsdMarket.mock.calls.map(([symbol]) => symbol).sort()).toEqual([
+      'KABSENT',
+      'KPAIRA',
+      'KPAIRB'
+    ]);
+    expect(fallback.fetchKrakenPrices).toHaveBeenCalledWith(
+      new Map([
+        ['KPAIRA', 'KPAIRAUSD'],
+        ['KPAIRB', 'KPAIRBUSD']
+      ])
+    );
+  });
+
+  it('answers every verdict question the same way for each symbol', async () => {
+    await fetchTokenPrices(SYMBOLS);
+    const table = ['SOL', 'KPAIRA', 'KPAIRB', 'KABSENT', 'UNREACHABLE', 'bad/pair', 'NEVERASKED'].map(symbol => [
+      symbol,
+      hasNoUsdMarket(symbol),
+      usdMarketPending(symbol)
+    ]);
+    expect(table).toEqual([
+      ['SOL', false, true],
+      ['KPAIRA', false, true],
+      ['KPAIRB', false, true],
+      ['KABSENT', true, false],
+      ['UNREACHABLE', false, true],
+      ['bad/pair', false, false],
+      ['NEVERASKED', false, true]
+    ]);
+  });
+
+  it('serves history from the first provider that has not ruled the symbol out', async () => {
+    const history = await Promise.all(
+      ['SOL', 'KPAIRA', 'KABSENT', 'bad/pair'].map(symbol => fetchKlineSeries(symbol, '1M'))
+    );
+    expect(history).toEqual([
+      { points: [{ time: 1, value: 3 }], stepMs: 1 },
+      { points: [{ time: 2, value: 9 }], stepMs: 14_400_000 },
+      { points: [], stepMs: 14_400_000 },
+      { points: [], stepMs: 14_400_000 }
+    ]);
   });
 });

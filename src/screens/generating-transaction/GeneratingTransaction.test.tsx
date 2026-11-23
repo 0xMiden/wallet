@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import {
   REMOTE_PROVER_FAILED_ERROR,
@@ -13,13 +14,10 @@ import {
 import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
 import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import { WalletType } from 'screens/onboarding/types';
 
-import {
-  GeneratingTransaction,
-  GeneratingTransactionPage,
-  isRecoverableExpiredOneClick
-} from './GeneratingTransaction';
+import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
 
 jest.mock('lib/telemetry/user-visible-error', () => ({
   ...jest.requireActual('lib/telemetry/user-visible-error'),
@@ -45,7 +43,8 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({ useNetworkFeeEstimate: () 
 
 jest.mock('lib/platform', () => ({
   isMobile: jest.fn(() => false),
-  isExtension: jest.fn(() => false)
+  isExtension: jest.fn(() => false),
+  isDesktop: jest.fn(() => false)
 }));
 
 jest.mock('components/Alert', () => ({
@@ -106,6 +105,9 @@ jest.mock('lib/store', () => ({
 
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
+  listen: () => () => {},
+  createLocationState: () => ({ historyPosition: 1, href: '/generating-transaction/original' }),
+  HistoryAction: { Replace: 'REPLACE' },
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">redirect:{to}</div>
 }));
 
@@ -157,9 +159,6 @@ jest.mock('lib/miden/activity', () => ({
 let mockRowState: { row: any; loaded: boolean } = { row: undefined, loaded: false };
 jest.mock('./useTransactionRow', () => ({
   useTransactionRow: () => mockRowState
-}));
-jest.mock('screens/swap-flow/OneClickRecovery', () => ({
-  OneClickRecovery: () => <div data-testid="restored-flow" />
 }));
 
 // Minimal ITransaction factory for container tests.
@@ -446,55 +445,6 @@ describe('GeneratingTransactionPage container effects', () => {
 
     expect(container.querySelector('[data-testid="redirect"]')?.textContent).toBe('redirect:/');
     act(() => root.unmount());
-  });
-
-  it('only recovers definite pre-submit OneClick deadline failures', () => {
-    const failedOneClick = {
-      status: ITransactionStatus.Failed,
-      type: 'send',
-      error: 'The 1Click quote has expired. Request a new quote before depositing.',
-      extraInputs: { oneClick: { direction: 'miden-to-evm' } }
-    };
-
-    expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.Failed)).toBe(true);
-    expect(isRecoverableExpiredOneClick({ ...failedOneClick, mayHaveSubmitted: true }, ITransactionStatus.Failed)).toBe(
-      false
-    );
-    expect(isRecoverableExpiredOneClick(failedOneClick, ITransactionStatus.GeneratingTransaction)).toBe(false);
-  });
-
-  it('routes a persisted inbound attempted row to recovery after reload', async () => {
-    const oneClick = Object.assign(
-      {
-        direction: 'evm-to-miden',
-        request: { originAsset: { blockchain: 'eth' }, destinationAsset: { blockchain: 'miden' } },
-        quote: { quote: { depositAddress: '0x8888888888888888888888888888888888888888' } },
-        config: { serviceUrl: 'https://quotes.example', midenAssets: [] },
-        network: 'mainnet',
-        accountId: 'acc-1',
-        accountAddress: 'acc-1',
-        originAsset: { assetId: 'eth:token', blockchain: 'eth' },
-        destinationAsset: { assetId: 'miden:token', blockchain: 'miden' },
-        faucetId: 'miden-faucet',
-        depositAddress: '0x8888888888888888888888888888888888888888',
-        phase: 'pending-deposit'
-      },
-      { evmSubmission: 'attempted' }
-    );
-    mockRowState = {
-      row: makeTx({ type: 'bridged-receive', status: ITransactionStatus.Completed, extraInputs: { oneClick } }),
-      loaded: true
-    };
-    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
-
-    try {
-      await act(async () => {
-        for (let index = 0; index < 8; index++) await Promise.resolve();
-      });
-      expect(container.querySelector('[data-testid="restored-flow"]')).not.toBeNull();
-    } finally {
-      act(() => root.unmount());
-    }
   });
 
   // #602 — the processing screen nests a fixed-height full-screen page
@@ -1461,6 +1411,20 @@ describe('GeneratingTransaction stage + state rendering', () => {
     });
     return { container, root };
   };
+
+  it('pins processing and safe retry actions in the original Command operation workbench', async () => {
+    const { root } = await renderInto(
+      <FlowPresentationProvider value="command">
+        <CommandWorkbench route={{ kind: 'operation', id: 'original' }} container={document.body}>
+          <GeneratingTransaction isGuardian={false} onDoneClick={() => {}} transactionComplete={false} />
+        </CommandWorkbench>
+      </FlowPresentationProvider>
+    );
+    const footer = document.querySelector('[data-testid="command-footer"]');
+    expect(footer?.textContent).toContain('hide');
+    expect(document.querySelectorAll('[data-testid="command-footer"]')).toHaveLength(1);
+    act(() => root.unmount());
+  });
 
   it.each([
     ['syncing', undefined, 'transactionStageSyncing', 'transactionStageSyncingDescription'],

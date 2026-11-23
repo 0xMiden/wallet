@@ -1,6 +1,6 @@
 import type {
   OneClickAsset,
-  OneClickConfig,
+  NearIntentsConfig,
   OneClickQuoteRequest,
   OneClickQuoteResponse
 } from '../../../src/lib/one-click/types';
@@ -25,13 +25,14 @@ export interface MainnetNearPlanningFacts {
   native: MainnetNearCheckpoint['native'];
   baseFee: bigint;
   lossBudgetUsdMicros: bigint;
-  config: OneClickConfig;
+  config: NearIntentsConfig;
   nativeAsset: OneClickAsset;
   candidates: { holding: MainnetEvmHolding; tokenUsdMicros: bigint; gasUsdMicros: bigint }[];
 }
-export function usesMainnetNearSignedEconomics(config: Pick<OneClickConfig, 'serviceUrl' | 'feePolicy' | 'appFees'>) {
-  return /^https:\/\/1click\.chaindefuser\.com\/?$/.test(config.serviceUrl) &&
-    !config.feePolicy && !config.appFees?.length;
+// Fees live on the partner key and are signed into every quote, so the direct provider URL alone selects the
+// signed-economics path; any other provider keeps the unsigned fallback.
+export function usesMainnetNearSignedEconomics(config: Pick<NearIntentsConfig, 'serviceUrl'>) {
+  return /^https:\/\/1click\.chaindefuser\.com\/?$/.test(config.serviceUrl);
 }
 
 export function signedMainnetNearFees(response: OneClickQuoteResponse, inputPrice: bigint, outputPrice: bigint) {
@@ -191,8 +192,7 @@ export async function prepareMainnetNearRoundTrip(
         nativeUsdMicros: gasUsdMicros.toString()
       },
       serviceUrl: facts.config.serviceUrl,
-      appFees: (facts.config.appFees ?? []).map(fee => ({ ...fee })),
-      ...(facts.config.feePolicy ? { feePolicy: { ...facts.config.feePolicy } } : {}),
+      appFees: [],
       baseFee: facts.baseFee.toString(),
       principal: found.amount.toString(),
       forwardMinimum: found.quote.forward.quote.minAmountOut,

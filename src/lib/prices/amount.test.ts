@@ -10,7 +10,8 @@ const quote = (price = 2, observedAt = Date.now()): TokenPriceInfo => ({
   price,
   observedAt,
   change24h: 0,
-  percentageChange24h: 0
+  percentageChange24h: 0,
+  kind: 'market' as const
 });
 
 describe('exact amount conversion', () => {

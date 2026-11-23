@@ -1,3 +1,5 @@
+import { setTimeout as delay } from 'node:timers/promises';
+
 import { Address } from '@miden-sdk/miden-sdk';
 import { isRecord } from '../../../src/lib/update/guards';
 
@@ -11,13 +13,19 @@ export interface MainnetMidenOutputCandidates {
 // shortcut: pinned official explorer backend, update from its mainnet runtime config if the endpoint changes.
 const INDEXER = 'https://scan-backend-cedar-miden.eu-central-8.gateway.fm/graphql';
 const hash = (value: unknown): value is string => typeof value === 'string' && /^0x[0-9a-f]{64}$/.test(value);
-async function read(query: string, variables: Record<string, string>, fetcher: typeof fetch): Promise<unknown> {
+async function read(
+  query: string,
+  variables: Record<string, string>,
+  fetcher: typeof fetch,
+  allowMissing?: 'transaction' | 'note',
+  signal?: AbortSignal
+): Promise<unknown> {
   try {
     const response = await fetcher(INDEXER, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ query, variables }),
-      signal: AbortSignal.timeout(10_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
       redirect: 'error'
     });
     if (!response.ok || !response.headers.get('content-type')?.includes('application/json') || !response.body)
@@ -42,7 +50,28 @@ async function read(query: string, variables: Record<string, string>, fetcher: t
       reader.releaseLock();
     }
     const result: unknown = JSON.parse(body);
-    if (!isRecord(result) || (result.errors !== undefined && (!Array.isArray(result.errors) || result.errors.length)))
+    if (
+      allowMissing &&
+      isRecord(result) &&
+      result.data === null &&
+      Array.isArray(result.errors) &&
+      result.errors.length === 1
+    ) {
+      const error = result.errors[0];
+      if (
+        isRecord(error) &&
+        error.message === `${allowMissing} not found` &&
+        Array.isArray(error.path) &&
+        error.path.length === 1 &&
+        error.path[0] === allowMissing
+      )
+        return null;
+    }
+    if (
+      !isRecord(result) ||
+      result.data === null ||
+      (result.errors !== undefined && (!Array.isArray(result.errors) || result.errors.length))
+    )
       throw new Error('Indexer returned lookup errors');
     return result.data;
   } catch {
@@ -120,15 +149,25 @@ async function makerOutputs(
 export async function readMainnetMidenOwnNoteCreator(
   noteId: string,
   walletAccountHex: string,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  readinessSignal?: AbortSignal
 ): Promise<MainnetMidenOutputCandidates> {
   if (!hash(noteId) || !/^0x[0-9a-f]{30}$/.test(walletAccountHex))
     throw new Error('Invalid original note creator scope');
-  const initial = await read(
-    'query($id:DigestString!){note(input:{note_id:$id}){note_id sender block_number}}',
-    { id: noteId },
-    fetcher
-  );
+  let initial: unknown;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    readinessSignal?.throwIfAborted();
+    initial = await read(
+      'query($id:DigestString!){note(input:{note_id:$id}){note_id sender block_number}}',
+      { id: noteId },
+      fetcher,
+      readinessSignal ? 'note' : undefined,
+      readinessSignal
+    );
+    if (initial !== null || attempt === 5) break;
+    await delay(2_000, undefined, { signal: readinessSignal });
+  }
+  readinessSignal?.throwIfAborted();
   if (!isRecord(initial) || !isRecord(initial.note) || initial.note.note_id !== noteId)
     throw new Error('Exact original note not found');
   const location = makerLocation(initial.note.sender, initial.note.block_number);
@@ -137,18 +176,43 @@ export async function readMainnetMidenOwnNoteCreator(
   if (!found.noteIds.includes(noteId)) throw new Error('Original note is missing from its actual maker block');
   return found;
 }
+export function waitForMainnetMidenOwnNoteCreator(
+  noteId: string,
+  walletAccountHex: string,
+  signal: AbortSignal,
+  fetcher: typeof fetch = fetch
+): Promise<MainnetMidenOutputCandidates> {
+  return readMainnetMidenOwnNoteCreator(noteId, walletAccountHex, fetcher, signal);
+}
+
 export async function readMainnetMidenOutputCandidates(
   transactionId: string,
   walletAccountHex: string,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  allowReturnNote = false
 ): Promise<MainnetMidenOutputCandidates> {
   if (!hash(transactionId) || !/^0x[0-9a-f]{30}$/.test(walletAccountHex))
     throw new Error('Invalid maker receipt scope');
   const initial = await read(
     'query($id:DigestString!){transaction(input:{transaction_id:$id}){transaction_id account_bech block_number}}',
     { id: transactionId },
-    fetcher
+    fetcher,
+    allowReturnNote ? 'transaction' : undefined
   );
+  if (allowReturnNote && initial === null) {
+    const lookup = await read(
+      'query($id:DigestString!){note(input:{note_id:$id}){note_id sender block_number}}',
+      { id: transactionId },
+      fetcher
+    );
+    if (!isRecord(lookup) || !isRecord(lookup.note) || lookup.note.note_id !== transactionId)
+      throw new Error('Missing exact provider return note');
+    const location = makerLocation(lookup.note.sender, lookup.note.block_number);
+    if (location.senderHex === walletAccountHex) throw new Error('Maker receipt is self-funded');
+    const found = await makerOutputs(location, fetcher);
+    if (!found.noteIds.includes(transactionId)) throw new Error('Provider return note is missing from its maker block');
+    return { ...found, noteIds: [transactionId] };
+  }
   if (!isRecord(initial) || !isRecord(initial.transaction) || initial.transaction.transaction_id !== transactionId)
     throw new Error('Missing exact maker transaction');
   const location = makerLocation(initial.transaction.account_bech, initial.transaction.block_number);

@@ -7,11 +7,6 @@ const hex = '0xe69e6ca6e39df1b10c1e5399399feb';
 const usdc = '0xaf88d065e77c8cc2239327c5edb3a432268e5831';
 const nativeAsset = `nep141:miden-${hex}.omft.near`;
 const evmAsset = `nep141:arb-${usdc}.omft.near`;
-const nightlyFeePolicy = {
-  kind: 'partner',
-  platformRecipient: '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd',
-  minimumPlatformFeeBps: 20
-};
 jest.mock('@miden-sdk/miden-sdk', () => ({
   Address: {
     fromBech32: (value: string) => {
@@ -27,7 +22,10 @@ const document = () => ({
   swap: { etaUrl: 'https://solver.example' },
   'bridge-providers': { epoch: { allocatorUrl: 'https://mainnet-api.epochprotocol.xyz' } },
   supportedEvmChains: {
-    arbitrum: { chainId: 42161, bridges: { usdcx: { tokens: { USDC: { contractAddress: usdc } } } } }
+    arbitrum: {
+      chainId: 42161,
+      bridges: { epoch: { depositEnabled: true, withdrawalEnabled: true, tokens: { USDC: { contractAddress: usdc } } } }
+    }
   }
 });
 const tokens = () => ({ tokens: [{ network: 'mainnet', symbol: 'USDCX', faucetId: native, decimals: 6 }] });
@@ -64,30 +62,90 @@ describe('nightly-only mainnet NEAR configuration', () => {
     };
     expect(parseBridgeConfig(published, 'mainnet')).not.toBeNull();
     const snapshot = qualifyMainnetLoopConfig(published, catalog(), tokens());
-    expect(parseBridgeConfig(snapshot, 'mainnet')).toMatchObject({
-      swap: { oneClick: { midenAssets: [{ assetId: nativeAsset, faucetId: hex, decimals: 6 }] } }
+    expect(parseBridgeConfig(snapshot, 'mainnet')?.nearIntents).toEqual({
+      serviceUrl: 'https://1click.chaindefuser.com',
+      midenAssets: [{ id: 'usdcx', assetId: nativeAsset, faucetId: hex, decimals: 6 }],
+      chains: [
+        {
+          id: 'arb',
+          name: 'Arbitrum',
+          addressKind: 'evm',
+          tokens: [{ symbol: 'USDC', assetId: evmAsset, decimals: 6, contractAddress: usdc, miden: ['usdcx'] }]
+        }
+      ]
     });
   });
-  it('rejects an insecure provider rather than replacing its URL silently', () => {
-    const original = document();
-    const unsafe = { ...original, swap: { ...original.swap, oneClick: { serviceUrl: 'http://insecure.example' } } };
-    expect(() => qualifyMainnetLoopConfig(unsafe, catalog(), tokens())).toThrow();
-  });
-  it('does not infer a partner fee for the direct endpoint with an explicit empty app-fee list', () => {
-    const original = document();
-    const oneClick = { serviceUrl: 'https://1click.chaindefuser.com', appFees: [] };
-    const snapshot = qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens());
-    expect(parseBridgeConfig(snapshot, 'mainnet')?.swap?.oneClick?.feePolicy).toBeUndefined();
-  });
-  it('preserves explicitly configured provider fees and the real HTTPS service', () => {
-    const original = document();
-    const oneClick = {
-      serviceUrl: 'https://1click.chaindefuser.com',
-      appFees: [{ recipient: 'configured.near', fee: 20 }]
+  it.each(['http://insecure.example', 'http://localhost:8787', 'https://user@1click.example'])(
+    'rejects an insecure provider rather than replacing its URL silently: %s',
+    serviceUrl => {
+      const unsafe = { ...document(), nearIntents: { serviceUrl } };
+      expect(() => qualifyMainnetLoopConfig(unsafe, catalog(), tokens())).toThrow();
+    }
+  );
+  it('keeps a published HTTPS provider and ignores the retired swap.oneClick section', () => {
+    const published = {
+      ...document(),
+      swap: { etaUrl: 'https://solver.example', oneClick: { serviceUrl: 'http://insecure.example' } },
+      nearIntents: { serviceUrl: 'https://proxy.example' }
     };
-    expect(
-      qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())
-    ).toMatchObject({ swap: { oneClick: { ...oneClick, feePolicy: nightlyFeePolicy } } });
+    const snapshot = parseBridgeConfig(qualifyMainnetLoopConfig(published, catalog(), tokens()), 'mainnet');
+    expect(snapshot?.nearIntents?.serviceUrl).toBe('https://proxy.example');
+  });
+  it('writes no fee fields: fees are set up on the partner key', () => {
+    const snapshot = qualifyMainnetLoopConfig(document(), catalog(), tokens());
+    expect(JSON.stringify(snapshot)).not.toMatch(/appFees|feePolicy/);
+  });
+  it('keys each token by its live symbol and maps a published USDT to a live USDT0', () => {
+    const usdt = '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9';
+    const published = {
+      ...document(),
+      supportedEvmChains: {
+        ...document().supportedEvmChains,
+        arbitrum: {
+          chainId: 42161,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { USDC: { contractAddress: usdc }, USDT: { contractAddress: usdt } }
+            }
+          }
+        },
+        ethereum: {
+          chainId: 1,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { USDC: { contractAddress: `0x${'a'.repeat(40)}` } }
+            }
+          }
+        }
+      }
+    };
+    const live = [
+      ...catalog(),
+      {
+        assetId: `nep141:arb-${usdt}.omft.near`,
+        blockchain: 'arb',
+        symbol: 'USDT0',
+        decimals: 6,
+        contractAddress: usdt
+      },
+      {
+        assetId: `nep141:eth-0x${'a'.repeat(40)}.omft.near`,
+        blockchain: 'eth',
+        symbol: 'USDC',
+        decimals: 6,
+        contractAddress: `0x${'a'.repeat(40)}`
+      }
+    ];
+    const parsed = parseBridgeConfig(qualifyMainnetLoopConfig(published, live, tokens()), 'mainnet');
+    expect(parsed?.nearIntents?.chains.map(chain => [chain.id, chain.name, chain.tokens.map(t => t.symbol)])).toEqual([
+      ['eth', 'Ethereum', ['USDC']],
+      ['arb', 'Arbitrum', ['USDC', 'USDT0']]
+    ]);
+    expect(parsed?.nearIntents?.chains[1]?.tokens[1]).toMatchObject({ assetId: `nep141:arb-${usdt}.omft.near` });
   });
   it('enables real NEAR bindings without mutating the public document or unrelated routes', () => {
     const original = document();
@@ -95,14 +153,15 @@ describe('nightly-only mainnet NEAR configuration', () => {
     expect(qualifyMainnetLoopConfig(original, catalog(), tokens())).toEqual({
       ...before,
       features: { ...before.features, nearIntents: true },
-      swap: {
-        ...before.swap,
-        oneClick: {
-          serviceUrl: 'https://1click.chaindefuser.com',
-          midenAssets: [{ assetId: nativeAsset, faucetId: hex, decimals: 6 }],
-          evmAssets: [
-            { assetId: evmAsset, blockchain: 'arb', chainId: 42161, contractAddress: usdc, decimals: 6, symbol: 'USDC' }
-          ]
+      nearIntents: {
+        serviceUrl: 'https://1click.chaindefuser.com',
+        midenAssets: { usdcx: { assetId: nativeAsset, faucetId: hex, decimals: 6 } },
+        chains: {
+          arb: {
+            name: 'Arbitrum',
+            addressKind: 'evm',
+            tokens: { USDC: { assetId: evmAsset, decimals: 6, contractAddress: usdc, miden: ['usdcx'] } }
+          }
         }
       }
     });
@@ -114,33 +173,6 @@ describe('nightly-only mainnet NEAR configuration', () => {
     { ...document(), supportedEvmChains: {} }
   ])('refuses an invalid or unsupported mainnet document %#', doc => {
     expect(() => qualifyMainnetLoopConfig(doc, catalog(), tokens())).toThrow();
-  });
-  it('preserves an explicit trusted fee policy instead of learning one from returned fees', () => {
-    const original = document();
-    const oneClick = {
-      serviceUrl: 'https://proxy.example',
-      feePolicy: {
-        kind: 'public',
-        platformRecipient: 'pinned.near',
-        minimumPlatformFeeBps: 25
-      }
-    };
-    expect(
-      qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())
-    ).toMatchObject({ swap: { oneClick } });
-  });
-  it('rejects an ambiguous fee policy before serving a nightly snapshot', () => {
-    const original = document();
-    const oneClick = {
-      serviceUrl: 'https://1click.chaindefuser.com',
-      feePolicy: {
-        ...nightlyFeePolicy,
-        allowExtraFees: true
-      }
-    };
-    expect(() =>
-      qualifyMainnetLoopConfig({ ...original, swap: { ...original.swap, oneClick } }, catalog(), tokens())
-    ).toThrow();
   });
   it('requires an unambiguous verified native faucet and exact live asset identity', () => {
     expect(() => qualifyMainnetLoopConfig(document(), catalog(), { tokens: [] })).toThrow();

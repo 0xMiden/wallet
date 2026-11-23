@@ -25,10 +25,10 @@ async function signalPending(send: WalletActions['platformUnlock']): Promise<voi
   }
 }
 
-export function usePlatformUnlock() {
+export function usePlatformUnlock(enabled = true) {
   const { platformUnlock } = useMidenContext();
   const { data, error, isLoading, mutate } = useRetryableSWR<PlatformUnlockState, Error>(
-    isExtension() ? 'platform-unlock-state' : null,
+    enabled && isExtension() ? 'platform-unlock-state' : null,
     async () => {
       if (!(await getPlatformUnlockSupport())) return unavailable;
       const result = await platformUnlock({ action: 'state' });

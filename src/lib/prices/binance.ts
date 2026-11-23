@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 import { fixedQuote } from './fixed';
+import type { PriceKind } from './source';
 import { hasUnquotedDefaultPrice } from './unquoted-default';
 
 const BINANCE_API_BASE = 'https://data-api.binance.vision/api/v3';
@@ -12,10 +13,10 @@ export interface TokenPriceInfo {
   change24h: number;
   percentageChange24h: number;
   /**
-   * `basket`: a basket token priced at its net asset value from its vault on chain (`./basket-nav`). Its move and
-   * history, when shown, come from its constituents, not from a market of its own.
+   * What produced the quote. A `basket` token is priced at its net asset value from its vault on chain
+   * (`./basket-nav`); its move and history, when shown, come from its constituents, not from a market of its own.
    */
-  source?: 'basket';
+  kind: PriceKind;
   /** What one unit of a basket token holds, read from its vault (`./basket-nav`). */
   composition?: BasketComponent[];
 }
@@ -32,6 +33,9 @@ export interface BasketComponent {
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;
+
+/** What an exchange fetcher returns: the feed's sources tag it `market`. */
+export type MarketQuote = Omit<TokenPriceInfo, 'kind'>;
 
 interface BinanceTicker24hr {
   symbol: string;
@@ -134,7 +138,7 @@ async function resolveMarket(symbol: string): Promise<ResolvedMarket | null> {
   }
 }
 
-function tickerQuote(ticker: BinanceTicker24hr): TokenPriceInfo | undefined {
+function tickerQuote(ticker: BinanceTicker24hr): MarketQuote | undefined {
   const price = Number(ticker.lastPrice);
   const change24h = Number(ticker.priceChange);
   const previous = price - change24h;
@@ -153,7 +157,7 @@ function tickerQuote(ticker: BinanceTicker24hr): TokenPriceInfo | undefined {
 }
 
 /** Fetch USD prices for the requested assets and both quote currencies. */
-export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<TokenPrices> {
+export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<Record<string, MarketQuote>> {
   const resolved = new Map<string, ResolvedMarket>();
   const queue = [...new Set(symbols)].filter(symbol => symbol !== 'USDT' && symbol !== 'USDC');
   const resolveNext = async (): Promise<void> => {
@@ -168,7 +172,7 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
   };
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, resolveNext));
   const pairs = ['USDTUSD', 'USDCUSD', ...[...resolved.values()].map(market => market.pair)];
-  const prices: TokenPrices = {};
+  const prices: Record<string, MarketQuote> = {};
   const tickers = new Map<string, BinanceTicker24hr>();
   const uniquePairs = [...new Set(pairs)];
   for (let offset = 0; offset < uniquePairs.length; offset += 100) {
@@ -282,12 +286,7 @@ export function pricesLoaded(prices: TokenPrices, priceSymbols: Iterable<string 
 }
 
 /** Display rate for tokens without a price asset when the test-network switch is on. */
-const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
-
-/** Identify the test-network display rate by reference. It is not a market price. */
-export function isNominalQuote(quote: TokenPriceInfo | undefined): boolean {
-  return quote === TEST_NETWORK_UNQUOTED_PRICE;
-}
+const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0, kind: 'nominal' };
 
 /** Return a USD quote. An absent market or a failed request has no quote. */
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {

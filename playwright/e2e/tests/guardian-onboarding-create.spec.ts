@@ -33,7 +33,7 @@
  *   Confirmation                 `onboarding-confirmation`
  *     └ "Open wallet"            → register() → the telemetry consent prompt
  *                                  `onboarding-help-improve-wallet`
- *     └ "Not now"                → Explore (`explore-page`)
+ *     └ "Not now"                → FullPage Command (`command-shell`)
  *
  * Three things about that order are worth stating out loud, because they differ
  * from what the flow LOOKS like it should be:
@@ -103,7 +103,7 @@ test.describe('Onboarding — create', () => {
     let faucetId: string;
 
     await steps.step('welcome_offers_create_and_recover', async () => {
-      // The fixture waits for `onboarding-welcome` OR `explore-page`; asserting
+      // The fixture waits for `onboarding-welcome` OR `command-shell`; asserting
       // welcome specifically is also what proves this profile is genuinely fresh
       // rather than an already-onboarded one leaking in from a previous run.
       await expect(page.getByTestId('onboarding-welcome')).toBeVisible({ timeout: 60_000 });
@@ -181,18 +181,18 @@ test.describe('Onboarding — create', () => {
       await page.getByTestId('onboarding-confirmation-submit').click();
 
       // A first-run wallet has never answered the telemetry prompt, so
-      // `postCreationRoute` puts it between creation and Explore. Declined here
+      // `postCreationRoute` puts it between creation and Command. Declined here
       // rather than accepted — see `dismissTelemetryConsent`. Raced against
-      // `explore-page` with the same 120s budget as the wait below, because this
+      // `command-shell` with the same 120s budget as the wait below, because this
       // click only STARTS guardian creation and nothing yet proves it finished.
-      await dismissTelemetryConsent(page, { nextSurface: '[data-testid="explore-page"]', timeoutMs: 120_000 });
+      await dismissTelemetryConsent(page, { nextSurface: '[data-testid="command-shell"]', timeoutMs: 120_000 });
 
       // The E2E build sets MIDEN_E2E_DISABLE_SIDEPANEL, so `postOnboardingRoute()`
-      // is '/' and onboarding finishes in-tab on Explore. 120s is the same budget
+      // is '/' and onboarding finishes in-tab on Command. 120s is the same budget
       // `createWalletViaBypass` gives this identical post-register readiness wait,
       // which keeps this spec's share of the 300s test timeout in line with the
       // specs that reach the same point through the bypass.
-      await expect(page.getByTestId('explore-page')).toBeVisible({ timeout: 120_000 });
+      await expect(page.getByTestId('command-shell')).toBeVisible({ timeout: 120_000 });
     });
 
     await steps.step('the_new_wallet_has_a_real_address_bound_to_the_chosen_guardian', async () => {

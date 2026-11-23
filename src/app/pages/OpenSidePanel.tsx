@@ -2,8 +2,10 @@ import React, { FC, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { usePlatformUnlock } from 'app/hooks/usePlatformUnlock';
 import { Icon, IconName } from 'app/icons/v2';
-import { Button } from 'components/Button';
+import PasskeyUnlockSettings from 'app/templates/PasskeyUnlockSettings';
+import { Button, ButtonVariant } from 'components/Button';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
@@ -36,6 +38,8 @@ const OpenSidePanel: FC = () => {
   const { t } = useTranslation();
   const { ready } = useMidenContext();
   const [opening, setOpening] = useState(false);
+  const [settingUpPasskey, setSettingUpPasskey] = useState(false);
+  const { state: passkey } = usePlatformUnlock(ready);
 
   // Don't spin forever if Ready never arrives — bail to the wallet home (which
   // shows Explore when ready, or the onboarding screen if creation truly
@@ -81,10 +85,29 @@ const OpenSidePanel: FC = () => {
           <Spinner />
           <p className="text-body text-muted">{t('settingUpYourWallet')}</p>
         </div>
+      ) : settingUpPasskey ? (
+        <PasskeyUnlockSettings returnToOnboarding={() => setSettingUpPasskey(false)} />
       ) : (
         <SubPageLayout
+          footerLayout="stack"
           footer={
-            <Button tabIndex={0} title={t('openWallet')} className="max-w-none" onClick={onOpen} isLoading={opening} />
+            <>
+              <Button
+                tabIndex={0}
+                title={t('openWallet')}
+                className="max-w-none"
+                onClick={onOpen}
+                isLoading={opening}
+              />
+              {passkey.available && passkey.hasPassword && !passkey.credential && (
+                <Button
+                  variant={ButtonVariant.Secondary}
+                  title={t('passkeyEnable')}
+                  onClick={() => setSettingUpPasskey(true)}
+                  disabled={opening}
+                />
+              )}
+            </>
           }
         >
           <Hero

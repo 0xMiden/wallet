@@ -137,12 +137,14 @@ jobs:
     name: Compile iOS
     # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
     # 33.8s to launch WebContent for a hosted fixture without changing its source.
-    # macos-26-xlarge also has the required toolchain. NOT macos-15:
+    # xcode-27-xlarge has the toolchain of the store build (the `ios` job in
+    # build-store-artifacts.yml): Xcode 27 and the iOS 27 SDK, which App Store
+    # Connect makes mandatory from April 2027 (ITMS-90725). NOT macos-15:
     # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
     # `UIGlassEffect`, an iOS 26 API — so the build fails there with
     # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
     # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26-xlarge
+    runs-on: xcode-27-xlarge
     # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
     # on the runner. That step finished in 73 minutes, and the 75 minute limit
     # then cancelled yarn install. The other linked-SDK jobs already use 120.
@@ -152,6 +154,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
+      # The image has more than one Xcode. This record shows which Xcode and
+      # which SDK compiled the app.
+      - name: Show Xcode and SDK versions
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
       # These surfaces compile wallet code that imports unreleased APIs from
       # both the web SDK and the guardian multisig client. Without the
       # injections they build against the published packages and fail on the

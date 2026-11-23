@@ -98,7 +98,7 @@ it('uses bulk metadata to isolate absent markets and cache a final unpriced resu
   expect(engine.pricesLoaded({}, ['ABSENT'])).toBe(true);
   nominal.mockReturnValue(true);
   expect(engine.quotedPrice({}, 'ABSENT')).toBeUndefined();
-  const fallbackQuote = { price: 0.9999, change24h: 0, percentageChange24h: 0 };
+  const fallbackQuote = { price: 0.9999, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
   expect(engine.quotedPrice({ ABSENT: fallbackQuote }, 'ABSENT')).toEqual(fallbackQuote);
   await engine.fetchTokenPrices(['ABSENT']);
   expect(http.get.mock.calls.filter(call => call[0].includes('/exchangeInfo'))).toHaveLength(1);
@@ -262,27 +262,29 @@ it('uses a nominal quote only when no price asset was supplied and the switch is
   expect(engine.quotedPrice({}, undefined)).toBeUndefined();
   nominal.mockReturnValue(true);
   const quote = engine.quotedPrice({}, undefined);
-  expect(quote).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
-  expect(engine.isNominalQuote(quote)).toBe(true);
-  expect(engine.isNominalQuote({ price: 1, change24h: 0, percentageChange24h: 0 })).toBe(false);
-  expect(engine.isNominalQuote(undefined)).toBe(false);
+  expect(quote).toEqual({ price: 1, change24h: 0, percentageChange24h: 0, kind: 'nominal' });
   expect(engine.pricesLoaded({}, [undefined])).toBe(true);
 });
 
 it('values known balances only with a positive price and known scale', () => {
-  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0 } };
+  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
   expect(engine.listedPrice(prices, 'VALUED')).toBe(2);
   expect(engine.listedFiatValue(prices, 'VALUED', 3, true)).toBe(6);
   expect(engine.listedFiatValue(prices, 'VALUED', 3, false)).toBeUndefined();
   expect(engine.listedFiatValue(prices, 'VALUED', 0, true)).toBe(0);
   expect(engine.listedFiatValue(prices, 'NOQUOTE', 3, true)).toBeUndefined();
-  expect(engine.listedPrice({ VALUED: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'VALUED')).toBe(0);
+  expect(
+    engine.listedPrice(
+      { VALUED: { price: 0, change24h: 0, percentageChange24h: 0, kind: 'market' as const } },
+      'VALUED'
+    )
+  ).toBe(0);
   expect(engine.pricesLoaded(prices, ['VALUED'])).toBe(true);
   expect(engine.pricesLoaded({}, [])).toBe(false);
 });
 
 it('omits fiat values for negative or non-finite balances', () => {
-  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0 } };
+  const prices = { VALUED: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
   expect(engine.listedFiatValue(prices, 'VALUED', -1, true)).toBeUndefined();
   expect(engine.listedFiatValue(prices, 'VALUED', Number.NaN, true)).toBeUndefined();
   expect(engine.listedFiatValue(prices, 'VALUED', Number.POSITIVE_INFINITY, true)).toBeUndefined();
@@ -290,7 +292,7 @@ it('omits fiat values for negative or non-finite balances', () => {
 });
 
 it('waits for a requested asset while only the conversion quotes have arrived', () => {
-  const dollar = { price: 1, change24h: 0, percentageChange24h: 0 };
+  const dollar = { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
   const conversion = { USDT: dollar, USDC: dollar };
   expect(engine.pricesLoaded(conversion, ['PENDING'])).toBe(false);
   expect(engine.pricesLoaded(conversion, ['USDC'])).toBe(true);

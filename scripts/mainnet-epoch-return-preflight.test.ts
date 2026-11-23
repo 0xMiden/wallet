@@ -61,6 +61,7 @@ const control = (id: string | RegExp) => ({
   }
 });
 const wallet = {
+  extensionId: 'a'.repeat(32),
   getAccountAddress: jest.fn(),
   page: {
     goto: jest.fn(),
@@ -119,8 +120,9 @@ async function inspect() {
   expect(state.createdAt).toBe(epochCheckpointFixture().createdAt);
   expect(mockStop).toHaveBeenCalledTimes(1);
 }
-it('preserves the explicit SDK quote and stops before a new return grant', async () => {
+it('uses the compact fixed-output form and stops before a new return grant', async () => {
   await inspect();
+  expect(wallet.page.goto).toHaveBeenCalledWith(`chrome-extension://${wallet.extensionId}/sidepanel.html#/bridge/deposit`);
   expect(mockMetadata).toHaveBeenCalledTimes(1);
 });
 it('validates the installed SDK path-only quote before the live metadata boundary', async () => {

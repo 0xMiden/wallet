@@ -1,6 +1,99 @@
 # Changelog
 
-## 1.18.1 (TBD)
+## 1.18.2 (TBD)
+
+- [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
+- [CHORE][ci] Simplify wallet nightly reporting and generate example reports on demand.
+- [FIX][extension] Use recent cached market prices to show the last synced balance when opening Sidebar or Command, and make optional passkey setup discoverable during onboarding and in Security settings.
+- [FIX][all] A deadline no longer closes the background document when its operation was re-armed with a fresh deadline while storage was being checked or while the close was waiting on the document, and a read deadline in that wait no longer tears down a write that has taken the document.
+- [CHANGE][all] Pull down on the dApp capsule to minimize with a native finger-tracked morph, and preview and cancel that shrink with Android predictive back (#1818).
+- [FIX][all] Match equivalent hex and bech32 account and faucet IDs across activity, badge, and recovered swap history with bounded canonical ID caching.
+- [FIX][mobile] Open incoming-note claims over the active dApp without closing or navigating away from its session.
+
+- [FIX][extension] Retain timeout ownership and validated offscreen deadline facts in saved transaction errors and local exports.
+
+- [FIX][ci] Allow a bounded read-only wait for the exact nightly NEAR source note to appear in the indexer, and report which post-acknowledgement check failed.
+
+- [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
+- [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
+- [FIX][ci] Reconcile the exact cancelled nightly Swap checkpoint after verifying that custody did not change.
+- [CHANGE][mobile] Build the App Store iOS app, and compile iOS on every pull request, with Xcode 27 and the iOS 27 SDK, which App Store Connect makes mandatory from April 2027 (ITMS-90725). The iOS app now uses the UIScene life cycle, which that SDK needs for the app to start, so deep links and Universal Links arrive through the scene delegate; Capacitor moves to 8.6.2 on iOS and Android; the iOS hot key signer moves to `swift-secp256k1` 0.25.1, which that compiler needs, and makes the same public keys and signatures.
+
+## 1.18.1 (2026-11-23)
+
+- [FIX][ci] Bound nightly NEAR return authorization by both the original checkpoint allowance and the current dispatch allowance.
+
+- [FIX][ios][android][extension] Show the USD value of USDT, SOL, NEAR and PAXG in the Swap token picker, priced from the verified token list like home, not only ETH and WBTC.
+- [FIX][extension] Tell the user to restart the browser when its IndexedDB storage stops answering, instead of showing an empty wallet, restarting the offscreen document in a loop, piling up sync retries until memory runs out, or reporting a node outage.
+- [FIX][ci] Use the authorized plain P2ID note for nightly NEAR deposits and reconcile the exact unused Green13 quote.
+- [FIX][ci] Reconcile the exact expired Green12 NEAR quote without renewing its authority.
+- [FIX][ci] Report the last NEAR forward stage without uploading private worker logs.
+- [FIX][ci] Report bounded queue diagnostics when NEAR forward authorization fails.
+- [FIX][ci] Reconcile the exact expired Green11 NEAR quote without renewing it or funding a new loop.
+- [FIX][ci] Reconcile the exact expired Green08 NEAR quote without renewing it or funding a new loop.
+
+- [FIX][ci] Open the compact fixed-output Bridge form for nightly Epoch returns without changing the quote or signing requirements.
+
+- [FIX][ci] Drive the fullscreen Command Swap composer in the nightly without skipping the rendered quote and amount checks.
+
+- [FIX][ci] Discover and verify the nightly NEAR claim note before pausing the transaction queue for authorization.
+
+- [FIX][ci] Recognize the exact provider-reported Miden note on NEAR nightly returns without changing refund verification.
+
+- [FIX][ci] Allow one manual recovery of the held nightly NEAR proceeds after verifying the expired return was never submitted. Preserve the retired authorization and prevent fresh funding in that run.
+
+- [FIX][all] A NEAR Intents deposit that got no funds before its quote deadline reads Expired in Activity, not Pending or Failed, with a grey icon, not the red of a failure.
+- [ADD][mobile] The NEAR Intents deposit page shows installed Trust Wallet, MetaMask, Rainbow, and Phantom apps for supported source assets, with payment links that include the address and exact amount. Phantom is hidden when Trust Wallet is installed. Reown's keychain group follows the Xcode signing prefix and bundle ID.
+- [CHANGE][all] NEAR Intents (1Click) moves from Swap to a "Near Intents" tab on Receive: pick an origin chain and token (Ethereum, Solana, Bitcoin, NEAR), get a 1Click deposit address with a QR code, and pay from any wallet with no wallet connection; the pairs come from the new `nearIntents` section of the wallet-config document, and Swap is the DEX flow only.
+- [FIX][ci] The nightly NEAR loop reads the nearIntents config and drives the Receive deposit-address flow, and its owned config overlay writes that section instead of swap.oneClick.
+- [CHANGE][ci] Emit a sanitized mainnet nightly report for the Wallet E2E dashboard with test and recovery evidence.
+- [FIX][ci] Report the last NEAR return stage reached when the mainnet nightly fails, without uploading private worker logs.
+
+- [FIX][ci] Verify the original NEAR deposit fee against Guardian history when a restored nightly wallet lacks the local send record.
+- [FIX][extension] Restore the selected account’s last synced balance when reopening the wallet, without waiting for another sync.
+
+- [FIX][ci] Recognize a 1Click mainnet payout that identifies the independently verified Miden deposit note instead of its creator transaction, without relaxing quote or payout verification.
+- [CHANGE][extension] Give fullscreen Bread Command a wider portfolio, steadier action switching, and desktop controls for sending, bridging, and viewing activity.
+
+- [FIX][all] Match the bundled testnet Explore catalog to the published catalog.
+
+- [FIX][ci] Exercise the fullscreen Command launcher and wallet actions in existing browser/localnet jobs, and refuse a missing requested E2E Send token instead of selecting another asset.
+
+- [FEATURE][extension] Command shows recent wallet activity and existing claim cards, and opens the original transaction progress or receipt without changing settlement, recovery, privacy or signing authority.
+
+- [FEATURE][extension] Bridge in the fullscreen Command workbench reviews real provider quotes, restores unsigned choices and follows original wallet operations without duplicate funding; fixed-input Epoch bridge-in remains unavailable with the installed provider.
+
+- [FEATURE][extension] Open the wallet's existing Recover locked bridge funds page directly from the fullscreen Command Bridge entry.
+
+- [FIX][all] Bind Circle bridge quotes, approvals, burn receipts and manual executions to the original wallet operation, preserving exact payout proof and conservative recovery without duplicate funding or gas prompts.
+
+- [CHANGE][all] Port bridge route, quote-review and recovery contracts from the bridge portal, using accepted wallet configuration and verified token identities without changing transaction execution.
+- [FEATURE][extension] Command Swap restores unsigned offers and settings across minimize, shows a read-only receive estimate, and keeps the separately gated 1Click route in the same workbench with fresh quote and funding checks.
+- [FEATURE][extension] Fullscreen Earn lets you select live vaults and owned positions, keeps unsigned deposit and withdrawal amounts across Back and minimize, and uses the existing risk, quote and transaction reviews.
+- [FEATURE][extension] Fullscreen Receive shares the current wallet address and network, remembers an unsigned asset choice, and reviews real pending transfers before native claim acceptance.
+- [FEATURE][extension] Send in the fullscreen Command workbench keeps one editable amount and recipient, restores unsigned choices across Back and minimize, and uses the existing review, fee reserve and signing checks.
+- [FEATURE][extension] Show the fullscreen Command dashboard's live wallet portfolio, local observed USD history and a saved hide-balances control without changing compact wallet data or transaction admission.
+- [FEATURE][extension] Add a guarded fullscreen Command shell with direct access to the existing Send, Receive, Swap, Earn and Bridge screens, scoped unsigned drafts and a keyboard action palette; compact, native, locked and confirmation views retain their existing presentation.
+- [FEATURE][extension] Open the unlocked wallet in a new fullscreen tab from a prominent button on the compact Home and action pages; a failed tab opening keeps the compact wallet available to retry.
+- [FIX][all] Port Agglayer quotes and exact token approvals into wallet-owned bridge operations, preserve pending approval recovery without duplicate funding, and bind destination readiness and claims to the original transfer.
+- [FIX][all] Keep Epoch sends bound to the reviewed payout minimum, destination and quote validity, and retain original collateral during interrupted bridge recovery.
+- [FIX][all] Persist reviewed wallet-owned bridge operations, coalesce their source attempts across tabs and reloads, retain uncertain outcomes, and omit private wallet RPC scopes from history backups.
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.0 clients.
+- [CHANGE][all] Guardian accounts use the stable Guardian 0.19.1 clients.
+- [FIX][ci] Measure the mobile R5 refusal with adjacent WebView sync samples while retaining the two-block limit.
+- [FIX][ci] Create only the deposit wallet in the live iOS USDCx tests.
+- [FIX][all] Switch Guardians when the outgoing Guardian holds an old pending proposal that a replaced device key signed. The recovery key now signs the switch proposal without a read of the Guardian's full pending list.
+
+- [FIX][all] Register the account again when its Guardian rejects both the everyday key and the recovery key. The repair runs only when this device is still the account's signer, the operator serves the Guardian key the account names, and the chain holds this device's state.
+- [FIX][ci] Keep polling the same faucet note after an interrupted limits read, within the existing deadline.
+
+- [FIX][ci] Wait for the Guardian to settle the funding claim before testing candidate abandonment.
+
+- [FIX][ci] Permit a bounded stablecoin quote shortfall on the first approved nightly Swap recovery return while preserving the original minimum, aggregate loss cap, and signing gates.
+
+- [FIX][ci] Allow a first explicitly approved Swap recovery return when an unsigned plan was retained and still matches the verified proceeds and vault balances. Previously issued return authority remains ineligible.
+
+- [FIX][ci] Retry a timed-out test CLI sync once without resending a transaction or changing wallet deadlines.
 
 - [FIX][ci] Check the rounded USDCx payout and Circle fee display separately from exact payout accounting.
 - [FIX][ci] Keep checking the same public faucet note after a commitment read transport error, within the existing deadline and without another grant.
@@ -16,9 +109,37 @@
 - [FIX][ci] Retain the first Epoch return solve-failure as a keyed fingerprint and finite SDK kind/HTTP status without exporting private errors or changing transaction, retry, timeout or authorization behavior.
 
 - [CHANGE][all] A basket token's page shows its composition, read from its vault: a bar split by each constituent's share of the vault's value and a list of the constituents with their shares. A basket token now has a 24h move, on its page and in every price list, and its page has a chart, both derived from the constituents' market prices weighted by that composition.
+- [FIX][all] Switch the Guardian directly on chain when the outgoing Guardian refuses the switch proposal or a co-signature with any HTTP 4xx (a 401 included), so a Guardian that rejects this device cannot block the switch.
+
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
+- [FIX][all] Before a transaction is submitted, a WebAssembly trap inside the wallet's WASM lock while it records what the transaction is about to submit now retires the broken client instead of answering from it, and fails the transaction before it is sent.
+- [FIX][all] A transaction the network already accepted is also recorded as completed instead of failed, so Retry cannot send it a second time, when the extension cannot read back the result of a swap, a custom transaction or a Guardian transaction it already applied, and when reading the transaction's saved record fails for a moment.
+- [FIX][all] A swap that went through from a single-key account now keeps its order when its completion is interrupted, and a swap from a Guardian or a single-key account keeps it when the wallet cannot update its local record or read back its result, so the order can still be cancelled or reclaimed, and its expiry counts from when the swap landed (#2147).
+- [FIX][all] A send or dApp transaction from a single-key account, and a Guardian device key rotation, account-securing update or switch, that went through keeps its transaction id and network fee when the wallet's WebAssembly client is replaced while it waits for the network to confirm it. A Guardian send, dApp transaction, swap, claim, bridge send or Earn deposit that went through keeps its result, transaction id and network fee when the client is replaced while the wallet syncs with the Guardian, and such an Earn deposit or Epoch bridge send completes instead of failing.
+- [FIX][all] Retry anyway on a dApp transaction that may already have gone through now checks the network for the notes it creates and the notes its approval recorded: when one is already on chain, the wallet completes the transaction instead of running it again, and while the network cannot be checked it runs nothing. A saved dApp request that creates a note in another account's name, which an older version could save when its approval check failed, can never be sent from this account, so Retry refuses it without checking the network instead of asking you to try again later (#2147).
+- [FIX][all] A private note from a send or a dApp transaction that went through is still retried for delivery when the wallet cannot read the transaction's id, or anything of its result, back afterwards, however many notes the transaction created; a dApp transaction that created no private note then no longer says one could not be delivered.
+- [FIX][chrome] A send, swap or dApp transaction from a single-key account is sent only once the extension has recorded what it is about to send, so a private note from one that went through is still retried for delivery, and a swap keeps its order, when the extension cannot read its result back; when that record cannot be written, nothing is sent.
+- [FIX][all] A private note from a dApp transaction that went through after it was cancelled, by you or because it took too long, is still retried for delivery when the wallet cannot read the transaction's result back.
+- [FIX][all] A private note from a dApp transaction that went through is still retried for delivery when the app was closed, or the wallet could not save the outcome, before it recorded the note, once the wallet or Retry finds the transaction on the network, or Retry anyway finds a note it created there, also after an earlier attempt that did not go through created other notes; when the wallet cannot tell which attempt went through, the transaction keeps saying a private note could not be delivered.
+- [FIX][chrome] A send or a claim from a single-key account that went through is recorded as completed instead of failed when the extension cannot read its result back, so Retry cannot send it a second time, and a private note the send created is still retried for delivery.
+- [FIX][all] A dApp transaction that went through and created a private note without naming its recipient now says the note could not be delivered when the wallet cannot read the transaction's result back, as it does when it can, instead of showing a plain success.
+- [FIX][all] When the network shows that one of several attempts of a dApp transaction or a single-key swap went through but not which one, the wallet no longer shows a plain success from an attempt that created no private note, and no longer opens a swap order the attempt that went through may not have placed, including when one of the attempts recorded no order; a dApp transaction then keeps saying a private note could not be delivered.
+- [FIX][all] A private send that went through is recorded as sent, with its note still retried for delivery, when the wallet cannot read the note back afterwards, instead of being marked failed with the note left undelivered.
+- [FIX][chrome] When the network shows that one of several attempts of a Guardian dApp transaction went through but not which one, and the extension closed before it recorded what one of them sent, the transaction keeps saying a private note could not be delivered instead of taking the other attempt's private notes or showing a plain success.
+- [FIX][all] A dApp transaction that went through without naming a recipient, whose private notes the wallet cannot count afterwards, now says the private note could not be delivered, as one that names its recipient does, instead of showing a plain success.
+
+- [CHANGE][all] Polish onboarding's Guardian steps and wallet-ready screen: new intro illustration on a stage, filled card icons, a Learn more pill, a provider sheet with outlined cards, the fastest operator first under a Fastest pill, and a new wallet-ready illustration with a larger headline.
+- [CHANGE][extension] Redesign the dApp connect window: the site and connecting account up top, what the site can and cannot do as a fact list, matching warning and error notices, Connect held until the private-data consent is ticked, and the app's page header on every confirm window.
+- [CHANGE][extension] Redesign the dApp transaction windows (send, consume, custom): the amount with a summary pill up top, who the money moves between with the network fee, then the request's site, network, note type and note details; a failed Confirm keeps the request in view and offers Try again.
+- [CHANGE][extension] Redesign the dApp signature windows (sign-in, raw value, arbitrary, blind, transaction summary): the Bread and site tiles up top, a heading with a short explanation (a key for sign-in, a caution for values Bread can't preview), the raw value shown open, the transaction summary with the transaction windows' amount header, and the request's site and network on every window.
+- [CHANGE][extension] Restyle the dApp data-request windows (private notes, assets, consumable notes, private-note import) to open like Connect: the Bread and site tiles with the site up top, what it asks for under it, the payload as a titled card, and the private-note download below it; a failed Confirm shows the Couldn't confirm notice and offers Try again.
+- [CHANGE][all] Tidy the Send review: drop the recipient bubble and amount and fee pills that repeated the card below, show the full recipient address right-aligned in the To row, set the USD value and the pending-transfer note in Nunito at 16px, and lay out Advanced options like the other rows, with the transfer type on the right and the expiration under it.
+- [CHANGE][all] dApp signing: a Guardian account signs only arbitrary signing inputs of at most 256 elements that carry their preimage, and the wallet refuses every other `signBytes` request for it before it can be approved. The approval for a Guardian account lists the elements being signed. Other accounts are unchanged.
 
 ## 1.18.0 (2026-11-17)
+
+- [FIX][extension] Restore background settings after wallet setup so incoming notes can be claimed automatically when enabled.
+- [FIX][ci] Check the four USDCx burn destinations without counting the network picker and its container as destinations.
 
 - [FIX][all] USDCx burn confirmation shows and records a source-bound native fee maximum. Both signing paths accept only the exact protocol sponsorship for the approved burn within that total cap, and receipts include its actual cost.
 
@@ -30,6 +151,8 @@
 - [FIX][ci] Wait for the exact Epoch return note on the public chain before wallet import and retain sanitized return-readiness failures without exposing private logs or changing claim authorization.
 
 - [FIX][ci] Reconcile the independently audited, expired unsigned NEAR nightly quote only after exact original run/gate provenance, unchanged holdings and unused provider status with canonical hex faucet IDs and normalized tracing metadata, retaining signature and exact quote verification; keep reconciliation recovery-only and retain all SDK upload safeguards.
+
+- [CHANGE][ci] Run mainnet bridges independently with bridges_only, keep swaps_only, and retain both groups in the default nightly with unchanged recovery and spending guards.
 
 - [FIX][all] Auto-consume measures a claim against its fee floor again after it removes the notes that another claim covers or that wait for a retry, so a small payment is no longer claimed alone at a loss (#2192).
 - [FIX][all] Keep documentation and E2E gallery deployments compatible with SHA-pinned action policies.

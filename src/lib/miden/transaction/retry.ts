@@ -39,13 +39,20 @@ import {
   swapOpensOrderFromRead
 } from './pinned-replay-check';
 import { latestEndMayStillRun, noteClaimedElsewhere } from './reconcile-judge';
-import { accountRowsOf, checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
+import {
+  accountRowsOf,
+  checkEvidenceForRetry,
+  landedExecuteDeliveryValues,
+  landedNoteStamp,
+  recordLandedDeliveryTarget
+} from './reconcile-unconfirmed';
 import { GuardianHoldRetryError } from './retry-refusal';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
   ICON_BY_TYPE,
+  ISubmitEvidence,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -53,6 +60,8 @@ import {
   nextQueuedSeq,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
+import { submittedSwapOrder } from '../sdk/apply-after-submit';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 /**
  * Types whose failed row can simply be re-queued through the FIFO loop.
@@ -215,7 +224,9 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * re-executes its request against the account's current state, so a script that
  * reads the vault can pay a different amount, and an execute that may have
  * submitted meets the acknowledgeable refusal on its own rule
- * (`executeMayHaveSubmitted`, #1081).
+ * (`executeMayHaveSubmitted`, #1081). Once the user acknowledged that refusal, its
+ * Retry still asks the node for the notes its bytes create and its approval
+ * recorded, as a send's does; the refusal itself takes no lock and reads no node.
  * (`consume` is excluded for the same reason its Retry needs no node check - its
  * input note's nullifier makes a duplicate unusable.)
  *
@@ -312,7 +323,8 @@ export interface RetryOptions {
    * Retry ran a newer attempt counts as absent. Taken as the premise being false, so both crossing markers are
    * cleared in the requeue write rather than stepped over, except a `send`'s `mayHaveSubmitted` while it holds
    * `requestBytes`: that crossing pins the bytes, so the acknowledged Retry re-creates their note rather than drawing a
-   * new serial. It replays them only once the node shows none of the notes they create on chain.
+   * new serial. It replays them only once the node shows none of the notes they create on chain. So does an execute,
+   * whose Retry replays its bytes too, for those notes and the ones its approval recorded.
    */
   acknowledged?: { attemptId: string | null };
 }
@@ -361,6 +373,30 @@ interface RequeuePlan {
   baseline: string;
 }
 
+/**
+ * Complete `tx` when the node holds a note its saved request creates (for an execute, also one its approval recorded):
+ * true when written, false when the node holds none or there is none to ask for. No answer refuses, since the replay
+ * needs the same node, and so does a note on chain that another row of the account may own.
+ */
+const completedFromPinnedNotes = async (tx: ITransaction, baseline: string): Promise<boolean> => {
+  const pinned = await checkPinnedReplayNotes(tx);
+  if (pinned.kind === 'unknown') {
+    // Bytes that do not decode, or that declare a note under another account, can never be sent from this row.
+    throw pinned.cause === 'decode' || pinned.cause === 'sender'
+      ? retryRefusal(new Error(TRANSACTION_REPLAY_UNREADABLE_ERROR), 'replay_request_unreadable')
+      : retryRefusal(new Error(TRANSACTION_REPLAY_CHECK_FAILED_ERROR), 'replay_check_failed');
+  }
+  if (pinned.kind !== 'committed') return false;
+  // A swap's order expires a window after it landed. Read before the write, which cannot await the network.
+  const landedAt =
+    tx.type === 'swap' ? (await getBlockTimestamps([pinned.block], pinned.scope)).get(pinned.block) : undefined;
+  const written = await writePinnedLanding(tx, baseline, pinned, landedAt);
+  // On chain, but maybe not this row's: neither a replay nor a completion.
+  if (written === 'claimed') throw retryRefusal(new Error(TRANSACTION_RETRY_UNSAFE_ERROR), 'unsafe_retry');
+  if (written === 'declined') throw retryRefusal(new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR), 'verdict_busy');
+  return true;
+};
+
 /** Steps 1 to 5: refuse, complete, or say how to requeue. Undefined when the row was completed instead. */
 const planRequeue = async (
   tx: ITransaction,
@@ -403,12 +439,19 @@ const planRequeue = async (
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
       // relays a private send's note, and with no delivery recorded that relay never ran, so the
       // note the verified transaction's attempt recorded becomes the delivery target by the
-      // reconciler's rule for a bound landing (#1473).
+      // reconciler's rule for a bound landing (#1473). An execute whose tail recorded nothing owes
+      // the private notes that attempt's stamp read, as at the reconciler's landing.
       const completedAt = Math.floor(Date.now() / 1000);
       const verifiedId = tx.transactionId;
+      const ofVerified = (entry: ISubmitEvidence): boolean =>
+        verifiedId !== undefined &&
+        entry.transactionId !== undefined &&
+        normalizeHex(entry.transactionId) === normalizeHex(verifiedId);
       let target: string[] | undefined;
+      let owesNotes = false;
       // A swap that holds no order opens the one its saved request names. Decoded before the write, which
-      // cannot await the lock, and passed only while the fresh row still holds those bytes.
+      // cannot await the lock, and passed only while the fresh row still holds those bytes. A single-key swap saves no
+      // request, so its order is the one the verified transaction's attempt recorded on its stamp.
       const decodedBytes = tx.requestBytes;
       const savedOrder =
         tx.type === 'swap' && swapOpensOrderFromRead(tx) ? await orderFromSavedRequest(decodedBytes) : undefined;
@@ -417,17 +460,23 @@ const planRequeue = async (
       // complete and the guard's only success path never once worked.
       await completeVerifiedLandedTransaction(tx.id, fresh => {
         // `fresh` is the row this write stores. The landing is applied to it here, not returned, so the target is
-        // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel.
+        // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel. An
+        // execute's notes are read from the row as found, before the landed fields label one with a recipient
+        // undelivered.
+        const landedStamp = fresh.submitEvidence?.find(ofVerified);
+        const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
         applyVerifiedLanding(
           fresh,
-          { ...verifiedLandingRowFields(fresh), completedAt },
-          sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined
+          { ...verifiedLandingRowFields(fresh), ...executeDelivery, completedAt },
+          (sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined) ??
+            submittedSwapOrder(fresh.submitEvidence, ofVerified)
         );
         target =
           verifiedId === undefined ? undefined : recordLandedDeliveryTarget(fresh, { boundTransactionId: verifiedId });
+        owesNotes = (executeDelivery?.relayNoteIds?.length ?? 0) > 0;
         return {};
       });
-      if (target !== undefined) countNoteDeliveryWrite();
+      if (target !== undefined || owesNotes) countNoteDeliveryWrite();
       return undefined;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could
@@ -462,23 +511,8 @@ const planRequeue = async (
   }
   // Bytes in doubt are replayed as they are, so the user's word cannot rule out what the node can: a note they create
   // that is already on chain. No answer replays nothing, since the replay needs the same node.
-  if (!proven && resubmitInDoubt && tx.requestBytes !== undefined) {
-    const pinned = await checkPinnedReplayNotes(tx);
-    if (pinned.kind === 'unknown') {
-      throw pinned.cause === 'decode'
-        ? retryRefusal(new Error(TRANSACTION_REPLAY_UNREADABLE_ERROR), 'replay_request_unreadable')
-        : retryRefusal(new Error(TRANSACTION_REPLAY_CHECK_FAILED_ERROR), 'replay_check_failed');
-    }
-    if (pinned.kind === 'committed') {
-      // A swap's order expires a window after it landed. Read before the write, which cannot await the network.
-      const landedAt =
-        tx.type === 'swap' ? (await getBlockTimestamps([pinned.block], pinned.scope)).get(pinned.block) : undefined;
-      const written = await writePinnedLanding(tx, baseline, pinned, landedAt);
-      // On chain, but maybe not this row's: neither a replay nor a completion.
-      if (written === 'claimed') throw retryRefusal(new Error(TRANSACTION_RETRY_UNSAFE_ERROR), 'unsafe_retry');
-      if (written === 'declined') throw retryRefusal(new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR), 'verdict_busy');
-      return undefined;
-    }
+  if (!proven && resubmitInDoubt && tx.requestBytes !== undefined && (await completedFromPinnedNotes(tx, baseline))) {
+    return undefined;
   }
   let clearFlags = proven;
   if (!proven && (resubmitInDoubt || executeInDoubt)) {
@@ -491,6 +525,15 @@ const planRequeue = async (
     }
     clearFlags = true;
   }
+  // An acknowledged execute replays the same bytes, so a note they create, or one its approval recorded (the only
+  // notes signing lets it create), already on chain means a run created it: the user's word cannot rule that out. Asked
+  // only here, behind the acknowledgement, so the refusal above takes no lock and reads no node, and a request that
+  // names no note keeps the user's word (#1081). Bytes that declare a note under another account never run as this
+  // one, and an older wallet saved such a dApp request when its approval run failed, so the check refuses them before
+  // any read; it counts only a copy this account created, and refuses on node metadata that contradicts a note's id.
+  if (!proven && executeInDoubt && tx.requestBytes !== undefined && (await completedFromPinnedNotes(tx, baseline))) {
+    return undefined;
+  }
   // Read off the pre-reset row: the requeue write clears `stage`.
   return { failedStage: tx.stage, clearFlags, proven, baseline };
 };
@@ -502,7 +545,10 @@ type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
  * declines once the row moved from what Retry judged (its status, stage, evidence or bytes), and that re-reads the
  * account's rows, since another attempt naming that note may be the one that created it. A swap opens the order its
  * pinned note names when the row holds none ({@link applyVerifiedLanding}), with its expiry anchored at `landedAt`,
- * the including block's time; without it at now, which is later and so never cancels the order early.
+ * the including block's time; without it at now, which is later and so never cancels the order early. An execute
+ * whose tail recorded nothing owes the private notes every attempt that can have created the pinned note read
+ * ({@link landedNoteStamp}), as at the reconciler's note landing ({@link landedExecuteDeliveryValues}), a delivery write
+ * counted once it commits.
  */
 const writePinnedLanding = async (
   tx: ITransaction,
@@ -513,7 +559,7 @@ const writePinnedLanding = async (
   const outcome = await Repo.db.transaction(
     'rw',
     Repo.transactions,
-    async (): Promise<{ write: PinnedLandingWrite; landed?: ITransaction; target?: string[] }> => {
+    async (): Promise<{ write: PinnedLandingWrite; landed?: ITransaction; target?: string[]; owesNotes?: boolean }> => {
       const fresh = await Repo.transactions.where({ id: tx.id }).first();
       if (
         fresh === undefined ||
@@ -525,18 +571,32 @@ const writePinnedLanding = async (
         return { write: 'declined' };
       }
       if (noteClaimedElsewhere(fresh, pinned.noteId, await accountRowsOf(fresh))) return { write: 'claimed' };
+      // Read from the row as found, before the landed fields label an execute undelivered. The pinned check cannot
+      // say which attempt created the note, so only what every attempt that can have created it read.
+      const notePin = { noteId: pinned.noteId, block: pinned.block };
+      const landedStamp = landedNoteStamp(fresh, notePin);
+      const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
       applyVerifiedLanding(
         fresh,
-        { ...verifiedLandingRowFields(fresh), completedAt: landedAt ?? nowSeconds() },
+        { ...verifiedLandingRowFields(fresh), ...executeDelivery, completedAt: landedAt ?? nowSeconds() },
         pinned.order
       );
-      const target = recordLandedDeliveryTarget(fresh, { proof: { kind: 'note', noteId: pinned.noteId } });
-      if (storedNoteIds(fresh.outputNoteIds).length === 0) fresh.outputNoteIds = pinned.noteIds;
+      const target = recordLandedDeliveryTarget(fresh, { proof: { kind: 'note', ...notePin } });
+      // Never an execute's root: the delivery sweep reads root notes as owed to the recipient, public ones and all, and
+      // these were found on the node, never put in this client's store to relay.
+      if (fresh.type !== 'execute' && storedNoteIds(fresh.outputNoteIds).length === 0) {
+        fresh.outputNoteIds = pinned.noteIds;
+      }
       await Repo.transactions.put(fresh);
-      return { write: 'written', landed: fresh, target };
+      return {
+        write: 'written',
+        landed: fresh,
+        target,
+        owesNotes: (executeDelivery?.relayNoteIds?.length ?? 0) > 0
+      };
     }
   );
-  if (outcome.target !== undefined) countNoteDeliveryWrite();
+  if (outcome.target !== undefined || outcome.owesNotes === true) countNoteDeliveryWrite();
   if (outcome.landed !== undefined) reportVerifiedLanding(outcome.landed);
   return outcome.write;
 };

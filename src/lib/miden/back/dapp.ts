@@ -1,4 +1,5 @@
 import {
+  getWasmOrThrow,
   Note,
   NoteFile,
   NoteFilterTypes,
@@ -70,6 +71,8 @@ import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
+import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { dappGuardianSyncStatus } from 'lib/miden/guardian/sync-guard';
@@ -748,13 +751,40 @@ export async function requestSign(
     throw new Error(`${MidenDAppErrorType.NotGranted}: signing key is not the connected account's key`);
   }
 
+  // A Guardian account signs only `Arbitrary` signing inputs with no protocol message layout; refused here, before
+  // any prompt. A single-key account is unchanged. The vault applies the same rule again at sign time.
+  const messageElements = await guardianMessageElements(dApp.accountId, req);
+
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
   // unhandled rejection and leave the dApp's promise unsettled forever (the
   // caller only ever sees the injection script's 5-minute "Request timeout").
   return new Promise((resolve, reject) => {
-    generatePromisifySign(resolve, reject, origin, dApp, req, sessionId).catch(reject);
+    generatePromisifySign(resolve, reject, origin, dApp, req, messageElements, sessionId).catch(reject);
   });
+}
+
+/**
+ * The message a Guardian account may sign for `req` (`DAPP_SIGN_RULE`), `undefined` for a single-key account, and a
+ * refusal (`InvalidParams`) for a Guardian request the rule does not allow. The account kind is read from the unlocked
+ * store. While the wallet is locked it is unreadable, so this returns `undefined` and the caller asks again once
+ * unlocked: the extension when its popup asks for the payload, the mobile and desktop sheet after the unlock wait. The
+ * vault refuses at sign time all the same.
+ */
+async function guardianMessageElements(accountId: string, req: MidenDAppSignRequest): Promise<bigint[] | undefined> {
+  // A locked store lists no accounts, so the account reads as absent.
+  const account = store.getState().accounts?.find(acc => sameWalletAccountId(acc.publicKey, accountId));
+  if (account?.type !== WalletType.Guardian) return undefined;
+  // The service worker loads the WASM module only on demand, and only a `signingInputs` payload needs it.
+  if (req.kind === 'signingInputs') await getWasmOrThrow();
+  const elements =
+    req.kind === 'signingInputs'
+      ? await withWasmClientLock(async () => signableArbitraryElements(req.kind, req.payload), {
+          label: 'dapp-sign-rule'
+        })
+      : undefined;
+  if (elements === undefined) throw new Error(`${MidenDAppErrorType.InvalidParams}: ${DAPP_SIGN_RULE}`);
+  return elements;
 }
 
 const generatePromisifySign = async (
@@ -763,6 +793,7 @@ const generatePromisifySign = async (
   origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSignRequest,
+  guardianMessage: bigint[] | undefined,
   sessionId?: string
 ) => {
   const id = nanoid();
@@ -774,7 +805,7 @@ const generatePromisifySign = async (
   // failure, a non-summary variant, and any other kind still prompt with the opaque-signature warning, and a fee read
   // that throws does not fail them. WASM startup failures keep their original error, and a trap reaches the lock.
   let signing: { view: TxAssetView; noteFlow?: NoteFlow } | undefined;
-  if (req.kind === 'signingInputs') {
+  if (req.kind === 'signingInputs' && !guardianMessage) {
     await ensureSdkWasmReady();
     try {
       const chainFee = await refreshVerificationBaseFee().catch((error: unknown) => {
@@ -829,12 +860,16 @@ const generatePromisifySign = async (
         reject(lockedRefusal());
         return;
       }
+      // A locked wallet could not tell the account kind at the entry gate; it can now.
+      const guardianMessageNow = guardianMessage ?? (await guardianMessageElements(dApp.accountId, req));
       const confirmed = await confirmOnNonExtension(
         'sign',
         origin,
         dApp,
         networkRpc,
-        await formatSignPreview(req, signing?.view),
+        guardianMessageNow
+          ? formatGuardianSignPreview(req, guardianMessageNow)
+          : await formatSignPreview(req, signing?.view),
         sessionId,
         waits.deadline
       );
@@ -856,17 +891,25 @@ const generatePromisifySign = async (
 
   await requestConfirm({
     id,
-    payload: {
-      type: 'sign',
-      origin,
-      networkRpc,
-      appMeta: dApp.appMeta,
-      sourcePublicKey: req.sourcePublicKey,
-      payload: req.payload,
-      kind: req.kind,
-      preview: null,
-      ...(signing && { signingEffects: toSimulatedEffectsWire(signing.view, signing.noteFlow) })
+    // Built when the popup first asks, which a locked wallet's popup does only once unlocked: a locked store lists no
+    // accounts, so the account kind is read here, and a forbidden Guardian request is refused before any approval.
+    payload: async () => {
+      const message = guardianMessage ?? (await guardianMessageElements(dApp.accountId, req));
+      return {
+        type: 'sign',
+        origin,
+        networkRpc,
+        appMeta: dApp.appMeta,
+        sourcePublicKey: req.sourcePublicKey,
+        payload: req.payload,
+        kind: req.kind,
+        preview: null,
+        ...(message
+          ? { messageElements: message.map(String) }
+          : signing && { signingEffects: toSimulatedEffectsWire(signing.view, signing.noteFlow) })
+      };
     },
+    onPayloadError: reject,
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
     },
@@ -3865,7 +3908,20 @@ function measuredSigningHoldings(summary: TransactionSummary): TxAssetView {
 }
 
 /**
- * What the mobile modal / desktop overlay show for `signBytes`.
+ * What the mobile modal / desktop overlay show for a Guardian account's `signBytes`: the kind, the account, how many
+ * elements the message has, then the elements, as the extension's message alert and value do.
+ */
+function formatGuardianSignPreview(req: MidenDAppSignRequest, messageElements: bigint[]): string[] {
+  return [
+    `Kind, ${req.kind}`,
+    `Account, ${truncateAddress(req.sourcePublicKey)}`,
+    getMessage('signMessageWarning', { count: messageElements.length }),
+    `Message, ${messageElements.join(', ')}`
+  ];
+}
+
+/**
+ * What the mobile modal / desktop overlay show for a single-key account's `signBytes`.
  *
  * A `signingInputs` payload holding a transaction summary is a full TRANSACTION
  * authorization, signed as decoded, so approving one can move the whole balance.

@@ -172,9 +172,9 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
       ).toEqual({ registered: true, paused: false, depositsPaused: false });
     });
 
+    void walletB; // Keep fixture teardown diagnostics without creating an unused account.
     await steps.step('create_wallet', async () => {
       ({ address: addressA } = await walletA.createGuardianWallet());
-      await walletB.createNewWallet(); // fixture requires both sims up; B takes no part
     });
 
     try {

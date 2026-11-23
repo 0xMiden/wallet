@@ -47,11 +47,13 @@ import {
   guardianRegisterBackoffMs,
   isGuardianPendingConflict,
   isGuardianStateNotOnChain,
+  markNewGuardianAnswer,
   NEW_GUARDIAN_PUBKEY_TIMEOUT_MS
 } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { requireRequestBoundBlockNum } from './tip-execution';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { requestOrderOf, type RequestOrder } from '../sdk/apply-after-submit';
 import { accountRefToSdk, feeAwareRequestBuilder, randomFeeSalt } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -99,6 +101,13 @@ export class ProposalChainSyncError extends Error {
 
 export function isProposalChainSyncError(err: unknown): boolean {
   return someInCauseChain(err, link => link instanceof ProposalChainSyncError);
+}
+
+export class ColdProposalAdoptionError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'ColdProposalAdoptionError';
+  }
 }
 
 /**
@@ -823,21 +832,30 @@ export class MultisigService {
    * The request's own expiration delta does not survive either, and a tip execution would count
    * it from the tip anyway. `approvalExpirationDelta` is the bound the proposal keeps instead,
    * counted from the bound block this rebuild takes (#1081).
+   *
+   * A swap's rebuild also returns `order`, the order read off the rebuilt request whose bytes it returns, for the
+   * caller to record in the write that stores them; it is absent when that read named none.
    */
   async createRebasedCustomProposal(
     requestBytes: Uint8Array,
     proposalType: string,
     approvalExpirationDelta?: number
-  ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
+  ): Promise<{ proposal: Proposal; requestBytes: Uint8Array; order?: RequestOrder }> {
     return await this.withChainSyncedHold('rebased custom proposal', async (hold, client) => {
       const { notes, builder } = await this.proposalStep('rebase_build', async () => ({
         notes: TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes(),
         builder: await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta)
       }));
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
-      const rebased = await this.proposalStep('rebase_build', async () =>
-        builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize()
-      );
+      const { rebased, order } = await this.proposalStep('rebase_build', async () => {
+        const request = builder.withOwnOutputNotes(new NoteArray(notes)).build();
+        // Read off the request whose bytes are returned, after the hold check above: the notes it was built from may
+        // have moved into its NoteArray by value.
+        return {
+          rebased: request.serialize(),
+          order: proposalType === 'swap' ? requestOrderOf(() => request.expectedOutputOwnNotes()) : undefined
+        };
+      });
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the rebuild');
       // The check runs on `rebased`, the bytes this proposal is made from and the caller persists.
       const proposal = await this.proposeCheckedCustomRequest(
@@ -847,7 +865,7 @@ export class MultisigService {
         proposalType,
         'rebased custom proposal'
       );
-      return { proposal, requestBytes: rebased };
+      return { proposal, requestBytes: rebased, ...(order === undefined ? {} : { order }) };
     });
   }
 
@@ -928,11 +946,47 @@ export class MultisigService {
    *
    * The WASM hold spans the guardian round trip, so a caller with its own deadline
    * passes `lockOptions` to bound the hold by it.
+   *
+   * `exportedProposal` is the JSON `exportProposalToJson` returned under the hold that created the
+   * proposal. This service imports that string before it signs, and signs the id the import
+   * returned, so the SDK finds the proposal in its cache. Without the export the SDK reads the
+   * Guardian's full pending list, and one pending proposal that does not parse (a signature from a
+   * hot key that a rotation replaced) fails the read and thus the signature (#2225). A call with
+   * only an id signs that id and does not import. The adoption and the signature each check that
+   * the proposal's metadata binds its summary.
    */
-  async signProposal(id: string, lockOptions?: Parameters<typeof withWasmClientLock>[1]): Promise<void> {
+  async signProposal(
+    id: string,
+    lockOptions?: Parameters<typeof withWasmClientLock>[1],
+    exportedProposal?: string,
+    phase?: ProposalSyncPhase
+  ): Promise<void> {
+    const abandoned = (when: string) => {
+      if (phase?.abandoned) throw new Error(`guardian proposal signing: abandoned by its caller ${when}`);
+    };
     // Signing syncs and previews with the same shared client as account creation.
     await withWasmClientLock(async hold => {
-      await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(id));
+      abandoned('while it waited for the hold');
+      let signedId = id;
+      if (exportedProposal !== undefined) {
+        if (phase) phase.syncing = true;
+        try {
+          const imported = await this.multisig.importProposal(exportedProposal);
+          signedId = imported.id;
+        } catch (error) {
+          if (error instanceof WebAssembly.RuntimeError) {
+            retireWasmClientForCaughtTrap(hold, error);
+            throw error;
+          }
+          if (isPipelineKillLink(error)) throw error;
+          throw new ColdProposalAdoptionError(error);
+        } finally {
+          if (phase) phase.syncing = false;
+        }
+        assertWasmHoldCurrent(hold, 'guardian proposal signing: after adopting the known proposal');
+        abandoned('after adopting the known proposal');
+      }
+      await withGuardianAuthFacts(this.authFacts, () => this.multisig.signProposal(signedId));
       assertWasmHoldCurrent(hold, 'guardian proposal signing');
     }, lockOptions);
   }
@@ -1271,7 +1325,7 @@ export class MultisigService {
   async createSwitchGuardianProposal(
     newGuardianEndpoint: string,
     syncPhase?: ProposalSyncPhase
-  ): Promise<{ proposal: Proposal; newEndpoint: string }> {
+  ): Promise<{ proposal: Proposal; exportedProposal: string; newEndpoint: string }> {
     try {
       // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
       const commitment = await withGuardianProbe(newGuardianEndpoint, async () => {
@@ -1281,8 +1335,14 @@ export class MultisigService {
         // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
         // nor length. Same boundary the direct-switch path applies.
         // Every probed check carries its own deadline: a caller's deadline abandons it without cancelling it.
+        // A rejection of this fetch is the NEW guardian's answer, not the outgoing one's. It is marked and
+        // rethrown as the same object, so the switch pipeline does not start the direct switch for its 4xx.
+        const pubkeyFetch = newGuardian.getPubkey('ecdsa').catch(error => {
+          markNewGuardianAnswer(error);
+          throw error;
+        });
         const answer = await withTimeout(
-          newGuardian.getPubkey('ecdsa'),
+          pubkeyFetch,
           NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
           `New guardian ${newGuardianEndpoint} pubkey fetch`
         );
@@ -1290,17 +1350,23 @@ export class MultisigService {
       });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
-      const proposal = await this.withChainSyncedHold(
+      // The export is read on this same hold, before the callback returns: the SDK cache that
+      // `exportProposalToJson` reads belongs to the multisig that just created the proposal.
+      const { proposal, exportedProposal } = await this.withChainSyncedHold(
         'switch-guardian proposal',
-        () =>
-          this.proposalStep(
+        async hold => {
+          const created = await this.proposalStep(
             'proposal_create',
             () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
             'switch-guardian'
-          ),
+          );
+          assertWasmHoldCurrent(hold, 'switch-guardian proposal: after creating the proposal');
+          const exported = this.multisig.exportProposalToJson(created.id);
+          return { proposal: created, exportedProposal: exported };
+        },
         syncPhase
       );
-      return { proposal, newEndpoint: newGuardianEndpoint };
+      return { proposal, exportedProposal, newEndpoint: newGuardianEndpoint };
     } catch (error) {
       console.error('Error creating switch-guardian proposal:', error);
       throw error;

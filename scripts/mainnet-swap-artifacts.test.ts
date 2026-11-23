@@ -1,11 +1,37 @@
 /** @jest-environment node */
-import { chooseSwapCheckpoint, swapStepAttempted } from './mainnet-swap-artifacts.mjs';
+import { chooseSwapCheckpoint, knownUnspentScheduledSwap, swapStepAttempted } from './mainnet-swap-artifacts.mjs';
 
 const baseline = 42966766471;
 const run = (id: number) => ({ id });
 const artifact = (name: string, expired = false) => ({ name, expired });
 const steps = (name: string, conclusion: string | null = 'success') => ({
   jobs: [{ steps: [{ name, status: 'completed', conclusion }] }]
+});
+
+describe('cancelled schedule reconciliation', () => {
+  const digest = '0c865198fefc4e4146bb026195f60f1758ceaf63752eda34513bacf31d47d8c3';
+  const source = {
+    id: 45118679621, workflow_id: 391951744, event: 'schedule', head_branch: 'main',
+    head_sha: '78290ae5ed11aa3a87dd32e47f7cb27c5e93c4bc', run_attempt: 1,
+    status: 'completed', conclusion: 'cancelled', repository: { id: 853430876 }
+  };
+  const audit = {
+    id: 45119437266, workflow_id: 415130600, event: 'push', head_branch: 'wiktor/scheduled-45118679621-readonly',
+    head_sha: '2bdde361fcc6f341640d2574e80ba90ae6c058fe', run_attempt: 1,
+    status: 'completed', conclusion: 'success', repository: { id: 853430876 }
+  };
+  const jobs = { jobs: [{ steps: [
+    ...steps('Upload swap SDK forward authority', 'cancelled').jobs[0].steps,
+    ...steps('Upload swap SDK forward claim authority', 'skipped').jobs[0].steps,
+    ...steps('Retain mainnet swap checkpoint').jobs[0].steps
+  ] }] };
+  it('reconciles only the exact cancelled checkpoint with its successful independent custody audit', () => {
+    expect(knownUnspentScheduledSwap(digest, source, jobs, audit)).toBe(true);
+    expect(knownUnspentScheduledSwap('0'.repeat(64), source, jobs, audit)).toBe(false);
+    expect(knownUnspentScheduledSwap(digest, { ...source, run_attempt: 2 }, jobs, audit)).toBe(false);
+    expect(knownUnspentScheduledSwap(digest, source, steps('Upload swap SDK forward authority'), audit)).toBe(false);
+    expect(knownUnspentScheduledSwap(digest, source, jobs, { ...audit, conclusion: 'failure' })).toBe(false);
+  });
 });
 
 describe('mainnet swap recovery artifact discovery', () => {
