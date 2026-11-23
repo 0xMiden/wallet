@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
 - [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
 - [CHORE][ci] Simplify wallet nightly reporting and generate example reports on demand.
 - [FIX][extension] Use recent cached market prices to show the last synced balance when opening Sidebar or Command, and make optional passkey setup discoverable during onboarding and in Security settings.
@@ -110,8 +111,6 @@
 
 - [CHANGE][all] A basket token's page shows its composition, read from its vault: a bar split by each constituent's share of the vault's value and a list of the constituents with their shares. A basket token now has a 24h move, on its page and in every price list, and its page has a chart, both derived from the constituents' market prices weighted by that composition.
 - [FIX][all] Switch the Guardian directly on chain when the outgoing Guardian refuses the switch proposal or a co-signature with any HTTP 4xx (a 401 included), so a Guardian that rejects this device cannot block the switch.
-
-- [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
 
 - [FIX][ci] Check Guardian native sends and built-in consume requests against the installed SDK's exact note shape and finalized mainnet fee-policy expiry, retaining strict route, attachment, request, signature and upload safeguards; run real SDK conformance in the canonical harness.
 - [FIX][all] Before a transaction is submitted, a WebAssembly trap inside the wallet's WASM lock while it records what the transaction is about to submit now retires the broken client instead of answering from it, and fails the transaction before it is sent.
