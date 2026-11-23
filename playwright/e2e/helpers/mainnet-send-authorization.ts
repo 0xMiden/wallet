@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { isRecord } from '../../../src/lib/update/guards';
-import type { TestMainnetEpochScope, TestMainnetSendScope, TestMainnetSwapScope } from '../../../src/lib/miden/sdk/test-send-request';
+import type {
+  TestMainnetEpochScope,
+  TestMainnetSendScope,
+  TestMainnetSwapScope
+} from '../../../src/lib/miden/sdk/test-send-request';
 import { TEST_SEND_AUTHORIZATION_KEY as KEY } from '../../../src/lib/miden/sdk/test-send-authorization';
 import { awaitMainnetLoopAuthorization } from './mainnet-loop-authorization';
 
@@ -19,7 +23,8 @@ export interface MainnetSendAuthority {
 
 export async function armMainnetSendAuthorization(
   page: Pick<Page, 'evaluate'>,
-  scope: (TestMainnetSendScope | TestMainnetSwapScope | TestMainnetEpochScope) & { expiresAt: number }
+  scope: (TestMainnetSendScope | TestMainnetSwapScope | TestMainnetEpochScope) & { expiresAt: number },
+  fromBlockedCanary = false
 ): Promise<MainnetSendHandle> {
   if (
     ![scope.accountId, scope.faucetId].every(id => /^0x[0-9a-f]{30}$/.test(id)) ||
@@ -39,17 +44,19 @@ export async function armMainnetSendAuthorization(
     throw new Error('Invalid native send authorization scope');
   const handle = { ...scope, nonce: randomUUID() };
   await page.evaluate(
-    async ({ key, handle }) => {
+    async ({ key, handle, fromBlockedCanary }) => {
       const requiredKey = `${key}_required`;
       const stored = await chrome.storage.local.get([key, requiredKey]);
-      if (stored[key] !== undefined || stored[requiredKey] !== undefined)
+      const marker = stored[requiredKey];
+      const canaryBlocked = marker?.status === 'blocked' && Object.keys(marker).length === 1;
+      if (stored[key] !== undefined || (fromBlockedCanary ? !canaryBlocked : marker !== undefined))
         throw new Error('Unresolved existing native send authority');
       await chrome.storage.local.set({
         [key]: { ...handle, status: 'armed' },
         [requiredKey]: { accountId: handle.accountId, nonce: handle.nonce }
       });
     },
-    { key: KEY, handle }
+    { key: KEY, handle, fromBlockedCanary }
   );
   return handle;
 }

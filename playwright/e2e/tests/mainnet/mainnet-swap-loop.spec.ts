@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { Address } from '@miden-sdk/miden-sdk';
 
@@ -56,6 +57,7 @@ import {
   prepareMainnetSwapClaimRecovery,
   readMainnetSwapReturnAbsence,
   readMainnetSwapPayback,
+  type MainnetSwapBalances,
   type MainnetSwapPaybackEvidence,
   type MainnetSwapPaybackScope
 } from '../../helpers/mainnet-swap-claim';
@@ -64,6 +66,7 @@ import {
   armMainnetConsumeAuthorization,
   releaseMainnetConsumeAuthorization
 } from '../../helpers/mainnet-consume-authorization';
+import { isCanaryMode, runCanary, type CanaryBrowser } from '../../helpers/mainnet-wallet-canary';
 import { restoreMainnetLoopGuardian } from '../../helpers/mainnet-loop-wallet';
 import { nightlyAmount, nightlyDuration, observeNightly, observedStage } from '../../reporting/nightly-observation';
 import { armMainnetSendAuthorization, releaseMainnetSendAuthorization } from '../../helpers/mainnet-send-authorization';
@@ -84,7 +87,7 @@ test.describe.configure({ mode: 'serial', retries: 0 });
 let claimStage = 'before-claim';
 let claimLeg: 'forward' | 'reverse' | undefined;
 test.afterEach(async ({}, info) => {
-  if (info.status === info.expectedStatus) return;
+  if (info.status === info.expectedStatus || isCanaryMode(process.env.MAINNET_SWAP_MODE)) return;
   mkdirSync('test-results', { recursive: true });
   writeFileSync(
     'test-results/mainnet-swap-claim-failure.json',
@@ -440,13 +443,85 @@ function completeReturn(state: MainnetSwapCheckpoint, result: Awaited<ReturnType
   );
 }
 
+async function exactClaimFee(
+  wallet: GuardianAwareWalletPage,
+  state: MainnetSwapCheckpoint,
+  receipt: TransactionRowSnapshot
+) {
+  const feeFaucet = receipt.feeFaucetId?.startsWith('0x')
+    ? await hexFaucetToBech32(wallet, receipt.feeFaucetId)
+    : receipt.feeFaucetId;
+  if (
+    receipt.status !== TxStatus.Completed ||
+    !receipt.transactionId ||
+    !/^0x[0-9a-f]{64}$/.test(receipt.transactionId) ||
+    !receipt.feeAmount ||
+    !/^[1-9]\d*$/.test(receipt.feeAmount) ||
+    feeFaucet !== state.native.faucetId ||
+    BigInt(receipt.feeAmount) > SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee)
+  ) {
+    throw new Error('Missing exact recovered consume receipt or authorized native fee');
+  }
+  return BigInt(receipt.feeAmount);
+}
+
+function assertClaimBalances(
+  state: MainnetSwapCheckpoint,
+  leg: 'forward' | 'reverse',
+  before: MainnetSwapBalances,
+  after: MainnetSwapBalances,
+  received: bigint,
+  fee: bigint
+) {
+  const offerNative = state.offer.hex === state.native.hex;
+  const requestNative = state.request.hex === state.native.hex;
+  const targetNative = leg === 'forward' ? requestNative : offerNative;
+  expect(after.offer).toBe(before.offer + (leg === 'reverse' ? received : 0n) - (offerNative ? fee : 0n));
+  expect(after.request).toBe(before.request + (leg === 'forward' ? received : 0n) - (requestNative ? fee : 0n));
+  expect(after.native).toBe(before.native + (targetNative ? received : 0n) - fee);
+}
+
+async function confirmedCanaryReclaim(
+  wallet: GuardianAwareWalletPage,
+  state: MainnetSwapCheckpoint,
+  scope: MainnetSwapPaybackScope
+) {
+  const rows = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(
+    row =>
+      row.noteIds?.length === 1 &&
+      row.noteIds[0] === scope.noteId &&
+      row.extraInputs?.swapSettleKind === 'reclaim' &&
+      row.extraInputs?.swapSettlePartial !== true
+  );
+  const reclaim = rows[0];
+  if (rows.length !== 1 || !reclaim || reclaim.status !== TxStatus.Completed) return undefined;
+  const actor = reclaim.accountId?.startsWith('0x')
+    ? reclaim.accountId
+    : reclaim.accountId && Address.fromBech32(reclaim.accountId).accountId().toString();
+  if (actor !== scope.accountId) throw new Error('Canary reclaim belongs to a different account');
+  const reclaimFee = await exactClaimFee(wallet, state, reclaim);
+  const now = await balances(wallet, state);
+  const fees = BigInt(state.native.balance) - now.native;
+  if (
+    fees <= reclaimFee ||
+    fees - reclaimFee > SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee) ||
+    fees > BigInt(state.feeBudget)
+  )
+    throw new Error('Canary reclaim fees differ from the original reserve');
+  const expected = (asset: SavedSwapHolding) => BigInt(asset.balance) - (asset.hex === state.native.hex ? fees : 0n);
+  expect(now.offer).toBe(expected(state.offer));
+  expect(now.request).toBe(expected(state.request));
+  return { received: 0n, refunded: BigInt(state.principal), fees, now };
+}
+
 async function settle(
   wallet: GuardianAwareWalletPage,
   state: MainnetSwapCheckpoint,
-  leg: 'forward' | 'reverse'
+  leg: 'forward' | 'reverse',
+  canary?: CanaryBrowser
 ): Promise<{ received: bigint; refunded: bigint; fees: bigint; now: Awaited<ReturnType<typeof balances>> }> {
   claimLeg = leg;
-  const observe = observeSwap(leg, state);
+  const observe = canary?.observe ?? observeSwap(leg, state);
   claimStage = 'payback-proof';
   const authority = leg === 'forward' ? state.forwardRequestAuthority : state.reverseRequestAuthority;
   const gate = process.env.MAINNET_SWAP_SDK_GATE;
@@ -463,18 +538,22 @@ async function settle(
   };
   let found: MainnetSwapPaybackEvidence | undefined;
   let reportedInclusion = false;
-  const onOriginalIncluded = process.env.E2E_WALLET_REPORT_INVOCATION
-    ? () => {
-        if (reportedInclusion) return;
-        reportedInclusion = true;
-        observe(
-          { outcome: 'included' },
-          { key: 'inclusion', origin: 'sdk_read', status: 'passed', endpoint: 'miden_mainnet_rpc' }
-        );
-      }
-    : undefined;
+  let originalConsumed = false;
+  let partialFill = false;
+  let reclaimed: Awaited<ReturnType<typeof confirmedCanaryReclaim>>;
+  const onOriginalIncluded =
+    canary || process.env.E2E_WALLET_REPORT_INVOCATION
+      ? () => {
+          if (reportedInclusion) return;
+          observe(
+            { outcome: 'included' },
+            { key: 'inclusion', origin: 'sdk_read', status: 'passed', endpoint: 'miden_mainnet_rpc' }
+          );
+          reportedInclusion = true;
+        }
+      : undefined;
   await observedStage(
-    observe,
+    canary ? () => {} : observe,
     {
       key: 'payback',
       origin: 'sdk_read',
@@ -486,13 +565,36 @@ async function settle(
       expect
         .poll(
           async () => {
-            found = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, scope, onOriginalIncluded);
-            return found !== undefined;
+            found = await readMainnetSwapPayback(
+              getEnvironmentConfig().rpcUrl,
+              scope,
+              onOriginalIncluded,
+              canary
+                ? {
+                    originalConsumed: () => {
+                      originalConsumed = true;
+                    },
+                    partialFill: () => {
+                      partialFill = true;
+                      canary.markPartialFill();
+                    }
+                  }
+                : undefined
+            );
+            if (canary && !found && originalConsumed && !partialFill && !state.forwardClaimAuthority) {
+              reclaimed = await confirmedCanaryReclaim(wallet, state, scope);
+            }
+            return found !== undefined || reclaimed !== undefined;
           },
           { timeout: 300_000, intervals: [5_000], message: 'Exact original full-fill payback not proved' }
         )
         .toBe(true)
+        .catch((error: unknown) => {
+          if (error instanceof Error && 'matcherResult' in error) canary?.markPaybackTimeout();
+          throw error;
+        })
   );
+  if (reclaimed) return reclaimed;
   const payback = found;
   if (!payback) throw new Error('Original funded swap payout is unresolved; never resubmit');
   const receivedAsset = leg === 'forward' ? state.request : state.offer;
@@ -500,13 +602,50 @@ async function settle(
     { outcome: 'fully_filled' },
     { key: 'order', origin: 'sdk_read', status: 'passed', endpoint: 'miden_mainnet_rpc' }
   );
+  if (canary)
+    observe(undefined, { key: 'payback', origin: 'sdk_read', status: 'passed', endpoint: 'miden_mainnet_rpc' });
   observe({ outcome: payback.claimedAtBlock === undefined ? 'payment_unclaimed' : 'claimed' });
   claimStage = 'portfolio-reserve';
   const before = await balances(wallet, state);
-  const creationDebits = prepareMainnetSwapClaimRecovery(state, payback, before, leg);
   const existing = (await readTransactionRowsWithBytes(wallet.page, 'consume')).filter(row =>
     row.noteIds?.includes(payback.noteId)
   );
+  if (canary && state.forwardClaimAuthority) {
+    // A released claim is reconciled from exact evidence and never released again.
+    const claim = state.forwardClaimAuthority;
+    const receipt = existing[0];
+    if (
+      leg !== 'forward' ||
+      payback.claimedAtBlock === undefined ||
+      claim.noteId !== payback.noteId ||
+      BigInt(claim.amount) !== payback.amount ||
+      existing.length !== 1 ||
+      !receipt?.requestBytes ||
+      receipt.noteIds?.length !== 1 ||
+      createHash('sha256').update(Buffer.from(receipt.requestBytes)).digest('hex') !== claim.sha256
+    ) {
+      throw new Error('Original canary claim outcome is unresolved');
+    }
+    const claimFee = await exactClaimFee(wallet, state, receipt);
+    const creationDebits = BigInt(state.paidFees);
+    if (creationDebits <= 0n || creationDebits + claimFee > BigInt(state.feeBudget))
+      throw new Error('Canary claim exceeds the original fee reserve');
+    const beforeClaim = {
+      offer:
+        BigInt(state.offer.balance) -
+        BigInt(state.principal) -
+        (state.offer.hex === state.native.hex ? creationDebits : 0n),
+      request: BigInt(state.request.balance) - (state.request.hex === state.native.hex ? creationDebits : 0n),
+      native:
+        BigInt(state.native.balance) -
+        creationDebits -
+        (state.offer.hex === state.native.hex ? BigInt(state.principal) : 0n)
+    };
+    assertClaimBalances(state, 'forward', beforeClaim, before, payback.amount, claimFee);
+    observe({ outcome: 'claimed' }, { key: 'claim', origin: 'wallet_assertion', status: 'passed' });
+    return { received: payback.amount, refunded: 0n, fees: creationDebits + claimFee, now: before };
+  }
+  const creationDebits = prepareMainnetSwapClaimRecovery(state, payback, before, leg);
   if (
     existing.length ||
     (await readTransactionRows(wallet.page)).some(
@@ -558,7 +697,7 @@ async function settle(
     if (!queued || queued.noteIds?.length !== 1) throw new Error('Claim includes unrelated notes');
     claimStage = 'signed-claim-gate';
     await releaseMainnetConsumeAuthorization(wallet.page, handle, {
-      checkpointPath: STATE_PATH,
+      checkpointPath: canary?.checkpointPath ?? STATE_PATH,
       gatePath: `${gate}.claim`,
       signal: controller.signal,
       persist: async captured => {
@@ -573,7 +712,10 @@ async function settle(
         };
         if (leg === 'forward') state.forwardClaimAuthority = claim;
         else state.reverseClaimAuthority = claim;
-        persist(state);
+        if (canary) {
+          state.paidFees = creationDebits.toString();
+          canary.save(state);
+        } else persist(state);
       }
     });
     claimStage = 'consume-commit';
@@ -584,34 +726,14 @@ async function settle(
       row => row?.status === TxStatus.Completed || row?.status === TxStatus.Failed,
       { what: 'the exact recovered swap claim', timeoutMs: 300_000 }
     );
-    const feeFaucet = receipt.feeFaucetId?.startsWith('0x')
-      ? await hexFaucetToBech32(wallet, receipt.feeFaucetId)
-      : receipt.feeFaucetId;
-    if (
-      receipt.status !== TxStatus.Completed ||
-      !receipt.transactionId ||
-      !/^0x[0-9a-f]{64}$/.test(receipt.transactionId) ||
-      !receipt.feeAmount ||
-      !/^[1-9]\d*$/.test(receipt.feeAmount) ||
-      feeFaucet !== state.native.faucetId ||
-      BigInt(receipt.feeAmount) > SWAP_TX_FEE_MULTIPLE * BigInt(state.baseFee)
-    )
-      throw new Error('Missing exact recovered consume receipt or authorized native fee');
+    const claimFee = await exactClaimFee(wallet, state, receipt);
     observe({ outcome: 'claimed' }, { key: 'claim', origin: 'wallet_assertion', status: 'passed', ...claimTiming() });
     claimStage = 'vault-reconciliation';
     const receiptTiming = nightlyDuration();
     await wallet.refreshBalancesLanded(90_000);
     const now = await balances(wallet, state);
-    const claimFee = BigInt(receipt.feeAmount);
     const fees = creationDebits + claimFee;
-    const offerNative = state.offer.hex === state.native.hex;
-    const requestNative = state.request.hex === state.native.hex;
-    expect(now.offer).toBe(before.offer + (leg === 'reverse' ? payback.amount : 0n) - (offerNative ? claimFee : 0n));
-    expect(now.request).toBe(
-      before.request + (leg === 'forward' ? payback.amount : 0n) - (requestNative ? claimFee : 0n)
-    );
-    const targetNative = leg === 'forward' ? requestNative : offerNative;
-    expect(now.native).toBe(before.native + (targetNative ? payback.amount : 0n) - claimFee);
+    assertClaimBalances(state, leg, before, now, payback.amount, claimFee);
     observe(
       {
         outcome: 'usable_receipt',
@@ -631,32 +753,34 @@ async function settle(
         { timeout: 90_000 }
       )
       .toBe(true);
-    writeFileSync(
-      `test-results/mainnet-swap-${leg}-claim.json`,
-      JSON.stringify(
-        {
-          sourceRunId: state.sourceRunId,
-          authorityRunId: state.authorizationRunId,
-          claimRunId: process.env.GITHUB_RUN_ID,
-          originalNoteId: authority.noteId,
-          creationTransactionId: creator.transactionId,
-          creationAtBlock: creator.blockNumber,
-          paybackNoteId: payback.noteId,
-          paybackAmount: payback.amount.toString(),
-          paybackCreatedAtBlock: payback.createdAtBlock,
-          claimTransactionId: receipt.transactionId,
-          claimedAtBlock: claimed?.claimedAtBlock,
-          leg,
-          claimFee: receipt.feeAmount,
-          legNativeDebitsBeforeClaim: creationDebits.toString(),
-          aggregateNativeCosts: (BigInt(state.paidFees) + fees).toString(),
-          nativeFinal: now.native.toString(),
-          requestFinal: now.request.toString()
-        },
-        null,
-        2
-      )
-    );
+    if (!canary) {
+      writeFileSync(
+        `test-results/mainnet-swap-${leg}-claim.json`,
+        JSON.stringify(
+          {
+            sourceRunId: state.sourceRunId,
+            authorityRunId: state.authorizationRunId,
+            claimRunId: process.env.GITHUB_RUN_ID,
+            originalNoteId: authority.noteId,
+            creationTransactionId: creator.transactionId,
+            creationAtBlock: creator.blockNumber,
+            paybackNoteId: payback.noteId,
+            paybackAmount: payback.amount.toString(),
+            paybackCreatedAtBlock: payback.createdAtBlock,
+            claimTransactionId: receipt.transactionId,
+            claimedAtBlock: claimed?.claimedAtBlock,
+            leg,
+            claimFee: receipt.feeAmount,
+            legNativeDebitsBeforeClaim: creationDebits.toString(),
+            aggregateNativeCosts: (BigInt(state.paidFees) + fees).toString(),
+            nativeFinal: now.native.toString(),
+            requestFinal: now.request.toString()
+          },
+          null,
+          2
+        )
+      );
+    }
     claimStage = 'complete';
     if (process.env.E2E_WALLET_REPORT_INVOCATION === 'swap-recover') {
       observe(
@@ -686,11 +810,179 @@ async function settle(
   }
 }
 
-test('real Guardian mainnet solver swaps out and back with recycled principal', async ({ walletB }) => {
+async function submitAuthorizedSwap(
+  walletB: GuardianAwareWalletPage,
+  authorized: MainnetSwapCheckpoint,
+  leg: 'forward' | 'reverse',
+  canary?: CanaryBrowser
+) {
+  const observe = canary?.observe ?? observeSwap(leg, authorized);
+  if (leg === 'forward' ? authorized.forwardOrderId !== undefined : authorized.reverseOrderId !== undefined)
+    throw new Error('This swap already has an order; reconcile it instead of submitting again');
+  const observed = await evidence(walletB);
+  if (
+    observed.orders.some(
+      row =>
+        row.account === authorized.account &&
+        row.initiatedAt >= Math.floor(Date.parse(authorized.createdAt) / 1000) - 30 &&
+        !authorized.knownOrderIds.includes(row.orderId) &&
+        !(leg === 'reverse' && row.orderId === authorized.forwardOrderId)
+    )
+  )
+    throw new Error('A new unaccounted order exists; refusing to sign');
+  return runPreparedSwap(
+    async () => {
+      const snapshot = await registry(walletB);
+      const before = await balances(walletB, authorized);
+      const baseline =
+        leg === 'forward'
+          ? { offer: authorized.offer.balance, request: authorized.request.balance, native: authorized.native.balance }
+          : authorized.returnBaseline;
+      if (
+        !baseline ||
+        before.offer.toString() !== baseline.offer ||
+        before.request.toString() !== baseline.request ||
+        before.native.toString() !== baseline.native
+      )
+        throw new Error('Balances changed since swap authorization');
+      if (snapshot.baseFee > BigInt(authorized.baseFee))
+        throw new Error('Native fee increased beyond the authorization');
+      if (leg === 'forward' && Date.now() - Date.parse(authorized.pricedAt) > 5 * 60_000)
+        throw new Error('Forward authorization USD prices expired');
+      const offered = leg === 'forward' ? authorized.offer : authorized.request;
+      const requested = leg === 'forward' ? authorized.request : authorized.offer;
+      const amount = BigInt(leg === 'forward' ? authorized.principal : (authorized.returnAmount ?? '0'));
+      const minimum = BigInt(
+        leg === 'forward' ? authorized.forwardMinimum : (authorized.recoveryReturnMinimum ?? authorized.reverseMinimum)
+      );
+      const gate = process.env.MAINNET_SWAP_SDK_GATE;
+      if (!gate) throw new Error('Missing exact SDK swap authorization upload gate');
+      const reviewed = await observedStage(
+        observe,
+        { key: 'preparation', origin: 'wallet_ui', errorCode: 'preparation_failed' },
+        () => prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum, observe)
+      );
+      observe({
+        outcome: 'prepared',
+        offered: nightlyAmount(offered, amount),
+        minimum: nightlyAmount(requested, BigInt(reviewed.minimumReceive))
+      });
+      canary?.beforeSpend();
+      const handle = await armMainnetSendAuthorization(
+        walletB.page,
+        {
+          kind: 'swap',
+          accountId: Address.fromBech32(authorized.account).accountId().toString(),
+          faucetId: offered.hex,
+          amount: amount.toString(),
+          requestedFaucetId: requested.hex,
+          requestedAmount: reviewed.minimumReceive,
+          expiresAt: Math.min(mainnetSwapRequestExpiresAt(authorized, leg), canary?.slotEnd ?? Infinity)
+        },
+        canary !== undefined
+      );
+      return async () => {
+        canary?.beforeSpend();
+        const controller = new AbortController();
+        try {
+          observe(undefined, {
+            key: 'execution',
+            origin: 'wallet_ui',
+            status: 'in_progress',
+            startAt: new Date().toISOString()
+          });
+          const authorization = [
+            observedStage(observe, { key: 'approval', origin: 'wallet_ui', errorCode: 'execution_failed' }, () =>
+              reviewed.submit()
+            ).catch(error => {
+              controller.abort();
+              throw error;
+            }),
+            releaseMainnetSendAuthorization(walletB.page, handle, {
+              checkpointPath: canary?.checkpointPath ?? STATE_PATH,
+              gatePath: gate,
+              signal: controller.signal,
+              persist: async authority => {
+                if (authority.orderId === undefined) throw new Error('Missing actual SDK PSWAP order identity');
+                const request = {
+                  ...authority,
+                  orderId: authority.orderId,
+                  minimumReceive: reviewed.minimumReceive,
+                  expiresAt: handle.expiresAt
+                };
+                if (leg === 'forward') {
+                  authorized.forwardRequestAuthority = request;
+                  authorized.forwardOrderId = request.orderId;
+                } else {
+                  authorized.reverseRequestAuthority = request;
+                  authorized.reverseOrderId = request.orderId;
+                }
+                if (canary) canary.beforeRelease(authorized);
+                else persist(authorized);
+              }
+            }).then(() => {
+              if (canary)
+                canary.observe(
+                  { outcome: 'authorization_released' },
+                  { key: 'execution', origin: 'wallet_assertion', status: 'passed' }
+                );
+            })
+          ];
+          if (canary) {
+            const results = await Promise.allSettled(authorization);
+            for (const result of results) if (result.status === 'rejected') throw result.reason;
+          } else {
+            await Promise.all(authorization);
+            observe(
+              { outcome: 'authorization_released' },
+              { key: 'execution', origin: 'wallet_assertion', status: 'passed' }
+            );
+          }
+          for (const key of ['proof', 'submission'] as const) {
+            observe(undefined, {
+              key,
+              origin: 'sdk_read',
+              status: 'unknown',
+              evidence: 'not_recorded',
+              reason: 'not_instrumented'
+            });
+          }
+          return snapshot;
+        } finally {
+          controller.abort();
+        }
+      };
+    },
+    () => {
+      if (canary) canary.unspent();
+      else {
+        authorized.phase = leg === 'forward' ? 'unspent' : 'forward-settled';
+        persist(authorized);
+      }
+    }
+  );
+}
+
+const swapMode = process.env.MAINNET_SWAP_MODE;
+const testTitle =
+  swapMode === 'canary-recover'
+    ? 'real Guardian mainnet wallet reconciles the original canary order'
+    : swapMode === 'canary'
+      ? 'real Guardian mainnet wallet creates one directional canary order'
+      : 'real Guardian mainnet solver swaps out and back with recycled principal';
+
+test(testTitle, async ({ walletB }) => {
   test.setTimeout(1_800_000);
   if (process.env.E2E_NETWORK !== 'mainnet') throw new Error('The funded swap loop requires mainnet');
   const runId = process.env.GITHUB_RUN_ID;
   const mode = process.env.MAINNET_SWAP_MODE;
+  if (isCanaryMode(mode))
+    return runCanary(walletB, mode, {
+      registry,
+      evidence,
+      submit: submitAuthorizedSwap,
+      settle
+    });
   const key = process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR;
   if (
     !runId ||
@@ -899,10 +1191,14 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
         state.reverseRequestAuthority ||
         state.forwardOrderId ||
         state.reverseOrderId
-      ) throw new Error('Audited cancelled Swap checkpoint no longer matches');
+      )
+        throw new Error('Audited cancelled Swap checkpoint no longer matches');
       const live = await balances(walletB, state);
-      if (live.offer !== BigInt(state.offer.balance) || live.request !== BigInt(state.request.balance) ||
-          live.native !== BigInt(state.native.balance))
+      if (
+        live.offer !== BigInt(state.offer.balance) ||
+        live.request !== BigInt(state.request.balance) ||
+        live.native !== BigInt(state.native.balance)
+      )
         throw new Error('Audited cancelled Swap custody changed');
       state.phase = 'unspent';
       persist(state);
@@ -963,130 +1259,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   const leg = mode === 'forward' ? 'forward' : 'reverse';
   if (state.phase !== `${leg}-authorized` || state.authorizationRunId !== runId)
     throw new Error('This run has no authorization to submit that swap leg');
-  const authorized = state;
-  const observe = observeSwap(leg, authorized);
-  if (leg === 'forward' ? authorized.forwardOrderId !== undefined : authorized.reverseOrderId !== undefined)
-    throw new Error('This swap already has an order; reconcile it instead of submitting again');
-  const observed = await evidence(walletB);
-  if (
-    observed.orders.some(
-      row =>
-        row.account === authorized.account &&
-        row.initiatedAt >= Math.floor(Date.parse(authorized.createdAt) / 1000) - 30 &&
-        !authorized.knownOrderIds.includes(row.orderId) &&
-        !(leg === 'reverse' && row.orderId === authorized.forwardOrderId)
-    )
-  )
-    throw new Error('A new unaccounted order exists; refusing to sign');
-  const live = await runPreparedSwap(
-    async () => {
-      const snapshot = await registry(walletB);
-      const before = await balances(walletB, authorized);
-      const baseline =
-        leg === 'forward'
-          ? { offer: authorized.offer.balance, request: authorized.request.balance, native: authorized.native.balance }
-          : authorized.returnBaseline;
-      if (
-        !baseline ||
-        before.offer.toString() !== baseline.offer ||
-        before.request.toString() !== baseline.request ||
-        before.native.toString() !== baseline.native
-      )
-        throw new Error('Balances changed since swap authorization');
-      if (snapshot.baseFee > BigInt(authorized.baseFee))
-        throw new Error('Native fee increased beyond the authorization');
-      if (leg === 'forward' && Date.now() - Date.parse(authorized.pricedAt) > 5 * 60_000)
-        throw new Error('Forward authorization USD prices expired');
-      const offered = leg === 'forward' ? authorized.offer : authorized.request;
-      const requested = leg === 'forward' ? authorized.request : authorized.offer;
-      const amount = BigInt(leg === 'forward' ? authorized.principal : (authorized.returnAmount ?? '0'));
-      const minimum = BigInt(
-        leg === 'forward' ? authorized.forwardMinimum : (authorized.recoveryReturnMinimum ?? authorized.reverseMinimum)
-      );
-      const gate = process.env.MAINNET_SWAP_SDK_GATE;
-      if (!gate) throw new Error('Missing exact SDK swap authorization upload gate');
-      const reviewed = await observedStage(
-        observe,
-        { key: 'preparation', origin: 'wallet_ui', errorCode: 'preparation_failed' },
-        () => prepareMainnetSwapReview(walletB, snapshot.service, offered, requested, amount, minimum, observe)
-      );
-      observe({
-        outcome: 'prepared',
-        offered: nightlyAmount(offered, amount),
-        minimum: nightlyAmount(requested, BigInt(reviewed.minimumReceive))
-      });
-      const handle = await armMainnetSendAuthorization(walletB.page, {
-        kind: 'swap',
-        accountId: Address.fromBech32(authorized.account).accountId().toString(),
-        faucetId: offered.hex,
-        amount: amount.toString(),
-        requestedFaucetId: requested.hex,
-        requestedAmount: reviewed.minimumReceive,
-        expiresAt: mainnetSwapRequestExpiresAt(authorized, leg)
-      });
-      return async () => {
-        const controller = new AbortController();
-        try {
-          observe(undefined, {
-            key: 'execution',
-            origin: 'wallet_ui',
-            status: 'in_progress',
-            startAt: new Date().toISOString()
-          });
-          await Promise.all([
-            observedStage(observe, { key: 'approval', origin: 'wallet_ui', errorCode: 'execution_failed' }, () =>
-              reviewed.submit()
-            ).catch(error => {
-              controller.abort();
-              throw error;
-            }),
-            releaseMainnetSendAuthorization(walletB.page, handle, {
-              checkpointPath: STATE_PATH,
-              gatePath: gate,
-              signal: controller.signal,
-              persist: async authority => {
-                if (authority.orderId === undefined) throw new Error('Missing actual SDK PSWAP order identity');
-                const request = {
-                  ...authority,
-                  orderId: authority.orderId,
-                  minimumReceive: reviewed.minimumReceive,
-                  expiresAt: handle.expiresAt
-                };
-                if (leg === 'forward') {
-                  authorized.forwardRequestAuthority = request;
-                  authorized.forwardOrderId = request.orderId;
-                } else {
-                  authorized.reverseRequestAuthority = request;
-                  authorized.reverseOrderId = request.orderId;
-                }
-                persist(authorized);
-              }
-            })
-          ]);
-          observe(
-            { outcome: 'authorization_released' },
-            { key: 'execution', origin: 'wallet_assertion', status: 'passed' }
-          );
-          for (const key of ['proof', 'submission'] as const) {
-            observe(undefined, {
-              key,
-              origin: 'sdk_read',
-              status: 'unknown',
-              evidence: 'not_recorded',
-              reason: 'not_instrumented'
-            });
-          }
-          return snapshot;
-        } finally {
-          controller.abort();
-        }
-      };
-    },
-    () => {
-      authorized.phase = leg === 'forward' ? 'unspent' : 'forward-settled';
-      persist(authorized);
-    }
-  );
+  const live = await submitAuthorizedSwap(walletB, state, leg);
   const result = await settle(walletB, state, leg);
   if (leg === 'forward') await authorizeReturn(state, runId, live, result);
   else completeReturn(state, result);

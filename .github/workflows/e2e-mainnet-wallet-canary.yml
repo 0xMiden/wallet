@@ -1,0 +1,133 @@
+name: E2E Mainnet Wallet Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        description: Submit one order in this slot or reconcile this original slot.
+        required: true
+        options:
+          - canary
+          - canary-recover
+      slot_start:
+        type: string
+        description: UTC five-minute boundary of the slot in YYYY-MM-DDTHH:mm:ssZ form.
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: e2e-mainnet-wallet-canary
+  cancel-in-progress: false
+
+jobs:
+  wallet-canary:
+    # The operator must provision the dedicated runner and verify its cadence before enabling this job.
+    if: ${{ false }}
+    runs-on: [self-hosted, linux, wallet-canary]
+    environment: mainnet-wallet-canary
+    timeout-minutes: 32
+    env:
+      E2E_NETWORK: mainnet
+      MIDEN_E2E_MAINNET_NIGHTLY: 'true'
+      MAINNET_SWAP_MODE: ${{ inputs.mode }}
+      MAINNET_CANARY_SLOT: ${{ inputs.slot_start }}
+      MAINNET_CANARY_WORKFLOW_ID: ${{ vars.MAINNET_CANARY_WORKFLOW_ID }}
+      MAINNET_CANARY_STATE_DIR: ${{ vars.MAINNET_CANARY_STATE_DIR }}
+    steps:
+      - name: Require the protected canary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REPOSITORY" = 0xMiden/wallet ]
+          [ "$GITHUB_REPOSITORY_ID" = 853430876 ]
+          [ "$GITHUB_REF" = refs/heads/main ]
+          [ "$GITHUB_RUN_ATTEMPT" = 1 ]
+          [[ "$MAINNET_CANARY_SLOT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9][05]:00Z$ ]]
+          [[ "$MAINNET_CANARY_WORKFLOW_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Use private paths for this run
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="$RUNNER_TEMP/wallet-canary-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -m 700 "$dir"
+          printf 'MAINNET_CANARY_RUN_DIR=%s\n' "$dir" >> "$GITHUB_ENV"
+          printf 'MAINNET_CANARY_CHECKPOINT_PATH=%s/checkpoint.json\n' "$dir" >> "$GITHUB_ENV"
+          printf 'MAINNET_CANARY_REPORT_DIR=%s/report\n' "$dir" >> "$GITHUB_ENV"
+          printf 'MAINNET_SWAP_SDK_GATE=%s/swap-authorization\n' "$dir" >> "$GITHUB_ENV"
+          printf 'E2E_PLAYWRIGHT_OUTPUT_DIR=%s/playwright\n' "$dir" >> "$GITHUB_ENV"
+      - name: Install the pinned dependencies
+        run: yarn install --frozen-lockfile
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+      - name: Build the actual mainnet extension
+        run: yarn test:e2e:blockchain:build
+      - name: Run the browser under the wallet lock
+        id: browser
+        shell: bash
+        env:
+          MAINNET_CANARY_ACCOUNT: ${{ vars.MAINNET_CANARY_ACCOUNT }}
+          MAINNET_CANARY_OFFER_FAUCET: ${{ vars.MAINNET_CANARY_OFFER_FAUCET }}
+          MAINNET_CANARY_REQUEST_FAUCET: ${{ vars.MAINNET_CANARY_REQUEST_FAUCET }}
+          MAINNET_CANARY_PRINCIPAL_BASE_UNITS: ${{ vars.MAINNET_CANARY_PRINCIPAL_BASE_UNITS }}
+          MAINNET_CANARY_MAX_PRINCIPAL_USD_MICROS: ${{ vars.MAINNET_CANARY_MAX_PRINCIPAL_USD_MICROS }}
+          MAINNET_CANARY_MAX_ORDER_LOSS_USD_MICROS: ${{ vars.MAINNET_CANARY_MAX_ORDER_LOSS_USD_MICROS }}
+          MAINNET_CANARY_MAX_ORDER_FEE_BASE_UNITS: ${{ vars.MAINNET_CANARY_MAX_ORDER_FEE_BASE_UNITS }}
+          MAINNET_CANARY_DAILY_FEE_BASE_UNITS: ${{ vars.MAINNET_CANARY_DAILY_FEE_BASE_UNITS }}
+          MAINNET_CANARY_DAILY_LOSS_USD_MICROS: ${{ vars.MAINNET_CANARY_DAILY_LOSS_USD_MICROS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export MAINNET_CANARY_LEDGER="$MAINNET_CANARY_STATE_DIR/one-way-slots.sqlite"
+          (
+            result=0
+            bash scripts/run-mainnet-wallet-canary.sh || result=$?
+            printf '%s\n' "$result" > "$MAINNET_CANARY_RUN_DIR/browser.exit.tmp"
+            mv "$MAINNET_CANARY_RUN_DIR/browser.exit.tmp" "$MAINNET_CANARY_RUN_DIR/browser.exit"
+          ) > "$MAINNET_CANARY_RUN_DIR/browser.log" 2>&1 &
+          printf '%s\n' "$!" > "$MAINNET_CANARY_RUN_DIR/browser.pid"
+      - name: Acknowledge the exact held swap request
+        if: inputs.mode == 'canary'
+        uses: ./.github/actions/mainnet-wallet-canary-ack
+        with:
+          stage: send
+      - name: Acknowledge the exact held manual claim
+        uses: ./.github/actions/mainnet-wallet-canary-ack
+        with:
+          stage: claim
+      - name: Wait for the browser result
+        if: always() && steps.browser.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          while [ ! -f "$MAINNET_CANARY_RUN_DIR/browser.exit" ]; do
+            read -r pid < "$MAINNET_CANARY_RUN_DIR/browser.pid"
+            [[ "$pid" =~ ^[1-9][0-9]*$ ]]
+            kill -0 "$pid"
+            sleep 1
+          done
+          read -r result < "$MAINNET_CANARY_RUN_DIR/browser.exit"
+          if [ "$result" != 0 ]; then
+            echo 'Wallet canary did not complete. The ledger retains the original disposition.' >&2
+            exit 1
+          fi
+      - name: Publish the sanitized slot report
+        if: always() && steps.browser.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        continue-on-error: true
+        with:
+          name: wallet-canary-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.MAINNET_CANARY_REPORT_DIR }}/wallet-canary-report-v1.json
+          retention-days: 31
+          if-no-files-found: ignore
