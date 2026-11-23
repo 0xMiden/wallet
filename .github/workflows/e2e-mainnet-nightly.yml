@@ -310,6 +310,7 @@ jobs:
         env:
           MAINNET_SWAP_BOOTSTRAP: ${{ steps.swap-prior.outputs.bootstrap }}
           MAINNET_SWAP_PRIOR_FORWARD_ATTEMPTED: ${{ steps.swap-attempts.outputs.forward_attempted }}
+          MAINNET_SWAP_PRIOR_FORWARD_UNSPENT: ${{ steps.swap-attempts.outputs.forward_pre_authority_unspent }}
           MAINNET_SWAP_PRIOR_REVERSE_ATTEMPTED: ${{ steps.swap-attempts.outputs.reverse_attempted }}
         run: |
           umask 077

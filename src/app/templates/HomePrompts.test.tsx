@@ -336,9 +336,9 @@ const unquotedNote: PendingNoteValue = {
   metadata: { decimals: 6, symbol: 'OTHER', name: 'Other' }
 };
 const tokenPrices = {
-  MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
-  ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
-  USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
+  MIDEN: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+  ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+  USDC: { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
 };
 
 // The faucet prompt's status is per account, so its writes are asserted with the
@@ -853,8 +853,8 @@ describe('HomePrompts', () => {
     mockLegacyFeeIdentity = TEST_TOKEN_IETH.faucetId;
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const prices = {
-      ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
-      BTC: { price: 4, change24h: 0, percentageChange24h: 0 }
+      ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+      BTC: { price: 4, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
     };
     const notes: PendingNoteValue[] = [
       {
@@ -3830,7 +3830,7 @@ describe('HomePrompts', () => {
         balancesLoading={false}
         claimableNotes={notes}
         fundingNotes={notes}
-        tokenPrices={{ ETH: { price: 2, change24h: 0, percentageChange24h: 0 } }}
+        tokenPrices={{ ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }}
         maskMonetaryValues
       />
     );
@@ -3853,8 +3853,8 @@ describe('HomePrompts', () => {
       }
     ];
     const prices = {
-      ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
-      BTC: { price: 4, change24h: 0, percentageChange24h: 0 }
+      ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+      BTC: { price: 4, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
     };
     const content = (
       <HomePrompts
