@@ -23,7 +23,7 @@ import { nearNativeRequestDiagnostic } from './mainnet-near-native-request-diagn
 import { armRecallBlocks } from './recall';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
-import { realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
+import { cappedMainnetRecoveryBudget, realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { restoreMainnetLoopGuardian } from './mainnet-loop-wallet';
 import { loadMainnetOneClickSetup } from './mainnet-one-click-config';
@@ -1076,9 +1076,9 @@ export async function runMainnetNearReverse(
       tokenValueUsdMicro(loss + BigInt(state.feeBudget), 6, nativePrice, true) +
         signedLoss +
         tokenValueUsdMicro(BigInt(state.evmFeeBudget), 18, gasPrice, true) >
-      BigInt(state.lossBudgetUsdMicros)
+      cappedMainnetRecoveryBudget(state.lossBudgetUsdMicros, process.env.MAINNET_LOOP_LOSS_BUDGET_USD_MICROS)
     )
-      throw new Error('Native NEAR actual return quote exceeds its original remaining shared allowance');
+      throw new Error('Native NEAR actual return quote exceeds the remaining shared allowance');
     const [latest, pending] = await Promise.all([
       client.getTransactionCount({ address: account, blockTag: 'latest' }),
       client.getTransactionCount({ address: account, blockTag: 'pending' })
