@@ -101,14 +101,15 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       await appkit.openConnectModal();
     } catch (err) {
       console.error('[BridgeDeposit] connect failed', err);
-      setConnectError(err instanceof Error && err.message ? err.message : 'Failed to open the wallet picker');
+      setConnectError(err instanceof Error && err.message ? err.message : t('bridgeConnectPickerFailed'));
     }
-  }, [nativeReown, useNativeReownWallet]);
+  }, [nativeReown, t, useNativeReownWallet]);
 
   // AppKit won't open the Connect view while a wallet is already connected, so
   // "switch wallet" = disconnect the current one, then reopen the picker.
   const handleSwitchWallet = useCallback(async () => {
     hapticMedium();
+    setConnectError(null);
     try {
       if (useNativeReownWallet) {
         await nativeReown.disconnect();
@@ -121,8 +122,9 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       await appkit.openConnectModal();
     } catch (err) {
       console.error('[BridgeDeposit] switch wallet failed', err);
+      setConnectError(err instanceof Error && err.message ? err.message : t('bridgeConnectPickerFailed'));
     }
-  }, [disconnect, nativeReown, useNativeReownWallet]);
+  }, [disconnect, nativeReown, t, useNativeReownWallet]);
 
   if (walletReady) {
     return (
