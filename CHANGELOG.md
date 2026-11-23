@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.18.1 (TBD)
+## 1.18.1 (2026-11-23)
 
 - [FIX][ci] Bound nightly NEAR return authorization by both the original checkpoint allowance and the current dispatch allowance.
 
