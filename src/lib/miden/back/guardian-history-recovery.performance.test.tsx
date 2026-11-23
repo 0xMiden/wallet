@@ -267,7 +267,7 @@ class SyntheticHistory {
   readonly decoded: number[] = [];
   readonly directResults: HistoryResult[] = [];
   readonly checkpointSnapshots: Array<{ operator: string; cursor?: string; completed: boolean; notes: number }> = [];
-  readonly uncompletedQueries = { started: 0, settled: 0, settledMs: 0, maxSettledMs: 0 };
+  readonly uncompletedQueries = { started: 0, settled: 0, settledMs: 0, maxSettledMs: 0, durations: [] as number[] };
   historyRuns = 0;
   pending = true;
   locked = false;
@@ -499,6 +499,7 @@ function freshBackend(): Backend {
             owner.settled++;
             owner.settledMs += elapsedMs;
             owner.maxSettledMs = Math.max(owner.maxSettledMs, elapsedMs);
+            owner.durations.push(elapsedMs);
           }
         }
       };
@@ -567,11 +568,11 @@ async function pump(diagnostics: HistoryTestDiagnostics, done: () => boolean, li
     const interval = setInterval(() => {
       if (diagnostics.closed) return;
       harness.reportProgress();
-      if (++reports === 6) {
+      if (++reports === 120) {
         clearInterval(interval);
         diagnostics.intervals.delete(interval);
       }
-    }, 5_000);
+    }, 30_000);
     diagnostic = interval;
     diagnostics.intervals.add(interval);
   }
@@ -767,10 +768,12 @@ function measurements(label: string) {
   return result;
 }
 
-it('benchmarks first visible history and complete recovery for 1214 synthetic records', async () => {
-  const diagnostics = testDiagnostics;
-  const samples: ReturnType<typeof measurements>[] = [];
-  for (let index = 0; index < 5; index++) {
+const SAMPLES = 5;
+// One sample per test so each is selectable with -t and has its own wall timeout; the whole-loop 180s limit was
+// smaller than a single sample's real wall time.
+for (let index = 0; index < SAMPLES; index++) {
+  it(`benchmarks first visible history and complete recovery for 1214 synthetic records sample ${index + 1}`, async () => {
+    const diagnostics = testDiagnostics;
     const test = await fixture(false, diagnostics);
     try {
       expect(await test.backend.recovery.maybeStartGuardianRecovery(account)).toBe(true);
@@ -785,25 +788,33 @@ it('benchmarks first visible history and complete recovery for 1214 synthetic re
       expect(mockHarness.completedNotes).toHaveLength(2_428);
       expect(document.querySelector(`[data-entry-key="${headKey}"]`)).not.toBeNull();
       expect(document.querySelector('[data-entry-key]')?.getAttribute('data-entry-key')).toBe(headKey);
-      samples.push(measurements(`A-${index + 1}`));
+      const sample = measurements(`A-${index + 1}`);
+      // Logged before teardown, so these wall figures carry no cancel or dispose time.
+      const durations = mockHarness.uncompletedQueries.durations;
+      const buckets: number[] = [];
+      for (let start = 0; start < durations.length; start += 200) {
+        const slice = durations.slice(start, start + 200);
+        buckets.push(Math.round(slice.reduce((sum, value) => sum + value, 0) / slice.length * 100) / 100);
+      }
+      console.info('guardian-history-synthetic-sample', JSON.stringify({
+        sample: index + 1,
+        wallMsAtFlagCleared: sample.events.t_pending_flag_cleared?.wallMs,
+        wallMsAtAllCheckpointsDone: sample.events.t_all_checkpoints_done?.wallMs,
+        wallMsAtFirstVisible: sample.events.t_first_visible_recent_row?.wallMs,
+        queriesStarted: mockHarness.uncompletedQueries.started,
+        queriesSettled: mockHarness.uncompletedQueries.settled,
+        queriesSettledMs: mockHarness.uncompletedQueries.settledMs,
+        queriesMaxMs: mockHarness.uncompletedQueries.maxSettledMs,
+        meanQueryMsPer200Queries: buckets
+      }));
+      expect(sample.firstPersistedMs).toBeLessThanOrEqual(200);
+      expect(sample.firstVisibleMs).toBeLessThanOrEqual(10_200);
+      expect(sample.fullCompletionMs).toBeLessThanOrEqual(203_000);
     } finally {
       await test.dispose();
     }
-  }
-  const median = (values: number[]) => [...values].sort((a, b) => a - b)[2]!;
-  console.info('guardian-history-synthetic-summary', JSON.stringify({
-    samples: samples.length,
-    medianFirstVisibleMs: median(samples.map(sample => sample.firstVisibleMs)),
-    maxFirstVisibleMs: Math.max(...samples.map(sample => sample.firstVisibleMs)),
-    medianFullCompletionMs: median(samples.map(sample => sample.fullCompletionMs)),
-    maxFullCompletionMs: Math.max(...samples.map(sample => sample.fullCompletionMs))
-  }));
-  for (const sample of samples) {
-    expect(sample.firstPersistedMs).toBeLessThanOrEqual(200);
-    expect(sample.firstVisibleMs).toBeLessThanOrEqual(10_200);
-    expect(sample.fullCompletionMs).toBeLessThanOrEqual(203_000);
-  }
-}, 180_000);
+  }, 1_500_000);
+}
 
 it('completes overlapping synthetic sources without duplicate receipts', async () => {
   const diagnostics = testDiagnostics;
