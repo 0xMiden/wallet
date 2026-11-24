@@ -525,7 +525,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     ]);
   });
 
-  it('gives a dispatch the time to build its linked PRs from source on top of an unchanged push ceiling', () => {
+  it('preserves the dispatch budgets for building linked PRs from source', () => {
     const presentationJob = jobOf('e2e-dapp-browser.yml', 'android-dapp-browser');
     const baselineInstall = presentationJob.steps.find(
       step => keyOf(step, 'name') === 'Build baseline APK for presentation comparison'
@@ -546,9 +546,23 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     expect(
       keyOf(presentationJob.steps.find(step => keyOf(step, 'name') === 'Run dApp browser E2E (Android)')!, 'if')
     ).toBe("github.event_name != 'workflow_dispatch' || inputs.suite == 'all'");
+
+    const fixedDispatchBudgets = [
+      ['pr-compile-surfaces.yml', 'android', '60'],
+      ['pr-compile-surfaces.yml', 'desktop', '60'],
+      ['pr-compile-surfaces.yml', 'ios', '120'],
+      ['pr-e2e-bridge-guardian.yml', 'bridge-guardian-e2e', '120']
+    ] as const;
+    for (const [file, id, budget] of fixedDispatchBudgets) {
+      const job = jobOf(file, id);
+      expect(triggers(file, source(file))).toEqual(['pull_request', 'workflow_dispatch']);
+      expect(job.keys['if']).toBe("github.event_name != 'pull_request'");
+      expect(job.keys['timeout-minutes']).toBe(budget);
+    }
     expect(
       workflowFiles.flatMap(file =>
         jobs(file, source(file)).flatMap(job => {
+          if (fixedDispatchBudgets.some(([name, id]) => file === name && job.id === id)) return [];
           const why = ceilingViolation(file, source(file), job);
           return why === undefined ? [] : [`${file} ${job.id}: ${why}`];
         })

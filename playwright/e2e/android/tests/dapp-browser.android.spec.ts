@@ -17,6 +17,7 @@ import * as path from 'path';
 import { DappBrowserDriver } from '../../harness/dapp-browser-driver';
 import { runDappBrowserJourney } from '../../harness/dapp-browser-scenario';
 import { startDappFixtureServer, type DappFixtureServer } from '../../harness/dapp-fixture-server';
+import { runNavbarPresentationScenario } from '../../harness/navbar-presentation-scenario';
 import { test } from '../fixtures/two-emulators';
 
 test.describe('dApp Browser (Android)', () => {
@@ -32,11 +33,13 @@ test.describe('dApp Browser (Android)', () => {
     await server?.stop();
   });
 
-  test('open, minimize, maximize, switch and close dApps', async ({ walletA, steps }) => {
+  test.beforeEach(async ({ walletA, steps }) => {
     await steps.step('create_wallet', async () => {
       await walletA.createNewWallet();
     });
+  });
 
+  test('open, minimize, maximize, switch and close dApps', async ({ walletA, steps }) => {
     const driver = new DappBrowserDriver({
       target: walletA,
       server,
@@ -45,5 +48,9 @@ test.describe('dApp Browser (Android)', () => {
     });
 
     await runDappBrowserJourney({ driver, server, steps });
+  });
+
+  test('wallet navbar follows native scroll gestures', async ({ walletA, steps }) => {
+    await runNavbarPresentationScenario({ target: walletA, device: { serial: walletA.serial }, steps });
   });
 });

@@ -1993,12 +1993,11 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
     expect(jobIf(GUARDIAN, 'select-guardian-e2e')).toBe(`\${{ ${FULL} }}`);
   });
 
-  it('the Guardian selector runs on a linked-PR marker, skips a pull request with no marker, and runs on push and dispatch', () => {
+  it('the Guardian selector runs on a linked-PR marker and dispatch, and skips a pull request with no marker', () => {
     const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Decide whether to run');
     const arms = [
       { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
       { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: '', expected: 'run=false' },
-      { GITHUB_EVENT_NAME: 'push', PR_BODY: '', expected: 'run=true' },
       { GITHUB_EVENT_NAME: 'workflow_dispatch', PR_BODY: '', expected: 'run=true' }
     ];
     for (const { GITHUB_EVENT_NAME, PR_BODY, expected } of arms) {
@@ -2039,8 +2038,6 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
     expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe(
       [
         '  pull_request:',
-        '  push:',
-        '    branches: [main]',
         '  workflow_dispatch:',
         '    inputs:',
         '      guardian_image_tag:',
