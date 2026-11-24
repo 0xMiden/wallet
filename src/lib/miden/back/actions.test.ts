@@ -1054,7 +1054,11 @@ describe('actions', () => {
 
       it('keeps a restarted wallet locked until the node confirms pending admission', async () => {
         const { Vault } = jest.requireMock('lib/miden/back/vault');
-        const candidate = spawnedFor('pending-account');
+        const candidate = {
+          ...spawnedFor('pending-account'),
+          fetchSeedPhraseStatus: jest.fn().mockResolvedValue('removing'),
+          removeSeedPhrase: jest.fn().mockResolvedValue(undefined)
+        };
         stored[SAVED_VAULT_KEY] = 'vault';
         stored[PENDING_ADMISSION_STORAGE_KEY] = ['pending-account'];
         Vault.isExist.mockResolvedValueOnce(true);
@@ -1069,6 +1073,7 @@ describe('actions', () => {
 
             await expect(restarted.unlock('pw')).rejects.toThrow();
             expect(mockUnlocked).not.toHaveBeenCalled();
+            expect(candidate.removeSeedPhrase).not.toHaveBeenCalled();
             expect(stored[SAVED_VAULT_KEY]).toBe('vault');
             expect(stored[PENDING_ADMISSION_STORAGE_KEY]).toEqual(['pending-account']);
 
@@ -1076,6 +1081,7 @@ describe('actions', () => {
             expect(mockAdmitted.mock.calls).toEqual([['pending-account'], ['pending-account'], ['pending-account']]);
             expect(mockUnlocked).toHaveBeenCalledTimes(1);
             expect(mockUnlocked).toHaveBeenCalledWith(expect.objectContaining({ vault: candidate }));
+            expect(candidate.removeSeedPhrase).toHaveBeenCalledTimes(1);
             expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
             expect(Vault.spawn).not.toHaveBeenCalled();
             expect(mockRedeemAccess).not.toHaveBeenCalled();

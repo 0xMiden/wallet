@@ -861,6 +861,56 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByText('enterYour6DigitCode')).toBeInTheDocument();
   });
 
+  it('restores the attempt record and shows pending admission after a correct passcode', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    mockUnlock
+      .mockRejectedValueOnce(Object.assign(new Error('Admission pending'), { code: 'MAINNET_ADMISSION_PENDING' }))
+      .mockRejectedValueOnce(new Error('Incorrect passcode'));
+    const { container } = await renderUnlock();
+
+    type(container, '123456');
+    await advance(600);
+
+    expect(screen.getByRole('status')).toHaveTextContent('mainnetAdmissionPending');
+    expect(mockLsStore).toMatchObject({ PasswordAttempts: 3, TimeLock: 0 });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('digit-2')).toBeEnabled();
+
+    type(container, '111111');
+    await advance(600);
+
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(mockLsStore.PasswordAttempts).toBe(4);
+    expect(Number(mockLsStore.TimeLock)).toBeGreaterThan(BASE);
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+  });
+
+  it('preserves a newer lockout when a correct passcode gets pending admission', async () => {
+    mockLsStore = { PasswordAttempts: 3, TimeLock: 0 };
+    let rejectUnlock: (error: Error) => void = () => undefined;
+    mockUnlock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectUnlock = reject;
+        })
+    );
+    const { container } = await renderUnlock();
+
+    type(container, '123456');
+    await advance(200);
+    expect(mockLsStore).toMatchObject({ PasswordAttempts: 4, TimeLock: BASE + 150 });
+
+    mockLsStore = { PasswordAttempts: 6, TimeLock: BASE + 190 };
+    await act(async () => {
+      rejectUnlock(Object.assign(new Error('Admission pending'), { code: 'MAINNET_ADMISSION_PENDING' }));
+    });
+    await advance(400);
+
+    expect(mockLsStore).toMatchObject({ PasswordAttempts: 6, TimeLock: BASE + 190 });
+    expect(screen.getByRole('status')).toHaveTextContent('unlockPasswordErrorDelay');
+    expect(screen.getByTestId('digit-2')).toBeDisabled();
+  });
+
   it('applies the random back-off delay and time-lock past the last attempt', async () => {
     // attempt 5 (> LAST_ATTEMPT) sleeps the randomized delay before unlock(), and the guess in flight
     // holds the count and the provisional stamp it recorded. The rejection's re-stamp is pinned by
