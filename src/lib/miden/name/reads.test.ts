@@ -283,19 +283,25 @@ describe('fetchRegistrationNoteState', () => {
     });
   });
 
-  it('reports a note that the node does not know yet as unknown, with no retry', async () => {
-    rpc.getNetworkNoteStatus.mockRejectedValue(
-      new Error(
-        'failed to get network note status: grpc request failed for get_network_note_status: Resource Not Found'
-      )
-    );
+  it.each([
+    'failed to get network note status: grpc request failed for get_network_note_status: Resource Not Found',
+    'failed to get network note status: grpc request failed for get_network_note_status: code: Some requested entity was not found'
+  ])('reports a note that the node does not know yet as unknown, with no retry (%s)', async message => {
+    rpc.getNetworkNoteStatus.mockRejectedValue(new Error(message));
     await expect(fetchRegistrationNoteState('0xnote')).resolves.toEqual({ status: 'unknown', attemptCount: 0 });
     expect(rpc.getNetworkNoteStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('throws any other error, with no retry', async () => {
-    rpc.getNetworkNoteStatus.mockRejectedValue(new Error('grpc request failed: unavailable'));
-    await expect(fetchRegistrationNoteState('0xnote')).rejects.toThrow('unavailable');
+  it.each([
+    'grpc request failed: unavailable',
+    '404 Not Found',
+    'failed to get network note status: 404 Not Found',
+    'failed to get network note status: route not found',
+    'account 0x1234 not found at block 5',
+    'grpc request failed: Resource Not Found'
+  ])('throws unrelated error "%s" with no retry', async message => {
+    rpc.getNetworkNoteStatus.mockRejectedValue(new Error(message));
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toThrow(message);
     expect(rpc.getNetworkNoteStatus).toHaveBeenCalledTimes(1);
   });
 });

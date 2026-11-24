@@ -255,9 +255,17 @@ function toRegistrationNoteStatus(raw: string): RegistrationNoteStatus {
  * True when the node refuses a status read because it does not know the note
  * yet (gRPC "resource not found").
  */
+const NOTE_NOT_FOUND_RPC = /get_network_note_status|failed to get network note status/i;
+const NOTE_NOT_FOUND_EXCLUSION = /\b(?:404|route not found|account\s+\S+\s+not found)\b/i;
+const NOTE_NOT_FOUND_REASON =
+  /\b(?:resource not found|some requested entity was not found|network note\b[^.\n]*\bnot found)\b/i;
+
 function isNoteNotFoundError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return message.toLowerCase().includes('not found');
+  if (!NOTE_NOT_FOUND_RPC.test(message) || NOTE_NOT_FOUND_EXCLUSION.test(message)) {
+    return false;
+  }
+  return NOTE_NOT_FOUND_REASON.test(message);
 }
 
 /**
