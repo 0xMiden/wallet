@@ -1586,13 +1586,18 @@ describe('actions', () => {
   });
 
   describe('editAccount', () => {
-    it('trims name and updates accounts', async () => {
+    it('trims name and updates accounts, with the time of the rename', async () => {
       const updatedAccounts = { accounts: [{ publicKey: 'pk1', name: 'Trimmed' }] };
       mockVault.editAccountName.mockResolvedValueOnce(updatedAccounts);
+      const renamedAt = 1_800_000_000_000;
+      const now = jest.spyOn(Date, 'now').mockReturnValue(renamedAt);
+      try {
+        await editAccount('pk1', '  Trimmed  ');
+      } finally {
+        now.mockRestore();
+      }
 
-      await editAccount('pk1', '  Trimmed  ');
-
-      expect(mockVault.editAccountName).toHaveBeenCalledWith('pk1', 'Trimmed');
+      expect(mockVault.editAccountName).toHaveBeenCalledWith('pk1', 'Trimmed', renamedAt);
       expect(mockAccountsUpdated).toHaveBeenCalledWith(updatedAccounts);
     });
 
@@ -1600,6 +1605,29 @@ describe('actions', () => {
       const longName = 'a'.repeat(20); // > 16 chars
 
       await expect(editAccount('pk1', longName)).rejects.toThrow('Invalid name');
+    });
+
+    // A rename goes to the encrypted backup at once, after the write and outside the accounts queue.
+    it('runs the accounts backup refresh after the rename, and does not wait for it', async () => {
+      const updatedAccounts = { accounts: [{ publicKey: 'pk1', name: 'Savings' }] };
+      mockVault.editAccountName.mockResolvedValueOnce(updatedAccounts);
+      mockRunBackupRefresh.mockReturnValueOnce(new Promise<BackupRefreshOutcome>(() => {}));
+
+      await editAccount('pk1', 'Savings');
+
+      expect(mockRunBackupRefresh).toHaveBeenCalledTimes(1);
+      expect(mockRunBackupRefresh).toHaveBeenCalledWith('account-renamed');
+      expect(mockRunBackupRefresh.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockAccountsUpdated.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('does not refresh the backup when the rename fails', async () => {
+      await expect(editAccount('pk1', 'a'.repeat(20))).rejects.toThrow('Invalid name');
+      mockVault.editAccountName.mockRejectedValueOnce(new Error('Account with same name already exist'));
+      await expect(editAccount('pk1', 'Taken')).rejects.toThrow('same name');
+
+      expect(mockRunBackupRefresh).not.toHaveBeenCalled();
     });
   });
 

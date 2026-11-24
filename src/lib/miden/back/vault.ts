@@ -2046,7 +2046,12 @@ export class Vault {
 
   async importFundraiserAccount(_chainId: string, _email: string, _password: string, _mnemonic: string) {}
 
-  async editAccountName(accPublicKey: string, name: string) {
+  /**
+   * Rename an account. `renamedAt` (unix ms) is the time of the rename that gives this name: now for a rename by
+   * the user, or the rename time of a peer's backup entry. It is kept as `nameUpdatedAt`; without it the time of
+   * the new name is unknown, and the account keeps no time.
+   */
+  async editAccountName(accPublicKey: string, name: string, renamedAt?: number) {
     return withError('Failed to edit account name', async () => {
       const allAccounts = await this.fetchAccounts();
       if (!allAccounts.some(acc => acc.publicKey === accPublicKey)) {
@@ -2057,7 +2062,9 @@ export class Vault {
         throw new PublicError('Account with same name already exist');
       }
 
-      const newAllAccounts = allAccounts.map(acc => (acc.publicKey === accPublicKey ? { ...acc, name } : acc));
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accPublicKey ? { ...acc, name, nameUpdatedAt: renamedAt } : acc
+      );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
 
       const currentAccount = await this.getCurrentAccount();

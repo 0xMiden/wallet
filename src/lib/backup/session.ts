@@ -26,7 +26,8 @@ import {
   isUnauthorizedError,
   login,
   putProfileSalt,
-  requestNonce
+  requestNonce,
+  retryAfterOf
 } from './api-client';
 import {
   DEFAULT_SCRYPT_PARAMS,
@@ -76,7 +77,10 @@ export interface BackupSession {
 /** Why no session could open. `disabled` and `locked` are normal; the others are logged. */
 export type BackupUnavailableReason = Exclude<BackupRefreshOutcome, 'unchanged' | 'updated'>;
 
-export type SessionResult = { session: BackupSession } | { unavailable: BackupUnavailableReason };
+/** No session, and why. A failed open gives the `Retry-After` wait of its error, when the server sent one. */
+export type SessionResult =
+  | { session: BackupSession }
+  | { unavailable: BackupUnavailableReason; retryAfterMs?: number };
 
 /** Why a session is closed: the wallet locked (or another vault took the store), or the server profile was made again. */
 export type SessionClosedReason = 'locked' | 'replaced';
@@ -163,7 +167,8 @@ export async function getBackupSession(): Promise<SessionResult> {
     const attempt = (current === null ? openSession(vault, startedAt) : renewSession(current, startedAt)).catch(
       (error): SessionResult => {
         console.warn('[backup] the backup session could not open', error);
-        return { unavailable: 'failed' };
+        const retryAfterMs = retryAfterOf(error);
+        return retryAfterMs === null ? { unavailable: 'failed' } : { unavailable: 'failed', retryAfterMs };
       }
     );
     opening = attempt;

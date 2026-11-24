@@ -193,6 +193,16 @@ describe('getBackupSession', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it('gives the Retry-After of a refused login with its failure', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    server.failNext('POST', '/v1/auth/login', {
+      status: 429,
+      body: { error: 'rate_limited', message: 'slow down' },
+      headers: { 'Retry-After': '60' }
+    });
+    await expect(getBackupSession()).resolves.toEqual({ unavailable: 'failed', retryAfterMs: 60_000 });
+  });
+
   it('tries a refused nonce once more, and only once', async () => {
     const nonceInvalid = { status: 401, body: { error: 'nonce_invalid', message: 'spent' } };
     server.failNext('POST', '/v1/auth/login', nonceInvalid);

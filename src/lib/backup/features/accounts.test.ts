@@ -276,6 +276,51 @@ describe('syncAccounts', () => {
     expect(a.vault.nameAt(0)).toBe('Newer');
   });
 
+  // The rename time is when the user renamed, not when the backup first saw the new name: a rename made offline
+  // and uploaded late must not win over a newer rename that a peer uploaded in between.
+  it('keeps a newer peer rename over an older rename that this device uploads late', async () => {
+    const a = device('Main');
+    const b = device('Main');
+    const start = Date.now();
+    const now = jest.spyOn(Date, 'now');
+    await syncAccounts(await use(a), true);
+    await syncAccounts(await use(b), true);
+
+    // A renames at start + 1000 while it cannot reach the server.
+    a.vault.accounts[0] = { ...makeAccount('Older', 0), nameUpdatedAt: start + 1000 };
+    // B renames at start + 2000 and uploads at once.
+    now.mockReturnValue(start + 2000);
+    b.vault.accounts[0] = { ...makeAccount('Newer', 0), nameUpdatedAt: start + 2000 };
+    await syncAccounts(await use(b), true);
+
+    // A reaches the server later.
+    now.mockReturnValue(start + 3000);
+    const sessionA = await use(a);
+    await expect(syncAccounts(sessionA, true)).resolves.toBe(true);
+    expect(a.vault.nameAt(0)).toBe('Newer');
+    expect(sessionA.merge.accountNames['guardian:0']).toEqual({ name: 'Newer', nlu: start + 2000 });
+    // The name a peer entry applied keeps the peer's rename time, not a new local one.
+    expect(a.vault.accounts[0]?.nameUpdatedAt).toBe(start + 2000);
+    const stored = server.storedEntryOf(sessionA.publicKey, 'accounts', hashedKeyOf(sessionA, 'guardian:0'));
+    if (stored === undefined) throw new Error('No account entry on the server');
+    expect(JSON.parse(await decryptEntry(sessionA.encKey, stored, DEFAULT_BLOB_CAP))).toMatchObject({
+      n: 'Newer',
+      nlu: start + 2000
+    });
+  });
+
+  it('uploads the recorded rename time of a local rename, whenever the sync runs', async () => {
+    const a = device('Main');
+    const session = await use(a);
+    await syncAccounts(session, true);
+    const renamedAt = Date.now() + 1000;
+    jest.spyOn(Date, 'now').mockReturnValue(renamedAt + 60_000);
+    a.vault.accounts[0] = { ...makeAccount('Savings', 0), nameUpdatedAt: renamedAt };
+
+    await syncAccounts(session, false);
+    expect(session.merge.accountNames['guardian:0']).toEqual({ name: 'Savings', nlu: renamedAt });
+  });
+
   it('does not apply a name the wallet would refuse, or one another local account holds', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const a = device('Main', 'Second');

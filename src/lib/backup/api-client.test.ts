@@ -1,7 +1,13 @@
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { getBackupBaseUrl } from 'lib/remote-config/values';
 
-import { checkWalletApiEnabled, getWalletApiBaseUrl, isWalletApiEnabled } from './api-client';
+import {
+  MAX_RETRY_AFTER_MS,
+  checkWalletApiEnabled,
+  getWalletApiBaseUrl,
+  isWalletApiEnabled,
+  parseRetryAfterMs
+} from './api-client';
 
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: jest.fn() }));
 jest.mock('lib/remote-config/values', () => ({ getBackupBaseUrl: jest.fn() }));
@@ -62,6 +68,20 @@ describe('isWalletApiEnabled', () => {
     jest.mocked(getBackupBaseUrl).mockReturnValue(null);
     process.env.MIDEN_WALLET_API_URL = 'http://localhost:8787';
     expect(isWalletApiEnabled()).toBe(true);
+  });
+});
+
+describe('parseRetryAfterMs', () => {
+  it('reads delta seconds and an HTTP date, and holds a long wait to the ceiling', () => {
+    expect(parseRetryAfterMs('60', 0)).toBe(60_000);
+    expect(parseRetryAfterMs(' 0 ', 0)).toBe(0);
+    expect(parseRetryAfterMs(new Date(90_000).toUTCString(), 0)).toBe(90_000);
+    expect(parseRetryAfterMs(new Date(0).toUTCString(), 90_000)).toBe(0);
+    expect(parseRetryAfterMs('99999999', 0)).toBe(MAX_RETRY_AFTER_MS);
+  });
+
+  it.each([null, '', 'soon', '-5', '1.5'])('gives null for %j', value => {
+    expect(parseRetryAfterMs(value, 0)).toBeNull();
   });
 });
 

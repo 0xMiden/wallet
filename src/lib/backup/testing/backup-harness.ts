@@ -63,6 +63,8 @@ interface FakeProfile {
 export interface FakeReply {
   status: number;
   body?: JsonValue;
+  /** Response headers, such as `Retry-After` on a 429. */
+  headers?: Record<string, string>;
 }
 
 /** One request the server answered. */
@@ -85,6 +87,7 @@ export interface FakeRequestInit {
 
 export interface FakeResponse {
   status: number;
+  headers: { get: (name: string) => string | null };
   text: () => Promise<string>;
 }
 
@@ -248,7 +251,10 @@ export class FakeWalletApi {
     const etag = body !== undefined && isRecord(body) && typeof body.etag === 'string' ? body.etag : null;
     this.requests.push({ method, path: url.pathname, query, ifNoneMatch, status: reply.status, etag });
     const text = body === undefined ? '' : JSON.stringify(body);
-    return { status: reply.status, text: async () => text };
+    const headerEntries = Object.entries(reply.headers ?? {});
+    const headerOf = (name: string) =>
+      headerEntries.find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1] ?? null;
+    return { status: reply.status, headers: { get: headerOf }, text: async () => text };
   }
 
   private takeFault(method: string, path: string): FakeReply | null {
@@ -582,13 +588,16 @@ export class FakeVault {
 
   async editAccountName(
     publicKey: string,
-    name: string
+    name: string,
+    renamedAt?: number
   ): Promise<{ accounts: WalletAccount[]; currentAccount: WalletAccount | undefined }> {
     if (!this.accounts.some(account => account.publicKey === publicKey)) throw new Error('Account not found');
     if (this.accounts.some(account => account.publicKey !== publicKey && account.name === name)) {
       throw new Error('Account with same name already exist');
     }
-    this.accounts = this.accounts.map(account => (account.publicKey === publicKey ? { ...account, name } : account));
+    this.accounts = this.accounts.map(account =>
+      account.publicKey === publicKey ? { ...account, name, nameUpdatedAt: renamedAt } : account
+    );
     return { accounts: await this.fetchAccounts(), currentAccount: this.accounts[0] };
   }
 

@@ -55,17 +55,46 @@ const ERROR_CODES: readonly WalletApiErrorCode[] = [
   'service_unavailable'
 ];
 
-/** A response the client did not expect: a status, the server's error code when it gave one, and its message. */
+/**
+ * A response the client did not expect: a status, the server's error code when it gave one, its message, and the
+ * wait its `Retry-After` header asks for (a 429 sends one).
+ */
 export class WalletApiError extends Error {
   readonly status: number;
   readonly code: WalletApiErrorCode | null;
+  /** Milliseconds from `Retry-After`, or null without a readable header. */
+  readonly retryAfterMs: number | null;
 
-  constructor(status: number, code: WalletApiErrorCode | null, message: string) {
+  constructor(status: number, code: WalletApiErrorCode | null, message: string, retryAfterMs: number | null = null) {
     super(message);
     this.name = 'WalletApiError';
     this.status = status;
     this.code = code;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+/** The longest `Retry-After` this client takes. The server asks for 60 s; a longer value is held to this. */
+export const MAX_RETRY_AFTER_MS = 60 * 60 * 1000;
+
+/**
+ * Milliseconds from a `Retry-After` value: delta seconds or an HTTP date, at most {@link MAX_RETRY_AFTER_MS}.
+ * Null for a missing or unreadable value.
+ */
+export function parseRetryAfterMs(value: string | null, now: number = Date.now()): number | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Math.min(Number(trimmed) * 1000, MAX_RETRY_AFTER_MS);
+  // An HTTP date ends in GMT. `Date.parse` alone also takes text such as "-5" as a date.
+  if (!trimmed.endsWith(' GMT')) return null;
+  const date = Date.parse(trimmed);
+  if (Number.isNaN(date)) return null;
+  return Math.min(Math.max(0, date - now), MAX_RETRY_AFTER_MS);
+}
+
+/** The `Retry-After` wait an error carries, or null. */
+export function retryAfterOf(error: unknown): number | null {
+  return error instanceof WalletApiError ? error.retryAfterMs : null;
 }
 
 /** True for a refused token: the session logs in again. */
@@ -223,6 +252,8 @@ interface RawResponse {
   status: number;
   /** The parsed JSON body, or null for an empty body. */
   body: unknown;
+  /** The `Retry-After` header, or null. */
+  retryAfter: string | null;
 }
 
 interface RequestOptions {
@@ -249,16 +280,22 @@ async function send(options: RequestOptions): Promise<RawResponse> {
       credentials: 'omit',
       signal
     });
+    const retryAfter = response.headers.get('Retry-After');
     const text = response.status === 204 || response.status === 304 ? '' : await response.text();
     let body: unknown = null;
     if (text !== '') {
       try {
         body = JSON.parse(text);
       } catch {
-        throw new WalletApiError(response.status, null, `wallet-api ${options.path}: the body is not JSON`);
+        throw new WalletApiError(
+          response.status,
+          null,
+          `wallet-api ${options.path}: the body is not JSON`,
+          parseRetryAfterMs(retryAfter)
+        );
       }
     }
-    return { status: response.status, body };
+    return { status: response.status, body, retryAfter };
   });
 }
 
@@ -266,7 +303,12 @@ function failure(path: string, response: RawResponse): WalletApiError {
   const code = isRecord(response.body) ? readErrorCode(response.body.error) : null;
   const message =
     isRecord(response.body) && typeof response.body.message === 'string' ? response.body.message : 'request failed';
-  return new WalletApiError(response.status, code, `wallet-api ${path} (${response.status}): ${message}`);
+  return new WalletApiError(
+    response.status,
+    code,
+    `wallet-api ${path} (${response.status}): ${message}`,
+    parseRetryAfterMs(response.retryAfter)
+  );
 }
 
 /** `POST /v1/auth/nonce`. */

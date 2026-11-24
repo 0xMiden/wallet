@@ -51,6 +51,8 @@ const ALICE: ContactTriple = ['Alice', 'mtst1alice', 't'];
 const BOB: ContactTriple = ['Bob', 'mtst1bob', 't'];
 const CAROL: ContactTriple = ['Carol', 'mtst1carol', 't'];
 const MAIN_DAVE: ContactTriple = ['Dave', 'mm1dave', 'm'];
+const EVE_ADDRESS = `0x${'e'.repeat(40)}`;
+const EVE: ContactTriple = ['Eve', EVE_ADDRESS, 't', 'base-sepolia'];
 
 function contact(name: string, address: string): WalletContact {
   return { name, address, addedAt: 1 };
@@ -75,6 +77,33 @@ describe('contact triples', () => {
   it('projects the local contacts and leaves the accounts of this wallet out', () => {
     const own: WalletContact = { name: 'Me', address: 'mtst1me', accountInWallet: true };
     expect(projectContacts([contact('Alice', 'mtst1alice'), own], 't')).toEqual([ALICE]);
+  });
+
+  // A `0x` address is valid on every EVM chain, so its contact keeps the destination network it is for.
+  it('projects the network of a 0x contact, and keeps a contact without one a triple', () => {
+    const evm: WalletContact = { ...contact('Eve', EVE_ADDRESS), network: 'base-sepolia' };
+    const projected = projectContacts([contact('Alice', 'mtst1alice'), evm], 't');
+    expect(projected).toEqual([ALICE, EVE]);
+    expect(JSON.stringify(projected)).toBe(`[${JSON.stringify(ALICE)},${JSON.stringify(EVE)}]`);
+  });
+
+  it('parses the network of an entry, and an entry without one or with an unreadable one as a triple', () => {
+    expect(parseContacts(JSON.stringify([ALICE, EVE]))).toEqual([ALICE, EVE]);
+    expect(parseContacts(JSON.stringify([['Eve', EVE_ADDRESS, 't', 7]]))).toEqual([['Eve', EVE_ADDRESS, 't']]);
+    expect(parseContacts(JSON.stringify([['Eve', EVE_ADDRESS, 't', '']]))).toEqual([['Eve', EVE_ADDRESS, 't']]);
+    expect(parseContacts(JSON.stringify([['Eve', EVE_ADDRESS, 't', 'x'.repeat(65)]]))).toEqual([
+      ['Eve', EVE_ADDRESS, 't']
+    ]);
+  });
+});
+
+describe('the network of a 0x contact in the merge', () => {
+  it('keeps a local network change, and follows the server network otherwise', () => {
+    const onSepolia: ContactTriple = ['Eve', EVE_ADDRESS, 't', 'sepolia'];
+    // Here: Eve moved to base-sepolia. There: nothing changed.
+    expect(mergeContacts([onSepolia], [EVE], [onSepolia], 't')).toEqual([EVE]);
+    // There: Eve moved to base-sepolia. Here: nothing changed.
+    expect(mergeContacts([onSepolia], [onSepolia], [EVE], 't')).toEqual([EVE]);
   });
 });
 
@@ -316,6 +345,48 @@ describe('syncContacts', () => {
 
     expect(await serverList(session)).toContain('mm1dave');
     expect(session.merge.contactsBase).toBe(JSON.stringify([ALICE, MAIN_DAVE]));
+  });
+
+  it('gives a peer a 0x contact with its network, and uploads no change for contacts without one', async () => {
+    const evm: WalletContact = { ...contact('Eve', EVE_ADDRESS), network: 'base-sepolia' };
+    const a = device(contact('Alice', 'mtst1alice'), evm);
+    await syncContacts(await use(a), true);
+
+    const b = device();
+    const sessionB = await use(b);
+    await syncContacts(sessionB, true);
+    expect(b.vault.settings.contacts?.find(saved => saved.address === EVE_ADDRESS)?.network).toBe('base-sepolia');
+    expect(b.vault.settings.contacts?.find(saved => saved.address === 'mtst1alice')?.network).toBeUndefined();
+    expect(server.entriesOf(sessionB.publicKey, 'contacts')[0]?.revision).toBe(1);
+  });
+
+  it('applies a network change made on a peer', async () => {
+    const onSepolia: WalletContact = { ...contact('Eve', EVE_ADDRESS), network: 'sepolia' };
+    const a = device(onSepolia);
+    const b = device({ ...onSepolia });
+    await syncContacts(await use(a), true);
+    await syncContacts(await use(b), true);
+
+    a.vault.settings = { contacts: [{ ...onSepolia, network: 'base-sepolia' }] };
+    await syncContacts(await use(a), true);
+    await expect(syncContacts(await use(b), true)).resolves.toBe(true);
+    expect(b.vault.settings.contacts?.[0]?.network).toBe('base-sepolia');
+  });
+
+  // A build without the field writes triples: the local network stays, and the next upload carries it again.
+  it('keeps the local network when a peer entry carries none', async () => {
+    const evm: WalletContact = { ...contact('Eve', EVE_ADDRESS), network: 'base-sepolia' };
+    const a = device(evm);
+    const session = await use(a);
+    await syncContacts(session, true);
+    await peerWrites(session, [['Eve', EVE_ADDRESS, 't'], BOB]);
+
+    await syncContacts(session, true);
+    expect(a.vault.settings.contacts?.find(saved => saved.address === EVE_ADDRESS)?.network).toBe('base-sepolia');
+    expect(a.vault.contactPairs()).toEqual([
+      ['Eve', EVE_ADDRESS],
+      ['Bob', 'mtst1bob']
+    ]);
   });
 
   it('keeps the contacts of other networks that a peer stored', async () => {

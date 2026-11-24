@@ -518,6 +518,12 @@ export interface GuardianInfo {
 export interface WalletAccount {
   publicKey: string;
   name: string;
+  /**
+   * Unix ms of the rename that gave the account its current `name`: the time the user renamed it here, or the
+   * rename time of a peer's backup entry that this device applied. The encrypted backup merges names by this time
+   * (`nlu`). Absent for a name the account was created with, and for a rename made before this field existed.
+   */
+  nameUpdatedAt?: number;
   isPublic: boolean;
   type: WalletType;
   hdIndex: number;
@@ -1126,6 +1132,7 @@ export type BackupRefreshReason =
   | 'foreground'
   | 'address-book'
   | 'contacts-changed'
+  | 'account-renamed'
   | 'activity-open'
   | 'guardian-adopt'
   | 'transaction-completed';

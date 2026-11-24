@@ -1,6 +1,8 @@
 import Dexie from 'dexie';
 
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import type { GuardianHistoryRecovery } from 'lib/miden/guardian/history';
 import * as Repo from 'lib/miden/repo';
 import { readsAsNotConfirmed } from 'lib/miden/transaction/submission-feedback';
 import { NoteTypeEnum } from 'lib/miden/types';
@@ -54,6 +56,9 @@ jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: jest.fn()
 }));
 jest.mock('lib/remote-config/values', () => ({ getBackupBaseUrl: jest.fn(() => 'https://wallet-api.test') }));
+jest.mock('lib/miden/back/miden-client-proxy', () => ({
+  midenClientProxy: { getGuardianResultCommitment: jest.fn() }
+}));
 
 function row(id: string, fields: Partial<ITransaction> = {}): ITransaction {
   return {
@@ -109,6 +114,22 @@ describe('history projection', () => {
     expect(restored.transactionId).toBe('tx-revocation');
     expect(restored.extraInputs).toEqual({ revokedSignerCommitment: target, mode: undefined });
     expect(restored.restoredFromBackup).toBe(true);
+  });
+
+  // A transaction with no notes (a rotation, a Guardian switch, a threshold update) is tied to its Guardian record
+  // only by the account commitment after it.
+  it('carries the final account commitment of a row, and restores it', () => {
+    const threshold = row('threshold', {
+      type: 'update-procedure-threshold',
+      finalAccountCommitment: '0xfinal',
+      extraInputs: { procedure: 'update_guardian', threshold: 2 }
+    });
+    const projected = projectTransaction(threshold);
+    expect(projected.fc).toBe('0xfinal');
+    const parsed = parseHistoryRow(JSON.parse(JSON.stringify(projected)));
+    if (parsed === null) throw new Error('The projected row does not parse');
+    expect(restoreTransaction(parsed).finalAccountCommitment).toBe('0xfinal');
+    expect(projectTransaction(row('send')).fc).toBeUndefined();
   });
 
   it('names a chunk history:<deviceId>:<n>', () => {
@@ -455,6 +476,50 @@ describe('applyHistoryRows', () => {
     expect(await Repo.transactions.get('peer-claim')).toMatchObject({ displayMessage: 'Bridged from EVM' });
   });
 
+  // The Guardian pass ran first and wrote its record of a peer's rotation; the peer's receipt replaces it.
+  it('replaces a Guardian record of a transaction with no notes by the receipt with the same final commitment', async () => {
+    const recovery: GuardianHistoryRecovery = {
+      version: 1,
+      network: 'testnet',
+      operators: ['https://one'],
+      nonce: 7,
+      finalCommitment: '0xfinal',
+      inputNotes: [],
+      outputNotes: [],
+      completeness: 'decoded',
+      reclaimed: false
+    };
+    await Repo.transactions.add(
+      row('guardian-rotation', {
+        type: 'replace-hot-key',
+        transactionId: undefined,
+        inputNoteIds: [],
+        outputNoteIds: [],
+        recovered: true,
+        restoredFromBackup: true,
+        recovery
+      })
+    );
+    const receipt = row('peer-rotation', {
+      type: 'replace-hot-key',
+      displayMessage: 'Device added',
+      finalAccountCommitment: '0xfinal'
+    });
+    await expect(applyHistoryRows([projectTransaction(receipt)])).resolves.toBe(1);
+    expect(await Repo.transactions.get('guardian-rotation')).toBeUndefined();
+    expect(await Repo.transactions.get('peer-rotation')).toMatchObject({ displayMessage: 'Device added', recovery });
+
+    // Another rotation of the same account, with another final commitment, is a row of its own.
+    const other = { ...recovery, finalCommitment: '0xother' };
+    await Repo.transactions.add(
+      row('guardian-other', { type: 'replace-hot-key', recovered: true, restoredFromBackup: true, recovery: other })
+    );
+    const third = row('peer-third', { type: 'replace-hot-key', finalAccountCommitment: '0xthird' });
+    await applyHistoryRows([projectTransaction(third)]);
+    expect(await Repo.transactions.get('guardian-other')).toBeDefined();
+    expect(await Repo.transactions.get('peer-third')).toBeDefined();
+  });
+
   it('adds peer bridge details to the same local claim without altering its transaction state', async () => {
     const local = row('local-claim', {
       type: 'consume',
@@ -675,6 +740,45 @@ describe('history sync', () => {
     const mark = server.requests.length;
     await expect(flushHistory(session)).resolves.toBe(0);
     expect(server.requestsSince(mark)).toHaveLength(0);
+  });
+
+  // The result bytes go 10 minutes after completion, so the flush reads the final commitment while they are there.
+  it('records the final account commitment of a completed row with no notes, and uploads it', async () => {
+    jest.mocked(midenClientProxy.getGuardianResultCommitment).mockReset().mockResolvedValue('0xfinal');
+    await Repo.transactions.bulkAdd([
+      row('rotation', { type: 'replace-hot-key', resultBytes: new Uint8Array([1]) }),
+      row('send-with-notes', { outputNoteIds: ['note-1'], resultBytes: new Uint8Array([2]) }),
+      row('failed', { type: 'replace-hot-key', status: ITransactionStatus.Failed, resultBytes: new Uint8Array([3]) }),
+      row('trimmed', { type: 'switch-guardian' })
+    ]);
+
+    await flushHistory(session);
+    expect(midenClientProxy.getGuardianResultCommitment).toHaveBeenCalledTimes(1);
+    expect(midenClientProxy.getGuardianResultCommitment).toHaveBeenCalledWith(new Uint8Array([1]));
+    expect((await Repo.transactions.get('rotation'))?.finalAccountCommitment).toBe('0xfinal');
+    const entry = server.storedEntryOf(
+      session.publicKey,
+      'history',
+      hashedKeyOf(session, historyEntryKey(deviceId, 0))
+    );
+    if (entry === undefined) throw new Error('No chunk 0 on the server');
+    const uploaded = parseHistoryChunk(await decryptEntry(session.encKey, entry, HISTORY_BLOB_CAP));
+    expect(uploaded.find(item => item.id === 'rotation')?.fc).toBe('0xfinal');
+    expect(uploaded.find(item => item.id === 'send-with-notes')?.fc).toBeUndefined();
+
+    // The commitment is read once.
+    await flushHistory(session);
+    expect(midenClientProxy.getGuardianResultCommitment).toHaveBeenCalledTimes(1);
+  });
+
+  it('uploads a row without the commitment when its result does not decode', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.mocked(midenClientProxy.getGuardianResultCommitment).mockReset().mockRejectedValue(new Error('decode'));
+    await Repo.transactions.add(row('rotation', { type: 'replace-hot-key', resultBytes: new Uint8Array([1]) }));
+
+    await expect(flushHistory(session)).resolves.toBe(1);
+    expect((await Repo.transactions.get('rotation'))?.finalAccountCommitment).toBeUndefined();
+    expect(await chunkRows(0)).toEqual(['rotation']);
   });
 
   it('repairs an uploaded switch receipt and updates the peer copy', async () => {

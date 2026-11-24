@@ -20,6 +20,7 @@
  * `restoredFromBackup`, which keeps it away from the processing loop, Retry,
  * `waitForTransaction` and every reconciler. Restore accepts only receipt statuses.
  */
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
   type IBridgeInInfo,
   type IConsumedAssetTotal,
@@ -74,6 +75,8 @@ export interface HistoryRow {
   no?: string[];
   r?: ReceiptFields;
   tx?: string;
+  /** The account commitment after the transaction (`ITransaction.finalAccountCommitment`). */
+  fc?: string;
   n?: string[];
   ia: number;
   ca?: number;
@@ -243,6 +246,7 @@ export function projectTransaction(tx: ITransaction): HistoryRow {
     no: tx.outputNoteIds,
     r: isRecord(tx.extraInputs) ? readReceiptExtra(tx.type, tx.extraInputs) : undefined,
     tx: tx.transactionId,
+    fc: tx.finalAccountCommitment || undefined,
     n: noteIdsOf(tx),
     ia: tx.initiatedAt * 1000,
     ca: tx.completedAt === undefined ? undefined : tx.completedAt * 1000,
@@ -404,7 +408,8 @@ export function parseHistoryRow(value: unknown): HistoryRow | null {
     u: value.u === true || undefined,
     ni: readNoteIds(value.ni) ?? undefined,
     no: readNoteIds(value.no) ?? undefined,
-    r: isRecord(value.r) ? readReceiptExtra(t, value.r) : undefined
+    r: isRecord(value.r) ? readReceiptExtra(t, value.r) : undefined,
+    fc: optionalString(value.fc) || undefined
   };
 }
 
@@ -556,6 +561,7 @@ export function restoreTransaction(row: HistoryRow): ITransaction {
     restoredOutcomeUnconfirmed: row.u,
     inputNoteIds: row.ni ?? (isConsume && notes.length > 0 ? notes : undefined),
     transactionId: row.tx,
+    finalAccountCommitment: row.fc,
     noteId: notes[0],
     noteIds: isConsume && notes.length > 0 ? notes : undefined,
     outputNoteIds: row.no ?? (!isConsume && notes.length > 0 ? notes : undefined),
@@ -566,6 +572,19 @@ export function restoreTransaction(row: HistoryRow): ITransaction {
 
 async function findGuardianReceipt(restored: ITransaction): Promise<ITransaction | undefined> {
   if (restored.status !== ITransactionStatus.Completed) return undefined;
+  // The account commitment after a transaction names that one transaction. A receipt with no notes has only it.
+  const commitment = restored.finalAccountCommitment;
+  if (commitment) {
+    const match = await Repo.transactions
+      .filter(
+        row =>
+          row.recovered === true &&
+          row.recovery?.finalCommitment === commitment &&
+          sameWalletAccountId(row.accountId, restored.accountId)
+      )
+      .first();
+    if (match) return match;
+  }
   const notes = restored.type === 'consume' ? restored.noteIds : restored.outputNoteIds;
   const [first, ...rest] = (notes ?? []).map(normalizedCommitment);
   if (!first) return undefined;
@@ -747,10 +766,54 @@ export function flushHistory(session: BackupSession): Promise<number> {
   return pending.result;
 }
 
+/** A Completed row of this device with no notes, whose result bytes are kept and whose commitment is not read yet. */
+function needsFinalAccountCommitment(tx: ITransaction): boolean {
+  return (
+    tx.status === ITransactionStatus.Completed &&
+    !tx.restoredFromBackup &&
+    !tx.recovered &&
+    tx.resultBytes !== undefined &&
+    tx.finalAccountCommitment === undefined &&
+    noteIdsOf(tx) === undefined &&
+    !tx.inputNoteIds?.length
+  );
+}
+
+/**
+ * Read the final account commitment of each Completed row with no notes from its result bytes, and keep it on the
+ * row (`finalAccountCommitment`), so that the receipt carries it. The Guardian history pass of another device ties
+ * its record of the transaction to the receipt by it. The reaper releases the bytes 10 minutes after completion, so
+ * a completion reads it at once; it needs no session. A result that does not decode leaves the row without it, and
+ * the next flush reads again while the bytes stay. Never throws.
+ */
+export async function recordFinalAccountCommitments(): Promise<void> {
+  try {
+    const rows = await Repo.transactions.filter(needsFinalAccountCommitment).toArray();
+    for (const tx of rows) {
+      if (tx.resultBytes === undefined) continue;
+      let commitment: string;
+      try {
+        // The proxy holds the WASM lock for the decode, and its lock retires the client on a trap.
+        commitment = await midenClientProxy.getGuardianResultCommitment(tx.resultBytes);
+      } catch (error) {
+        console.warn(`[backup] the final account commitment of history row ${tx.id} could not be read`, error);
+        continue;
+      }
+      if (commitment === '') continue;
+      await Repo.transactions.where({ id: tx.id }).modify(row => {
+        if (row.finalAccountCommitment === undefined) row.finalAccountCommitment = commitment;
+      });
+    }
+  } catch (error) {
+    console.warn('[backup] the final account commitments could not be recorded', error);
+  }
+}
+
 async function flushPass(session: BackupSession): Promise<number> {
   // The task waited in the lane, then for the device id: a lock or a wipe may have landed.
   assertSessionLive(session);
   const deviceId = await getBackupDeviceId();
+  await recordFinalAccountCommitments();
   assertSessionLive(session);
   const history = session.state.history;
   const projections = new Map<string, string>();

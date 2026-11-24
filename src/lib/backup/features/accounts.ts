@@ -4,8 +4,9 @@
  *
  * - Imported accounts (`hdIndex` -1) are left out: the phrase cannot derive
  *   their keys.
- * - The name merges by `nlu`: the latest rename wins. A name this device has
- *   never seen change has `nlu` 0, so a peer's copy wins over it.
+ * - The name merges by `nlu`: the latest rename wins. `nlu` is the time of the
+ *   rename (`WalletAccount.nameUpdatedAt`), not the time of the upload. A name
+ *   this device has never seen change has `nlu` 0, so a peer's copy wins over it.
  * - `dt` is a tombstone. The wallet cannot hide an account yet, so this device
  *   writes `null` and does not apply a peer's account it does not hold.
  */
@@ -114,17 +115,22 @@ export function parseAccountEntry(plaintext: string): AccountEntry | null {
   return { v: 1, i, t, n, nlu, as, ge, dt };
 }
 
-/** The name record of an account: first sight records the current name with `nlu` 0; a changed name is a rename now. */
-function nameMarkOf(session: BackupSession, key: string, name: string): { name: string; nlu: number } {
+/**
+ * The name record of an account. A new or changed name takes the rename time that the account keeps
+ * (`nameUpdatedAt`, written with the name). Without one, first sight records the name with `nlu` 0, and a changed
+ * name (a rename made before the wallet kept the time) takes the time this device first sees it.
+ */
+function nameMarkOf(session: BackupSession, key: string, account: WalletAccount): { name: string; nlu: number } {
+  const { name, nameUpdatedAt } = account;
   const mark = session.merge.accountNames[key];
   if (mark === undefined) {
-    const created = { name, nlu: 0 };
+    const created = { name, nlu: nameUpdatedAt ?? 0 };
     session.merge.accountNames[key] = created;
     return created;
   }
   if (mark.name !== name) {
     mark.name = name;
-    mark.nlu = Date.now();
+    mark.nlu = nameUpdatedAt ?? Date.now();
   }
   return mark;
 }
@@ -147,7 +153,7 @@ async function applyAccountEntries(session: BackupSession, entries: readonly Inc
       // An account a peer holds and this device does not: creating it is a restore step, not built here.
       if (local === undefined) continue;
       const key = accountEntryKey(remote.t, remote.i);
-      const mark = nameMarkOf(session, key, local.name);
+      const mark = nameMarkOf(session, key, local);
       if (remote.nlu < mark.nlu || !ACCOUNT_NAME_PATTERN.test(remote.n)) continue;
       if (remote.n === local.name) {
         // Nothing to rename, but the newer time is the latest decision about this name: an upload of the
@@ -157,7 +163,8 @@ async function applyAccountEntries(session: BackupSession, entries: readonly Inc
         continue;
       }
       try {
-        const updated = await session.vault.editAccountName(local.publicKey, remote.n);
+        // The peer's rename time goes with its name: this is not a local rename.
+        const updated = await session.vault.editAccountName(local.publicKey, remote.n, remote.nlu);
         accountsUpdated(updated);
         mark.name = remote.n;
         mark.nlu = remote.nlu;
@@ -178,7 +185,7 @@ async function outgoingAccounts(session: BackupSession): Promise<OutgoingEntry[]
     if (!isSyncedAccount(account)) continue;
     const type = accountTypeCode(account.type);
     const key = accountEntryKey(type, account.hdIndex);
-    const mark = nameMarkOf(session, key, account.name);
+    const mark = nameMarkOf(session, key, account);
     outgoing.push({ entryKey: key, plaintext: JSON.stringify(projectAccount(account, mark.nlu)) });
   }
   await persistMergeRecords(session);

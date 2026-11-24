@@ -1,7 +1,11 @@
 /**
  * The `contacts` feature: one entry keyed `contacts`, a JSON array of
  * `[name, address, networkCode]` triples. The network code is one letter:
- * `m` mainnet, `t` testnet, `d` devnet, `l` localhost.
+ * `m` mainnet, `t` testnet, `d` devnet, `l` localhost. A contact with a
+ * destination network (`WalletContact.network`, set on a `0x` contact) adds it
+ * as a fourth element. A contact without one stays a triple, so its entry and
+ * its digest do not change. An entry without the fourth element (a build
+ * before it, or a Miden contact) keeps the local network.
  *
  * The server keeps the last write. To lose fewer edits, this device merges
  * three lists before it writes: the base (the list both sides last agreed on),
@@ -22,8 +26,21 @@ export const CONTACTS_ENTRY_KEY = 'contacts';
 
 export type NetworkCode = 'm' | 't' | 'd' | 'l';
 
-/** One synced contact: name, address, network code. */
-export type ContactTriple = [string, string, NetworkCode];
+/** One synced contact: name, address, network code, and the destination network when the contact has one. */
+export type ContactTriple = [string, string, NetworkCode, string?];
+
+/** The longest destination network id an entry carries. A longer value is not a network id; it is ignored. */
+const MAX_CONTACT_NETWORK_LENGTH = 64;
+
+/** The contact of these fields, with the destination network only when there is one. */
+function contactTriple(name: string, address: string, code: NetworkCode, network: string | undefined): ContactTriple {
+  return network === undefined ? [name, address, code] : [name, address, code, network];
+}
+
+/** A destination network id the entry can carry, or undefined. */
+function readContactNetwork(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' && value.length <= MAX_CONTACT_NETWORK_LENGTH ? value : undefined;
+}
 
 export function networkCodeOf(network: MIDEN_NETWORK_NAME): NetworkCode {
   switch (network) {
@@ -50,7 +67,10 @@ function readNetworkCode(value: unknown): NetworkCode | null {
   }
 }
 
-/** Parse the decrypted contacts entry. A triple of another shape is dropped; a body that is not an array gives null. */
+/**
+ * Parse the decrypted contacts entry. A contact of another shape is dropped; a body that is not an array gives null.
+ * A fourth element that is not a network id is ignored, and the contact stays.
+ */
 export function parseContacts(plaintext: string): ContactTriple[] | null {
   let value: unknown;
   try {
@@ -61,11 +81,11 @@ export function parseContacts(plaintext: string): ContactTriple[] | null {
   if (!Array.isArray(value)) return null;
   const triples: ContactTriple[] = [];
   for (const raw of value) {
-    if (!Array.isArray(raw) || raw.length !== 3) continue;
-    const [name, address, code] = raw;
-    const network = readNetworkCode(code);
-    if (typeof name !== 'string' || typeof address !== 'string' || network === null) continue;
-    triples.push([name, address, network]);
+    if (!Array.isArray(raw) || raw.length < 3 || raw.length > 4) continue;
+    const [name, address, rawCode, rawNetwork] = raw;
+    const code = readNetworkCode(rawCode);
+    if (typeof name !== 'string' || typeof address !== 'string' || code === null) continue;
+    triples.push(contactTriple(name, address, code, readContactNetwork(rawNetwork)));
   }
   return triples;
 }
@@ -77,7 +97,9 @@ function addressKey(address: string): string {
 
 /** Project the local contacts of this network. Accounts of this wallet are not contacts. */
 export function projectContacts(contacts: readonly WalletContact[], code: NetworkCode): ContactTriple[] {
-  return contacts.filter(contact => !contact.accountInWallet).map(contact => [contact.name, contact.address, code]);
+  return contacts
+    .filter(contact => !contact.accountInWallet)
+    .map(contact => contactTriple(contact.name, contact.address, code, readContactNetwork(contact.network)));
 }
 
 /**
@@ -99,8 +121,8 @@ export function mergeContacts(
 
   for (const [key, triple] of localMap) {
     const before = baseMap.get(key);
-    // Added here since the base, or renamed here since the base: the local copy wins.
-    if (before === undefined || before[0] !== triple[0]) merged.set(key, triple);
+    // Added here since the base, or renamed or given another network here since the base: the local copy wins.
+    if (before === undefined || before[0] !== triple[0] || before[3] !== triple[3]) merged.set(key, triple);
   }
   for (const key of baseMap.keys()) {
     // Removed here since the base.
@@ -110,7 +132,10 @@ export function mergeContacts(
   return [...merged.values(), ...others];
 }
 
-/** Write the merged list back to the local contacts, keeping the local fields the triple does not carry. */
+/**
+ * Write the merged list back to the local contacts, keeping the local fields the triple does not carry. A triple
+ * without a network keeps the local network.
+ */
 function toLocalContacts(
   merged: readonly ContactTriple[],
   current: readonly WalletContact[],
@@ -119,16 +144,22 @@ function toLocalContacts(
   const byAddress = new Map(current.map(contact => [addressKey(contact.address), contact]));
   return merged
     .filter(triple => triple[2] === code)
-    .map(([name, address]) => {
+    .map(([name, address, , network]) => {
       const existing = byAddress.get(addressKey(address));
-      return existing ? { ...existing, name } : { address, name, addedAt: Date.now() };
+      const withNetwork = network === undefined ? {} : { network };
+      return existing ? { ...existing, name, ...withNetwork } : { address, name, addedAt: Date.now(), ...withNetwork };
     });
 }
 
 function sameContacts(a: readonly WalletContact[], b: readonly WalletContact[]): boolean {
   return (
     a.length === b.length &&
-    a.every((contact, index) => contact.address === b[index]?.address && contact.name === b[index]?.name)
+    a.every(
+      (contact, index) =>
+        contact.address === b[index]?.address &&
+        contact.name === b[index]?.name &&
+        contact.network === b[index]?.network
+    )
   );
 }
 

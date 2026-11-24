@@ -741,6 +741,17 @@ describe('Vault (instance)', () => {
       expect(currentAccount.name).toBe('Renamed');
     });
 
+    // The backup merges names by the time of the rename, so the time is stored with the name.
+    it('keeps the rename time with the name, and keeps no time when the caller gives none', async () => {
+      const vault = await seedVault('pw');
+      const renamed = await vault.editAccountName('acc-pub-key-1', 'Renamed', 1234);
+      expect(renamed.accounts[0]!.nameUpdatedAt).toBe(1234);
+      expect((await vault.fetchAccounts())[0]!.nameUpdatedAt).toBe(1234);
+
+      const unknown = await vault.editAccountName('acc-pub-key-1', 'Again');
+      expect(unknown.accounts[0]!.nameUpdatedAt).toBeUndefined();
+    });
+
     it('throws PublicError when the target public key is unknown', async () => {
       const vault = await seedVault('pw');
       await expect(vault.editAccountName('not-here', 'Whatever')).rejects.toThrow(PublicError);

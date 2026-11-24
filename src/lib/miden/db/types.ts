@@ -1174,6 +1174,14 @@ export interface ITransaction {
   restoredFromBackup?: boolean;
   /** Bridge details from a peer for a claim this device already recorded. */
   backupBridgeReceipt?: { bridgeIn: IBridgeInInfo; displayMessage?: string };
+  /**
+   * The account commitment after this transaction: the final account header of its result, as the device that made
+   * it read it. Only for a Completed row with no notes (a rotation, a Guardian switch, a threshold update): the
+   * encrypted backup reads it from `resultBytes` before the reaper releases them (`recordFinalAccountCommitments`)
+   * and carries it in the receipt (`fc`). The Guardian history pass ties its record of the transaction to such a
+   * receipt by it, since nothing else that both carry names the transaction. A record only, never an input.
+   */
+  finalAccountCommitment?: string;
   resultBytes?: Uint8Array;
   /**
    * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row

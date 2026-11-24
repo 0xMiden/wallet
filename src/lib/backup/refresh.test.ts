@@ -3,8 +3,10 @@ import type { BackupRefreshReason } from 'lib/shared/types';
 
 import { syncAccounts } from './features/accounts';
 import { syncContacts } from './features/contacts';
-import { flushHistory, peerHistoryChunkCount, readHistory } from './features/history';
+import { flushHistory, peerHistoryChunkCount, readHistory, recordFinalAccountCommitments } from './features/history';
 import {
+  BACKUP_RETRY_CAP_MS,
+  BACKUP_RETRY_FLOOR_MS,
   GUARDIAN_REREAD_DELAYS_MS,
   deleteBackupProfile,
   onBackupLock,
@@ -54,7 +56,8 @@ jest.mock('./features/contacts', () => ({ syncContacts: jest.fn() }));
 jest.mock('./features/history', () => ({
   flushHistory: jest.fn(),
   peerHistoryChunkCount: jest.fn(),
-  readHistory: jest.fn()
+  readHistory: jest.fn(),
+  recordFinalAccountCommitments: jest.fn(async () => undefined)
 }));
 
 const savedDefine = process.env.MIDEN_WALLET_API_URL;
@@ -69,6 +72,7 @@ const ALL_REASONS: BackupRefreshReason[] = [
   'foreground',
   'address-book',
   'contacts-changed',
+  'account-renamed',
   'activity-open',
   'guardian-adopt',
   'transaction-completed'
@@ -96,6 +100,7 @@ beforeEach(async () => {
   jest.mocked(readHistory).mockReset().mockResolvedValue(false);
   jest.mocked(flushHistory).mockReset().mockResolvedValue(0);
   jest.mocked(peerHistoryChunkCount).mockReset().mockResolvedValue(0);
+  jest.mocked(recordFinalAccountCommitments).mockReset().mockResolvedValue(undefined);
   // The session opens with real timers; the schedule tests then take fake ones.
   const opened = await getBackupSession();
   if (!('session' in opened)) throw new Error(`No session: ${opened.unavailable}`);
@@ -184,6 +189,17 @@ describe('runBackupRefresh dispatch', () => {
     }
   );
 
+  it('account-renamed reads and uploads the accounts only', async () => {
+    jest.mocked(syncAccounts).mockResolvedValue(true);
+    const mark = server.requests.length;
+    await expect(runBackupRefresh('account-renamed')).resolves.toBe('updated');
+    expect(syncAccounts).toHaveBeenCalledWith(session, true);
+    expect(syncContacts).not.toHaveBeenCalled();
+    expect(readHistory).not.toHaveBeenCalled();
+    expect(flushHistory).not.toHaveBeenCalled();
+    expect(server.requestsSince(mark)).toHaveLength(0);
+  });
+
   it('activity-open reads the history with since once, and schedules no re-read', async () => {
     jest.useFakeTimers();
     await expect(runBackupRefresh('activity-open')).resolves.toBe('unchanged');
@@ -198,6 +214,16 @@ describe('runBackupRefresh dispatch', () => {
     await expect(runBackupRefresh('transaction-completed')).resolves.toBe('updated');
     await expect(runBackupRefresh('transaction-completed')).resolves.toBe('unchanged');
     expect(readHistory).not.toHaveBeenCalled();
+  });
+
+  // The result bytes go 10 minutes after completion, also while the server cannot be reached.
+  it('transaction-completed reads the final account commitments even when no session opens', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    clearBackupSession();
+    server.failNext('POST', '/v1/auth/nonce', { status: 503, body: { error: 'service_unavailable', message: 'down' } });
+    await expect(runBackupRefresh('transaction-completed')).resolves.toBe('failed');
+    expect(recordFinalAccountCommitments).toHaveBeenCalledTimes(1);
+    expect(flushHistory).not.toHaveBeenCalled();
   });
 
   it('reports locked for a session that closed under the refresh, and logs no failure', async () => {
@@ -265,14 +291,22 @@ describe('Guardian adoption re-reads', () => {
     expect(readHistory).toHaveBeenCalledTimes(1);
   });
 
-  it('stops after a re-read that fails', async () => {
+  // The re-read schedule stops; the backup retry takes over, so a peer's history still arrives after an outage.
+  it('hands a re-read that fails to the backup retry', async () => {
     jest.useFakeTimers();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.mocked(readHistory).mockResolvedValueOnce(false).mockRejectedValueOnce(new Error('network'));
     await runBackupRefresh('guardian-adopt');
-    await jest.advanceTimersByTimeAsync(3_600_000);
+    await jest.advanceTimersByTimeAsync(10_000);
     expect(readHistory).toHaveBeenCalledTimes(2);
     expect(warn).toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(30_000);
+    // The retry is the unlock refresh: the storage index names a history ETag this device has not read.
+    expect(syncAccounts).toHaveBeenCalledTimes(1);
+    expect(readHistory).toHaveBeenCalledTimes(3);
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(readHistory).toHaveBeenCalledTimes(3);
   });
 
   it('restarts the schedule on a new adoption and never stacks a second one', async () => {
@@ -337,6 +371,178 @@ describe('Guardian adoption re-reads', () => {
     expect(session.storageKey.every(byte => byte === 0)).toBe(true);
     await jest.advanceTimersByTimeAsync(3_600_000);
     expect(readHistory).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the retry after a failed refresh', () => {
+  const accountSyncs = () => jest.mocked(syncAccounts).mock.calls.length;
+
+  /** A contacts refresh that fails on the network. */
+  async function failContactsRefresh(): Promise<void> {
+    jest.mocked(syncContacts).mockRejectedValueOnce(new Error('network'));
+    await expect(runBackupRefresh('contacts-changed')).resolves.toBe('failed');
+  }
+
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  it('pins the floor at 30 seconds and the cap at 30 minutes', () => {
+    expect(BACKUP_RETRY_FLOOR_MS).toBe(30_000);
+    expect(BACKUP_RETRY_CAP_MS).toBe(1_800_000);
+  });
+
+  it('runs one unlock refresh after the floor, and stops once it goes through', async () => {
+    jest.useFakeTimers();
+    await failContactsRefresh();
+    expect(syncAccounts).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(syncAccounts).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(syncAccounts).toHaveBeenCalledWith(session, true);
+    expect(syncContacts).toHaveBeenCalledTimes(2);
+    expect(flushHistory).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(accountSyncs()).toBe(1);
+  });
+
+  it('doubles the wait after each failed retry, up to the cap', async () => {
+    jest.useFakeTimers();
+    jest.mocked(syncAccounts).mockRejectedValue(new Error('network'));
+    await expect(runBackupRefresh('unlock')).resolves.toBe('failed');
+    for (const wait of [30_000, 60_000, 120_000, 240_000, 480_000, 960_000, 1_800_000, 1_800_000]) {
+      const before = accountSyncs();
+      await jest.advanceTimersByTimeAsync(wait - 1);
+      expect(accountSyncs()).toBe(before);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(accountSyncs()).toBe(before + 1);
+    }
+  });
+
+  it('starts again from the floor after a refresh goes through', async () => {
+    jest.useFakeTimers();
+    jest.mocked(syncAccounts).mockRejectedValueOnce(new Error('network')).mockRejectedValueOnce(new Error('network'));
+    await runBackupRefresh('unlock');
+    await jest.advanceTimersByTimeAsync(30_000);
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(accountSyncs()).toBe(3);
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(accountSyncs()).toBe(3);
+
+    await failContactsRefresh();
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(accountSyncs()).toBe(4);
+  });
+
+  it('waits at least the Retry-After of a 429', async () => {
+    jest.useFakeTimers();
+    server.failNext('GET', '/v1/storage', {
+      status: 429,
+      body: { error: 'rate_limited', message: 'slow down' },
+      headers: { 'Retry-After': '90' }
+    });
+    await expect(runBackupRefresh('unlock')).resolves.toBe('failed');
+    const mark = server.requests.length;
+
+    await jest.advanceTimersByTimeAsync(89_999);
+    expect(server.requestsSince(mark)).toHaveLength(0);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(server.requestsSince(mark).map(request => `${request.method} ${request.path}`)).toEqual(['GET /v1/storage']);
+  });
+
+  it('waits at least the Retry-After of a 429 to a login', async () => {
+    jest.useFakeTimers();
+    clearBackupSession();
+    server.failNext('POST', '/v1/auth/nonce', {
+      status: 429,
+      body: { error: 'rate_limited', message: 'slow down' },
+      headers: { 'Retry-After': '120' }
+    });
+    await expect(runBackupRefresh('contacts-changed')).resolves.toBe('failed');
+    const mark = server.requests.length;
+
+    await jest.advanceTimersByTimeAsync(119_999);
+    expect(server.requestsSince(mark)).toHaveLength(0);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(server.requestsSince(mark)[0]?.path).toBe('/v1/auth/nonce');
+  });
+
+  it('moves a pending retry later for a Retry-After that asks for more', async () => {
+    jest.useFakeTimers();
+    await failContactsRefresh();
+    server.failNext('GET', '/v1/storage', {
+      status: 429,
+      body: { error: 'rate_limited', message: 'slow down' },
+      headers: { 'Retry-After': '120' }
+    });
+    await expect(runBackupRefresh('foreground')).resolves.toBe('failed');
+    await jest.advanceTimersByTimeAsync(119_999);
+    expect(accountSyncs()).toBe(0);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(accountSyncs()).toBe(1);
+  });
+
+  it('runs one retry at a time: an event that fails during a retry starts no second one', async () => {
+    jest.useFakeTimers();
+    await failContactsRefresh();
+    let finish: () => void = () => {};
+    jest.mocked(syncAccounts).mockImplementationOnce(
+      () =>
+        new Promise<boolean>(resolve => {
+          finish = () => resolve(false);
+        })
+    );
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(accountSyncs()).toBe(1);
+
+    await failContactsRefresh();
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(accountSyncs()).toBe(1);
+
+    finish();
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(accountSyncs()).toBe(1);
+  });
+
+  it('drops the retry on lock', async () => {
+    jest.useFakeTimers();
+    await failContactsRefresh();
+    onBackupLock();
+    const mark = server.requests.length;
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(server.requestsSince(mark)).toHaveLength(0);
+    expect(syncAccounts).not.toHaveBeenCalled();
+  });
+
+  it('drops the retry on a storage wipe', async () => {
+    jest.useFakeTimers();
+    await failContactsRefresh();
+    onBackupStorageCleared();
+    const mark = server.requests.length;
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(server.requestsSince(mark)).toHaveLength(0);
+    expect(syncAccounts).not.toHaveBeenCalled();
+  });
+
+  it('drops the retry when the profile is deleted', async () => {
+    jest.useFakeTimers();
+    await failContactsRefresh();
+    await expect(deleteBackupProfile()).resolves.toBe('updated');
+    const mark = server.requests.length;
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(server.requestsSince(mark)).toHaveLength(0);
+    expect(syncAccounts).not.toHaveBeenCalled();
+  });
+
+  it('schedules nothing for an outcome that is not a failure', async () => {
+    jest.useFakeTimers();
+    jest.mocked(syncContacts).mockRejectedValueOnce(new BackupSessionClosedError('locked'));
+    jest.spyOn(console, 'info').mockImplementation(() => {});
+    await expect(runBackupRefresh('contacts-changed')).resolves.toBe('locked');
+    await runBackupRefresh('address-book');
+    await jest.advanceTimersByTimeAsync(3_600_000);
+    expect(syncAccounts).not.toHaveBeenCalled();
   });
 });
 

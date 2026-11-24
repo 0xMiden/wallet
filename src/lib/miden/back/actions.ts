@@ -749,22 +749,27 @@ export function revealPublicKey(_accPublicKey: string) {}
 // the SE/Keystore entry and cold key material outlive the deleted account.
 export function removeAccount(_accPublicKey: string, _password: string) {}
 
-export function editAccount(accPublicKey: string, name: string) {
+export async function editAccount(accPublicKey: string, name: string) {
   console.log({ accPublicKey, name });
   // Queued: renaming also reads the accounts list and writes it back, so it can
   // drop (or be dropped by) a concurrent create/import/recovery write.
-  return withUnlocked(({ vault }) =>
+  await withUnlocked(({ vault }) =>
     getAccountsWriteQueue().add(async () => {
       name = name.trim();
       if (!ACCOUNT_NAME_PATTERN.test(name)) {
         throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
       }
 
-      const updatedAccounts = await vault.editAccountName(accPublicKey, name);
+      // The rename time goes with the name: the backup merges names by the time of the rename, not of the upload.
+      const updatedAccounts = await vault.editAccountName(accPublicKey, name, Date.now());
       console.log({ updatedAccounts });
       accountsUpdated(updatedAccounts);
     })
   );
+  // The new name goes to the encrypted backup at once, after the write and outside the accounts queue: a peer
+  // rename that the refresh applies waits for that queue. The refresh never throws. Not awaited, so the caller's
+  // response does not wait for the network.
+  runBackupRefresh('account-renamed');
 }
 
 export function importAccount(privateKey: string, name?: string) {
