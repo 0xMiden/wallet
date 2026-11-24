@@ -227,7 +227,11 @@ export function pswapNoteTag(offeredFaucet: AccountId, requestedFaucet: AccountI
 
 /** The node's current block height, on an RpcClient of its own. */
 export function readChainTip(): Promise<number> {
-  return read('chain-tip', 'chain tip', async rpc => (await rpc.getBlockHeaderByNumber(null, false)).blockNum());
+  return withRpcTimeout(
+    () => readWithOwnRpcClient(async rpc => (await rpc.getBlockHeaderByNumber(null, false)).blockNum()),
+    'chain tip',
+    { timeoutMs: PSWAP_ORDER_NOTE_READ_TIMEOUT_MS, retries: 0 }
+  );
 }
 
 // Note-sync calls one tag listing makes before it gives up: the node answers a sync one block of matches at a time.
