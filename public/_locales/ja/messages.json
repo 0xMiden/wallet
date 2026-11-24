@@ -4558,6 +4558,14 @@
     "message": "お支払いが完了しました！",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "出金に成功しました",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "ロックされた資金に戻る",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "Via Epochより",
     "englishSource": "Via Epoch"

@@ -4558,6 +4558,14 @@
     "message": "Платеж отправлен!",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "Вывод средств выполнен успешно",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "Вернуться к заблокированным средствам",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "Через Epoch",
     "englishSource": "Via Epoch"

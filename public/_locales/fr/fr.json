@@ -1010,6 +1010,8 @@
   "transactionErrorDescription": "Une erreur s'est produite lors du traitement de votre transaction. Veuillez réessayer.",
   "transactionRoute": "Itinéraire",
   "paymentSent": "Paiement envoyé !",
+  "bridgeWithdrawalSuccessful": "Retrait effectué avec succès",
+  "returnToLockedFunds": "Retour aux fonds bloqués",
   "bridgeRouteViaEpoch": "Via Epoch",
   "bridgeRouteViaAgglayer": "Via Agglayer",
   "bridgeSpeedFast": "Rapide",

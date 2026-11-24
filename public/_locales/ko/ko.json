@@ -1010,6 +1010,8 @@
   "transactionErrorDescription": "거래 처리 중 오류가 발생했습니다. 다시 시도해 주십시오.",
   "transactionRoute": "경로",
   "paymentSent": "결제가 완료되었습니다!",
+  "bridgeWithdrawalSuccessful": "인출 성공",
+  "returnToLockedFunds": "잠긴 자금으로 돌아가기",
   "bridgeRouteViaEpoch": "Epoch를 통해",
   "bridgeRouteViaAgglayer": "Agglayer를 통해",
   "bridgeSpeedFast": "빠름",

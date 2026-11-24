@@ -1010,6 +1010,8 @@
   "transactionErrorDescription": "處理您的交易時發生錯誤。請重新嘗試。",
   "transactionRoute": "路線",
   "paymentSent": "付款已發送！",
+  "bridgeWithdrawalSuccessful": "提領成功",
+  "returnToLockedFunds": "返回鎖定資金頁面",
   "bridgeRouteViaEpoch": "經由 Epoch",
   "bridgeRouteViaAgglayer": "經由 Agglayer",
   "bridgeSpeedFast": "快速",

@@ -1010,6 +1010,8 @@
   "transactionErrorDescription": "Wystąpił błąd podczas przetwarzania transakcji. Spróbuj ponownie.",
   "transactionRoute": "Trasa",
   "paymentSent": "Płatność wysłana!",
+  "bridgeWithdrawalSuccessful": "Wypłata zakończona sukcesem",
+  "returnToLockedFunds": "Powrót do zablokowanych środków",
   "bridgeRouteViaEpoch": "Za pośrednictwem Epoch",
   "bridgeRouteViaAgglayer": "Za pośrednictwem Agglayer",
   "bridgeSpeedFast": "Szybko",

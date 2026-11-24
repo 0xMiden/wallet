@@ -4558,6 +4558,14 @@
     "message": "Ödeme Yapıldı!",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "Para çekme işlemi başarıyla gerçekleştirildi",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "Kilitli fonlara geri dön",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "Epoch aracılığıyla",
     "englishSource": "Via Epoch"
