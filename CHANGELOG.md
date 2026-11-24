@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [CHORE][all] Share the native-Reown versus wagmi contract transaction helper across USDCx deposits and CCTP execution (#1398).
 - [FEATURE][all] A basket's row in the asset list moves like its tokens: its 24h move and a 1D line weighted by the vault's mix, as on its token page, instead of a flat grey line.
 - [FIX][ci] Reload the selected extension build before using a saved Playwright wallet profile.
 - [FIX][e2e] Link stress-test sends to wallet transaction receipts, wait for timed-out send UI helpers to settle, and audit send completion against the configured failure budget.
