@@ -231,16 +231,11 @@ export async function isDAppEnabled() {
 const isInviteOnlyNetwork = () => getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
 
 async function readPendingAdmission(): Promise<string[] | undefined> {
-  try {
-    const items = await getStorageProvider().get([PENDING_ADMISSION_STORAGE_KEY]);
-    const accountIds: unknown = items[PENDING_ADMISSION_STORAGE_KEY];
-    return Array.isArray(accountIds) && accountIds.every((id): id is string => typeof id === 'string')
-      ? accountIds
-      : undefined;
-  } catch {
-    // An unreadable marker never wipes a wallet.
-    return undefined;
-  }
+  const items = await getStorageProvider().get([PENDING_ADMISSION_STORAGE_KEY]);
+  const accountIds: unknown = items[PENDING_ADMISSION_STORAGE_KEY];
+  if (accountIds === undefined) return undefined;
+  if (Array.isArray(accountIds) && accountIds.every((id): id is string => typeof id === 'string')) return accountIds;
+  throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
 }
 
 async function markPendingAdmission(accountIds: string[]) {
@@ -265,10 +260,10 @@ async function admitsEveryAccount(accountIds: string[]): Promise<boolean> {
  * keeps the wallet and the marker so the next start asks again.
  */
 async function keepsSetupPendingAdmission(): Promise<boolean> {
-  const accountIds = await readPendingAdmission();
-  if (accountIds === undefined) return true;
   let admitted = false;
   try {
+    const accountIds = await readPendingAdmission();
+    if (accountIds === undefined) return true;
     if (accountIds.length > 0) {
       // The node to ask is the stored network's, and a mobile or desktop realm runs init before its page loads it.
       await loadEndpointOverrides();
@@ -556,6 +551,14 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
             .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
         const accounts = await vault.fetchAccounts();
+        const pendingAdmission = await readPendingAdmission();
+        if (pendingAdmission !== undefined) {
+          // Init can retain this vault after an inconclusive node response. Verify the actual vault before publishing it.
+          await loadEndpointOverrides();
+          if (!pendingAdmission.length || !accounts.length || !isInviteOnlyNetwork())
+            throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
+          await assertEveryMainnetAdmitted(accounts);
+        }
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonic = await vault.isOwnMnemonic();
@@ -569,6 +572,7 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
           ownMnemonic,
           seedPhraseStatus
         });
+        if (pendingAdmission !== undefined) await clearPendingAdmission();
       } finally {
         syncRealmInsertKeySink();
       }
