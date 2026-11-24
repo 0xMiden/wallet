@@ -19,6 +19,8 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowChoreographer;
+import org.robolectric.util.ReflectionHelpers;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34)
@@ -26,6 +28,10 @@ public class NavbarPresentationTest {
 
     @Test
     public void condensedNavbarHidesLabelsAndSecondaryRowButKeepsDestinationsTappable() throws ReflectiveOperationException {
+        ShadowChoreographer.setPaused(true);
+        ThreadLocal<?> animatorHandler = ReflectionHelpers.getStaticField(
+            Class.forName("androidx.dynamicanimation.animation.AnimationHandler"), "sAnimatorHandler");
+        animatorHandler.remove();
         var controller = Robolectric.buildActivity(Activity.class).setup().visible();
         try {
             Activity activity = controller.get();
@@ -38,7 +44,7 @@ public class NavbarPresentationTest {
             List<NavbarButton> destinations = descendants(decor, NavbarButton.class);
             assertEquals(4, destinations.size());
             assertTrue(destinations.stream().allMatch(NavbarPresentationTest::hasVisibleLabel));
-            assertTrue(hasVisibleSecondaryRow(decor));
+            assertTrue("Expanded baseline must lay out the Send secondary action", hasVisibleSecondaryRow(decor));
 
             requestPresentation(manager, "condensed");
             settleAndLayout(decor);
@@ -76,7 +82,10 @@ public class NavbarPresentationTest {
     }
 
     private static void settleAndLayout(ViewGroup decor) {
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        // SpringAnimation needs consecutive vsync timestamps in Robolectric.
+        for (int elapsed = 0; elapsed < 3000; elapsed += 16) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16));
+        }
         int width = View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY);
         int height = View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY);
         decor.measure(width, height);
