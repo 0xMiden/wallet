@@ -9951,6 +9951,22 @@
     "message": "名前の取得",
     "englishSource": "Claim a name"
   },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "人々が送信できる名前を請求する",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "非表示",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "いつでも名前を登録できます",
+    "englishSource": "Claim a name any time"
+  },
   "midenNameSearchPlaceholder": {
     "message": "yourname",
     "englishSource": "yourname"
@@ -10221,21 +10237,5 @@
         "content": "$2"
       }
     }
-  },
-  "midenNameClaimSlotPlaceholder": {
-    "message": "yourname",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotSubtitle": {
-    "message": "Claim a name people can send to",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotDismiss": {
-    "message": "Hide",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimAnyTime": {
-    "message": "Claim a name any time",
-    "englishSource": "(untranslated)"
   }
 }

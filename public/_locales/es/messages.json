@@ -9959,6 +9959,22 @@
     "message": "Reclamar un nombre",
     "englishSource": "Claim a name"
   },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "tunombre",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "Elige un nombre al que la gente pueda enviar",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "Ocultar",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "Reclama un nombre en cualquier momento",
+    "englishSource": "Claim a name any time"
+  },
   "midenNameSearchPlaceholder": {
     "message": "tunombre",
     "englishSource": "yourname"
@@ -10229,21 +10245,5 @@
         "content": "$2"
       }
     }
-  },
-  "midenNameClaimSlotPlaceholder": {
-    "message": "yourname",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotSubtitle": {
-    "message": "Claim a name people can send to",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotDismiss": {
-    "message": "Hide",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimAnyTime": {
-    "message": "Claim a name any time",
-    "englishSource": "(untranslated)"
   }
 }

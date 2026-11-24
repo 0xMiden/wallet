@@ -9961,6 +9961,22 @@
     "message": "Einen Namen beanspruchen",
     "englishSource": "Claim a name"
   },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "IhrName",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "Sichern Sie sich einen Namen, an den Leute senden können:",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "Ausblenden",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "Beanspruchen Sie jederzeit einen Namen",
+    "englishSource": "Claim a name any time"
+  },
   "midenNameSearchPlaceholder": {
     "message": "Ihr Name",
     "englishSource": "yourname"
@@ -10231,21 +10247,5 @@
         "content": "$2"
       }
     }
-  },
-  "midenNameClaimSlotPlaceholder": {
-    "message": "yourname",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotSubtitle": {
-    "message": "Claim a name people can send to",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotDismiss": {
-    "message": "Hide",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimAnyTime": {
-    "message": "Claim a name any time",
-    "englishSource": "(untranslated)"
   }
 }

@@ -9954,6 +9954,22 @@
     "message": "Zarejestruj nazwę",
     "englishSource": "Claim a name"
   },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "twoje_imię",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "Podaj nazwę, na którą ludzie mogą wysyłać wiadomości do",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "Ukryj",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "Zgłoś nazwę w dowolnym momencie",
+    "englishSource": "Claim a name any time"
+  },
   "midenNameSearchPlaceholder": {
     "message": "twoje_imię",
     "englishSource": "yourname"
@@ -10224,21 +10240,5 @@
         "content": "$2"
       }
     }
-  },
-  "midenNameClaimSlotPlaceholder": {
-    "message": "yourname",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotSubtitle": {
-    "message": "Claim a name people can send to",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotDismiss": {
-    "message": "Hide",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimAnyTime": {
-    "message": "Claim a name any time",
-    "englishSource": "(untranslated)"
   }
 }

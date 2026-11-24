@@ -9955,6 +9955,22 @@
     "message": "Зарегистрировать имя",
     "englishSource": "Claim a name"
   },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "Заявите имя, на которое люди могут отправлять",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "Скрыть",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "Зарегистрируйте имя в любое время",
+    "englishSource": "Claim a name any time"
+  },
   "midenNameSearchPlaceholder": {
     "message": "yourname",
     "englishSource": "yourname"
@@ -10225,21 +10241,5 @@
         "content": "$2"
       }
     }
-  },
-  "midenNameClaimSlotPlaceholder": {
-    "message": "yourname",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotSubtitle": {
-    "message": "Claim a name people can send to",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimSlotDismiss": {
-    "message": "Hide",
-    "englishSource": "(untranslated)"
-  },
-  "midenNameClaimAnyTime": {
-    "message": "Claim a name any time",
-    "englishSource": "(untranslated)"
   }
 }
