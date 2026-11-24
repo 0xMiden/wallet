@@ -203,8 +203,11 @@ const claim = (id: string, status: PendingActivityItem['status']): PendingActivi
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { count?: number }) =>
-      key === 'activityGroupPartialCount' && options?.count !== undefined ? `${options.count}+` : key
+    t: (key: string, options?: { count?: number }) => {
+      if (key === 'activityGroupPartialCount' && options?.count !== undefined) return `${options.count}+`;
+      if (key === 'activityPendingWaiting' && options?.count !== undefined) return `${options.count} waiting`;
+      return key;
+    }
   })
 }));
 jest.mock('app/hooks/useActivityClaims', () => ({
@@ -305,6 +308,45 @@ describe('ActivityGroupedHistory', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
     await waitFor(() => expect(mockHide).toHaveBeenCalledWith('note-1'));
     expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'activityRejectTransfer' }));
+  });
+
+  it('shows waiting transfers for their counterparty without counting a hidden or in-flight claim', () => {
+    mockRealGroupList = true;
+    loaded.push(
+      entry({ key: 'alice-history', secondaryAddress: 'mtst1alice' }),
+      entry({ key: 'bob-history', secondaryAddress: 'mtst1bob', type: HistoryEntryType.PendingTransaction })
+    );
+    const fromAlice = (id: string, status: PendingActivityItem['status']): PendingActivityItem => {
+      const item = claim(id, status);
+      return { ...item, note: { ...item.note, senderAddress: 'MTST1ALICE' } };
+    };
+    mockClaims.items = [
+      fromAlice('open', 'pending'),
+      fromAlice('retryable', 'failed'),
+      fromAlice('accepting', 'claiming'),
+      fromAlice('declined', 'pending')
+    ];
+    mockHidden.ids = new Set(['declined']);
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    const alice = screen.getByRole('link', { name: /Alice/ });
+    const bob = screen.getByRole('link', { name: /mtst1bob/ });
+    expect(within(bob).getByTestId('activity-group-pending')).toBeInTheDocument();
+    expect(within(bob).queryByText(/waiting/)).toBeNull();
+    expect(within(alice).getByText('2 waiting')).toBeInTheDocument();
+  });
+
+  it('links to a counterparty group when its only activity is a transfer waiting to be accepted', () => {
+    mockRealGroupList = true;
+    mockClaims.items = [claim('first-transfer', 'pending')];
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
+    const sender = screen.getByRole('link', { name: /mtst1sender/ });
+    expect(sender).toHaveAttribute('href', '/activity/group/address/mtst1sender');
+    expect(within(sender).getByText('1 waiting')).toBeInTheDocument();
   });
 
   it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {
