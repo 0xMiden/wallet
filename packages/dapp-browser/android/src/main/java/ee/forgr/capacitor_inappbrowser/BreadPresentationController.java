@@ -156,6 +156,7 @@ final class BreadPresentationController {
     private int browserSystemUiVisibility;
     private int browserVisibleBars;
     private android.graphics.drawable.Drawable browserBackground;
+    private android.graphics.drawable.Drawable browserContainerBackground;
     private final int browserAppBarVisibility;
     private final int browserStatusVisibility;
     private final int browserCutoutMode;
@@ -1391,6 +1392,7 @@ final class BreadPresentationController {
                 browserBarsBehavior = controller.getSystemBarsBehavior();
                 browserSystemUiVisibility = window.getDecorView().getSystemUiVisibility();
                 browserBackground = window.getDecorView().getBackground();
+                browserContainerBackground = container.getBackground();
                 WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(window.getDecorView());
                 browserVisibleBars = 0;
                 if (insets == null || insets.isVisible(WindowInsetsCompat.Type.statusBars())) {
@@ -1409,13 +1411,14 @@ final class BreadPresentationController {
             params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
             window.setAttributes(params);
             WindowCompat.setDecorFitsSystemWindows(window, false);
+            // Keep the live Dialog window drawable transparent so fullscreen morphs clear cleanly across swapchain frames.
+            window.setBackgroundDrawableResource(android.R.color.transparent);
+            container.setBackgroundColor(Color.BLACK);
             if (posed) {
                 // The host shows around the moving page, with its own bars, until the page rests again.
-                window.setBackgroundDrawableResource(android.R.color.transparent);
                 controller.setSystemBarsBehavior(browserBarsBehavior);
                 controller.show(browserVisibleBars);
             } else {
-                window.setBackgroundDrawableResource(android.R.color.black);
                 controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
                 controller.hide(WindowInsetsCompat.Type.systemBars());
             }
@@ -1431,6 +1434,8 @@ final class BreadPresentationController {
         } else {
             restoreWindow();
             browserPolicyCaptured = false;
+            browserBackground = null;
+            browserContainerBackground = null;
             owner.applyBrowserDimensions();
         }
         ViewCompat.requestApplyInsets(webView);
@@ -1459,6 +1464,7 @@ final class BreadPresentationController {
         controller.hide(WindowInsetsCompat.Type.systemBars() & ~browserVisibleBars);
         window.getDecorView().setSystemUiVisibility(browserSystemUiVisibility);
         window.setBackgroundDrawable(browserBackground);
+        container.setBackground(browserContainerBackground);
         ViewCompat.requestApplyInsets(webView);
     }
 

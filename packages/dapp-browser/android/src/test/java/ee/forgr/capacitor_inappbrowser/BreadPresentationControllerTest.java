@@ -1216,6 +1216,7 @@ public class BreadPresentationControllerTest {
         WindowManager.LayoutParams hostBefore = new WindowManager.LayoutParams();
         hostBefore.copyFrom(host.getAttributes());
         int pageFlags = page.getAttributes().flags;
+        int pageFormat = page.getAttributes().format;
         float pageAlpha = page.getAttributes().alpha;
         int pageSoftInput = page.getAttributes().softInputMode;
         int orientation = activity.getRequestedOrientation();
@@ -1227,7 +1228,8 @@ public class BreadPresentationControllerTest {
         hostAfter.rotationAnimation = 0;
         assertEquals(0, hostAfter.copyFrom(hostBefore));
         assertEquals(pageFlags, page.getAttributes().flags);
-        assertEquals(android.graphics.PixelFormat.OPAQUE, page.getAttributes().format);
+        assertEquals(pageFormat, page.getAttributes().format);
+        assertEquals(android.graphics.PixelFormat.TRANSPARENT, page.getAttributes().format);
         assertEquals(pageAlpha, page.getAttributes().alpha, 0);
         assertEquals(pageSoftInput, page.getAttributes().softInputMode);
         assertEquals(orientation, activity.getRequestedOrientation());
@@ -3777,5 +3779,76 @@ public class BreadPresentationControllerTest {
         verify(call).resolve(result.capture());
         assertTrue(result.getValue().getString("data").startsWith("data:image/jpeg;base64,"));
         verify(call, never()).reject(anyString());
+    }
+
+    private static void assertTransparentWindowBackground(Window window) {
+        android.graphics.drawable.Drawable background = window.getDecorView().getBackground();
+        assertTrue("window background should be ColorDrawable", background instanceof android.graphics.drawable.ColorDrawable);
+        assertEquals(android.graphics.Color.TRANSPARENT, ((android.graphics.drawable.ColorDrawable) background).getColor());
+        assertEquals(android.graphics.PixelFormat.TRANSPARENT, window.getAttributes().format);
+    }
+
+    private static void assertBlackContainerBackground(View view) {
+        android.graphics.drawable.Drawable background = view.getBackground();
+        assertTrue("container background should be ColorDrawable", background instanceof android.graphics.drawable.ColorDrawable);
+        assertEquals(android.graphics.Color.BLACK, ((android.graphics.drawable.ColorDrawable) background).getColor());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void fullscreenWindowRemainsTransparentWhileContainerHoldsBlackBackdrop() throws Exception {
+        open(true, true, "default");
+        android.graphics.drawable.Drawable original = new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLUE);
+        dialog.findViewById(R.id.coordinator_layout).setBackground(original);
+        fullscreen();
+        assertTrue(controller.state.ready());
+        morphFixture();
+        reveal();
+        assertTransparentWindowBackground(dialog.getWindow());
+        assertBlackContainerBackground(root);
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
+        assertSame(original, root.getBackground());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void repeatedFullscreenMinimizeAndRestoreKeepsWindowTransparent() throws Exception {
+        open(true, true, "default");
+        android.graphics.drawable.Drawable original = new android.graphics.drawable.ColorDrawable(android.graphics.Color.GREEN);
+        dialog.findViewById(R.id.coordinator_layout).setBackground(original);
+        fullscreen();
+        assertTrue(controller.state.ready());
+        morphFixture();
+        reveal();
+        Window page = dialog.getWindow();
+        BreadMorphCard target = card();
+
+        assertTrue(collapse(target, "m1"));
+        assertTransparentWindowBackground(page);
+        assertBlackContainerBackground(root);
+        BreadMorphControllerTest.frame();
+        BreadMorphControllerTest.settle();
+        assertTransparentWindowBackground(page);
+        assertBlackContainerBackground(root);
+
+        controller.visibility(false, null, nextSequence());
+        assertSame(original, root.getBackground());
+
+        assertTrue(controller.morph("expanded", target, 0, 0, "e1", (int) controller.state.policyRevision(), nextSequence()));
+        assertTransparentWindowBackground(page);
+        assertBlackContainerBackground(root);
+        BreadMorphControllerTest.frame();
+        BreadMorphControllerTest.settle();
+        assertTransparentWindowBackground(page);
+        assertBlackContainerBackground(root);
+
+        assertTrue(collapse(target, "m2"));
+        assertTransparentWindowBackground(page);
+        assertBlackContainerBackground(root);
+        BreadMorphControllerTest.frame();
+        BreadMorphControllerTest.settle();
+        assertTransparentWindowBackground(page);
+
+        controller.visibility(false, null, nextSequence());
+        assertSame(original, root.getBackground());
     }
 }
