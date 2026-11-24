@@ -218,8 +218,20 @@ export interface HistoryDetailsSectionPolicy {
   to: HistoryAddressRole;
 }
 
-const assertUnreachable = (value: never): never => {
-  throw new Error(`Unhandled transaction type in HistoryDetails section policy: ${String(value)}`);
+const legacyTransferFallbackPolicy = (
+  entry: IHistoryEntry,
+  _exhaustiveCheck: never
+): HistoryDetailsSectionPolicy => {
+  // Persisted/imported rows created before `txType` existed (or from a newer schema) fall back
+  // to standard transfer rows instead of crashing React render.
+  const isOutbound = entry.message === 'Sent';
+  return {
+    bridgeClaim: false,
+    inboundBridge: false,
+    oneClick: false,
+    from: isOutbound ? 'account' : 'secondary',
+    to: isOutbound ? 'secondary' : 'account'
+  };
 };
 
 const receiveSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy => {
@@ -295,12 +307,11 @@ export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDet
         to: 'none'
       };
     default:
-      return assertUnreachable(entry.txType);
+      return legacyTransferFallbackPolicy(entry, entry.txType);
   }
 };
 
-const resolvePolicyAddress = (role: HistoryAddressRole, entry: IHistoryEntry | null): string | undefined => {
-  if (!entry) return undefined;
+const resolvePolicyAddress = (role: HistoryAddressRole, entry: IHistoryEntry): string | undefined => {
   switch (role) {
     case 'account':
       return entry.address;

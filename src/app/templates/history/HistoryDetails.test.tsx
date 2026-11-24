@@ -829,6 +829,26 @@ describe('HistoryDetails', () => {
     }
   );
 
+  it('falls back to outbound transfer details when a persisted row has no txType and message is Sent', async () => {
+    setMockRow({ ...baseSendTx, type: undefined, displayMessage: 'Sent' });
+    await renderAndLoad();
+
+    expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-A');
+    expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
+    expect(sectionByTitle('bridgeDetails')).toBeUndefined();
+    expect(screen.queryByTestId('one-click-history-details')).not.toBeInTheDocument();
+  });
+
+  it('falls back to inbound transfer details when a persisted row has no txType and message is not Sent', async () => {
+    setMockRow({ ...baseSendTx, type: undefined, displayMessage: 'Received' });
+    await renderAndLoad();
+
+    expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
+    expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-A');
+    expect(sectionByTitle('bridgeDetails')).toBeUndefined();
+    expect(screen.queryByTestId('one-click-history-details')).not.toBeInTheDocument();
+  });
+
   it('uses only the Command workbench header when reopening the original receipt', async () => {
     setMockRow(baseSendTx);
     render(
