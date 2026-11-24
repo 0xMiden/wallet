@@ -74,8 +74,23 @@ const contacts = {
     { address: 'mtst1blankaddress0000', name: '   ' }
   ]
 };
+const mockOwnContactAccount = { publicKey: 'mtst1own', name: 'My account', isPublic: false };
+const mockUpdateSettings = jest.fn();
+let mockRealContacts = false;
+jest.mock('lib/miden/front/client', () => ({ useMidenContext: () => ({ updateSettings: mockUpdateSettings }) }));
+jest.mock('lib/miden/front/ready', () => ({
+  useSettings: () => ({ contacts: contacts.value }),
+  useAllAccounts: () => [mockOwnContactAccount]
+}));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
-  useFilteredContacts: () => ({ allContacts: contacts.value, contacts: contacts.value })
+  useFilteredContacts: () =>
+    mockRealContacts
+      ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useFilteredContacts()
+      : { allContacts: contacts.value, contacts: contacts.value },
+  useActivityContacts: () =>
+    mockRealContacts
+      ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useActivityContacts()
+      : contacts.value
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -122,6 +137,7 @@ describe('ActivityGroupPage', () => {
     mockLabels.value = undefined;
     mockClaims.items = [];
     mockHidden.ids = new Set();
+    mockRealContacts = false;
     jest.clearAllMocks();
   });
 
@@ -130,6 +146,23 @@ describe('ActivityGroupPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Alice' })).toBeTruthy();
     expect(screen.getByTestId('contact-avatar')).toBeTruthy();
+  });
+
+  it('opens a group detail using a saved alias without writing settings', () => {
+    const savedContacts = contacts.value;
+    try {
+      mockRealContacts = true;
+      contacts.value = [{ address: mockOwnContactAccount.publicKey, name: 'Saved alias' }];
+
+      render(<ActivityGroupPage kind="address" id={mockOwnContactAccount.publicKey} />);
+
+      expect({
+        savedAlias: Boolean(screen.queryByRole('heading', { name: 'Saved alias' })),
+        settingsWrites: mockUpdateSettings.mock.calls.length
+      }).toEqual({ savedAlias: true, settingsWrites: 0 });
+    } finally {
+      contacts.value = savedContacts;
+    }
   });
 
   it.each([

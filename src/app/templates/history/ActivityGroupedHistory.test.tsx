@@ -104,6 +104,7 @@ const contacts = {
 const mockUpdateSettings = jest.fn();
 let mockRealContacts = false;
 const mockOwnAccount = { publicKey: 'mtst1own', name: 'My account', isPublic: false };
+const mockOtherOwnAccount = { publicKey: 'mtst1otherown', name: 'Other owned account', isPublic: false };
 
 jest.mock('lib/miden/front/client', () => ({
   ...jest.requireActual('lib/miden/front/client'),
@@ -112,13 +113,17 @@ jest.mock('lib/miden/front/client', () => ({
 jest.mock('lib/miden/front/ready', () => ({
   ...jest.requireActual('lib/miden/front/ready'),
   useSettings: () => ({ contacts: contacts.value }),
-  useAllAccounts: () => [mockOwnAccount]
+  useAllAccounts: () => [mockOwnAccount, mockOtherOwnAccount]
 }));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () =>
     mockRealContacts
       ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useFilteredContacts()
-      : { allContacts: contacts.value, contacts: contacts.value }
+      : { allContacts: contacts.value, contacts: contacts.value },
+  useActivityContacts: () =>
+    mockRealContacts
+      ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useActivityContacts()
+      : contacts.value
 }));
 
 jest.mock('lib/swr', () => ({
@@ -410,12 +415,20 @@ describe('ActivityGroupedHistory', () => {
     const savedContacts = contacts.value;
     try {
       mockRealContacts = true;
+      mockRealGroupList = true;
       contacts.value = [{ address: mockOwnAccount.publicKey, name: 'Saved alias' }];
+      loaded.push(
+        entry({ key: 'aliased', secondaryAddress: mockOwnAccount.publicKey }),
+        entry({ key: 'owned', secondaryAddress: mockOtherOwnAccount.publicKey })
+      );
 
       render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
-      expect(screen.getByTestId('activity-groups')).toBeInTheDocument();
-      expect(mockUpdateSettings).not.toHaveBeenCalled();
+      expect(screen.getByRole('link', { name: /Other owned account/ })).toBeInTheDocument();
+      expect({
+        savedAlias: Boolean(screen.queryByRole('link', { name: /Saved alias/ })),
+        settingsWrites: mockUpdateSettings.mock.calls.length
+      }).toEqual({ savedAlias: true, settingsWrites: 0 });
     } finally {
       contacts.value = savedContacts;
     }
