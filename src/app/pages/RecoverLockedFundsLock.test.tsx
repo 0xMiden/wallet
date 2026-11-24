@@ -433,4 +433,51 @@ describe('RecoverLockedFundsLock', () => {
     expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeEnabled();
     expect(setIntervalSpy).not.toHaveBeenCalled();
   });
+
+  const completeDueWithdrawal = async () => {
+    mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
+    const view = await renderLock();
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+    expect(screen.getByTestId('recover-funds-withdrawal-success')).toBeInTheDocument();
+    return view;
+  };
+
+  it('invokes header back navigation from the withdrawal confirmation view', async () => {
+    await completeDueWithdrawal();
+
+    fireEvent.click(screen.getByTestId('page-back'));
+
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets confirmation state when only sponsorAddress changes in the route', async () => {
+    const view = await completeDueWithdrawal();
+
+    mockLocation.search = `?address=${OTHER}`;
+    view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+    await act(async () => undefined);
+
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
+    expect(mockReadState).toHaveBeenCalledWith(11155111, OTHER, 42n);
+  });
+
+  it('resets confirmation state when only lockId changes in the route', async () => {
+    const view = await completeDueWithdrawal();
+
+    view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId="43" />);
+    await act(async () => undefined);
+
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
+    expect(mockReadState).toHaveBeenCalledWith(11155111, SPONSOR, 43n);
+  });
+
+  it('resets confirmation state when only chainId changes in the route', async () => {
+    const view = await completeDueWithdrawal();
+
+    view.rerender(<RecoverLockedFundsLock chainId="1" lockId={LOCK_ID} />);
+    await act(async () => undefined);
+
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
+    expect(mockReadState).toHaveBeenCalledWith(1, SPONSOR, 42n);
+  });
 });
