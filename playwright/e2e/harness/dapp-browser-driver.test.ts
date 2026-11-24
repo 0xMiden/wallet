@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import { JSDOM } from 'jsdom';
 import { tmpdir } from 'os';
 
 import {
@@ -254,6 +255,48 @@ describe('DappBrowserDriver screenshot checks', () => {
       rejectObserved?.(new Error('late observed-state rejection'));
       await outcome.catch(() => undefined);
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('DappBrowserDriver Explore ownership', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('waits for the retained launcher to own the active pane and receive hits', async () => {
+    const { driver, target, elapsed } = driverWith([1]);
+    const dom = new JSDOM(`
+      <div data-page-layer="/browser">
+        <div data-tab-pane="explore" aria-hidden="true" inert>
+          <button data-testid="explore-search-toggle">Search</button>
+        </div>
+      </div>
+      <div id="cover"></div>
+    `);
+    const { document } = dom.window;
+    const pane = document.querySelector('[data-tab-pane]')!;
+    const toggle = document.querySelector('button')!;
+    let hit = document.getElementById('cover');
+    Object.defineProperty(document, 'elementFromPoint', { value: () => hit });
+    jest.spyOn(toggle, 'getBoundingClientRect').mockReturnValue(new dom.window.DOMRect(0, 0, 48, 48));
+    jest.spyOn(target, 'evalJs').mockImplementation(async js => new Function('document', js)(document));
+    const delay = target.delay;
+    jest.spyOn(target, 'delay').mockImplementation(async ms => {
+      await delay(ms);
+      if (elapsed() === 250) {
+        pane.removeAttribute('aria-hidden');
+        pane.removeAttribute('inert');
+      } else {
+        hit = toggle;
+      }
+    });
+
+    try {
+      await driver.gotoBrowserTab();
+      expect(elapsed()).toBe(500);
+    } finally {
+      dom.window.close();
     }
   });
 });
