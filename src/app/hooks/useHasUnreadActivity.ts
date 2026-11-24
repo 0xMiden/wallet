@@ -5,19 +5,25 @@ import { useClaimCheckInvalidNoteIds } from 'app/hooks/useClaimNotes';
 import { historyEntryUnreadKey, pendingNoteUnreadKey } from 'app/templates/history/activityUnread';
 import { suppressLinkedConsumes } from 'app/templates/history/History';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
-import { getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
+import {
+  ClaimEvidenceLookup,
+  compareCompletedHistory,
+  CompletedHistoryCursor,
+  createClaimEvidenceLookup,
+  getCompletedTransactionsPage,
+  getUncompletedTransactions,
+  historyCursorOf
+} from 'lib/miden/activity';
 import { ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { useManuallyClaimableNotes } from 'lib/miden/front/auto-managed-notes';
 import { isActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 
 /**
- * How many of the account's completed and failed rows count.
+ * How many of the account's completed, failed and unconfirmed rows count.
  *
- * It bounds what counts, not what is read: the rows are read whole through History's own loaders.
- * Once the newest `RECENT_ROWS` of them are read, anything older is read too in every case that
- * matters: the read state collapses old reads into a high-water mark, and a user who has opened
- * the last fifty things has been down the list. Every in-flight row counts regardless.
+ * Keep this many visible rows in History order, including ties across raw pages.
+ * Every queued or running row counts, regardless of its age.
  */
 const RECENT_ROWS = 50;
 
@@ -26,10 +32,44 @@ interface RecentRow {
   timestamp: number;
 }
 
+interface RecentCompletedRow extends RecentRow {
+  order: CompletedHistoryCursor;
+}
+
 const toRecentRow = (row: ITransaction, timestamp: number): RecentRow => ({
   id: historyEntryUnreadKey({ key: row.id, txId: row.id }),
   timestamp
 });
+
+async function readRecentCompletedRows(address: string, lookup: ClaimEvidenceLookup): Promise<RecentRow[]> {
+  const recent: RecentCompletedRow[] = [];
+  let cursor: CompletedHistoryCursor | null = null;
+  for (;;) {
+    const page = await getCompletedTransactionsPage({
+      accountId: address,
+      includeFailed: true,
+      limit: RECENT_ROWS,
+      cursor
+    });
+    const visible = await suppressLinkedConsumes(page.transactions, lookup);
+    for (const row of page.transactions) {
+      const order = historyCursorOf(row);
+      const boundary = recent[RECENT_ROWS - 1];
+      // Page order differs within a timestamp, so finish every tie at the window boundary.
+      if (boundary && order.effectiveTimestamp < boundary.order.effectiveTimestamp) {
+        return recent;
+      }
+      if (!visible.includes(row)) continue;
+      const candidate = { ...toRecentRow(row, row.completedAt ?? row.initiatedAt), order };
+      const index = recent.findIndex(other => compareCompletedHistory(candidate.order, other.order) > 0);
+      recent.splice(index === -1 ? recent.length : index, 0, candidate);
+      if (recent.length > RECENT_ROWS) recent.pop();
+    }
+    if (!page.hasMore || page.nextCursor === null) break;
+    cursor = page.nextCursor;
+  }
+  return recent;
+}
 
 /**
  * The rows History shows for `address`, through the same loaders and the same suppression
@@ -39,15 +79,12 @@ const toRecentRow = (row: ITransaction, timestamp: number): RecentRow => ({
  * high-water mark it falls on.
  */
 async function readRecentRows(address: string): Promise<RecentRow[]> {
+  const lookup = createClaimEvidenceLookup();
   const [uncompleted, completed] = await Promise.all([
-    getUncompletedTransactions(address).then(suppressLinkedConsumes),
-    getCompletedTransactions(address, undefined, undefined, true).then(suppressLinkedConsumes)
+    getUncompletedTransactions(address).then(rows => suppressLinkedConsumes(rows, lookup)),
+    readRecentCompletedRows(address, lookup)
   ]);
-  return [
-    ...uncompleted.map(row => toRecentRow(row, row.initiatedAt)),
-    // Ascending, so the newest are at the end.
-    ...completed.slice(-RECENT_ROWS).map(row => toRecentRow(row, row.completedAt ?? row.initiatedAt))
-  ];
+  return [...uncompleted.map(row => toRecentRow(row, row.initiatedAt)), ...completed];
 }
 
 /**
