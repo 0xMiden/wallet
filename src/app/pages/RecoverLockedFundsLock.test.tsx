@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { HistoryAction } from 'lib/woozie';
+
 import RecoverLockedFundsLock from './RecoverLockedFundsLock';
 
 // Echo the key, and the parameters when there are some, so the copy is assertable without the catalog.
@@ -21,6 +23,7 @@ const REF = { chainId: 11155111, lockId: LOCK_ID, sponsorAddress: SPONSOR };
 const mockLocation = { search: `?address=${SPONSOR}` };
 const mockNavigate = jest.fn();
 jest.mock('lib/woozie', () => ({
+  HistoryAction: jest.requireActual<typeof import('lib/woozie')>('lib/woozie').HistoryAction,
   navigate: (...args: unknown[]) => mockNavigate(...args),
   useLocation: () => mockLocation
 }));
@@ -192,10 +195,10 @@ describe('RecoverLockedFundsLock', () => {
     expect(screen.getByTestId('recover-funds-lock-cancel')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('recover-funds-return-to-list'));
-    expect(mockNavigate).toHaveBeenCalledWith('/settings/recover-funds');
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/recover-funds', HistoryAction.Replace);
 
     fireEvent.click(screen.getByTestId('recover-funds-return-home'));
-    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(mockNavigate).toHaveBeenCalledWith('/', HistoryAction.Replace);
   });
 
   it('disables the forced withdrawal from the confirmation view and hides cancellation controls once completed', async () => {

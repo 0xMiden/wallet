@@ -42,7 +42,7 @@ import { selectEpochTokens } from 'lib/remote-config/values';
 import { getChain } from 'lib/walletconnect/config';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { useEvmWalletPicker } from 'lib/walletconnect/useEvmWalletPicker';
-import { navigate, useLocation } from 'lib/woozie';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 import { parseLockRoute, RECOVER_FUNDS_PATH, type RoutedLock } from './recover-funds-paths';
 
@@ -290,14 +290,14 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
           <Button
             variant={ButtonVariant.Primary}
             title={t('returnToLockedFunds')}
-            onClick={() => navigate(RECOVER_FUNDS_PATH)}
+            onClick={() => navigate(RECOVER_FUNDS_PATH, HistoryAction.Replace)}
             data-testid="recover-funds-return-to-list"
             className="w-full max-w-none"
           />
           <Button
             variant={ButtonVariant.Secondary}
             title={t('home')}
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/', HistoryAction.Replace)}
             data-testid="recover-funds-return-home"
             className="w-full max-w-none"
           />
