@@ -513,9 +513,30 @@ export interface SwapSettlementTransaction {
   transactionId?: string;
   noteIds: string[];
   amount?: bigint;
+  /**
+   * The sum of what settlement recorded for each note of this claim (`swapPaybackAmounts`), in base units of the
+   * requested token. Set only when each note that this claim owns has a recorded amount, so the sum counts paybacks
+   * of this order and nothing else.
+   */
+  paybackAmount?: bigint;
   faucetId?: string;
   completedAt?: number;
 }
+
+/** The sum of the recorded payback amounts of `noteIds`. Undefined when one note has no valid recorded amount. */
+const recordedPaybackAmount = (
+  noteIds: readonly string[],
+  recorded: Record<string, string> | undefined
+): bigint | undefined => {
+  if (recorded === undefined || noteIds.length === 0) return undefined;
+  let total = 0n;
+  for (const noteId of noteIds) {
+    const amount = recorded[noteId];
+    if (typeof amount !== 'string' || !/^\d+$/.test(amount)) return undefined;
+    total += BigInt(amount);
+  }
+  return total;
+};
 
 /** Notes a swap order settled, grouped by how the settlement consume claimed them. */
 export interface SwapSettlementNotes {
@@ -583,15 +604,17 @@ const settlementNotesFromConsumes = (consumes: ITransaction[]): SwapSettlementNo
     // There is no per-note breakdown to split it with, so the honest value for
     // a partially attributed row is "unknown".
     const partiallyAttributed = noteIds.length !== rawNoteIds.length;
-    const transaction = {
+    const isReclaim = tx.extraInputs?.swapSettleKind === 'reclaim';
+    const transaction: SwapSettlementTransaction = {
       id: tx.id,
       transactionId: tx.transactionId,
       noteIds,
       amount: partiallyAttributed ? undefined : tx.amount,
+      // A reclaim returns the offered token, so it has no payback amount.
+      paybackAmount: isReclaim ? undefined : recordedPaybackAmount(noteIds, tx.extraInputs?.swapPaybackAmounts),
       faucetId: tx.faucetId,
       completedAt: tx.completedAt
     };
-    const isReclaim = tx.extraInputs?.swapSettleKind === 'reclaim';
     const bucket = isReclaim ? reclaimed : settled;
     for (const noteId of noteIds) bucket.add(noteId);
     if (isReclaim) {

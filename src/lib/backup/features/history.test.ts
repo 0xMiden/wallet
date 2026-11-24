@@ -213,6 +213,28 @@ describe('history projection', () => {
     expect(readsAsNotConfirmed(restored)).toBe(true);
   });
 
+  it('keeps what each payback of a swap claim paid, and drops an entry that is not a note amount', () => {
+    const noteId = `0x${'ab'.repeat(32)}`;
+    const original = row('payback-claim', {
+      type: 'consume',
+      noteIds: [noteId],
+      extraInputs: {
+        swapOrderTxId: 'swap',
+        swapSettleKind: 'settle',
+        swapPaybackDepths: { [noteId]: 1 },
+        swapPaybackAmounts: { [noteId]: '1000925', 'not-a-note-id': '5', [`0x${'cd'.repeat(32)}`]: '-1' }
+      }
+    });
+    const [stored] = parseHistoryChunk(JSON.stringify([projectTransaction(original)]));
+    if (!stored) throw new Error('The backup receipt must parse');
+    const restored = restoreTransaction(stored);
+    expect(restored.extraInputs).toEqual({
+      swapOrderTxId: 'swap',
+      swapSettleKind: 'settle',
+      swapPaybackAmounts: { [noteId]: '1000925' }
+    });
+  });
+
   it('keeps swap status and Guardian verdict details without retaining request bytes', () => {
     const order = restoreTransaction(
       projectTransaction(

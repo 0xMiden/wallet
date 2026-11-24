@@ -14,11 +14,15 @@ type Field =
   | 'decimal'
   | 'identifier'
   | { fields: Shape; required?: readonly string[] }
-  | { list: Field };
+  | { list: Field }
+  | { byNoteId: Field };
 type Shape = Record<string, Field>;
 
 const fields = (shape: Shape, required?: readonly string[]): Field => ({ fields: shape, required });
 const list = (field: Field): Field => ({ list: field });
+/** A record whose keys are note ids. A key of another shape is dropped. */
+const byNoteId = (field: Field): Field => ({ byNoteId: field });
+const NOTE_ID_KEY = /^(0x)?[0-9a-fA-F]{1,128}$/;
 
 const asset = fields({ blockchain: 'string', symbol: 'string', decimals: 'number', chainId: 'number' }, [
   'blockchain',
@@ -88,6 +92,9 @@ const receiptFields: Record<ITransactionType, Shape> = {
   consume: {
     swapOrderTxId: 'string',
     swapSettleKind: 'string',
+    // What each payback of the claim paid. A device that did not place the order has no lineage, so these amounts
+    // are its only exact record of the fill (multi-device).
+    swapPaybackAmounts: byNoteId('decimal'),
     bridgeIn: fields(
       {
         provider: 'string',
@@ -215,6 +222,15 @@ function readField(field: Field, value: ReceiptInput | undefined): ReceiptValue 
         })
       : undefined;
   }
+  if ('byNoteId' in field) {
+    if (!isRecord(value)) return undefined;
+    const entries: ReceiptFields = {};
+    for (const [noteId, item] of Object.entries(value)) {
+      const read = NOTE_ID_KEY.test(noteId) ? readEntry(field.byNoteId, item) : undefined;
+      if (read !== undefined) entries[noteId] = read;
+    }
+    return Object.keys(entries).length > 0 ? entries : undefined;
+  }
   const result = readFields(field.fields, value);
   if (result === undefined || field.required?.some(key => result[key] === undefined)) return undefined;
   return result;
@@ -224,21 +240,25 @@ function readFields(shape: Shape, value: ReceiptInput | undefined): ReceiptField
   if (!isRecord(value)) return undefined;
   const result: ReceiptFields = {};
   for (const [key, field] of Object.entries(shape)) {
-    const input = value[key];
-    switch (typeof input) {
-      case 'string':
-      case 'number':
-      case 'boolean':
-      case 'bigint':
-      case 'object': {
-        if (input === null) break;
-        const read = readField(field, input);
-        if (read !== undefined) result[key] = read;
-        break;
-      }
-    }
+    const read = readEntry(field, value[key]);
+    if (read !== undefined) result[key] = read;
   }
   return result;
+}
+
+/** Read one value of a record. A value of a type that no field has reads as absent. */
+function readEntry(field: Field, input: unknown): ReceiptValue | undefined {
+  switch (typeof input) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+      return readField(field, input);
+    case 'object':
+      return input === null ? undefined : readField(field, input);
+    default:
+      return undefined;
+  }
 }
 
 /** Copy receipt fields from a local row or validate the same fields from a backup. */

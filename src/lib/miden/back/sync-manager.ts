@@ -38,7 +38,7 @@ import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { isPeerSwapPayback, localSwapOrders, swapOrderIdsOf } from '../swap/classification';
+import { isHeldBackPeerSwapPayback, isPeerSwapPayback, localSwapOrders, swapOrderIdsOf } from '../swap/classification';
 import type { RecoveredSwapOrderRef } from '../swap/recovered-order';
 import {
   checkRefusedRecoveredOrders,
@@ -759,7 +759,11 @@ async function runSync(force: boolean): Promise<void> {
         ...nativeAutoConsumeNotes.map(n => n.id),
         ...heldNativeNoteIds
       ]);
-      const newIds = (await mergeAndPersistSeenNoteIds(parsedNotes.map(n => n.id))).filter(
+      // A payback of a swap that another device placed is held back from the claim list for a time
+      // (`isHeldBackPeerSwapPayback`). It is not recorded as seen while held, so it is announced only if it is still
+      // unclaimed when the hold ends.
+      const announceable = parsedNotes.filter(n => !isHeldBackPeerSwapPayback(n));
+      const newIds = (await mergeAndPersistSeenNoteIds(announceable.map(n => n.id))).filter(
         id => !managedAutoConsumeIds.has(id)
       );
 

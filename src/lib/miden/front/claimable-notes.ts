@@ -25,7 +25,13 @@ import { isSyncFused, noteProbeFailure, noteSyncSuccess } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
-import { classifySwapOrderNotes, isPeerSwapPayback, localSwapOrders, swapOrderIdsOf } from '../swap/classification';
+import {
+  classifySwapOrderNotes,
+  isHeldBackPeerSwapPayback,
+  isPeerSwapPayback,
+  localSwapOrders,
+  swapOrderIdsOf
+} from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
 import { isTestSyncPaused } from './test-sync-pause';
@@ -173,8 +179,16 @@ function attachMetadataToNotes(
  * Whether the claim list shows a note: every note but a swap note settlement claims unattended. A payback marked
  * `coverageShort` is listed for a manual claim, and settlement may still claim it on its own read of notes and lineages.
  */
-const isListedClaimableNote = (note: { swapOrder?: { autoConsume?: boolean; coverageShort?: true } }): boolean =>
-  !note.swapOrder || note.swapOrder.autoConsume === false || note.swapOrder.coverageShort === true;
+const isListedClaimableNote = (note: {
+  swapOrder?: { autoConsume?: boolean; coverageShort?: true };
+  peerSwapPayback?: boolean;
+  receivedAt?: number;
+}): boolean => {
+  // A payback of a swap that another device of the account placed: that device claims it, so this one holds it back
+  // for a time and does not ask the user to accept it (multi-device).
+  if (isHeldBackPeerSwapPayback(note)) return false;
+  return !note.swapOrder || note.swapOrder.autoConsume === false || note.swapOrder.coverageShort === true;
+};
 
 // -------------------- Side-effect helpers --------------------
 

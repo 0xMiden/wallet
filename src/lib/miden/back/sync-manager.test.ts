@@ -1867,6 +1867,30 @@ describe('doSync — native-note auto-consume', () => {
     expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'payment' })]);
   });
 
+  it('does not record a held-back peer swap payback as seen, so it is announced only after its hold', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const peerPayback = (id: string, blockNum: number) => ({
+      ...fakeNote({ id, faucetId: 'f1' }),
+      swapAttachment: { orderId: '901', depth: 1 },
+      blockNum
+    });
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'payment', faucetId: 'f1' }),
+      peerPayback('fresh-payback', 10),
+      peerPayback('old-payback', 11)
+    ]);
+    mockGetBlockTimestamps.mockResolvedValueOnce(
+      new Map([
+        [10, nowSec - 30],
+        [11, nowSec - 3600]
+      ])
+    );
+
+    await doSync();
+
+    expect(mockMergeAndPersistSeenNoteIds).toHaveBeenCalledWith(['payment', 'old-payback']);
+  });
+
   it('fee identity: service worker auto-consumes actual native A instead of legacy B', async () => {
     mockLegacyFeeIdentity = 'legacy-B';
     mockIsAutoConsumeAsync.mockResolvedValue(true);

@@ -50,11 +50,27 @@ export const locallySettledRequestedAmount = (
   for (const consume of settledTransactions) {
     const delivered = deliveredRequestedToken(consume, requestedFaucetId);
     if (delivered === false) continue;
-    if (delivered === undefined || consume.amount === undefined) return undefined;
-    total += consume.amount;
+    // The recorded payback amounts are exact for the notes that this claim owns. The row amount is the fallback.
+    const amount = consume.paybackAmount ?? consume.amount;
+    if (delivered === undefined || amount === undefined) return undefined;
+    total += amount;
   }
 
   return total;
+};
+
+/**
+ * Whether the local sum counts paybacks of this order and nothing else: each claim that delivered the requested
+ * token has a recorded amount for each of its notes (`SwapSettlementTransaction.paybackAmount`). Settlement records
+ * these amounts only for the notes that it classified as paybacks of the order, so a claim that also took other
+ * notes of the same token has no such sum.
+ */
+export const countsOnlyRecordedPaybacks = (
+  settledTransactions: SwapSettlementNotes['settledTransactions'],
+  requestedFaucetId: string | undefined
+): boolean => {
+  const counted = settledTransactions.filter(consume => deliveredRequestedToken(consume, requestedFaucetId) !== false);
+  return counted.length > 0 && counted.every(consume => consume.paybackAmount !== undefined);
 };
 
 /**
@@ -71,12 +87,18 @@ export const locallySettledRequestedAmount = (
  * partial fill to a full one. The local sum, for its part, counts only consumes
  * this wallet tagged, so it misses anything claimed elsewhere. Neither can
  * exceed the truth, so the larger of the two is the honest answer — unless the
- * local sum exceeds the whole request, which no honest fill can do. See below.
+ * local sum exceeds the whole request and can count notes of another source. See below.
+ *
+ * `localCountsOnlyThisOrder` (`countsOnlyRecordedPaybacks`) says that the local sum is the recorded amounts of this
+ * order's paybacks. A solver can pay more than the request, so such a sum above the request is a real fill and is
+ * kept. Without this, a device that did not place the order, and thus has no lineage, showed no fill at all for an
+ * order that was paid above its request (multi-device).
  */
 export const filledRequestedAmount = (
   fromLineage: bigint | undefined,
   fromLocalConsumes: bigint | undefined,
-  requestedAmount: bigint | undefined
+  requestedAmount: bigint | undefined,
+  localCountsOnlyThisOrder: boolean = false
 ): bigint | undefined => {
   // A local sum of zero is no evidence at all: it is what an order with no
   // tagged consumes looks like, which is not the same as a fill of zero.
@@ -88,9 +110,10 @@ export const filledRequestedAmount = (
   // the same token, after which settlement tags that whole row. Such a sum is
   // not a lower bound at all, so it is discarded rather than clamped — clamping
   // would report the full request as delivered on an order the lineage still
-  // says is mostly outstanding.
-  const local =
-    requestedAmount !== undefined && positive !== undefined && positive > requestedAmount ? undefined : positive;
+  // says is mostly outstanding. A sum of recorded payback amounts cannot count
+  // such notes, so it is kept.
+  const aboveRequest = requestedAmount !== undefined && positive !== undefined && positive > requestedAmount;
+  const local = aboveRequest && !localCountsOnlyThisOrder ? undefined : positive;
   if (fromLineage === undefined) return local;
   if (local === undefined) return fromLineage;
   return fromLineage > local ? fromLineage : local;
@@ -252,7 +275,8 @@ export const deriveSwapReceipt = ({
     : filledRequestedAmount(
         fromLineage,
         locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
-        requestedAmount
+        requestedAmount,
+        countsOnlyRecordedPaybacks(settledTransactions, requestedFaucetId)
       );
   // An order that received `requested × (1 − slippage)` reads as filled, whether its remainder is
   // still on the tip or settlement has reclaimed it at expiry. Only the label follows the target.

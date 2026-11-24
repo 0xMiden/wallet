@@ -102,6 +102,27 @@ export const isPeerSwapPayback = (
 ): boolean => Boolean(note.swapAttachment) && !ownOrderIds.has(note.swapAttachment?.orderId ?? '');
 
 /**
+ * How long a peer's swap payback stays out of the claim list after its block. The device that placed the order claims
+ * the payback in that time when it is open. The time has an end on purpose: when the placing device is closed or
+ * lost, or the wallet was recovered, no device claims the payback unattended, and a note that never shows cannot be
+ * accepted.
+ */
+export const PEER_SWAP_PAYBACK_HOLD_SECONDS = 10 * 60;
+
+/**
+ * True while the claim list holds back `note`: a payback of a PSWAP order that another device placed
+ * (`isPeerSwapPayback`), younger than {@link PEER_SWAP_PAYBACK_HOLD_SECONDS}. A payback with no known receive time is
+ * shown, so a failed block-time read never hides a note.
+ */
+export const isHeldBackPeerSwapPayback = (
+  note: { peerSwapPayback?: boolean; receivedAt?: number },
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): boolean =>
+  note.peerSwapPayback === true &&
+  note.receivedAt !== undefined &&
+  nowSeconds - note.receivedAt < PEER_SWAP_PAYBACK_HOLD_SECONDS;
+
+/**
  * Classify notes belonging to this wallet's orders using one synced lineage snapshot.
  * Reuse preloadedOrders to avoid another transactions-table scan in the same tick.
  */
