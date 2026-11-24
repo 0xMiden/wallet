@@ -6,6 +6,16 @@
  */
 export class PublicError extends Error {}
 
+const MAINNET_ADMISSION_PENDING = 'MAINNET_ADMISSION_PENDING';
+
+export class MainnetAdmissionPendingError extends PublicError {
+  readonly code = MAINNET_ADMISSION_PENDING;
+}
+
+export function isMainnetAdmissionPending(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === MAINNET_ADMISSION_PENDING;
+}
+
 /** The confirm dry run outlasted its wait. The request can be tried again; the locked work is left running. */
 export class CustomSimulationTimeoutError extends PublicError {
   constructor() {

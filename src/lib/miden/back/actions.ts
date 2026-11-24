@@ -18,6 +18,7 @@ import {
 } from 'lib/miden/back/guardian-drift';
 import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from 'lib/miden/back/guardian-recovery';
 import * as PlatformUnlock from 'lib/miden/back/platform-unlock-store';
+import { MainnetAdmissionPendingError } from 'lib/miden/back/public-error';
 import {
   toFront,
   store,
@@ -350,6 +351,21 @@ async function assertEveryMainnetAdmitted(accounts: WalletAccount[]) {
     throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
 }
 
+async function checkPendingUnlockAdmission(vault: Vault): Promise<boolean> {
+  try {
+    const pendingAdmission = await readPendingAdmission();
+    if (pendingAdmission === undefined) return false;
+    await loadEndpointOverrides();
+    const accounts = await vault.fetchAccounts();
+    if (!pendingAdmission.length || !accounts.length || !isInviteOnlyNetwork())
+      throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
+    await assertEveryMainnetAdmitted(accounts);
+    return true;
+  } catch (cause) {
+    throw new MainnetAdmissionPendingError(getMessage('mainnetAdmissionPending'), { cause });
+  }
+}
+
 // An access code registers one account, so no other account a wallet adds there would be admitted.
 function refuseSecondMainnetAccount() {
   if (isInviteOnlyNetwork()) throw new PublicError(getMessage('mainnetSecondAccountRefused'));
@@ -530,6 +546,7 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
       try {
         if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
         const vault = await createVault();
+        const pendingAdmission = await checkPendingUnlockAdmission(vault);
         // Resuming an interrupted removal is best-effort. It reaches the keystore, a
         // client build and the offscreen document, and it throws seedRemovalFailed by
         // design; letting that escape would leave the wallet permanently unopenable,
@@ -551,14 +568,6 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
             .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
         const accounts = await vault.fetchAccounts();
-        const pendingAdmission = await readPendingAdmission();
-        if (pendingAdmission !== undefined) {
-          // Init can retain this vault after an inconclusive node response. Verify the actual vault before publishing it.
-          await loadEndpointOverrides();
-          if (!pendingAdmission.length || !accounts.length || !isInviteOnlyNetwork())
-            throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
-          await assertEveryMainnetAdmitted(accounts);
-        }
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonic = await vault.isOwnMnemonic();
@@ -572,7 +581,7 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
           ownMnemonic,
           seedPhraseStatus
         });
-        if (pendingAdmission !== undefined) await clearPendingAdmission();
+        if (pendingAdmission) await clearPendingAdmission();
       } finally {
         syncRealmInsertKeySink();
       }

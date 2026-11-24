@@ -12,6 +12,7 @@ import { Input } from 'components/Input';
 import { PasscodeScreen } from 'components/PasscodeScreen';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import type { BiometricAvailability } from 'lib/biometric';
+import { isMainnetAdmissionPending } from 'lib/miden/back/public-error';
 import { readLocalStorage, useLocalStorage, useMidenContext, writeLocalStorage } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -109,7 +110,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const { unlock, platformUnlock } = useMidenContext();
   const { compact, sidePanel, confirmWindow } = useAppEnv();
   const { state: platformState } = usePlatformUnlock();
-  const [platformError, setPlatformError] = useState<'passkeyCanceled' | 'passkeyUnlockFailed' | null>(null);
+  const [platformError, setPlatformError] = useState<
+    'passkeyCanceled' | 'passkeyUnlockFailed' | 'mainnetAdmissionPending' | null
+  >(null);
+  const [entryError, setEntryError] = useState<'credential' | 'admission' | null>(null);
   const platformController = useRef<AbortController | null>(null);
   const mounted = useRef(true);
   const canUsePlatform =
@@ -241,6 +245,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         }
       } catch (err) {
         console.log('[Unlock] Hardware unlock failed or cancelled:', err);
+        if (isMainnetAdmissionPending(err)) setEntryError('admission');
         try {
           const { Vault } = await import('lib/miden/back/vault');
           const hasPassword = await Vault.hasPasswordProtector();
@@ -280,7 +285,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // Extension-only: the vault is protected by a full password, not a passcode.
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [isError, setIsError] = useState(false);
+  const isError = entryError !== null;
   // Counts failed attempts (a rejected passcode, a failed biometric retry); each new value shakes
   // the dots once.
   const [errorCount, setErrorCount] = useState(0);
@@ -306,7 +311,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // nothing shakes. The mount run is a no-op: both flags start false.
   useEffect(() => {
     if (!isDisabled) {
-      setIsError(false);
+      setEntryError(null);
       setBiometricError(false);
     }
   }, [isDisabled]);
@@ -324,9 +329,10 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       if (!beginUnlock()) return;
       guessInFlightRef.current = true;
       setIsSubmitting(true);
-      setIsError(false);
+      setEntryError(null);
       setBiometricError(false);
 
+      let preUnlock: StoredLockout | undefined;
       let provisionalStamp: number | null = null;
       // Everything that can throw after the take sits in this try, so the finally always releases it.
       try {
@@ -334,7 +340,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
         // The final check and the record are one synchronous step right before unlock(), so another window
         // checking while this guess is in flight finds it counted, and at the threshold locked out (#1192).
-        const preUnlock = readStoredLockout(floorRef.current);
+        preUnlock = readStoredLockout(floorRef.current);
         if (preUnlock.locked) {
           adoptLockout(preUnlock);
           setCode('');
@@ -362,9 +368,21 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        // Re-stamped at the failure, so the tier runs in full from it, but only over this guess's own
-        // provisional stamp: a different one is another window's lockout (#1192).
-        if (provisionalStamp !== null && readStoredLockout(floorRef.current).timelock === provisionalStamp) {
+        const pendingAdmission = isMainnetAdmissionPending(err);
+        const current = readStoredLockout(floorRef.current);
+        if (pendingAdmission) {
+          // A correct credential only retires the record this window reserved for it.
+          if (
+            preUnlock &&
+            current.attempt === preUnlock.attempt + 1 &&
+            current.timelock === (provisionalStamp ?? preUnlock.timelock)
+          ) {
+            recordLockout(floorRef.current, 'attempt', preUnlock.attempt);
+            if (provisionalStamp !== null) recordLockout(floorRef.current, 'timelock', preUnlock.timelock);
+          }
+        } else if (provisionalStamp !== null && current.timelock === provisionalStamp) {
+          // Re-stamped at the failure, so the tier runs in full from it, but only over this guess's own
+          // provisional stamp: a different one is another window's lockout (#1192).
           recordLockout(floorRef.current, 'timelock', Date.now());
         }
         adoptLockout(readStoredLockout(floorRef.current));
@@ -372,8 +390,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         console.error(err);
 
         await new Promise(res => setTimeout(res, 300));
-        setIsError(true);
-        setErrorCount(count => count + 1);
+        setEntryError(pendingAdmission ? 'admission' : 'credential');
+        if (!pendingAdmission) setErrorCount(count => count + 1);
         setCode('');
         setIsSubmitting(false);
       } finally {
@@ -397,7 +415,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const handleDigit = useCallback(
     (digit: string) => {
       if (isDisabled || isSubmitting) return;
-      if (isError) setIsError(false);
+      if (isError) setEntryError(null);
       if (biometricError) setBiometricError(false);
       setCode(prev => (prev.length >= PASSCODE_LENGTH ? prev : prev + digit));
     },
@@ -406,7 +424,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const handleDelete = useCallback(() => {
     if (isDisabled || isSubmitting) return;
-    if (isError) setIsError(false);
+    if (isError) setEntryError(null);
     if (biometricError) setBiometricError(false);
     setCode(prev => prev.slice(0, -1));
   }, [isDisabled, isSubmitting, isError, biometricError]);
@@ -434,7 +452,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const onPasswordChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (isError) setIsError(false);
+      if (isError) setEntryError(null);
       setPassword(e.target.value);
     },
     [isError]
@@ -447,7 +465,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     platformController.current = controller;
     setIsSubmitting(true);
     setPlatformError(null);
-    setIsError(false);
+    setEntryError(null);
     try {
       const assertion = await getPlatformCredential(credential.credentialId, credential.prfSalt, controller.signal);
       controller.signal.throwIfAborted();
@@ -462,9 +480,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     } catch (cause) {
       if (mounted.current) {
         setPlatformError(
-          cause instanceof DOMException && ['AbortError', 'NotAllowedError'].includes(cause.name)
-            ? 'passkeyCanceled'
-            : 'passkeyUnlockFailed'
+          isMainnetAdmissionPending(cause)
+            ? 'mainnetAdmissionPending'
+            : cause instanceof DOMException && ['AbortError', 'NotAllowedError'].includes(cause.name)
+              ? 'passkeyCanceled'
+              : 'passkeyUnlockFailed'
         );
       }
     } finally {
@@ -478,7 +498,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     if (!beginUnlock()) return;
     setIsSubmitting(true);
     // The latest failure is what the screen shows, whichever path it came from.
-    setIsError(false);
+    setEntryError(null);
     setBiometricError(false);
     let navigated = false;
     try {
@@ -491,8 +511,12 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       // A cancelled prompt lands here too. Say so on screen: the key is tappable on every unlock
       // now, and a retry that fails silently reads as a key that does nothing. Like a rejected
       // passcode it clears the code and shakes the dots once.
-      setBiometricError(true);
-      setErrorCount(count => count + 1);
+      if (isMainnetAdmissionPending(err)) {
+        setEntryError('admission');
+      } else {
+        setBiometricError(true);
+        setErrorCount(count => count + 1);
+      }
       setCode('');
     } finally {
       endUnlock();
@@ -529,16 +553,17 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   }, [setTimeLock, adoptLockout]);
 
   const unlockErrorVisible = hardwareUnlockChecked || isExtension();
-  useUserVisibleError(
-    unlockErrorVisible && isHardwareOnlyWallet && biometricError ? 'biometricFailed' : null,
-    'inline'
-  );
+  const passwordErrorId = entryError === 'admission' ? 'mainnetAdmissionPending' : 'incorrectPassword';
+  const passcodeErrorId = entryError === 'admission' ? 'mainnetAdmissionPending' : 'incorrectPasscode';
+  const hardwareErrorId =
+    entryError === 'admission' ? 'mainnetAdmissionPending' : biometricError ? 'biometricFailed' : null;
+  useUserVisibleError(unlockErrorVisible && isHardwareOnlyWallet ? hardwareErrorId : null, 'inline');
   useUserVisibleError(
     unlockErrorVisible && !isHardwareOnlyWallet && !isMobile()
       ? isDisabled
         ? 'unlockPasswordErrorDelay'
         : isError
-          ? 'incorrectPassword'
+          ? passwordErrorId
           : null
       : null,
     'passcode'
@@ -561,9 +586,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           <div className="text-center mb-6">
             <h2 className="text-xl font-semibold mb-2">{t('biometricUnlockRequired')}</h2>
             <p className="text-text-muted text-sm">{t('biometricUnlockRequiredDescription')}</p>
-            {biometricError && (
+            {hardwareErrorId && (
               <p role="alert" className="mt-2 text-sm text-negative-ink">
-                {t('biometricFailed')}
+                {t(hardwareErrorId)}
               </p>
             )}
           </div>
@@ -595,7 +620,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     const passwordSubtitle = isDisabled
       ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
       : isError
-        ? t('incorrectPassword')
+        ? t(passwordErrorId)
         : null;
 
     return (
@@ -682,7 +707,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const subtitle = isDisabled
     ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
     : isError
-      ? t('incorrectPasscode')
+      ? t(passcodeErrorId)
       : biometricError
         ? t('biometricFailed')
         : t('enterYour6DigitCode');
@@ -693,7 +718,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       title={t('enterYourPasscode')}
       message={subtitle}
       announcement={announcement}
-      errorId={isDisabled ? 'unlockPasswordErrorDelay' : isError ? 'incorrectPasscode' : 'biometricFailed'}
+      errorId={isDisabled ? 'unlockPasswordErrorDelay' : isError ? passcodeErrorId : 'biometricFailed'}
       isError={isDisabled || isError || biometricError}
       filled={code.length}
       length={PASSCODE_LENGTH}
