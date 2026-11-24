@@ -826,27 +826,6 @@ export interface InAppBrowserPlugin {
         error?: string;
     }) => void): Promise<PluginListenerHandle>;
     /**
-     * Miden patch: fires when a main-row button in the native navbar
-     * overlay is tapped. `id` is the item id passed into
-     * {@link showNativeNavbar}.
-     */
-    addListener(eventName: 'nativeNavbarTap', listenerFunc: (event: {
-        id: string;
-    }) => void): Promise<PluginListenerHandle>;
-    /**
-     * Miden patch: fires when a secondary-row button in the native
-     * navbar overlay is tapped. `id` is the item id passed into
-     * {@link setNavbarSecondaryRow}.
-     */
-    addListener(eventName: 'nativeNavbarSecondaryTap', listenerFunc: (event: {
-        id: string;
-    }) => void): Promise<PluginListenerHandle>;
-    /**
-     * Miden patch: fires when the compact-mode primary action button
-     * is tapped. Set via {@link setNavbarAction}.
-     */
-    addListener(eventName: 'nativeNavbarActionTap', listenerFunc: () => void): Promise<PluginListenerHandle>;
-    /**
      * Remove all listeners for this plugin.
      *
      * @since 1.0.0
@@ -928,82 +907,6 @@ export interface InAppBrowserPlugin {
      * app shutdown / wallet reset.
      */
     closeAll(): Promise<void>;
-    /**
-     * Miden patch: slide the native wallet navbar pill off-screen on a
-     * spring animation, for a caller presenting a bottom-sheet drawer
-     * that takes over the same real estate the navbar occupies.
-     */
-    morphNavbarOut(): Promise<void>;
-    /**
-     * Miden patch: reverse `morphNavbarOut`, sliding the native wallet
-     * navbar pill back into view on a spring animation.
-     */
-    morphNavbarIn(): Promise<void>;
-    /**
-     * Miden patch: grow / shrink the native navbar pill to add (or
-     * remove) a secondary row of quick-action buttons above the main
-     * nav row. Pass an empty items array to collapse the row back to
-     * a single-row pill. Each item renders as a small orange/gray pill
-     * button inside the same native container as the main nav row —
-     * the pill morphs into a two-row container on a spring animation
-     * so it looks like one unified pill growing, not two separate
-     * pills snapping together.
-     *
-     * Lets a caller show quick actions that mirror the active-state
-     * styling of the main nav row pills.
-     */
-    setNavbarSecondaryRow(options: {
-        items: Array<{
-            id: string;
-            title: string;
-            sfSymbol: string;
-        }>;
-        activeId?: string | null;
-    }): Promise<void>;
-    /**
-     * Miden patch: render the native navbar overlay with the given
-     * main-row items (Home / Activity / Browser) and mark `activeId`
-     * as the active pill. Safe to call repeatedly; subsequent calls
-     * replace the content without tearing down the overlay window.
-     */
-    showNativeNavbar(options: {
-        items: Array<{
-            id: string;
-            title: string;
-            sfSymbol: string;
-        }>;
-        activeId?: string | null;
-    }): Promise<void>;
-    /**
-     * Miden patch: hide the native navbar overlay entirely. Used on
-     * screens that shouldn't show the floating pill (e.g. onboarding,
-     * lock screen).
-     */
-    hideNativeNavbar(): Promise<void>;
-    /**
-     * Miden patch: swap the active main-row pill without rebuilding
-     * the button tree — preserves the shared indicator reference so
-     * the slide animation can target the new button. Pass `null` to
-     * clear the active highlight entirely (e.g. on sub-pages that
-     * aren't a top-level destination).
-     */
-    setNativeNavbarActive(options: {
-        id: string | null;
-    }): Promise<void>;
-    /**
-     * Miden patch: enter compact mode with a primary action button
-     * (e.g. "Continue" in the Send flow). Main-row buttons shrink to
-     * icons and the action pill grows to fill the freed space.
-     */
-    setNavbarAction(options: {
-        label: string;
-        enabled?: boolean;
-    }): Promise<void>;
-    /**
-     * Miden patch: exit compact mode, restoring the default main-row
-     * layout and hiding the action button.
-     */
-    clearNavbarAction(): Promise<void>;
 }
 /**
  * JavaScript APIs available in the InAppBrowser WebView.

@@ -3,6 +3,16 @@
 ## 1.18.2 (TBD)
 
 - [FIX][all] Preserve transaction receipts and their delivery links when restoring Activity from encrypted backup and Guardian history, including bridge details for a note already claimed on the backup device; when two devices of one Guardian account claim the same transfer, the device that does not get it removes its claim with no failed row, and only the device that placed a swap claims that swap's payout unattended, while the other devices hold the payout back from their transfers to accept for 10 minutes and show the swap's fill when it paid more than the request.
+- [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
+- [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
+- [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
+- [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
+- [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
+- [CHORE][ci] Run Guardian Bridge-Out E2E through Release E2E instead of on every pull request.
+- [CHORE][ci] Run the Bread Connect Swift SDK tests on macOS through Release E2E instead of on every pull request.
+- [FIX][mobile] Keep the Android fullscreen dApp dialog window transparent and draw its backdrop on the animated container so repeated minimize and restore transitions no longer leave duplicate or nested previews (#2046).
+- [CHORE][all] Share the native-Reown versus wagmi contract transaction helper across USDCx deposits and CCTP execution (#1398).
+- [FIX][all] Route transaction detail sections and address roles through an explicit per-type policy so NEAR Intents deposits never inherit Agglayer routes or render refund addresses as Miden senders (#2145).
 - [FIX][mobile] Wrap long transaction details, warnings, and errors inside the dApp confirmation dialog so long identifiers stay within narrow screens (#2045).
 - [FIX][all] Stop Guardian submission when proof freshness cannot be established before the chain-tip deadline.
 - [FIX][all] Completing a locked bridge funds withdrawal displays a confirmation page with actions to return to Recover locked bridge funds or Home (#2146).

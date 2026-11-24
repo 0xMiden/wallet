@@ -31,8 +31,6 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
-import ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager;
-import ee.forgr.capacitor_inappbrowser.navbar.NavbarState;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -65,12 +63,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     private ActivityResultLauncher<Intent> fileChooserLauncher;
 
-    // Miden patch — Android port of iOS MidenNavbarOverlayWindow.
-    // Lazily-initialized the first time a native navbar plugin method
-    // is called (showNativeNavbar). Owns the NavbarStateHolder, all
-    // NavbarView instances (Activity + Dialog-scoped), and the
-    // re-parenting arbitration logic.
-    private NavbarOverlayManager navbarManager;
     private boolean presentationAppForeground = true;
 
     @Override
@@ -81,177 +73,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         fileChooserLauncher = getActivity().registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             this::handleFileChooserResult
-        );
-    }
-
-    /**
-     * Lazily construct the navbar manager on the UI thread. Every
-     * navbar plugin method funnels through this to avoid races where
-     * multiple JS calls land before the manager has been created.
-     */
-    private NavbarOverlayManager getOrCreateNavbarManager() {
-        if (navbarManager == null) {
-            navbarManager = new NavbarOverlayManager(getActivity());
-            navbarManager.setTapCallback(
-                new NavbarOverlayManager.TapCallback() {
-                    @Override
-                    public void onItemTap(String id) {
-                        JSObject data = new JSObject();
-                        data.put("id", id);
-                        notifyListeners("nativeNavbarTap", data);
-                    }
-
-                    @Override
-                    public void onSecondaryTap(String id) {
-                        JSObject data = new JSObject();
-                        data.put("id", id);
-                        notifyListeners("nativeNavbarSecondaryTap", data);
-                    }
-
-                    @Override
-                    public void onActionTap() {
-                        notifyListeners("nativeNavbarActionTap", new JSObject());
-                    }
-                }
-            );
-        }
-        return navbarManager;
-    }
-
-    /**
-     * Parse a JS array of {@code {id, title, sfSymbol}} objects into
-     * {@link NavbarState.Item} instances. The iOS side uses
-     * {@code sfSymbol} for the icon name; on Android we reuse the
-     * same field but look up an Android drawable by a matching name
-     * mapping (nav_home, nav_activity, nav_browser, nav_send, etc).
-     */
-    private java.util.List<NavbarState.Item> decodeNavbarItems(JSArray raw) throws JSONException {
-        java.util.List<NavbarState.Item> out = new java.util.ArrayList<>();
-        if (raw == null) return out;
-        for (int i = 0; i < raw.length(); i++) {
-            JSONObject obj = raw.getJSONObject(i);
-            String id = obj.optString("id", null);
-            String title = obj.optString("title", "");
-            // Both "sfSymbol" and "iconDrawableName" are accepted so
-            // the JS side can keep sending iOS-style SF Symbol names
-            // and the Android Java side will map them to local
-            // drawables at bind time.
-            String icon = obj.optString("sfSymbol", null);
-            if (icon == null) icon = obj.optString("iconDrawableName", null);
-            if (id == null) continue;
-            out.add(new NavbarState.Item(id, title, icon));
-        }
-        return out;
-    }
-
-    @PluginMethod
-    public void showNativeNavbar(PluginCall call) {
-        final JSArray itemsRaw = call.getArray("items");
-        if (itemsRaw == null) {
-            call.reject("items array is required");
-            return;
-        }
-        final String activeId = call.getString("activeId");
-        this.getActivity().runOnUiThread(
-            () -> {
-                try {
-                    java.util.List<NavbarState.Item> items = decodeNavbarItems(itemsRaw);
-                    if (items.isEmpty()) {
-                        call.reject("at least one item is required");
-                        return;
-                    }
-                    getOrCreateNavbarManager().show(items, activeId);
-                    call.resolve();
-                } catch (Exception e) {
-                    Log.e("InAppBrowser", "showNativeNavbar failed", e);
-                    call.reject("showNativeNavbar failed: " + e.getMessage());
-                }
-            }
-        );
-    }
-
-    @PluginMethod
-    public void hideNativeNavbar(PluginCall call) {
-        this.getActivity().runOnUiThread(
-            () -> {
-                if (navbarManager != null) navbarManager.hide();
-                call.resolve();
-            }
-        );
-    }
-
-    @PluginMethod
-    public void setNativeNavbarActive(PluginCall call) {
-        final String id = call.getString("id");
-        this.getActivity().runOnUiThread(
-            () -> {
-                if (navbarManager != null) navbarManager.setActive(id);
-                call.resolve();
-            }
-        );
-    }
-
-    @PluginMethod
-    public void setNavbarSecondaryRow(PluginCall call) {
-        final JSArray itemsRaw = call.getArray("items");
-        final String activeId = call.getString("activeId");
-        this.getActivity().runOnUiThread(
-            () -> {
-                try {
-                    java.util.List<NavbarState.Item> items = decodeNavbarItems(itemsRaw);
-                    getOrCreateNavbarManager().setSecondaryItems(items, activeId);
-                    call.resolve();
-                } catch (Exception e) {
-                    Log.e("InAppBrowser", "setNavbarSecondaryRow failed", e);
-                    call.reject("setNavbarSecondaryRow failed: " + e.getMessage());
-                }
-            }
-        );
-    }
-
-    @PluginMethod
-    public void setNavbarAction(PluginCall call) {
-        final String label = call.getString("label");
-        if (label == null) {
-            call.reject("label is required");
-            return;
-        }
-        final boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", true));
-        this.getActivity().runOnUiThread(
-            () -> {
-                getOrCreateNavbarManager().setAction(label, enabled);
-                call.resolve();
-            }
-        );
-    }
-
-    @PluginMethod
-    public void clearNavbarAction(PluginCall call) {
-        this.getActivity().runOnUiThread(
-            () -> {
-                if (navbarManager != null) navbarManager.clearAction();
-                call.resolve();
-            }
-        );
-    }
-
-    @PluginMethod
-    public void morphNavbarOut(PluginCall call) {
-        this.getActivity().runOnUiThread(
-            () -> {
-                if (navbarManager != null) navbarManager.morphOut();
-                call.resolve();
-            }
-        );
-    }
-
-    @PluginMethod
-    public void morphNavbarIn(PluginCall call) {
-        this.getActivity().runOnUiThread(
-            () -> {
-                if (navbarManager != null) navbarManager.morphIn();
-                call.resolve();
-            }
         );
     }
 
@@ -777,7 +598,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         .put("policyResolved", resolved).put("policyRevision", revision);
                     if (lifetime != null) event.put("managedHostCloseToken", lifetime);
                     notifyListeners("presentationChanged", event);
-                    if (navbarManager != null) navbarManager.notifyDialogVisibilityChanged(null);
                 }
                 @Override
                 public void urlChangeEvent(String url) {
@@ -963,15 +783,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     );
                     webViewDialog.activity = InAppBrowserPlugin.this.getActivity();
 
-                    // Miden navbar — register show/dismiss listeners so the
-                    // navbar manager can attach a Dialog-scoped NavbarView
-                    // instance once the Dialog's decor view is available,
-                    // and detach it on dismiss. This is the Phase 6
-                    // two-instance architecture: one NavbarView lives in
-                    // the Activity, another (fresh) lives inside each
-                    // WebViewDialog's own Window, so the pill stays above
-                    // the dApp content without any Window z-order
-                    // wrestling.
                     final WebViewDialog createdDialog = webViewDialog;
                     createdDialog.configureManagedClose(instanceId, call.getObject("managedHostClose"),
                         data -> notifyListeners("hostCloseRequested", data));
@@ -981,26 +792,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         }
                         if (webViewDialog == createdDialog) webViewDialog = null;
                     });
-                    createdDialog.setOnShowListener(
-                        new android.content.DialogInterface.OnShowListener() {
-                            @Override
-                            public void onShow(android.content.DialogInterface d) {
-                                if (navbarManager != null) {
-                                    navbarManager.onDialogShown(createdDialog);
-                                }
-                            }
-                        }
-                    );
-                    createdDialog.setOnDismissListener(
-                        new android.content.DialogInterface.OnDismissListener() {
-                            @Override
-                            public void onDismiss(android.content.DialogInterface d) {
-                                if (navbarManager != null) {
-                                    navbarManager.onDialogDismissed(createdDialog);
-                                }
-                            }
-                        }
-                    );
 
                     WebViewRegistry.getShared().register(instanceId, createdDialog);
                     createdDialog.presentWebView();
@@ -1258,20 +1049,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             entry.getValue().forceClose();
         }
         webViewDialog = null;
-        // Miden navbar — tear down the overlay manager so the
-        // Activity-scoped NavbarView detaches from the decor view
-        // and unsubscribes from the state holder. Without this,
-        // rapid Activity recreate cycles (e.g. rotation with
-        // config changes enabled) could leak NavbarView instances
-        // still subscribed to stale holders.
-        if (navbarManager != null) {
-            try {
-                navbarManager.destroyActivityView();
-            } catch (Exception e) {
-                Log.w("InAppBrowser", "navbar manager destroy failed: " + e.getMessage());
-            }
-            navbarManager = null;
-        }
         currentPermissionRequest = null;
         customTabsClient = null;
         currentSession = null;
@@ -1411,15 +1188,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         }
                         if (dialog.hasPresentation() && dialog.managedClose() != null && call.getInt("visibilitySequence") == null) { call.resolve(); return; }
                         dialog.presentationVisibility(visible, call.getInt("policyRevision"), call.getInt("visibilitySequence"));
-                        // Miden navbar — notify the overlay manager so
-                        // it re-picks the topmost visible NavbarView.
-                        // Without this, parking a dApp leaves the
-                        // hidden Dialog's NavbarView as "top" in the
-                        // stack while its Window is detached, and the
-                        // Activity-scoped navbar never takes over.
-                        if (navbarManager != null) {
-                            navbarManager.notifyDialogVisibilityChanged(dialog);
-                        }
                         call.resolve();
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "setVisible failed: " + e.getMessage());
@@ -1444,7 +1212,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         }
         this.getActivity().runOnUiThread(() -> {
             boolean accepted = false;
-            boolean wasShowing = dialog.isShowing();
             try {
                 String lifetime = dialog.managedClose() == null ? null : dialog.managedClose().token;
                 boolean current = WebViewRegistry.getShared().get(instanceId) == dialog
@@ -1456,13 +1223,6 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 }
             } catch (Exception e) {
                 Log.e("InAppBrowser", "morph failed: " + e.getMessage());
-            }
-            if (navbarManager != null && (accepted || wasShowing != dialog.isShowing())) {
-                try {
-                    navbarManager.notifyDialogVisibilityChanged(dialog);
-                } catch (Exception e) {
-                    Log.e("InAppBrowser", "morph navbar update failed: " + e.getMessage());
-                }
             }
             call.resolve(new JSObject().put("accepted", accepted));
         });

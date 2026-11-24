@@ -66,9 +66,7 @@ dependencies {
     implementation 'com.caverock:androidsvg:1.4'
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.window:window:1.5.1"
-    // Miden patch — used by the navbar overlay's show/hide + morph
-    // animations (SpringAnimation, DynamicAnimation). Spring tuned
-    // to match iOS (dampingRatio ~0.85, stiffness MEDIUM).
+    // Miden patch — used by BreadMorphController's spring animations.
     implementation "androidx.dynamicanimation:dynamicanimation:1.0.0"
     testImplementation "junit:junit:$junitVersion"
     testImplementation "org.robolectric:robolectric:4.17"

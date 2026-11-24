@@ -33,6 +33,7 @@ export interface BottomNavProps {
   activeId: string;
   onChange: (id: string) => void;
   className?: string;
+  presentation?: 'expanded' | 'condensed';
 }
 
 // One shape on every platform: a floating capsule. The tabs are 64 x 48 (a 56 x 40 highlight plus
@@ -67,7 +68,7 @@ const BAR_GLASS_CLASS_NAME = [
   'dark:after:from-pure-white/25 dark:after:to-pure-white/10'
 ].join(' ');
 
-const BAR_CLASS_NAME = cn('relative flex items-center justify-center rounded-full p-1', BAR_GLASS_CLASS_NAME);
+const BAR_CLASS_NAME = cn('relative flex items-center justify-center rounded-full', BAR_GLASS_CLASS_NAME);
 
 /** The bubble sits this far inside its tab: 56 x 40 in a 64 x 48 tab. */
 const BUBBLE_INSET_PX = 4;
@@ -86,13 +87,14 @@ interface BottomNavTabProps {
   onSelect: (id: string) => void;
   bubble: BubblePress;
   registerTab: (id: string, el: HTMLButtonElement | null) => void;
+  presentation?: BottomNavProps['presentation'];
 }
 
 /**
  * One tab: a 64 x 48 hit area over the bubble, with a 24px icon that pops when the tab becomes
  * active. A pressed tab dips, and the bubble dips with it while the tab is the active one.
  */
-const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, registerTab }) => {
+const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, registerTab, presentation }) => {
   const reduceMotion = useReducedMotion();
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const iconRef = useRef<HTMLSpanElement>(null);
@@ -159,7 +161,14 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, r
         active ? 'text-accent-primary' : 'text-muted'
       )}
     >
-      <span ref={iconRef} className="relative flex size-6 items-center justify-center [&>svg]:size-6">
+      <span
+        ref={iconRef}
+        className={cn(
+          'relative flex size-6 items-center justify-center [&>svg]:size-6',
+          presentation && 'motion-safe:transition-transform motion-safe:duration-150',
+          presentation === 'expanded' && '-translate-y-1.5'
+        )}
+      >
         {/* The icon itself breathes while the tab is unread, the pulse Brian asked for, at a
             third of a pixel, and gone entirely under reduced motion (`presets.pulse`). It
             stops because the element stops being rendered with `unread`, not because a flag
@@ -178,6 +187,19 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, r
           data-testid="bottom-nav-unread"
         />
       </span>
+      {presentation && (
+        <span
+          aria-hidden
+          className={cn(
+            'pointer-events-none absolute inset-x-1 bottom-1 truncate',
+            'text-center text-tag font-semibold',
+            'motion-safe:transition-opacity motion-safe:duration-150',
+            presentation === 'condensed' && 'opacity-0'
+          )}
+        >
+          {item.label}
+        </span>
+      )}
     </button>
   );
 };
@@ -207,7 +229,7 @@ function slideFrame(first: DOMRect, last: { x: number; y: number; width: number;
   return { travel, frame };
 }
 
-export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, className }) => {
+export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, className, presentation }) => {
   const reduceMotion = useReducedMotion();
   const tabs = useRef(new Map<string, HTMLButtonElement>());
   // The slot is placed at the active tab and dips with it; the bubble inside it slides. Two
@@ -296,7 +318,15 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
   }, []);
 
   return (
-    <nav className={cn(BAR_CLASS_NAME, className)}>
+    <nav
+      className={cn(
+        BAR_CLASS_NAME,
+        // Reserve the removed vertical padding above the pill to keep the footer in place.
+        presentation === 'condensed' ? 'mt-1 p-0.5' : 'p-1',
+        presentation && 'contrast-more:bg-app-bg [@media(prefers-reduced-transparency:reduce)]:bg-app-bg',
+        className
+      )}
+    >
       <div className="relative flex items-center justify-center gap-1">
         {/* One bubble for every tab, placed at the active one and sliding over when `activeId`
             changes. Click-free: the owner decides whether a tap navigates (and buzzes). */}
@@ -317,6 +347,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
             onSelect={onChange}
             bubble={bubble}
             registerTab={registerTab}
+            presentation={presentation}
           />
         ))}
       </div>
