@@ -3,6 +3,7 @@
 ## 1.18.2 (TBD)
 
 - [FIX][all] Route transaction detail sections and address roles through an explicit per-type policy so NEAR Intents deposits never inherit Agglayer routes or render refund addresses as Miden senders (#2145).
+- [FIX][ci] Reload the selected extension build before using a saved Playwright wallet profile.
 - [FIX][e2e] Link stress-test sends to wallet transaction receipts, wait for timed-out send UI helpers to settle, and audit send completion against the configured failure budget.
 - [FIX][all] Read recent Activity history in bounded batches for the unread indicator, preserving History's newest 50 visible rows across timestamp ties and reusing claim checks within each scan (#2202).
 - [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
