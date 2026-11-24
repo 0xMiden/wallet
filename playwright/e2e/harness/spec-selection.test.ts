@@ -921,8 +921,8 @@ describe('a stacked pull request reports its E2E checks under names no branch re
     expect(jobIf(LOCAL, 'chrome-local')).toBe(`\${{ ${FULL} }}`);
   });
 
-  it("bridge-guardian-e2e's if: matches the FULL condition inside its gate's computed name", () => {
-    expect(jobIf(BRIDGE, 'bridge-guardian-e2e')).toBe(FULL);
+  it('bridge-guardian-e2e runs off pull_request only; its gate alone reports the required name', () => {
+    expect(jobIf(BRIDGE, 'bridge-guardian-e2e')).toBe("github.event_name != 'pull_request'");
   });
 });
 
@@ -1944,22 +1944,26 @@ describe('a stacked-named gate skips instead of computing a pass on a stacked pu
     expect(jobIf(file, gateId)).toBe(`\${{ !cancelled() && (${FULL}) }}`);
   });
 
-  it('the Bridge gate step env holds RESULT from needs.bridge-guardian-e2e.result, with no EVENT_NAME or BASE_REF', () => {
+  it('the Bridge gate step env holds RESULT and EVENT_NAME, with no BASE_REF', () => {
     const src = configSource('.github/workflows/pr-e2e-bridge-guardian.yml');
     const gateSrc = src.slice(src.indexOf('bridge-guardian-e2e-gate:'));
     expect(gateSrc).toMatch(/RESULT: \$\{\{ needs\.bridge-guardian-e2e\.result \}\}/);
-    expect(gateSrc).not.toMatch(/EVENT_NAME/);
+    expect(gateSrc).toMatch(/EVENT_NAME: \$\{\{ github\.event_name \}\}/);
     expect(gateSrc).not.toMatch(/BASE_REF/);
   });
 
-  it.each<[string, number]>([
-    ['success', 0],
-    ['skipped', 1],
-    ['failure', 1],
-    ['cancelled', 1]
-  ])('the Bridge gate script: result=%s -> exit %i', (result, expected) => {
+  it.each<[string, string, number]>([
+    ['pull_request', 'skipped', 0],
+    ['pull_request', 'success', 1],
+    ['pull_request', 'failure', 1],
+    ['pull_request', 'cancelled', 1],
+    ['workflow_dispatch', 'success', 0],
+    ['workflow_dispatch', 'skipped', 1],
+    ['workflow_dispatch', 'failure', 1],
+    ['workflow_dispatch', 'cancelled', 1]
+  ])('the Bridge gate script: event=%s result=%s -> exit %i', (eventName, result, expected) => {
     const script = runBlockAfter('.github/workflows/pr-e2e-bridge-guardian.yml', 'bridge-guardian-e2e-gate:');
-    expect(gateExit(script, { RESULT: result })).toBe(expected);
+    expect(gateExit(script, { RESULT: result, EVENT_NAME: eventName })).toBe(expected);
   });
 });
 
