@@ -18,7 +18,7 @@ import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
  * recorded-error vs. generic-fallback message.
  */
 
-let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
+let mockRowState: { row?: ITransaction; loaded: boolean; readFailed?: true } = { row: undefined, loaded: false };
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
 
 // The screen resolves the delivered faucet synchronously from the store, as the transaction badge does.
@@ -210,6 +210,29 @@ describe('EvmBridgeDepositStatus', () => {
     jest.clearAllMocks();
     mockRowState = { row: undefined, loaded: false };
     mockAssetsMetadata = { 'miden-usdc': { symbol: 'USDC', name: 'USDC', decimals: 6 } };
+  });
+
+  it('withholds destination execute on a stale row read and restores the original leg after recovery', () => {
+    const row = makeRow(
+      makeInputs({
+        provider: 'usdcx',
+        phase: 'ready',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, message: '0x12', attestation: '0xab' }
+      })
+    );
+    mockRowState = { row, loaded: true };
+    const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+    expect(screen.getByTestId('usdcx-execute-action')).toBeInTheDocument();
+
+    mockRowState = { row, loaded: true, readFailed: true };
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByTestId('usdcx-execute-action')).not.toBeInTheDocument();
+
+    mockRowState = { row, loaded: true };
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+    expect(screen.getByTestId('usdcx-execute-action')).toBeInTheDocument();
   });
 
   it('shows a spinner until a transaction row is available', () => {

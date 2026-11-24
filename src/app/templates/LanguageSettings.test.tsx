@@ -302,7 +302,7 @@ describe('LanguageSettings', () => {
 
     expect(mockUpdateLocale).toHaveBeenCalledWith('ja');
     expect(mockGoBack).not.toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('re-selecting the already-active language still persists and leaves', () => {

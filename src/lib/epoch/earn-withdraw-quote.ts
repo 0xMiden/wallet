@@ -6,7 +6,7 @@ import {
   getNativeAssetId,
   getNativeAssetMetadata
 } from 'lib/miden-chain/native-asset';
-import { getEpochAllocatorUrl, getEpochRoutes } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl, getSupportedEvmChainIds } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { buildEpochReadOnlyWalletClient } from './client';
@@ -130,8 +130,10 @@ export async function quoteEarnWithdrawal(
 }
 
 /**
- * Synchronous guard used immediately before every vault signing request. The position can be in any catalogue vault,
- * so the guard checks only that its market uid names the Earn route's chain (the default market's chain).
+ * Synchronous guard used immediately before every vault signing request. The position can be in any known market:
+ * a listed vault, or a market of one of the account's deposits. The deposit rows need an async read, so this guard
+ * does not read them. It checks only that the market's chain is still a chain of the document's
+ * `supportedEvmChains`. The Epoch bridge routes do not limit the market.
  */
 export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void {
   const currentNative = captureNativeAssetSnapshot();
@@ -140,11 +142,38 @@ export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void 
     quote.scope !== currentNative.scope ||
     quote.nativeRevision !== currentNative.revision ||
     quote.allocatorUrl !== getEpochAllocatorUrl() ||
-    // The position's chain must still be an Epoch route the document names; the default market's chain says
-    // nothing about a position on another route.
-    !getEpochRoutes().some(route => String(route.chainId) === quote.position.marketUid.split(':')[1])
+    !getSupportedEvmChainIds().some(chainId => String(chainId) === quote.position.marketUid.split(':')[1])
   )
     throw new Error('earnWithdrawRefresh');
+}
+
+// The steps after the smart-account setup (the allocator's execution, a balance check of up to 15 s) need this long.
+const REVIEW_MIN_REMAINING_MS = 30_000;
+
+/**
+ * The review to sign against once the one-time smart-account setup is done, which can take most of the review's
+ * minute (#2117). With 30 s or more left it is `quote` itself. Otherwise the route is quoted again for the same
+ * position and amount, and the review gets a new minute only when the new floor is at least the reviewed one; the
+ * reviewed floor stays the one the allocation must meet, so the user never signs for less than they reviewed.
+ */
+export async function extendWithdrawalReview(
+  quote: EarnWithdrawalQuote,
+  sdkOverride?: Pick<EpochIntentSDK, 'getTaskData' | 'getIntentQuote'>
+): Promise<EarnWithdrawalQuote> {
+  if (quote.expiresAt - Date.now() >= REVIEW_MIN_REMAINING_MS) return quote;
+  const fresh = await quoteEarnWithdrawal(
+    { position: quote.position, amount: quote.amount, accountId: quote.accountId },
+    sdkOverride
+  );
+  if (
+    fresh.amountAtomic !== quote.amountAtomic ||
+    normalizeMidenIdToHex(fresh.destinationFaucetId) !== normalizeMidenIdToHex(quote.destinationFaucetId) ||
+    BigInt(fresh.minimumAtomic) < BigInt(quote.minimumAtomic)
+  )
+    throw new Error('earnWithdrawRefresh');
+  const extended = { ...quote, expiresAt: fresh.expiresAt };
+  assertWithdrawalReviewContext(extended);
+  return extended;
 }
 
 /** Fresh read before any signing; the balance may have moved, as long as it still covers the reviewed amount. */
@@ -152,14 +181,20 @@ export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote):
   assertWithdrawalReviewContext(quote);
   if (normalizeMidenIdToHex(await getNativeAssetId()) !== normalizeMidenIdToHex(quote.destinationFaucetId))
     throw new Error('earnWithdrawRefresh');
-  const fresh = await fetchEarnPositions({ accountId: quote.accountId, owners: [quote.position.owner] });
+  // Only the reviewed market: an unfiltered read can outlast the request limit, and a read that fails says nothing
+  // about the balance (#2116).
+  const fresh = await fetchEarnPositions({
+    accountId: quote.accountId,
+    owners: [quote.position.owner],
+    markets: [quote.position.marketUid]
+  });
+  if (fresh.errors.length) throw new Error('earnPositionsUnavailable');
   const position = fresh.positions.find(
     p =>
       p.owner.toLowerCase() === quote.position.owner.toLowerCase() &&
       p.marketUid.toLowerCase() === quote.position.marketUid.toLowerCase()
   );
   if (
-    fresh.errors.length ||
     !position ||
     position.decimals !== quote.position.decimals ||
     position.underlyingAddress.toLowerCase() !== quote.position.underlyingAddress.toLowerCase() ||

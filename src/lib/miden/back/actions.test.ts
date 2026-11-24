@@ -1,3 +1,5 @@
+import type { Runtime } from 'webextension-polyfill';
+
 import { MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -24,6 +26,7 @@ import {
   getFrontState,
   lock,
   unlock,
+  platformUnlock,
   provideRecoverySeed,
   registerNewWallet,
   registerWalletFromHotKey,
@@ -80,6 +83,11 @@ jest.mock('lib/usdcx/burn-fee', () => ({
 }));
 
 const mockedResolve = jest.mocked(resolveSpendsUsd);
+let mockOwnerConnected = true;
+jest.mock('lib/miden/back/defaults', () => ({
+  ...jest.requireActual('lib/miden/back/defaults'),
+  intercom: { isConnected: () => mockOwnerConnected }
+}));
 
 // Create mock vault instance
 const mockRedeemAccess = jest.fn<Promise<'granted' | 'rejected'>, [string, { accountId: string; rpcUrl: string }]>();
@@ -201,6 +209,7 @@ jest.mock('lib/miden/back/vault', () => ({
     spawn: jest.fn(),
     spawnFromHotKey: jest.fn(),
     setup: jest.fn(),
+    setupWithPlatformCredential: jest.fn(),
     revealMnemonic: jest.fn(),
     exportWalletBackupMaterial: jest.fn(),
     revealPrivateKey: jest.fn(),
@@ -313,6 +322,7 @@ describe('actions', () => {
     mockAdmitted.mockReset();
     mockEndpointOverride = null;
     mockInited.mockClear();
+    mockOwnerConnected = true;
     mockLocked.mockClear();
     mockUnlocked.mockClear();
     mockAccountsUpdated.mockClear();
@@ -353,6 +363,27 @@ describe('actions', () => {
   });
 
   describe('init', () => {
+    it('keeps startup admission cleanup in the same account-writer turn as resets', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const order: string[] = [];
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const writer = getAccountsWriteQueue().add(async () => {
+        await gate;
+        order.push('writer');
+      });
+      Vault.isExist.mockImplementationOnce(async () => {
+        order.push('init');
+        return false;
+      });
+      const starting = init();
+      release();
+      await Promise.all([writer, starting]);
+      expect(order).toEqual(['writer', 'init']);
+    });
+
     it('installs the vault signer as the realm signer, before anything can ask the SDK client to sign (#878)', async () => {
       mockInstallRealmKeystore.mockClear();
       await init();
@@ -448,16 +479,23 @@ describe('actions', () => {
   });
 
   describe('getFrontState', () => {
-    it('returns state when inited is true', async () => {
-      mockStoreState.inited = true;
-      mockStoreState.status = WalletStatus.Ready;
+    it.each([WalletStatus.Ready, WalletStatus.Locked])(
+      'returns initialized status %s from one snapshot',
+      async status => {
+        const { store } = jest.requireMock('lib/miden/back/store');
+        store.getState.mockClear();
+        mockStoreState.inited = true;
+        mockStoreState.status = status;
 
-      const result = await getFrontState();
+        const result = await getFrontState();
 
-      expect(result.status).toBe(WalletStatus.Ready);
-    });
+        expect(result.status).toBe(status);
+        expect(store.getState).toHaveBeenCalledTimes(1);
+        expect(result).toHaveProperty('backendInitialized', true);
+      }
+    );
 
-    it('returns Idle immediately when inited is false (UI renders while backend inits)', async () => {
+    it('returns pending Idle when inited is false', async () => {
       mockStoreState.inited = false;
 
       const result = await getFrontState();
@@ -465,6 +503,23 @@ describe('actions', () => {
       expect(result.status).toBe(WalletStatus.Idle);
       expect(result.accounts).toEqual([]);
       expect(result.currentAccount).toBeNull();
+      expect(result).toHaveProperty('backendInitialized', false);
+    });
+
+    it('marks initialized Idle as a genuine onboarding state', async () => {
+      mockStoreState.inited = true;
+      mockStoreState.status = WalletStatus.Idle;
+
+      expect(await getFrontState()).toMatchObject({ status: WalletStatus.Idle, backendInitialized: true });
+    });
+
+    it('marks a failed store read as pending', async () => {
+      const { store } = jest.requireMock('lib/miden/back/store');
+      store.getState.mockImplementationOnce(() => {
+        throw new Error('Store unavailable');
+      });
+
+      expect(await getFrontState()).toMatchObject({ status: WalletStatus.Idle, backendInitialized: false });
     });
   });
 
@@ -508,7 +563,33 @@ describe('actions', () => {
     });
   });
 
-  describe('unlock', () => {
+  const passwordUnlock = unlock;
+  describe.each<['password' | 'platform']>([['password'], ['platform']])('unlock (%s)', method => {
+    const port: Runtime.Port = {
+      name: 'intercom',
+      sender: { id: 'wallet', url: 'chrome-extension://wallet/sidepanel.html' },
+      postMessage: jest.fn(),
+      disconnect: jest.fn(),
+      onDisconnect: { addListener: jest.fn(), removeListener: jest.fn(), hasListener: jest.fn(() => false) },
+      onMessage: { addListener: jest.fn(), removeListener: jest.fn(), hasListener: jest.fn(() => false) }
+    };
+    const unlock = (password?: string) =>
+      method === 'password'
+        ? passwordUnlock(password)
+        : platformUnlock(
+            { action: 'unlock', credentialId: 'AQIDBA', prfSecret: 'E'.repeat(42) + 'A' },
+            port,
+            true
+          ).then(() => undefined);
+    beforeEach(() => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.setup.mockReset();
+      if (method === 'platform') Vault.setupWithPlatformCredential = Vault.setup;
+    });
+    afterEach(() => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.setup.mockReset();
+    });
     const unlockableVault = () => ({
       fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
       fetchAccounts: jest.fn().mockResolvedValue([]),
@@ -582,6 +663,27 @@ describe('actions', () => {
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
     });
 
+    if (method === 'platform') {
+      it('does not publish an unlock whose page disconnected while hydration was pending', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        const candidate = unlockableVault();
+        candidate.fetchAccounts.mockImplementationOnce(async () => {
+          mockOwnerConnected = false;
+          return [];
+        });
+        Vault.setup.mockResolvedValueOnce(candidate);
+        await expect(unlock()).rejects.toThrow();
+        expect(mockUnlocked).not.toHaveBeenCalled();
+      });
+      it('does not construct a vault for a queued request from a disconnected page', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        Vault.setup.mockResolvedValueOnce(unlockableVault());
+        mockOwnerConnected = false;
+        await expect(unlock()).rejects.toThrow();
+        expect(Vault.setup).not.toHaveBeenCalled();
+      });
+    }
+
     it('uses the unlocked vault for recovery seed input without another password check', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       Vault.setup.mockClear();
@@ -610,7 +712,9 @@ describe('actions', () => {
 
       await unlock('password123');
 
-      expect(Vault.setup).toHaveBeenCalledWith('password123');
+      expect(Vault.setup).toHaveBeenCalledWith(
+        ...(method === 'password' ? ['password123'] : ['AQIDBA', 'E'.repeat(42) + 'A'])
+      );
       expect(mockVaultInstance.removeSeedPhrase).toHaveBeenCalledTimes(Number(status === 'removing'));
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();
@@ -854,7 +958,7 @@ describe('actions', () => {
     });
 
     describe('on an invite-only network', () => {
-      const MAINNET = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
+      const MAINNET = { rpcUrl: 'https://rpc.mainnet.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
       useModelledStorage();
 
       beforeEach(() => {
@@ -2046,7 +2150,7 @@ describe('actions', () => {
   describe('adding an account on an invite-only network', () => {
     beforeEach(() => {
       Object.assign(mockStoreState, { vault: mockVault });
-      mockEndpointOverride = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
+      mockEndpointOverride = { rpcUrl: 'https://rpc.mainnet.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
     });
 
     it.each([
@@ -2625,23 +2729,49 @@ describe('actions', () => {
     beforeEach(() => mockEstimateUsdcxBurnFeeReserve.mockReset());
 
     it('measures for the account and chain and answers the reserve as a decimal string', async () => {
-      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({ outcome: 'measured', reserve: 9007199254740993n });
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({
+        outcome: 'measured',
+        reserve: 9007199254740993n,
+        faucetId: 'native',
+        scope: 'source-scope'
+      });
 
       await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '9007199254740993'
+        feeReserve: '9007199254740993',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
       expect(mockEstimateUsdcxBurnFeeReserve).toHaveBeenCalledWith('mm1account', 5042002);
     });
 
     it('answers a measured zero as a measurement', async () => {
-      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({ outcome: 'measured', reserve: 0n });
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce({
+        outcome: 'measured',
+        reserve: 0n,
+        faucetId: 'native',
+        scope: 'source-scope'
+      });
 
       await expect(estimateUsdcxBurnFee(request)).resolves.toStrictEqual({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '0'
+        feeReserve: '0',
+        faucetId: 'native',
+        scope: 'source-scope'
+      });
+    });
+
+    it('preserves only a fixed failed-measurement reason on the response', async () => {
+      const failed: UsdcxBurnFeeEstimate = { outcome: 'failed' };
+      mockEstimateUsdcxBurnFeeReserve.mockResolvedValueOnce(
+        Object.assign(failed, { failure: 'dry_run_failed', message: 'private-account amount=123' })
+      );
+      await expect(estimateUsdcxBurnFee(request)).resolves.toEqual({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'failed',
+        failure: 'dry_run_failed'
       });
     });
 

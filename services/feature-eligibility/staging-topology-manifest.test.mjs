@@ -1,0 +1,85 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import * as topology from './staging-topology-manifest.mjs';
+
+const build = topology.buildTopologyManifest ?? (() => null);
+const identity = {
+  repository: '0xMiden/wallet',
+  workflowPath: '.github/workflows/feature-eligibility-topology.yml',
+  sourceSha: 'a'.repeat(40),
+  runId: '12345',
+  runAttempt: '1'
+};
+const now = Date.UTC(2026, 9, 29);
+const bundle = new Uint8Array([1, 2, 3]);
+const options = () => ({ identity, bundle, now, expiresAt: now + 600_000, maxRuns: 10, inventory: [] });
+
+test('topology manifest binds fixed run identity, artifact and limits', () => {
+  const value = build(options());
+  assert.equal(value?.scriptName, 'miden-elig-topology-12345-1');
+  assert.match(value?.bundleSha256 ?? '', /^[a-f0-9]{64}$/);
+  assert.match(value?.configSha256 ?? '', /^[a-f0-9]{64}$/);
+  assert.match(value?.ownerMarker ?? '', /^[a-f0-9]{64}$/);
+  assert.equal(value?.maxRuns, 10);
+  assert.equal(value?.expiresAt, now + 600_000);
+  assert.equal(value?.config.main, 'staging-topology-worker.mjs');
+  assert.equal(Object.isFrozen(value?.config?.vars), true);
+  assert.equal(JSON.stringify(value).includes('credential'), false);
+});
+
+test('topology manifest rejects untrusted identity and unbounded runs', () => {
+  assert.equal(build({ ...options(), identity: { ...identity, repository: 'other/repo' } }), null);
+  assert.equal(build({ ...options(), expiresAt: now + 900_001 }), null);
+  assert.equal(build({ ...options(), maxRuns: 21 }), null);
+  assert.equal(build({ ...options(), bundle: new Uint8Array() }), null);
+});
+
+test('topology manifest rejects an existing script name', () => {
+  assert.equal(build({ ...options(), inventory: [{ id: 'miden-elig-topology-12345-1' }] }), null);
+});
+
+test('topology manifest rejects accessor-backed identity and inventory', () => {
+  const withGetter = { ...identity };
+  Object.defineProperty(withGetter, 'sourceSha', { enumerable: true, get: () => 'a'.repeat(40) });
+  assert.equal(build({ ...options(), identity: withGetter }), null);
+  const item = {};
+  Object.defineProperty(item, 'id', { enumerable: true, get: () => 'worker' });
+  assert.equal(build({ ...options(), inventory: [item] }), null);
+});
+
+test('topology manifest independently rejects accessor-backed inventory', () => {
+  const item = {};
+  Object.defineProperty(item, 'id', { enumerable: true, get: () => 'worker' });
+  assert.equal(build({ ...options(), inventory: [item] }), null);
+});
+
+test('topology manifest rejects accessor-backed options and inventory entries', () => {
+  const opts = options();
+  Object.defineProperty(opts, 'maxRuns', { enumerable: true, get: () => 10 });
+  assert.equal(build(opts), null);
+  const entries = [{ id: 'worker' }];
+  Object.defineProperty(entries, 0, { enumerable: true, get: () => ({ id: 'worker' }) });
+  assert.equal(build({ ...options(), inventory: entries }), null);
+});
+
+test('topology manifest embeds its ownership markers in the deployed configuration', () => {
+  const value = build(options());
+  assert.equal(value?.config.vars.TOPOLOGY_OWNER, value?.ownerMarker);
+  assert.equal(value?.config.vars.TOPOLOGY_CONFIG_SHA, value?.configSha256);
+});
+
+test('topology manifest allocates distinct bounded rate bindings for native staging checks', () => {
+  const value = build(options());
+  const limits = value?.config?.ratelimits;
+  assert.deepEqual(
+    limits?.map(item => [item.name, item.simple]),
+    [
+      ['TOPOLOGY_CALLER_RATE', { limit: 4, period: 60 }],
+      ['TOPOLOGY_COLO_RATE', { limit: 4, period: 10 }]
+    ]
+  );
+  assert.equal(new Set(limits.map(item => item.namespace_id)).size, 2);
+  assert.ok(
+    limits.every(item => /^[1-9][0-9]*$/.test(item.namespace_id) && !['189401', '189402'].includes(item.namespace_id))
+  );
+});

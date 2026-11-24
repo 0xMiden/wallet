@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
+import { commandSendForm, confirmCommandSendReview } from './command-send';
 import { SEPOLIA_NETWORK, selectSendNetwork } from './contact-network';
 import {
   CONFIRMATION_SUBMIT,
@@ -18,6 +19,7 @@ import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
 import { acknowledgeNetworkNotice } from './network-notice';
+import { openImportTypeScreen } from './onboarding-entry';
 import { dismissTelemetryConsent } from './telemetry-consent';
 import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
@@ -26,12 +28,12 @@ import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
-// Must satisfy CreatePassword's real strength gate (CreatePasswordScreen:
-// isValidPassword requires >1 of {minChar, upper+lower, letter+digit,
-// specialChar, strongLength}). The recovery journey drives that real UI, so a
-// weak all-digit password (the old '123456') leaves the submit button disabled
-// forever. This value passes all five checks. The bypass paths accept any value.
-export const PASSWORD = 'Test1234!';
+// Must satisfy CreatePassword's real gate (CreatePasswordScreen): at least
+// MIN_PASSWORD_LENGTH characters AND more than one of {upper+lower,
+// letter+digit, specialChar, strongLength}. The recovery journey drives that
+// real UI, so a weak or short password (the old '123456') leaves the submit
+// button disabled forever. The bypass paths accept any value.
+export const PASSWORD = 'Test1234!Wallet';
 const SYNC_WAIT_MS = 3_500;
 // Short, so a successful create's wait resolves about as soon as the wallet is ready.
 const CREATED_WALLET_POLL_MS = 250;
@@ -250,7 +252,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * specs run on device.
    */
   getEvmAddress(): Promise<string>;
-  sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void>;
+  sendTokens(params: SendTokensParams & { tokenId?: string }, onRow?: (rowId: string) => void): Promise<void>;
   /**
    * Complete the create-wallet flow choosing the Guardian recovery method,
    * pointing the account at `guardianUrl` (a locally-spawned guardian). The
@@ -396,7 +398,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * Reveal the current Guardian account's hot and EVM private keys through
    * Settings → Keys → Reveal private key, returning the hot:evm payload.
    * Extension builds authenticate with the
-   * onboarding password.
+   * onboarding password; off mobile the keys then stay masked until Show is pressed.
    */
   revealHotKey(password?: string): Promise<string>;
   /**
@@ -478,6 +480,11 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * `__TEST_GUARDIAN_OPERATOR_VIEW__` hook (#1233).
    */
   guardianOperatorView(accountPublicKey: string, endpoint: string): Promise<GuardianOperatorView>;
+  /**
+   * Push a 1-unit public send as a Guardian candidate, abandon it and poll the abandon to its end, through the
+   * E2E-only `__TEST_GUARDIAN_ABANDON_PROBE__` hook. `legacy` is whether the nonce-only request was the one sent.
+   */
+  guardianAbandonProbe(accountPublicKey: string, recipient: string, faucetId: string): Promise<GuardianAbandonProbe>;
   /** Create another HD account through the E2E-only frontend store hook. */
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
   /** Create a Guardian wallet through every current extension onboarding screen. */
@@ -633,16 +640,22 @@ export interface GuardianOperatorView {
   error?: string;
 }
 
+/** The outcome of an abandon probe: how the abandon ended, or why the probe could not run. */
+export type GuardianAbandonProbe =
+  | { legacy: boolean; status: 'waiting' | 'abandoned' | 'landed' | 'retained' | 'unexpected'; error?: undefined }
+  | { error: string };
+
 /**
- * In the page: a create's home surface. The new home (Explore) has no stable "Send"/"Receive" text, so this signals on
- * the store's currentAccount.publicKey (register() populates it in place, with no reload) or the home page's testid.
+ * During creation, register() populates currentAccount before the consent interstitial closes. Once it closes,
+ * FullPage must render Command rather than silently passing on the legacy Explore page.
  */
 function walletAtHomeSurface(): boolean {
   const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } })
     .__TEST_STORE__;
   const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+  if (document.querySelector('[data-testid="explore-page"]')) return false;
   if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
-  return !!document.querySelector('[data-testid="explore-page"]');
+  return !!document.querySelector('[data-testid="command-shell"]');
 }
 
 /**
@@ -825,15 +838,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     if (!rotationGateOwnsThePrompt) {
       // After the readiness wait, not before it: a short poll placed ahead of it
       // would be racing a `register()` that is allowed to run for two minutes.
-      // Still raced against `explore-page` rather than trusted to be instant,
-      // because the wait above can resolve on `currentAccount.publicKey` — which
-      // the service worker's own StateUpdated broadcast can publish while
-      // `Welcome.tsx` is still inside `waitForReadyState`, i.e. seconds before it
-      // navigates anywhere. Note that arm can no longer be the winning signal on a
-      // profile with no stored choice: the consent route is where the flow lands
-      // first, and `explore-page` only follows the decline below.
+      // The store can become ready before the consent interstitial closes;
+      // only the Command surface proves FullPage reached its actual home.
       await dismissTelemetryConsent(this.page, {
-        nextSurface: '[data-testid="explore-page"]',
+        nextSurface: '[data-testid="command-shell"]',
         timeoutMs: 60_000
       });
     }
@@ -1192,6 +1200,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     );
   }
 
+  async guardianAbandonProbe(
+    accountPublicKey: string,
+    recipient: string,
+    faucetId: string
+  ): Promise<GuardianAbandonProbe> {
+    return this.page.evaluate(
+      async ({ pk, to, faucet }: { pk: string; to: string; faucet: string }) => {
+        const fn = (
+          globalThis as unknown as {
+            __TEST_GUARDIAN_ABANDON_PROBE__?: (pk: string, to: string, faucet: string) => Promise<GuardianAbandonProbe>;
+          }
+        ).__TEST_GUARDIAN_ABANDON_PROBE__;
+        if (!fn) return { error: '__TEST_GUARDIAN_ABANDON_PROBE__ unavailable (needs MIDEN_E2E_TEST build)' };
+        return await fn(pk, to, faucet);
+      },
+      { pk: accountPublicKey, to: recipient, faucet: faucetId }
+    );
+  }
+
   // ── Guardian switch / recovery ───────────────────────────────────────────────
 
   /**
@@ -1248,30 +1275,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.waitForTransactionRowComplete(txId);
   }
 
-  /**
-   * Welcome through to the import-type choice.
-   *
-   * Test networks put Recover on the welcome screen (`#import-link`) and then show the network
-   * notice. Mainnet Welcome is invite-only, so that link is absent: recovery is the secondary
-   * action on "I don't have a code", and mainnet has no network notice.
-   */
+  /** Open recovery from Welcome and accept the test network notice when it is shown. */
   private async openImportTypeScreen(): Promise<void> {
     await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
-    const recover = this.page.locator('#import-link');
-    const noCode = this.page.getByTestId('onboarding-no-code');
-    await noCode.or(recover).first().waitFor({ state: 'visible', timeout: 30_000 });
-    if (await noCode.isVisible()) {
-      await noCode.click();
-      await this.page.getByTestId('no-code-sheet-recover').click();
-    } else {
-      await recover.click();
-    }
-    const notice = this.page.getByTestId('onboarding-network-notice-acknowledge');
-    const importType = this.page.getByTestId('import-select-type');
-    await notice.or(importType).first().waitFor({ state: 'visible', timeout: 15_000 });
-    if (await notice.isVisible()) await acknowledgeNetworkNotice(this.page, 15_000);
-    await importType.waitFor({ timeout: 15_000 });
+    await openImportTypeScreen(this.page, 30_000, 15_000);
   }
 
   /**
@@ -1410,6 +1417,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await passwordField.fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
+    // Off mobile the keys stay masked, with the QR unmounted, until Show is pressed.
+    await this.page.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
     await this.page.getByRole('img', { name: 'Private keys QR code' }).waitFor({ timeout: 30_000 });
     await this.page.getByRole('button', { name: 'Show keys as text' }).click();
     const hot = await this.page.getByLabel('Miden everyday private key').inputValue();
@@ -1561,16 +1570,26 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       type Account = { publicKey?: string };
       type StoreState = {
         accounts: Account[];
-        createAccount(type: 'off-chain' | 'guardian'): Promise<void>;
+        createAccount(type: 'off-chain' | 'guardian'): Promise<'synced' | 'pending'>;
       };
       const store = (window as unknown as { __TEST_STORE__?: { getState(): StoreState } }).__TEST_STORE__;
       if (!store?.getState) throw new Error('createAdditionalAccount requires the E2E wallet store hook');
 
       const before = new Set(store.getState().accounts.map(account => account.publicKey));
-      await store.getState().createAccount(requestedType);
-      const created = store.getState().accounts.find(account => account.publicKey && !before.has(account.publicKey));
-      if (!created?.publicKey) throw new Error('createAdditionalAccount did not add an account');
-      return { address: created.publicKey };
+      const outcome = await store.getState().createAccount(requestedType);
+      const findCreated = () =>
+        store.getState().accounts.find(account => account.publicKey && !before.has(account.publicKey));
+      const created = findCreated();
+      if (created?.publicKey) return { address: created.publicKey };
+      if (outcome === 'pending') {
+        for (let attempt = 0; attempt < 120; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const landed = findCreated();
+          if (landed?.publicKey) return { address: landed.publicKey };
+        }
+        throw new Error('account list has not landed');
+      }
+      throw new Error('createAdditionalAccount did not add an account');
     }, walletType);
   }
 
@@ -1593,7 +1612,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('meet-guardian-continue').click();
     await this.page.getByTestId('onboarding-confirmation-submit').click();
     await this.waitForCreatedWalletReady('ChromeWalletPage.createGuardianWalletViaUi', 120_000, () =>
-      this.page.getByTestId('explore-page').isVisible()
+      this.page.getByTestId('command-shell').isVisible()
     );
     return this.getAccountAddress();
   }
@@ -1825,11 +1844,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const freshPage = await openFreshPage();
     this.currentPage = freshPage;
 
-    const explore = this.page.getByTestId('explore-page');
+    const home = this.page.getByTestId('command-shell');
     const unlock = this.page.getByTestId('unlock-password');
 
     // Wait for the reopened, already-onboarded wallet to settle on either the
-    // Explore surface (normal case, still unlocked) or the unlock screen.
+    // Command surface (normal case, still unlocked) or the unlock screen.
     //
     // On a normal page swap the service worker stays warm, so ONE 90s window is
     // ample. On the crash-recovery relaunch path the SW is COLD and must re-load
@@ -1841,7 +1860,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     for (let attempt = 1; attempt <= readinessAttempts; attempt++) {
       await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
       try {
-        await explore.or(unlock).first().waitFor({ timeout: 90_000 });
+        await home.or(unlock).first().waitFor({ timeout: 90_000 });
         break;
       } catch (err) {
         if (attempt === readinessAttempts) throw err;
@@ -1854,7 +1873,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     if (await unlock.isVisible().catch(() => false)) {
       await this.unlockWallet();
     } else {
-      await explore.waitFor({ timeout: 15_000 });
+      await home.waitFor({ timeout: 15_000 });
     }
 
     return relaunched;
@@ -2218,9 +2237,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // that rather than for a second of wall clock (this runs on every poll of
     // waitForBalanceAbove).
     const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
-    await this.waitForStoreReady(
-      deadline === undefined ? 1_000 : Math.min(1_000, Math.max(0, deadline - Date.now()))
-    );
+    await this.waitForStoreReady(deadline === undefined ? 1_000 : Math.min(1_000, Math.max(0, deadline - Date.now())));
     await this.refreshBalances(deadline === undefined ? undefined : Math.max(0, deadline - Date.now()));
     const snapshot = await this.quickBalanceSnapshot(tokenSymbol ? { symbol: tokenSymbol.toLowerCase() } : undefined);
     if (snapshot.error) console.log(`[WalletPage.getBalance] Error: ${snapshot.error}`);
@@ -2310,9 +2327,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     while (true) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
-        throw lastError instanceof Error
-          ? lastError
-          : new Error(`refreshBalances did not land within ${timeoutMs}ms`);
+        throw lastError instanceof Error ? lastError : new Error(`refreshBalances did not land within ${timeoutMs}ms`);
       }
       try {
         await this.refreshBalances(remaining);
@@ -3044,10 +3059,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * faucet account id the stress suite selects by instead.
    */
   async prepareSendReview(params: SendTokensParams & { tokenId?: string }): Promise<void> {
-    // 1. Navigate to send. The v0-UI order is recipient → amount(+token) → review.
+    // FullPage extension uses the single Command composer; native/popup drivers keep their compact steps.
     await this.navigateTo('/send');
-    const sendFlow = this.page.getByTestId('send-flow');
-    await sendFlow.waitFor({ timeout: 15_000 });
+    const sendFlow = await commandSendForm(this.page, 15_000);
 
     // Step timeouts sized for the worst-case actionability wait under stress: a
     // sync tick that started just before the navigation can hold the WASM lock
@@ -3055,15 +3069,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // is comfortable headroom rather than a regular hit.
     const STEP_TIMEOUT_MS = 30_000;
 
-    // 2. SelectRecipient: fill the recipient address and confirm.
+    // Recipient and amount are edited together in Command.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
       await selectSendNetwork(this.page, SEPOLIA_NETWORK, STEP_TIMEOUT_MS);
     }
-    await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
-
-    // 3. SelectAmount: open the token picker, pick a token, then fill the
-    // amount. The amount Confirm stays disabled until a token is picked.
+    // Pick a live token and type the amount. Review stays disabled until both are valid.
     // The picker is a bottom-sheet drawer PORTALED outside the send-flow
     // container, so its content must be page-scoped — wait for the drawer
     // to mount before enumerating rows.
@@ -3103,23 +3114,24 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await exactToken.first().click({ timeout: STEP_TIMEOUT_MS });
     } else if (params.tokenSymbol) {
       const tokenRow = this.page.getByTestId(`send-token-${params.tokenSymbol}`);
-      const symbolRowCount = await tokenRow.count().catch(() => 0);
-      if (symbolRowCount > 0) {
-        await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
-      } else {
-        // No row for the requested symbol - fall back to the first non-USDCX row
-        // (USDCX can sit at zero balance above the funded token).
-        await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
+      // The drawer lists its rows after it opens: counting at once falls through to a row behind it.
+      await tokenRow
+        .first()
+        .waitFor({ state: 'attached', timeout: 10_000 })
+        .catch(() => {});
+      const symbolRowCount = await tokenRow.count();
+      if (symbolRowCount === 0) {
+        throw new Error(`WalletPage.sendTokens: requested token symbol "${params.tokenSymbol}" is unavailable`);
       }
+      await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
     } else {
       await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
     }
 
-    // Back on SelectAmount after the sub-screen closes.
     await sendFlow.getByTestId('send-amount-input').fill(params.amount);
-    await sendFlow.getByTestId('send-amount-confirm').click({ timeout: STEP_TIMEOUT_MS });
+    await confirmCommandSendReview(this.page, STEP_TIMEOUT_MS);
 
-    // 4. Force the note type. The public/private toggle was removed (private by
+    // Force the note type. The public/private toggle was removed (private by
     // default). Review is now a separate full-screen route (/send/review) that
     // installs the E2E hook on mount — wait for it before calling.
     await this.page.waitForFunction(
@@ -3142,7 +3154,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('send-review-submit').click({ timeout: 30_000 });
   }
 
-  async waitForSendSubmissionAccepted(timeoutMs = 120_000): Promise<void> {
+  async waitForSendSubmissionAccepted(timeoutMs = 120_000, onRow?: (rowId: string) => void): Promise<void> {
     const submitAccepted = await this.page
       .getByTestId('send-review-submit')
       .waitFor({ state: 'detached', timeout: timeoutMs })
@@ -3152,9 +3164,24 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // A successful submit routes to /generating-transaction/:txId. Wait for that
     // hash rather than sleeping, so the body-text scrape below reads the settled
     // screen. Capped at the 2s it replaced.
-    await this.page
-      .waitForFunction(() => window.location.hash.includes('generating-transaction'), undefined, { timeout: 2_000 })
-      .catch(() => {});
+    const route = await this.page
+      .waitForFunction(
+        () =>
+          window.location.hash.match(/^#\/generating-transaction(?:-full)?\/([A-Za-z0-9_-]+)(?:\?.*)?$/)?.[1] || false,
+        undefined,
+        { timeout: 2_000 }
+      )
+      .catch(() => undefined);
+    if (route && onRow) {
+      try {
+        const rowId = await route.jsonValue().catch(() => undefined);
+        if (typeof rowId === 'string') onRow(rowId);
+      } finally {
+        await route.dispose().catch(() => {});
+      }
+    } else if (route) {
+      await route.dispose().catch(() => {});
+    }
 
     // Fail HERE, at the real failure point. Both of these used to be swallowed:
     // the detach timeout by a bare `.catch(() => {})`, and a rendered error
@@ -3202,10 +3229,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   /**
    * Execute the full send flow and require the review submission to be accepted.
    */
-  async sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void> {
+  async sendTokens(params: SendTokensParams & { tokenId?: string }, onRow?: (rowId: string) => void): Promise<void> {
     await this.prepareSendReview(params);
     await this.submitSendReview();
-    await this.waitForSendSubmissionAccepted();
+    await this.waitForSendSubmissionAccepted(undefined, onRow);
   }
 
   /**
@@ -3331,7 +3358,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // Submitting reloads the page on the extension; wait for the home surface
     // to re-render.
-    await this.page.getByTestId('explore-page').waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('command-shell').waitFor({ timeout: 30_000 });
   }
 
   async setDelegateProofEnabled(enabled: boolean): Promise<void> {

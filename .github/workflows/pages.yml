@@ -37,6 +37,7 @@ on:
       - 'docs/**'
       - 'scripts/build-e2e-gallery.mjs'
       - '.github/workflows/pages.yml'
+      - 'tools/bread-signal-explorer/static/**'
   workflow_dispatch:
 
 permissions:
@@ -59,13 +60,13 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Build docs (Jekyll, reproduces the legacy Pages build)
-        uses: actions/jekyll-build-pages@v1
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
         with:
           source: ./docs
           destination: ./_site
@@ -76,7 +77,7 @@ jobs:
         run: sudo chown -R "$(id -u):$(id -g)" _site
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -123,6 +124,14 @@ jobs:
           done
           echo "staged jobs:"; ls -1 _e2e_stage 2>/dev/null || echo "  (none)"
 
+      - name: Publish Bread Signal Explorer at /signal
+        env:
+          SIGNAL_API: https://bread-signal.wiktor-s-e3d.workers.dev
+        run: |
+          mkdir -p _site/signal
+          cp -R tools/bread-signal-explorer/static/. _site/signal/
+          printf 'window.SIGNAL_API=%s;\n' "$(node -e 'process.stdout.write(JSON.stringify(process.env.SIGNAL_API))')" > _site/signal/config.js
+
       - name: Build E2E gallery into /e2e
         run: |
           node scripts/build-e2e-gallery.mjs \
@@ -134,10 +143,10 @@ jobs:
             --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
           path: ./_site
 
       - name: Deploy to GitHub Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

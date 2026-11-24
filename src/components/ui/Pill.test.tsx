@@ -278,6 +278,27 @@ it('becomes a polite live region when told it is live', () => {
   expect(screen.getByTestId('pill')).toHaveAttribute('aria-live', 'polite');
 });
 
+// The deposit status pill is a static span. A tappable pill is a button. Both copy `data-phase`.
+it('forwards data-phase on a static pill and on a button', () => {
+  const { rerender } = render(
+    <Pill data-testid="pill" data-phase="processing">
+      Processing
+    </Pill>
+  );
+  const span = screen.getByTestId('pill');
+  expect(span.tagName).toBe('SPAN');
+  expect(span).toHaveAttribute('data-phase', 'processing');
+
+  rerender(
+    <Pill data-testid="pill" data-phase="processing" onClick={jest.fn()}>
+      Processing
+    </Pill>
+  );
+  const button = screen.getByTestId('pill');
+  expect(button.tagName).toBe('BUTTON');
+  expect(button).toHaveAttribute('data-phase', 'processing');
+});
+
 // Only the static branch renders the live region, so a tappable pill can never be one: the props
 // are mutually exclusive at the type level rather than silently dropped at runtime, and a
 // `role="status"` on the `<button>` would replace its button role. A compile-time assertion - if

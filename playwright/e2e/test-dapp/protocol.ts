@@ -1,12 +1,12 @@
 /**
- * The command surface of `window.testDapp`, imported type-only by the page and by the Playwright driver. Results are
+ * The command surface of `window.testDapp`, shared by the page and the Playwright driver. Results are
  * JSON: amounts and bigints are decimal strings, bytes are base64, ids are hex. Wallet and adapter errors come back
  * as `Outcome` data; a bad input or a failed self-check throws, because that is a dApp bug, not a wallet verdict, and a
  * call the node failed throws `ChainUnavailableError`, which the driver asks again where a repeat cannot change the
  * answer and otherwise records as an infrastructure failure of that cell alone.
  */
 import type { ScriptKind } from './custom-scripts';
-import type { DappError } from '../helpers/dapp-cells';
+import type { DappError, FailureEvidence } from '../helpers/dapp-cells';
 
 export type { DappError };
 export type NoteTypeName = 'public' | 'private';
@@ -131,6 +131,16 @@ export interface SignatureView {
   payloadB64: string;
   /** The 32 word bytes the key signed: the word itself, the SigningInputs commitment, or a login message. */
   messageB64: string;
+  /** What the provider answered beside the signature; absent from an older wallet and for the summary variant's login. */
+  signedCommitmentB64?: string;
+}
+/** `domain`: verify against `signBytesCommitment(payload, kind)`; without it, against the raw value. */
+export interface VerifyInput {
+  kind: 'word' | 'signingInputs';
+  payloadB64: string;
+  signatureB64: string;
+  publicKeyB64: string;
+  domain?: 'signBytes';
 }
 export interface SelfTestView {
   publicKeyB64: string;
@@ -219,6 +229,10 @@ export interface DappCommands {
     input: { requestId: string; recipientAddress: string; importNotes: boolean; inputNoteIds?: string[] };
     output: Outcome<{ txId: string }>;
   };
+  submitCustomMeasured: {
+    input: DappCommands['submitCustom']['input'];
+    output: { result: Outcome<{ txId: string }>; timing: NonNullable<FailureEvidence['refusalTiming']> };
+  };
   waitForTransaction: { input: { txId: string }; output: Outcome<{ txHash: string; outputNotes: OutputNoteView[] }> };
   signWord: { input: { wordHex: string }; output: Outcome<SignatureView> };
   signSigningInputs: {
@@ -236,7 +250,7 @@ export interface DappCommands {
   loginKey: { input: Empty; output: Outcome<LoginKeyView> };
   signLoginWord: { input: { wordHex: string }; output: Outcome<SignatureView> };
   verifySignature: {
-    input: { kind: 'word' | 'signingInputs'; payloadB64: string; signatureB64: string; publicKeyB64: string };
+    input: VerifyInput;
     output: { verifies: boolean; commitmentHex: string };
   };
   selfTestSignature: { input: { kind: 'word' | 'signingInputs' }; output: SelfTestView };
@@ -268,9 +282,84 @@ export interface DappCommands {
 export type DappCommandName = keyof DappCommands;
 export type DappInput<K extends DappCommandName> = DappCommands[K]['input'];
 export type DappOutput<K extends DappCommandName> = DappCommands[K]['output'];
-export type DappHandlers = { [K in DappCommandName]: (input: DappInput<K>) => Promise<DappOutput<K>> };
+export interface MeasuredSubmitContext {
+  reportLeadingNode(error?: DappError): Promise<boolean>;
+  trailingCutoff?: number;
+}
+
+export type DappHandlers = {
+  [K in DappCommandName]: (input: DappInput<K>, expiresAt?: number, measured?: MeasuredSubmitContext) => Promise<DappOutput<K>>;
+};
 
 export interface TestDappWindowApi {
   readonly ready: true;
-  call<K extends DappCommandName>(command: K, input: DappInput<K>): Promise<DappOutput<K>>;
+  call<K extends DappCommandName>(command: K, input: DappInput<K>, expiresAt?: number, measured?: MeasuredSubmitContext): Promise<DappOutput<K>>;
+}
+
+export const NODE_RETRY_MS = 2_000;
+
+async function readBefore<T>(read: () => Promise<T>, cutoff: number | undefined, timeoutError: Error): Promise<T> {
+  if (cutoff === undefined) return read();
+  const remaining = cutoff - Date.now();
+  if (remaining <= 0) throw timeoutError;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(timeoutError), remaining);
+  });
+  try {
+    return await Promise.race([read(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function runMeasuredCustomSubmit(
+  sync: () => Promise<DappOutput<'syncHeight'>>,
+  submit: () => Promise<DappOutput<'submitCustom'>>,
+  expiresAt?: number,
+  measured?: MeasuredSubmitContext
+): Promise<DappOutput<'submitCustomMeasured'>> {
+  const expired = Object.assign(new Error('Measured submission expired before reaching the wallet'), {
+    name: 'CommandExpiredError'
+  });
+  let leadingError: Error | undefined;
+  const beforeStartedAt = performance.now();
+  let beforeHeight: number;
+  for (;;) {
+    const startedAt = Date.now();
+    try {
+      ({ height: beforeHeight } = await readBefore(sync, expiresAt, leadingError ?? expired));
+      break;
+    } catch (error) {
+      if (
+        !(error instanceof Error && error.name === 'ChainUnavailableError') ||
+        expiresAt === undefined ||
+        expiresAt - Date.now() <= NODE_RETRY_MS + (Date.now() - startedAt)
+      ) throw error;
+      if (measured !== undefined && !(await measured.reportLeadingNode({ name: error.name, message: error.message }))) {
+        throw error;
+      }
+      leadingError = error;
+      await new Promise(resolve => setTimeout(resolve, NODE_RETRY_MS));
+    }
+  }
+  if (leadingError !== undefined && measured !== undefined && !(await measured.reportLeadingNode())) throw leadingError;
+  if (expiresAt !== undefined && Date.now() >= expiresAt) throw expired;
+  const requestStartedAt = performance.now();
+  const result = await submit();
+  const afterStartedAt = performance.now();
+  const trailing = await readBefore(sync, measured?.trailingCutoff ?? expiresAt, expired).then(
+    ({ height }) => ({ afterHeight: height }),
+    () => ({ trailingReadFailed: true })
+  );
+  return {
+    result,
+    timing: {
+      beforeHeight,
+      ...trailing,
+      beforeSyncMs: Math.round(requestStartedAt - beforeStartedAt),
+      requestMs: Math.round(afterStartedAt - requestStartedAt),
+      afterSyncMs: Math.round(performance.now() - afterStartedAt)
+    }
+  };
 }

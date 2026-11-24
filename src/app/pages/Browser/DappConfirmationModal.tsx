@@ -5,10 +5,13 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { TransactionNoteFlow } from 'app/confirm/TransactionNoteFlow';
+import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
-import { DappOrigin } from 'components/ui/DappOrigin';
+import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
+import { storyFromMessages } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { useSprings } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -234,9 +237,15 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
         >
           <motion.div
             key="dapp-confirmation-overlay"
-            className={`fixed inset-0 ${HOST_MODAL_LAYER} flex items-center justify-center pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,var(--app-safe-bottom,0px),env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]`}
+            className={[
+              'tx-stage-overlay fixed inset-0 flex items-end justify-center sm:items-center',
+              HOST_MODAL_LAYER,
+              'pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))]',
+              'pb-0 sm:pb-[max(1rem,var(--app-safe-bottom,0px),env(safe-area-inset-bottom))]',
+              'pl-[max(1rem,env(safe-area-inset-left))]'
+            ].join(' ')}
             style={{
-              background: 'rgba(0,0,0,0.5)',
+              background: 'var(--ds-scrim)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)'
             }}
@@ -249,25 +258,33 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           >
             <motion.div
               ref={containerRef}
-              className="flex max-h-full min-h-0 w-full max-w-[360px] flex-col overflow-hidden rounded-2xl bg-surface-solid shadow-2xl"
-              initial={{ scale: 0.96, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.96, opacity: 0, y: 20 }}
+              className={[
+                'tx-stage-popup tx-stage-sheet flex min-h-0 w-full max-w-[480px] flex-col overflow-hidden',
+                'max-h-[min(92dvh,820px)] rounded-t-[28px] bg-surface-solid shadow-2xl',
+                'sm:max-h-full sm:max-w-[480px] sm:rounded-2xl'
+              ].join(' ')}
+              initial={{ opacity: 0, y: 36 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
               transition={springs.sheetPresent}
             >
-              {/* Header */}
-              <div className="flex shrink-0 items-center gap-3 border-b border-border-light px-6 py-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-100">
-                  <Icon name={IconName.Globe} className="text-primary-600" />
+              <div className="tx-stage-grabber sm:hidden" aria-hidden="true" />
+              {/* Header. The orange rule sits under the title, same as the extension window. */}
+              <div className="flex shrink-0 flex-col px-6 pt-5">
+                <div className="flex items-center pb-4">
+                  <BreadLogo className="shrink-0" style={{ width: 32, height: 'auto' }} aria-label={t('appName')} />
                 </div>
-                <div className="min-w-0 flex-1">
-                  {/* The injected providers send only the page's hostname as appMeta.name, so any other name is forged. */}
-                  <Dialog.Title asChild>
-                    <h2 className="text-lg font-semibold text-ink">
-                      <DappOrigin origin={request.origin} data-testid="dapp-confirmation-origin" />
-                    </h2>
-                  </Dialog.Title>
-                </div>
+                {/* The injected providers send only the page's hostname as appMeta.name, so any other name is forged. */}
+                <OriginatorChip
+                  origin={request.origin}
+                  testId="dapp-confirmation-origin"
+                  titleWrap={name => (
+                    <Dialog.Title asChild>
+                      <h2 className="m-0">{name}</h2>
+                    </Dialog.Title>
+                  )}
+                />
+                <div className="tx-stage-rule mt-4" aria-hidden="true" />
               </div>
 
               {/* Body */}
@@ -280,8 +297,12 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   <p className="mb-4 text-body-sm text-ink">{t('loginSignatureNote', { domain: request.domain })}</p>
                 )}
 
+                {isTransaction && transactionMessages.length > 0 && !request.noteFlow && (
+                  <TxStory hops={storyFromMessages(transactionMessages, { incoming: request.type === 'consume' })} />
+                )}
+
                 {isTransaction && transactionMessages.length > 0 && (
-                  <div className="mb-4 rounded-xl bg-fill p-4">
+                  <div className="tx-stage-list mb-4 rounded-xl bg-fill p-4">
                     {transactionMessages.map((msg, i) => (
                       <div
                         key={i}
@@ -293,6 +314,14 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                     ))}
                   </div>
                 )}
+
+                {request.type === 'transaction' &&
+                  request.noteFlow !== undefined &&
+                  (request.noteFlow ? (
+                    <TransactionNoteFlow flow={request.noteFlow} account={accountId ?? undefined} />
+                  ) : (
+                    <p className="mb-4 text-sm text-muted">{t('verifiedNoteDetailsUnavailable')}</p>
+                  ))}
 
                 {!isTransaction && (
                   <div className="mb-4 rounded-xl bg-grey-50 p-4">
@@ -352,7 +381,12 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
               </div>
 
               {/* Actions */}
-              <div className="flex shrink-0 gap-3 border-t border-border-light px-6 py-5">
+              <div
+                className={[
+                  'flex shrink-0 gap-3 border-t border-border-light px-6 pt-5',
+                  'pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-5'
+                ].join(' ')}
+              >
                 <button
                   type="button"
                   data-testid="dapp-confirmation-deny"
@@ -367,7 +401,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove}
-                  className="flex-1 rounded-full bg-primary-500 px-6 py-3 text-sm font-semibold text-pure-white hover:bg-primary-600 disabled:cursor-not-allowed disabled:bg-primary-200"
+                  className="tx-stage-cta flex-1 rounded-full bg-primary-500 px-6 py-3 text-sm font-semibold text-pure-white hover:bg-primary-600 disabled:cursor-not-allowed disabled:bg-primary-200"
                 >
                   {isTransaction ? t('confirm') : previousAttemptError === undefined ? t('approve') : t('retry')}
                 </button>

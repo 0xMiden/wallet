@@ -16,7 +16,7 @@ describe('EARN_VAULT_PROTOCOLS', () => {
 });
 
 type ConfigValue = Parameters<typeof parseBridgeConfig>[0];
-/** The testnet document's one Earn vault, as written: the dummy lender's market of the route's USDC. */
+/** The testnet document's one Earn vault, as written: the dummy lender's market of Sepolia USDC. */
 const DUMMY_VAULT = {
   id: 'dummy-lending-sepolia-usdc',
   marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
@@ -160,6 +160,42 @@ it('parses the testnet document and normalizes addresses', () => {
   expect(parsed?.swap).toEqual({});
 });
 
+describe('features.arcadeGcPurchase and arcade.sale', () => {
+  const seller = '0xA6BE5C4D8FDC03415BDE66453D5F91';
+
+  it('is left out when absent, and the sale exists exactly when the switch is on', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed?.features.arcadeGcPurchase).toBeUndefined();
+    expect(parsed?.arcade).toBeUndefined();
+    const on = parseBridgeConfig(
+      doc({ features: { earn: true, arcadeGcPurchase: true }, arcade: { sale: { seller } } }),
+      'testnet'
+    );
+    expect(on?.features.arcadeGcPurchase).toBe(true);
+    expect(on?.arcade).toEqual({ sale: { seller: seller.toLowerCase() } });
+    expect(
+      parseBridgeConfig(doc({ features: { earn: true, arcadeGcPurchase: false } }), 'testnet')?.features
+        .arcadeGcPurchase
+    ).toBe(false);
+  });
+
+  it.each([
+    ['the switch on without a sale', { features: { earn: true, arcadeGcPurchase: true } }],
+    ['a sale while the switch is off', { features: { earn: true }, arcade: { sale: { seller } } }],
+    ['a sale with no seller', { features: { earn: true, arcadeGcPurchase: true }, arcade: { sale: {} } }],
+    [
+      'a bech32 seller',
+      {
+        features: { earn: true, arcadeGcPurchase: true },
+        arcade: { sale: { seller: 'mm1azntuhzd3lwqxs2mmeny202ljy3fxnpm' } }
+      }
+    ],
+    ['a nonboolean switch', { features: { earn: true, arcadeGcPurchase: 'true' } }]
+  ])('rejects %s', (_name, overrides) => {
+    expect(parseBridgeConfig(doc(overrides), 'testnet')).toBeNull();
+  });
+});
+
 describe('features.nearIntents', () => {
   it('defaults to false when absent and accepts an explicit true', () => {
     expect(parseBridgeConfig(doc(), 'testnet')?.features.nearIntents).toBe(false);
@@ -193,112 +229,312 @@ describe('swap section', () => {
     expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({ etaUrl: 'https://quotes.example' });
   });
 
-  it('accepts an explicit mainnet one-click mapping and fixed app fees', () => {
-    const swap = {
-      oneClick: {
-        serviceUrl: 'https://swap.example',
-        midenAssets: [{ assetId: 'miden:token', faucetId: '0x123456789012345678901234567890', decimals: 6 }],
-        appFees: [{ recipient: 'wallet.near', fee: 25 }]
+  // NEAR Intents is the top-level `nearIntents` section now: a `swap.oneClick` an older document carries is not read.
+  it('ignores a swap.oneClick section, valid or not, on every network', () => {
+    const assets = {
+      usdcx: { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }
+    };
+    const chains = {
+      eth: {
+        name: 'Ethereum',
+        addressKind: 'evm',
+        tokens: { ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdcx'] } }
       }
     };
-    expect(parseBridgeConfig({ ...doc({ swap }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual({
-      ...swap,
-      oneClick: { ...swap.oneClick, evmAssets: [] }
-    });
-    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({});
-  });
+    const retired = { serviceUrl: 'https://retired.example', midenAssets: assets, chains };
+    const swap = { etaUrl: 'https://quotes.example', oneClick: retired };
+    const parsed = parseBridgeConfig(
+      { ...doc({ swap, nearIntents: { ...retired, serviceUrl: 'https://one-click.example' } }), network: 'mainnet' },
+      'mainnet'
+    );
+    expect(parsed?.nearIntents?.serviceUrl).toBe('https://one-click.example');
+    expect(parsed?.swap).toStrictEqual({ etaUrl: 'https://quotes.example' });
 
-  it.each([
-    {
-      serviceUrl: 'http://swap.example',
-      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }]
-    },
-    {
-      serviceUrl: 'https://swap.example/?key=x',
-      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }]
-    },
-    { serviceUrl: 'https://swap.example', midenAssets: [{ assetId: 'm', faucetId: 'bad id', decimals: 6 }] },
-    {
-      serviceUrl: 'https://swap.example',
-      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 9007199254740992 }]
-    },
-    {
-      serviceUrl: 'https://swap.example',
-      midenAssets: [
-        { assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 },
-        { assetId: 'm', faucetId: '0x567890123456789012345678901234', decimals: 6 }
-      ]
-    },
-    {
-      serviceUrl: 'https://swap.example',
-      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }],
-      appFees: [{ recipient: 'wallet.near', fee: 10001 }]
-    },
-    {
-      serviceUrl: 'https://swap.example',
-      midenAssets: [{ assetId: 'm', faucetId: '0x123456789012345678901234567890', decimals: 6 }],
-      appFees: [
-        { recipient: 'wallet.near', fee: 600 },
-        { recipient: 'wallet2.near', fee: 500 }
-      ]
-    }
-  ])('disables malformed one-click config: %j', oneClick => {
-    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+    // This section is invalid. Parsing it would reject the document.
+    const invalidSwap = {
+      etaUrl: 'https://quotes.example',
+      oneClick: { serviceUrl: 'http://bad', midenAssets: 'none' }
+    };
+    expect(parseBridgeConfig({ ...doc({ swap: invalidSwap }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual({
+      etaUrl: 'https://quotes.example'
+    });
+    expect(parseBridgeConfig(doc({ swap: invalidSwap }), 'testnet')?.swap).toStrictEqual({
+      etaUrl: 'https://quotes.example'
+    });
   });
 });
 
-describe('OneClick trusted EVM asset identities', () => {
-  const midenAssets = [{ assetId: 'miden:usdc', faucetId: '0x123456789012345678901234567890', decimals: 6 }];
-  const evmAsset = {
-    assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
-    blockchain: 'base',
-    chainId: 8453,
-    contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
-    decimals: 6,
-    symbol: 'USDC'
+describe('nearIntents section', () => {
+  const USDCX = 'nep141:miden-0xe69e6ca6e39df1b10c1e5399399feb.omft.near';
+  const ETH_USDC = 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near';
+  type Section = Record<string, ConfigValue>;
+  const FAUCET_1 = `0x${'1'.repeat(30)}`;
+  const FAUCET_2 = `0x${'2'.repeat(30)}`;
+  const ETH_CHAIN = {
+    name: 'Ethereum',
+    addressKind: 'evm',
+    tokens: {
+      USDC: {
+        assetId: ETH_USDC,
+        decimals: 6,
+        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        miden: ['usdcx']
+      },
+      ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['eth'] }
+    }
   };
+  const SOL_CHAIN = {
+    name: 'Solana',
+    addressKind: 'solana',
+    tokens: { SOL: { assetId: 'nep141:sol.omft.near', decimals: 9, miden: ['usdcx', 'eth'] } }
+  };
+  const section = (overrides: Section = {}): Section => ({
+    serviceUrl: 'https://intents.example/',
+    midenAssets: {
+      usdcx: { assetId: USDCX, faucetId: '0xE69E6CA6E39DF1B10C1E5399399FEB', decimals: 6 },
+      eth: { assetId: 'nep141:miden-eth.omft.near', faucetId: '0x123456789012345678901234567890', decimals: 8 }
+    },
+    chains: {
+      eth: ETH_CHAIN,
+      sol: SOL_CHAIN,
+      btc: {
+        name: 'Bitcoin',
+        addressKind: 'bitcoin',
+        tokens: { BTC: { assetId: 'nep141:btc.omft.near', decimals: 8, miden: ['usdcx'] } }
+      },
+      near: {
+        name: 'NEAR',
+        addressKind: 'near',
+        tokens: { wNEAR: { assetId: 'nep141:wrap.near', decimals: 24, miden: ['usdcx'] } }
+      }
+    },
+    ...overrides
+  });
+  const parse = (nearIntents: ConfigValue) =>
+    parseBridgeConfig({ ...doc({ nearIntents }), network: 'mainnet' }, 'mainnet');
+  const usdcToken = (overrides: Section = {}): Section => ({
+    assetId: ETH_USDC,
+    decimals: 6,
+    miden: ['usdcx'],
+    ...overrides
+  });
+  const withEthTokens = (tokens: Section) =>
+    section({ chains: { eth: { name: 'Ethereum', addressKind: 'evm', tokens } } });
+  const withEthToken = (token: Section) => withEthTokens({ USDC: token });
+  // `count` Miden assets m0, m1, and so on, each with its own asset id and faucet.
+  const manyMidenAssets = (count: number) =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, index) => [
+        `m${index}`,
+        { assetId: `miden-${index}`, faucetId: `0x${index.toString(16).padStart(30, '0')}`, decimals: 6 }
+      ])
+    );
+  const manyTokens = (count: number) =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, index) => [`T${index}`, usdcToken({ assetId: `t-${index}`, miden: ['m0'] })])
+    );
 
-  it('defaults missing EVM asset mappings to an empty list while preserving Miden mappings', () => {
-    const oneClick = { serviceUrl: 'https://swap.example', midenAssets };
-    const parsed = parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet');
-
-    expect(parsed?.swap?.oneClick).toStrictEqual({ ...oneClick, evmAssets: [] });
+  it('parses the keyed maps into lists in document order, with the key as id or symbol', () => {
+    expect(parse(section())?.nearIntents).toStrictEqual({
+      serviceUrl: 'https://intents.example',
+      midenAssets: [
+        { id: 'usdcx', assetId: USDCX, faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', decimals: 6 },
+        { id: 'eth', assetId: 'nep141:miden-eth.omft.near', faucetId: '0x123456789012345678901234567890', decimals: 8 }
+      ],
+      chains: [
+        {
+          id: 'eth',
+          name: 'Ethereum',
+          addressKind: 'evm',
+          tokens: [
+            {
+              symbol: 'USDC',
+              assetId: ETH_USDC,
+              decimals: 6,
+              contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+              miden: ['usdcx']
+            },
+            { symbol: 'ETH', assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['eth'] }
+          ]
+        },
+        {
+          id: 'sol',
+          name: 'Solana',
+          addressKind: 'solana',
+          tokens: [{ symbol: 'SOL', assetId: 'nep141:sol.omft.near', decimals: 9, miden: ['usdcx', 'eth'] }]
+        },
+        {
+          id: 'btc',
+          name: 'Bitcoin',
+          addressKind: 'bitcoin',
+          tokens: [{ symbol: 'BTC', assetId: 'nep141:btc.omft.near', decimals: 8, miden: ['usdcx'] }]
+        },
+        {
+          id: 'near',
+          name: 'NEAR',
+          addressKind: 'near',
+          tokens: [{ symbol: 'wNEAR', assetId: 'nep141:wrap.near', decimals: 24, miden: ['usdcx'] }]
+        }
+      ]
+    });
   });
 
-  it('accepts a configured EVM asset identity binding', () => {
-    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [evmAsset] };
-    const parsed = parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet');
-
-    expect(parsed?.swap?.oneClick).toStrictEqual(oneClick);
+  it('keeps the order the document writes, not an alphabetical one', () => {
+    const reordered = section({ chains: { sol: SOL_CHAIN, eth: ETH_CHAIN } });
+    expect(parse(reordered)?.nearIntents?.chains.map(chain => chain.id)).toEqual(['sol', 'eth']);
   });
 
-  it.each([
-    ['missing asset ID', { ...evmAsset, assetId: undefined }],
-    ['unsupported chain', { ...evmAsset, blockchain: 'polygon', chainId: 137 }],
-    ['chain ID does not match its chain', { ...evmAsset, chainId: 1 }],
-    ['malformed contract address', { ...evmAsset, contractAddress: '0xnot-an-address' }],
-    ['invalid decimals', { ...evmAsset, decimals: 39 }],
-    ['missing display symbol', { ...evmAsset, symbol: '' }]
-  ])('disables an invalid EVM asset binding: %s', (_label, mapping) => {
-    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [mapping] };
-
-    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  it('accepts a section that still names appFees and does not read them', () => {
+    const withFees = section({ appFees: [{ recipient: 'wallet.near', fee: 25 }] });
+    expect(parse(withFees)?.nearIntents).toStrictEqual(parse(section())?.nearIntents);
+    expect(parse(withFees)?.nearIntents).not.toHaveProperty('appFees');
   });
 
-  it('disables duplicate EVM asset IDs', () => {
-    const oneClick = { serviceUrl: 'https://swap.example', midenAssets, evmAssets: [evmAsset, { ...evmAsset }] };
-
-    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  it('is absent when the document has no section', () => {
+    expect(parseBridgeConfig({ ...doc(), network: 'mainnet' }, 'mainnet')?.nearIntents).toBeUndefined();
   });
 
-  it('disables duplicate EVM chain and contract bindings', () => {
-    const oneClick = {
-      serviceUrl: 'https://swap.example',
-      midenAssets,
-      evmAssets: [evmAsset, { ...evmAsset, assetId: 'another-provider-id' }]
-    };
+  it('is not read outside mainnet, so a malformed section there does not reject the document', () => {
+    expect(parseBridgeConfig(doc({ nearIntents: section() }), 'testnet')?.nearIntents).toBeUndefined();
+    const parsed = parseBridgeConfig(doc({ nearIntents: { serviceUrl: 'http://bad' } }), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.nearIntents).toBeUndefined();
+  });
 
-    expect(parseBridgeConfig({ ...doc({ swap: { oneClick } }), network: 'mainnet' }, 'mainnet')).toBeNull();
+  it('accepts every limit at its edge', () => {
+    const outputs = ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'];
+    const edge = usdcToken({
+      assetId: 'a'.repeat(256),
+      decimals: 38,
+      contractAddress: 'c'.repeat(256),
+      miden: outputs
+    });
+    const first = { name: 'n'.repeat(64), addressKind: 'evm', tokens: { ...manyTokens(63), ['S'.repeat(32)]: edge } };
+    const other = (index: number) => ({
+      name: 'C',
+      addressKind: 'near',
+      tokens: { T: usdcToken({ assetId: `c-${index}`, decimals: 0, miden: ['m0'] }) }
+    });
+    const chains = Object.fromEntries(
+      Array.from({ length: 32 }, (_, index) => (index === 0 ? ['a'.repeat(32), first] : [`c${index}`, other(index)]))
+    );
+    const parsed = parse(section({ midenAssets: manyMidenAssets(64), chains }))?.nearIntents;
+    expect(parsed?.midenAssets).toHaveLength(64);
+    expect(parsed?.chains).toHaveLength(32);
+    expect(parsed?.chains[0]?.tokens).toHaveLength(64);
+    expect(parsed?.chains[0]?.tokens[63]?.miden).toEqual(outputs);
+  });
+
+  it.each<[string, ConfigValue]>([
+    ['a section that is not an object', []],
+    ['an http service', section({ serviceUrl: 'http://intents.example' })],
+    ['a service with a query', section({ serviceUrl: 'https://intents.example/?key=x' })],
+    ['no Miden asset', section({ midenAssets: {} })],
+    ['Miden assets as a list', section({ midenAssets: [{ assetId: USDCX, faucetId: FAUCET_1, decimals: 6 }] })],
+    ['more than 64 Miden assets', section({ midenAssets: manyMidenAssets(65) })],
+    [
+      'a Miden asset key in upper case',
+      section({ midenAssets: { USDCX: { assetId: USDCX, faucetId: FAUCET_1, decimals: 6 } } })
+    ],
+    [
+      'a Miden asset id with a control character',
+      section({ midenAssets: { usdcx: { assetId: 'a\u0007b', faucetId: FAUCET_1, decimals: 6 } } })
+    ],
+    [
+      'a Miden asset id longer than 256',
+      section({ midenAssets: { usdcx: { assetId: 'a'.repeat(257), faucetId: FAUCET_1, decimals: 6 } } })
+    ],
+    ['a bad faucet id', section({ midenAssets: { usdcx: { assetId: USDCX, faucetId: 'bad id', decimals: 6 } } })],
+    [
+      'Miden decimals above 38',
+      section({ midenAssets: { usdcx: { assetId: USDCX, faucetId: FAUCET_1, decimals: 39 } } })
+    ],
+    [
+      'two Miden assets with one asset id',
+      section({
+        midenAssets: {
+          usdcx: { assetId: USDCX, faucetId: FAUCET_1, decimals: 6 },
+          eth: { assetId: USDCX, faucetId: FAUCET_2, decimals: 6 }
+        }
+      })
+    ],
+    [
+      'two Miden assets with one faucet, written in two cases',
+      section({
+        midenAssets: {
+          usdcx: { assetId: USDCX, faucetId: '0xabcdefabcdefabcdefabcdefabcdef', decimals: 6 },
+          eth: { assetId: 'other', faucetId: '0xABCDEFABCDEFABCDEFABCDEFABCDEF', decimals: 6 }
+        }
+      })
+    ],
+    ['no chain', section({ chains: {} })],
+    [
+      'more than 32 chains',
+      section({
+        chains: Object.fromEntries(
+          Array.from({ length: 33 }, (_, index) => [
+            `c${index}`,
+            { name: 'C', addressKind: 'evm', tokens: { T: usdcToken({ assetId: `t-${index}` }) } }
+          ])
+        )
+      })
+    ],
+    ['a chain named miden', section({ chains: { miden: ETH_CHAIN } })],
+    ['a chain key in upper case', section({ chains: { ETH: ETH_CHAIN } })],
+    ['a chain key longer than 32', section({ chains: { ['a'.repeat(33)]: ETH_CHAIN } })],
+    ['a chain with no name', section({ chains: { eth: { addressKind: 'evm', tokens: { USDC: usdcToken() } } } })],
+    [
+      'a chain name longer than 64',
+      section({ chains: { eth: { name: 'n'.repeat(65), addressKind: 'evm', tokens: { USDC: usdcToken() } } } })
+    ],
+    [
+      'an unknown address kind',
+      section({ chains: { eth: { name: 'Ethereum', addressKind: 'cosmos', tokens: { USDC: usdcToken() } } } })
+    ],
+    ['a chain with no token', withEthTokens({})],
+    [
+      'more than 64 tokens on a chain',
+      section({
+        midenAssets: manyMidenAssets(1),
+        chains: { eth: { name: 'Ethereum', addressKind: 'evm', tokens: manyTokens(65) } }
+      })
+    ],
+    ['a symbol longer than 32', withEthTokens({ ['S'.repeat(33)]: usdcToken() })],
+    ['a symbol with a control character', withEthTokens({ 'US\nDC': usdcToken() })],
+    ['a token with no asset id', withEthToken(usdcToken({ assetId: undefined }))],
+    ['a token asset id longer than 256', withEthToken(usdcToken({ assetId: 'a'.repeat(257) }))],
+    ['token decimals above 38', withEthToken(usdcToken({ decimals: 39 }))],
+    ['negative token decimals', withEthToken(usdcToken({ decimals: -1 }))],
+    ['an empty contract address', withEthToken(usdcToken({ contractAddress: '' }))],
+    ['a contract address longer than 256', withEthToken(usdcToken({ contractAddress: 'a'.repeat(257) }))],
+    ['a token with no Miden output', withEthToken(usdcToken({ miden: [] }))],
+    ['a Miden output that is not listed', withEthToken(usdcToken({ miden: ['wbtc'] }))],
+    ['a Miden output listed twice', withEthToken(usdcToken({ miden: ['usdcx', 'usdcx'] }))],
+    [
+      'more than 8 Miden outputs',
+      section({
+        midenAssets: manyMidenAssets(9),
+        chains: {
+          eth: {
+            name: 'Ethereum',
+            addressKind: 'evm',
+            tokens: { USDC: usdcToken({ miden: Object.keys(manyMidenAssets(9)) }) }
+          }
+        }
+      })
+    ],
+    ['a token asset id that is a Miden asset id', withEthToken(usdcToken({ assetId: USDCX }))],
+    [
+      'one token asset id on two chains',
+      section({
+        chains: {
+          eth: { name: 'Ethereum', addressKind: 'evm', tokens: { USDC: usdcToken() } },
+          base: { name: 'Base', addressKind: 'evm', tokens: { USDC: usdcToken() } }
+        }
+      })
+    ]
+  ])('rejects the document for %s', (_label, nearIntents) => {
+    expect(parse(nearIntents)).toBeNull();
   });
 });
 
@@ -472,16 +708,26 @@ describe('values this build does not know', () => {
     }
   });
 
-  it('leaves out an Epoch or USDCx route that lists no token it knows', () => {
+  it('keeps an Epoch route of any token and its Miden symbol, and leaves out one that lists none', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const listed = { WETH: { contractAddress: '0x4200000000000000000000000000000000000006', midenSymbol: 'ETH' } };
+    const withEpoch = (tokens: Record<string, { contractAddress: string; midenSymbol?: string }>) => {
+      const epoch = { depositEnabled: true, withdrawalEnabled: true, tokens };
+      return parseBridgeConfig(
+        withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { ...baseSepolia.bridges, epoch } } }),
+        'testnet'
+      );
+    };
+    expect(withEpoch(listed)?.supportedEvmChains['base-sepolia']?.bridges.epoch?.tokens).toStrictEqual({
+      WETH: { contractAddress: '0x4200000000000000000000000000000000000006', midenSymbol: 'ETH', outputs: [] }
+    });
+    expect(withEpoch({})).toStrictEqual(published);
+    expect(withEpoch({ WETH: { ...listed.WETH, midenSymbol: 'eth' } })).toBeNull();
+  });
+
+  it('leaves out a USDCx route that lists no token it knows', () => {
     const baseSepolia = chains['base-sepolia'];
     const tokens = { USDT: { contractAddress: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06' } };
-    const epoch = { depositEnabled: true, withdrawalEnabled: true, tokens };
-    const body = withChains({
-      ...chains,
-      'base-sepolia': { ...baseSepolia, bridges: { ...baseSepolia.bridges, epoch } }
-    });
-    expect(parseBridgeConfig(body, 'testnet')).not.toBeNull();
-    expect(parseBridgeConfig(body, 'testnet')).toStrictEqual(published);
     const usdcx = { ...baseSepolia.bridges.usdcx, tokens };
     const parsed = parseBridgeConfig(
       withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { usdcx } } }),
@@ -585,7 +831,7 @@ it('ignores removed market configuration', () => {
 });
 
 it('supports each chain in the wallet registry', () => {
-  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614, 1, 8453, 42161, 5042, 10]);
+  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614, 1, 8453, 42161, 5042, 10, 137, 4663]);
 });
 
 it('takes supported ids from the wallet registry', () => {
@@ -675,7 +921,7 @@ describe('the Earn vaults', () => {
   const withVault = (fields: Record<string, ConfigValue>) => withVaults([{ ...DUMMY_VAULT, ...fields }]);
   const without = (field: string) =>
     withVaults([Object.fromEntries(Object.entries(DUMMY_VAULT).filter(([key]) => key !== field))]);
-  // A second Epoch-less chain, so a vault can name a listed chain that has no Epoch route.
+  // A second chain with no Epoch route. A vault can name it: the document lists it.
   const withArc = (vaults: ConfigValue) => {
     const base = withVaults(vaults);
     return {
@@ -788,6 +1034,23 @@ describe('the Earn vaults', () => {
     expect(parsed?.earn?.vaults.map(vault => vault.id)).toEqual(['dummy-lending-sepolia-usdc', 'future']);
   });
 
+  it('reads a vault in any token on a chain the document lists, with or without an Epoch route', () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    const parsed = parseBridgeConfig(
+      withArc([
+        DUMMY_VAULT,
+        { ...DUMMY_VAULT, id: 'aave-v3-sepolia-weth', marketUid: `AAVE_V3:11155111:${WETH}` },
+        { ...DUMMY_VAULT, id: 'arc-vault', marketUid: `DUMMY_LENDING:5042002:${SEPOLIA_USDC}` }
+      ]),
+      'testnet'
+    );
+    expect(parsed?.earn?.vaults.map(vault => vault.marketUid)).toEqual([
+      `dummy_lending:11155111:${SEPOLIA_USDC}`,
+      `aave_v3:11155111:${WETH}`,
+      `dummy_lending:5042002:${SEPOLIA_USDC}`
+    ]);
+  });
+
   it('reads a vault on an Epoch route left out for want of provider values', () => {
     const body = withSection('epoch', { allocatorUrl: undefined });
     const parsed = parseBridgeConfig(body, 'testnet');
@@ -825,14 +1088,6 @@ describe('the Earn vaults', () => {
     ['a chain id with a leading zero', withVault({ marketUid: `DUMMY_LENDING:011155111:${SEPOLIA_USDC}` })],
     ['a chain id that is not a number', withVault({ marketUid: `DUMMY_LENDING:sepolia:${SEPOLIA_USDC}` })],
     ['a chain the document does not list', withVault({ marketUid: `DUMMY_LENDING:1:${SEPOLIA_USDC}` })],
-    [
-      'a listed chain with no Epoch route',
-      withArc([{ ...DUMMY_VAULT, marketUid: `DUMMY_LENDING:5042002:${SEPOLIA_USDC}` }])
-    ],
-    [
-      'a token other than the route USDC',
-      withVault({ marketUid: 'DUMMY_LENDING:11155111:0x1c7d4b196cb0c7b01d743fbc6116a902379c7238' })
-    ],
     [
       'a checksummed token',
       withVault({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' })
@@ -1000,77 +1255,64 @@ describe('the E2E local http allowance', () => {
   });
 });
 
-describe('the 1Click local E2E gate', () => {
-  const configured = doc({
-    swap: {
-      oneClick: {
-        serviceUrl: 'https://one-click.example',
-        midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
+describe('the NEAR Intents local E2E gate', () => {
+  const nearIntents = (serviceUrl: string) => ({
+    serviceUrl,
+    midenAssets: { usdcx: { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 } },
+    chains: {
+      eth: {
+        name: 'Ethereum',
+        addressKind: 'evm',
+        tokens: { ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdcx'] } }
       }
     }
   });
+  const configured = doc({ nearIntents: nearIntents('https://one-click.example') });
+  const local = { ...doc({ nearIntents: nearIntents('http://127.0.0.1:8550') }), network: 'localnet' };
+  const both = { allowLocalHttp: true, allowOneClickLocalE2E: true };
 
-  it('hides 1Click outside mainnet unless the explicit local E2E option is enabled', () => {
-    expect(parseBridgeConfig(configured, 'testnet')?.swap?.oneClick).toBeUndefined();
-    const localnet = {
-      ...configured,
-      network: 'localnet',
-      swap: {
-        oneClick: {
-          serviceUrl: 'http://127.0.0.1:8550',
-          midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
-        }
-      }
-    };
-    expect(parseBridgeConfig(localnet, 'localnet')?.swap?.oneClick).toBeUndefined();
-    expect(
-      parseBridgeConfig(localnet, 'localnet', { allowLocalHttp: true, allowOneClickLocalE2E: true })?.swap?.oneClick
-    ).toMatchObject({ serviceUrl: 'http://127.0.0.1:8550' });
+  it('rejects a mainnet LAN URL and a mainnet localhost URL outside the hermetic gate', () => {
+    const env = jest.replaceProperty(process, 'env', {
+      ...process.env,
+      MODE_ENV: 'development',
+      MIDEN_E2E_TEST: 'false'
+    });
+    try {
+      const mainnet = { ...local, network: 'mainnet' };
+      expect(parseBridgeConfig(mainnet, 'mainnet')).toBeNull();
+      const lanConfig = { ...mainnet, nearIntents: nearIntents('http://192.168.29.144:8787') };
+      expect(parseBridgeConfig(lanConfig, 'mainnet')).toBeNull();
+      const localhostConfig = { ...mainnet, nearIntents: nearIntents('http://localhost:8787') };
+      expect(parseBridgeConfig(localhostConfig, 'mainnet')).toBeNull();
+    } finally {
+      env.restore();
+    }
   });
 
-  it('does not allow the local E2E option to enable 1Click on testnet or another network', () => {
-    expect(parseBridgeConfig(configured, 'testnet', { allowOneClickLocalE2E: true })?.swap?.oneClick).toBeUndefined();
+  it('hides NEAR Intents outside mainnet unless the explicit local E2E option is enabled', () => {
+    expect(parseBridgeConfig(configured, 'testnet')?.nearIntents).toBeUndefined();
+    expect(parseBridgeConfig(local, 'localnet')?.nearIntents).toBeUndefined();
+    expect(parseBridgeConfig(local, 'localnet', both)?.nearIntents).toMatchObject({
+      serviceUrl: 'http://127.0.0.1:8550'
+    });
+  });
+
+  it('does not allow the local E2E option to enable NEAR Intents on testnet or another network', () => {
+    expect(parseBridgeConfig(configured, 'testnet', { allowOneClickLocalE2E: true })?.nearIntents).toBeUndefined();
     expect(
-      parseBridgeConfig({ ...configured, network: 'devnet' }, 'devnet', { allowOneClickLocalE2E: true })?.swap?.oneClick
+      parseBridgeConfig({ ...configured, network: 'devnet' }, 'devnet', { allowOneClickLocalE2E: true })?.nearIntents
     ).toBeUndefined();
   });
 
-  it('allows loopback HTTP for 1Click only when both local E2E allowances are enabled', () => {
-    const local = {
-      ...configured,
-      network: 'localnet',
-      swap: {
-        oneClick: {
-          serviceUrl: 'http://127.0.0.1:8550',
-          midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
-        }
-      }
-    };
-    expect(parseBridgeConfig(local, 'localnet', { allowLocalHttp: true })?.swap?.oneClick).toBeUndefined();
-    expect(parseBridgeConfig(local, 'localnet', { allowOneClickLocalE2E: true })?.swap).toBeUndefined();
+  it('allows loopback HTTP for NEAR Intents only when both local E2E allowances are enabled', () => {
+    expect(parseBridgeConfig(local, 'localnet', { allowLocalHttp: true })?.nearIntents).toBeUndefined();
+    expect(parseBridgeConfig(local, 'localnet', { allowOneClickLocalE2E: true })).toBeNull();
+    expect(parseBridgeConfig(local, 'localnet', both)?.nearIntents).toMatchObject({
+      serviceUrl: 'http://127.0.0.1:8550'
+    });
+    expect(parseBridgeConfig({ ...local, network: 'mainnet' }, 'mainnet', both)).toBeNull();
     expect(
-      parseBridgeConfig(local, 'localnet', { allowLocalHttp: true, allowOneClickLocalE2E: true })?.swap?.oneClick
-    ).toMatchObject({ serviceUrl: 'http://127.0.0.1:8550' });
-    expect(
-      parseBridgeConfig({ ...local, network: 'mainnet' }, 'mainnet', {
-        allowLocalHttp: true,
-        allowOneClickLocalE2E: true
-      })
-    ).toBeNull();
-    expect(
-      parseBridgeConfig(
-        {
-          ...local,
-          swap: {
-            oneClick: {
-              ...local.swap.oneClick,
-              serviceUrl: 'https://one-click.example'
-            }
-          }
-        },
-        'localnet',
-        { allowLocalHttp: true, allowOneClickLocalE2E: true }
-      )
+      parseBridgeConfig({ ...local, nearIntents: nearIntents('https://one-click.example') }, 'localnet', both)
     ).toBeNull();
   });
 });

@@ -24,7 +24,9 @@ import type {
   DappOutput,
   Outcome,
   RawArg,
-  SessionView
+  SessionView,
+  SignatureView,
+  VerifyInput
 } from '../test-dapp/protocol';
 
 /**
@@ -161,6 +163,24 @@ export function unwrap<T>(outcome: Outcome<T>, what: string, ctx: CellContext): 
   throw new Error(`${what} was refused: ${outcome.error.name}: ${outcome.error.message}`);
 }
 
+/**
+ * The checks for a `signBytes` answer: the signature verifies for the connect key against the domain commitment, does
+ * not verify against the raw value (a raw Blind or Arbitrary signature could authorize a transaction), and the wallet's
+ * `signedCommitment` equals the commitment the page computed itself (`messageB64`).
+ */
+export async function expectDomainSignature(
+  verify: (input: VerifyInput) => Promise<{ verifies: boolean; commitmentHex: string }>,
+  signed: SignatureView,
+  kind: VerifyInput['kind'],
+  publicKeyB64: string
+): Promise<{ verifies: boolean; commitmentHex: string }> {
+  const input = { kind, payloadB64: signed.payloadB64, signatureB64: signed.signatureB64, publicKeyB64 };
+  expect((await verify(input)).verifies, 'the raw value must not verify').toBe(false);
+  // An older wallet sends no commitment; the cells run against the wallet under test, which does.
+  expect(signed.signedCommitmentB64, 'the wallet returns signedCommitment').toBe(signed.messageB64);
+  return verify({ ...input, domain: 'signBytes' });
+}
+
 export type PromptDecision = 'approve' | 'decline' | 'close' | 'auto-after-unlock';
 export interface PromptPlan {
   kind: ConfirmKind;
@@ -172,20 +192,20 @@ export interface PromptPlan {
   whileOpen?: (popup: Page) => Promise<void>;
 }
 
-// Both origin elements carry the full origin as their title (DappOrigin.tsx): the connect banner's
-// (ConnectBanner.tsx:35-39) and every other request's (ConfirmPage.tsx:142).
+// Both origin elements carry the full origin as their title (DappOrigin.tsx): the connect window's
+// (confirm/ConnectRequest.tsx) and every other request's originator chip (ConfirmPage.tsx).
 async function popupOrigin(popup: Page, kind: ConfirmKind): Promise<string | null> {
   return popup
     .getByTestId(kind === 'connect' ? 'connect-origin' : 'confirm-request-origin')
     .getAttribute('title', { timeout: 30_000 });
 }
 
-// The input is sr-only (src/app/atoms/Checkbox.tsx): a click aimed at it, even a forced one, lands on whatever covers its
-// 1px box and changes nothing. A user clicks the row's label, so the tick goes there and the state is read back.
+// The consent tick is a `role="checkbox"` button (CheckboxConsent in components/ui/Checkbox.tsx), so the click goes
+// to it and the state is read back from `aria-checked`.
 async function tickPrivateData(popup: Page): Promise<void> {
-  const input = popup.locator('input[name="confirmPrivateDataPermission"]');
-  await popup.locator('label').filter({ has: input }).click();
-  await expect(input, 'private-data checkbox ticked').toBeChecked();
+  const consent = popup.getByTestId('connect-private-data-consent');
+  await consent.click();
+  await expect(consent, 'private-data checkbox ticked').toHaveAttribute('aria-checked', 'true');
 }
 
 /**

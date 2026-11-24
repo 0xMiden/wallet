@@ -62,6 +62,7 @@ import { TabHeader, TabHeaderAction } from './TabHeader';
 import { TabRootHeader } from './TabRootHeader';
 import { TextAction } from './TextAction';
 import { TextField } from './TextField';
+import { TokenAmount, UsdAmount } from './TokenAmount';
 import { UnreadDot } from './UnreadDot';
 import { WaveDots } from './WaveDots';
 
@@ -83,6 +84,8 @@ describe('components/ui barrel', () => {
   // Every runtime (value) export the barrel is expected to forward. Types are
   // compile-time only and never appear on the module object.
   const EXPECTED_COMPONENTS = {
+    TokenAmount,
+    UsdAmount,
     AccountsDrawer,
     AlertSheet,
     AnimatedNumber,

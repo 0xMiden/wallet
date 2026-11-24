@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
@@ -383,6 +383,107 @@ describe('AmountInput', () => {
   });
 
   describe('interaction', () => {
+    it.each([
+      ['00.15', '0.15'],
+      ['.15', '0.15'],
+      ['00012.34', '12.34'],
+      ['0.', '0.'],
+      ['', ''],
+      ['0.0000', '0.0000']
+    ])('keeps exact decimal text when editing %s', (typed, expected) => {
+      const onValueChange = jest.fn();
+      function Owner() {
+        const [value, setValue] = React.useState(typed === '' ? '1' : '');
+        return (
+          <AmountInput
+            value={value}
+            preservePrecision
+            onValueChange={next => {
+              onValueChange(next);
+              setValue(next ?? '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      }
+      render(<Owner />);
+      fireEvent.change(getInput(), { target: { value: typed } });
+      expect(getInput()).toHaveValue(expected);
+      expect(onValueChange).toHaveBeenLastCalledWith(expected || undefined);
+    });
+
+    it('preserves a negative sign and all fractional zeroes without rounding a large integer', () => {
+      const onValueChange = jest.fn();
+      function Owner() {
+        const [value, setValue] = React.useState('');
+        return (
+          <AmountInput
+            value={value}
+            preservePrecision
+            allowNegativeValue
+            maxLength={80}
+            onValueChange={next => {
+              onValueChange(next);
+              setValue(next ?? '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      }
+      render(<Owner />);
+      fireEvent.change(getInput(), { target: { value: '-00090071992547409931234567890.0000' } });
+      expect(getInput()).toHaveValue('-90071992547409931234567890.0000');
+      expect(onValueChange).toHaveBeenLastCalledWith('-90071992547409931234567890.0000');
+    });
+
+    it('adds the zero before a negative fractional amount', () => {
+      const onValueChange = jest.fn();
+      function Owner() {
+        const [value, setValue] = React.useState('');
+        return (
+          <AmountInput
+            value={value}
+            preservePrecision
+            allowNegativeValue
+            onValueChange={next => {
+              onValueChange(next);
+              setValue(next ?? '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      }
+      render(<Owner />);
+      fireEvent.change(getInput(), { target: { value: '-.15' } });
+      expect(getInput()).toHaveValue('-0.15');
+      expect(onValueChange).toHaveBeenLastCalledWith('-0.15');
+    });
+
+    it('maps a caret inside the removed integer prefix and preserves a fractional selection', async () => {
+      function Owner() {
+        const [value, setValue] = React.useState('');
+        return (
+          <AmountInput
+            value={value}
+            preservePrecision
+            onValueChange={next => setValue(next ?? '')}
+            data-testid={TESTID}
+          />
+        );
+      }
+      render(<Owner />);
+      const input = getInput();
+      fireEvent.change(input, { target: { value: '00012.34', selectionStart: 2, selectionEnd: 2 } });
+      expect(input).toHaveValue('12.34');
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe(0);
+
+      fireEvent.change(input, { target: { value: '0012.34', selectionStart: 5, selectionEnd: 7 } });
+      expect(input).toHaveValue('12.34');
+      await waitFor(() => expect(input.selectionStart).toBe(3));
+      expect(input.selectionEnd).toBe(5);
+    });
+
     it('fires onValueChange when the user changes the input', () => {
       const onValueChange = jest.fn();
       render(<AmountInput onValueChange={onValueChange} data-testid={TESTID} />);
@@ -489,6 +590,30 @@ describe('AmountInput', () => {
       expect(getInput()).not.toHaveFocus();
       fireEvent.click(row);
       expect(getInput()).toHaveFocus();
+    });
+  });
+
+  describe('loading', () => {
+    const skeleton = (container: HTMLElement) => container.querySelector('[data-slot="skeleton"]');
+
+    it('keeps the input slot width while loading, so the unit control does not move', () => {
+      const { container } = render(
+        <AmountInput value="" loading unitControl={<span>USDC</span>} data-testid={TESTID} />
+      );
+      expect(skeleton(container)?.parentElement).toHaveClass('min-w-0', 'flex-1');
+    });
+
+    it('does not stretch the skeleton in the centred layout', () => {
+      const { container } = render(<AmountInput value="" loading align="center" data-testid={TESTID} />);
+      expect(skeleton(container)?.parentElement).not.toHaveClass('flex-1');
+    });
+
+    it('draws the skeleton in the requested tone', () => {
+      const { container, rerender } = render(<AmountInput value="" loading data-testid={TESTID} />);
+      expect(skeleton(container)).toHaveClass('bg-fill');
+
+      rerender(<AmountInput value="" loading skeletonTone="onFill" data-testid={TESTID} />);
+      expect(skeleton(container)).toHaveClass('bg-fill-pressed');
     });
   });
 
@@ -631,4 +756,22 @@ describe('user-visible error reporting', () => {
     act(() => jest.advanceTimersByTime(1000));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
+});
+
+it('reports fixed producer diagnostics only while its error is visibly rendered', async () => {
+  jest.useFakeTimers();
+  jest.mocked(reportUserVisibleError).mockClear();
+  const evidence = { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' };
+  const props: React.ComponentProps<typeof AmountInput> = {
+    errorId: 'usdcxBurnFeeUnavailable',
+    error: 'Fee unavailable'
+  };
+  const { rerender } = render(<AmountInput {...Object.assign(props, { errorDiagnostics: evidence })} />);
+  await act(async () => jest.advanceTimersByTimeAsync(1000));
+  expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxBurnFeeUnavailable', 'field', evidence);
+  jest.mocked(reportUserVisibleError).mockClear();
+  rerender(<AmountInput {...Object.assign({}, props, { error: undefined, errorDiagnostics: evidence })} />);
+  await act(async () => jest.advanceTimersByTimeAsync(2000));
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  jest.useRealTimers();
 });

@@ -111,10 +111,22 @@ describe('user-visible unavailable-feature errors', () => {
     act(() => jest.advanceTimersByTime(999));
     expect(mockReport.mock.calls).toEqual([]);
     act(() => jest.advanceTimersByTime(1));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
     view.rerender(<FeatureUnavailableNotice availability={{ ...DOWN, detail: 'another private cause' }} />);
     act(() => jest.advanceTimersByTime(1000));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
   });
 
   it.each([AVAILABLE, LOADING])('does not report hidden %o state', availability => {
@@ -156,7 +168,13 @@ describe('user-visible unavailable-feature errors', () => {
     act(() => jest.advanceTimersByTime(999));
     expect(mockReport.mock.calls).toEqual([]);
     act(() => jest.advanceTimersByTime(1));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
   });
 
   it.each([AVAILABLE, LOADING])('drops an unavailable episode cleared at 999 ms by %o', availability => {
@@ -168,4 +186,20 @@ describe('user-visible unavailable-feature errors', () => {
     act(() => jest.advanceTimersByTime(1000));
     expect(mockReport.mock.calls).toEqual([]);
   });
+});
+
+it('defaults a composite feature to unknown without rerunning availability or restarting the outage dwell', () => {
+  jest.useFakeTimers();
+  mockReport.mockClear();
+  const view = render(<FeatureUnavailableNotice availability={DOWN} />);
+  act(() => jest.advanceTimersByTime(500));
+  view.rerender(<FeatureUnavailableNotice availability={{ ...DOWN, detail: 'private-other' }} />);
+  act(() => jest.advanceTimersByTime(500));
+  expect(mockReport).toHaveBeenCalledTimes(1);
+  expect(mockReport).toHaveBeenCalledWith('bridgeFeatureUnavailableBody', 'notice', {
+    kind: 'feature_unavailable',
+    featureUnavailableFeature: 'unknown',
+    featureUnavailableReason: 'service-down'
+  });
+  jest.useRealTimers();
 });

@@ -23,7 +23,7 @@ import { IconName } from 'app/icons/v2';
 import { usePageActive } from 'app/layouts/page-active';
 import { TabHeaderAction, TabRootHeader } from 'components/ui';
 import type { SegmentedControlItem } from 'components/ui/SegmentedControl';
-import { useExploreMotion } from 'lib/animation';
+import { exploreSectionVariant, useExploreMotion } from 'lib/animation';
 import {
   EXPLORE_FILTERS,
   getExploreCatalog,
@@ -41,6 +41,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 
 import { ArcadeLanding } from './ArcadeLanding';
 import { type ExploreEmptyState, ExploreSections } from './ExploreSections';
+import { FinanceHero } from './FinanceHero';
 import { hasRevealed, markRevealed } from './reveal-once';
 import { urlForQuery } from './search-url';
 
@@ -53,6 +54,13 @@ interface DappLauncherProps {
 
 /** The categories are header chrome now, so the reveal starts at the first section. */
 const FIRST_SECTION_REVEAL = 0;
+
+/** The apps the All chip features, in order, with each one's headline; an app the catalog lacks is skipped. */
+const ALL_FEATURED: { id: string; headlineKey: string }[] = [
+  { id: 'port0', headlineKey: 'exploreFeaturedPort0Headline' },
+  { id: 'geoquizz', headlineKey: 'exploreFeaturedGeoquizzHeadline' },
+  { id: 'qash', headlineKey: 'exploreFeaturedQashHeadline' }
+];
 
 export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, onChooseFilter, entryIntent }) => {
   const { t, i18n } = useTranslation();
@@ -76,7 +84,32 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, o
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searching = query.trim().length > 0;
-  const results = useMemo(() => searchExploreCatalog(catalog, filter, query), [catalog, filter, query]);
+  const visibleCatalog = useMemo(() => {
+    if (filter !== 'all' || resolveExploreSections(catalog, filter).some(({ section }) => section.kind === 'featured'))
+      return catalog;
+    const itemIds = ALL_FEATURED.flatMap(({ id }) => catalog.items.filter(item => item.id === id).map(item => item.id));
+    if (itemIds.length === 0) return catalog;
+    return {
+      ...catalog,
+      sections: [
+        { id: 'featured', kind: 'featured' as const, title: t('exploreFeatured'), itemIds },
+        ...catalog.sections
+      ]
+    };
+  }, [catalog, filter, t]);
+  const results = useMemo(() => searchExploreCatalog(visibleCatalog, filter, query), [visibleCatalog, filter, query]);
+
+  // The Finance hero's apps: Finance's items in the order its sections show them, each once.
+  const financeItems = useMemo(() => {
+    const seen = new Set<string>();
+    return resolveExploreSections(catalog, 'finance')
+      .flatMap(({ items }) => items)
+      .filter(item => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+  }, [catalog]);
 
   const categories = useMemo<SegmentedControlItem<ExploreFilter>[]>(
     () => EXPLORE_FILTERS.map(f => ({ id: f.id, label: t(f.labelKey), 'data-testid': `explore-chip-${f.id}` })),
@@ -85,11 +118,18 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, o
 
   // While searching, the sections collapse into one results list (or "No results").
   const sections = useMemo<ResolvedExploreSection[]>(() => {
-    if (!searching) return resolveExploreSections(catalog, filter);
+    if (!searching) {
+      return resolveExploreSections(visibleCatalog, filter);
+    }
     if (results.length === 0) return [];
     const itemIds = results.map(item => item.id);
     return [{ section: { id: 'search-results', kind: 'list', title: t('exploreResults'), itemIds }, items: results }];
-  }, [catalog, filter, searching, results, t]);
+  }, [visibleCatalog, filter, searching, results, t]);
+
+  const featuredHeadlines = useMemo(
+    () => Object.fromEntries(ALL_FEATURED.map(({ id, headlineKey }) => [id, t(headlineKey)])),
+    [t]
+  );
 
   const empty: ExploreEmptyState = searching
     ? {
@@ -216,15 +256,29 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, requestedFilter, o
           <ArcadeLanding catalog={catalog} pending={pending} onOpen={onOpen} />
         ) : (
           !pending && (
-            <ExploreSections
-              sections={sections}
-              recents={recents}
-              empty={empty}
-              onOpen={onOpen}
-              reveal={reveal}
-              firstRevealIndex={FIRST_SECTION_REVEAL}
-              staggered={reveal && !settled}
-            />
+            <>
+              {filter === 'finance' && !searching && financeItems.length > 0 && (
+                <motion.div
+                  className="px-4 pb-5"
+                  custom={0}
+                  variants={motionTokens.section}
+                  initial={exploreSectionVariant.hidden}
+                  animate={exploreSectionVariant.shown}
+                >
+                  <FinanceHero items={financeItems} />
+                </motion.div>
+              )}
+              <ExploreSections
+                sections={sections}
+                recents={recents}
+                headlines={featuredHeadlines}
+                empty={empty}
+                onOpen={onOpen}
+                reveal={reveal}
+                firstRevealIndex={FIRST_SECTION_REVEAL}
+                staggered={reveal && !settled}
+              />
+            </>
           )
         )}
       </motion.main>

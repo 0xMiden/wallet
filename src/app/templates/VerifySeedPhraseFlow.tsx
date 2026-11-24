@@ -12,7 +12,12 @@ import { CopyLabel } from 'components/ui/CopyLabel';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
-import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import {
+  SeedPhraseGrid,
+  SeedPhrasePlaceholder,
+  SeedPhrasePrivacyHero,
+  SeedRevealToggle
+} from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { useMidenContext } from 'lib/miden/front';
@@ -23,6 +28,7 @@ import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
@@ -47,17 +53,19 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
     [seedStatus]
   );
   const [credential, setCredential] = useState<string>();
+  const [removalAccepted, setRemovalAccepted] = useState(false);
   const [step, setStep] = useState<Step>('warning');
   const [mnemonic, setMnemonic] = useState<string | null>(null);
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authErrorId, setAuthErrorId] = useState<UserErrorId | null>(null);
-  const { copy, copied } = useClipboardCopy(mnemonic ?? '');
+  const { copy, copied } = useClipboardCopy(mnemonic ?? '', { secret: true });
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(mnemonic !== null);
+  const mask = useRevealMask({ resetKey: mnemonic });
 
   const {
     register,
@@ -196,9 +204,10 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
     setIsSubmitting(true);
     setAuthError(null);
     try {
-      await removeSeedPhrase(credential);
+      const outcome = await removeSeedPhrase(credential);
       setMnemonic(null);
       setCredential(undefined);
+      if (outcome === 'pending') setRemovalAccepted(true);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : t('seedRemovalFailed'));
       setAuthErrorId(error instanceof Error ? 'raw_seed_remove_failed' : 'seedRemovalFailed');
@@ -218,6 +227,21 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
       >
         <SubPageSection description={<p role="status">{t(SEED_STATE_NOTICE[seedStatus])}</p>}>
+          <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
+        </SubPageSection>
+      </SubPageLayout>
+    );
+  }
+
+  if (removalAccepted && (!seedStatus || seedStatus === 'stored')) {
+    return (
+      <SubPageLayout
+        title={t('recoveryPhrase')}
+        onBack={back}
+        data-testid="verify-seed-state"
+        footer={<Button className={actionButton} title={t('close')} onClick={onExit} />}
+      >
+        <SubPageSection description={<p role="status">{t('seedPhraseRemoved')}</p>}>
           <ErrorLine errorId={authErrorId}>{authError}</ErrorLine>
         </SubPageSection>
       </SubPageLayout>
@@ -375,7 +399,9 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean; required?: boolean }> = ({ re
         <SubPageSection description={t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}>
           {isGuardReady && (
             <>
-              <SeedPhraseGrid words={words} />
+              <SeedPhraseGrid words={words} masked={mask.masked} />
+
+              <SeedRevealToggle className="mt-3 self-start" revealed={mask.revealed} onToggle={mask.toggle} />
 
               {!remove && (
                 <Pill

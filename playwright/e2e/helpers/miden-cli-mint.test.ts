@@ -92,6 +92,33 @@ function scriptedCli(
   return { cli, commands };
 }
 
+describe('MidenCli.sync process timeout', () => {
+  const timeout = { exitCode: null, timedOut: true, timeoutMs: 60_000, signal: 'SIGTERM' };
+
+  it.each([false, true])('retries a killed read once and fails closed if it stalls again (%s)', async stallsAgain => {
+    jest.useFakeTimers();
+    try {
+      const run = jest.fn(async (command: string) => invocation(command, timeout));
+      run.mockResolvedValueOnce(invocation('miden-client sync', timeout));
+      if (!stallsAgain) run.mockResolvedValueOnce(invocation('miden-client sync'));
+      const cli = new MidenCli({
+        binaryPath: 'miden-client',
+        workDir: '',
+        env: getEnvironmentConfig(),
+        cliRunner: { run } as unknown as CLIRunner
+      });
+      const outcome = cli.sync().then(() => 'synced', (error: Error) => error.message);
+      await jest.runAllTimersAsync();
+      expect(await outcome).toBe(stallsAgain ? 'Sync failed: CLI sync timed out after 60000ms' : 'synced');
+      expect(run.mock.calls).toHaveLength(2);
+      expect(run).toHaveBeenNthCalledWith(1, 'miden-client sync', { cwd: '', timeoutMs: 60_000 });
+      expect(run).toHaveBeenNthCalledWith(2, 'miden-client sync', { cwd: '', timeoutMs: 60_000 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('MidenCli.mint', () => {
   const savedNetwork = process.env.E2E_NETWORK;
   const savedFunderDir = process.env.MIDEN_E2E_FUNDER_DIR;

@@ -3,27 +3,33 @@ import { AccountId, Address, FungibleAsset, Note, TransactionRequestBuilder } fr
 import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 
 import {
+  _resetCanonicalWalletAccountIdsForTest,
   accountIdStringToSdk,
   accountRefToSdk,
   buildConsumeTransactionRequest,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
+  canonicalWalletAccountId,
   feeAwareRequestBuilder,
   getBech32AddressFromAccountId,
   sameWalletAccountId,
   walletAccountIdToSdk
 } from './helpers';
 
+const mockCanonicalOverrides = new Map<string, string>();
+
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   AccountId: {
-    fromHex: jest.fn((hex: any) => ({ toString: () => `accountId-${hex}` }))
+    fromHex: jest.fn((hex: string) => ({
+      toString: () => mockCanonicalOverrides.get(hex) ?? `accountId-${hex}`
+    }))
   },
   Address: {
-    fromAccountId: jest.fn((id: any) => ({
+    fromAccountId: jest.fn((id: unknown) => ({
       toBech32: () => `bech32-${id}`
     })),
-    fromBech32: jest.fn((str: any) => ({
-      accountId: () => `accountId-${str}`
+    fromBech32: jest.fn((str: string) => ({
+      accountId: () => mockCanonicalOverrides.get(str) ?? `accountId-${str}`
     }))
   },
   NetworkId: { testnet: jest.fn(() => 'testnet'), devnet: jest.fn(() => 'devnet') },
@@ -122,6 +128,8 @@ describe('miden sdk helpers', () => {
   beforeEach(() => {
     // Call history only — the factory's implementations must survive.
     jest.clearAllMocks();
+    mockCanonicalOverrides.clear();
+    _resetCanonicalWalletAccountIdsForTest();
   });
 
   it('converts accountId to bech32', () => {
@@ -173,6 +181,53 @@ describe('miden sdk helpers', () => {
       (Address.fromBech32 as jest.Mock).mockReturnValueOnce({ accountId: () => 'shared-account-id' });
       (AccountId.fromHex as jest.Mock).mockReturnValueOnce('shared-account-id');
       expect(sameWalletAccountId('0xABCDEF', 'mtst1qabc')).toBe(true);
+    });
+
+    it('skips SDK parsing in sameWalletAccountId when stripped prefixes match', () => {
+      expect(sameWalletAccountId('mtst1qfast_qr7suffix', 'mtst1qfast')).toBe(true);
+      expect(sameWalletAccountId('mtst1qfast_one', 'mtst1qfast_two')).toBe(true);
+      expect(Address.fromBech32).not.toHaveBeenCalled();
+      expect(AccountId.fromHex).not.toHaveBeenCalled();
+    });
+
+    it('caches successful canonicalWalletAccountId parses with a bounded LRU cap', () => {
+      for (let i = 0; i < 50; i += 1) {
+        expect(sameWalletAccountId('0xcachehex', 'mtst1qcachea_tag')).toBe(false);
+      }
+      expect(AccountId.fromHex).toHaveBeenCalledTimes(1);
+      expect(Address.fromBech32).toHaveBeenCalledTimes(1);
+
+      jest.clearAllMocks();
+      for (let i = 0; i < 300; i += 1) {
+        canonicalWalletAccountId(`mtst1qcap${i}`);
+      }
+      expect(Address.fromBech32).toHaveBeenCalledTimes(300);
+
+      jest.clearAllMocks();
+      expect(canonicalWalletAccountId('mtst1qcap299')).toBe('accountId-mtst1qcap299');
+      expect(Address.fromBech32).not.toHaveBeenCalled();
+
+      expect(canonicalWalletAccountId('mtst1qcap0')).toBe('accountId-mtst1qcap0');
+      expect(Address.fromBech32).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not cache parse failures so later calls succeed once SDK parsing is available', () => {
+      jest.mocked(Address.fromBech32).mockImplementationOnce(() => {
+        throw new Error('WASM not ready');
+      });
+      expect(canonicalWalletAccountId('mtst1qlate')).toBe('mtst1qlate');
+      expect(canonicalWalletAccountId('mtst1qlate')).toBe('accountId-mtst1qlate');
+
+      mockCanonicalOverrides.set('0xLATEHEX', 'late-shared');
+      mockCanonicalOverrides.set('mtst1qlate2', 'late-shared');
+      jest.mocked(AccountId.fromHex).mockImplementationOnce(() => {
+        throw new Error('WASM not ready');
+      });
+      jest.mocked(Address.fromBech32).mockImplementationOnce(() => {
+        throw new Error('WASM not ready');
+      });
+      expect(sameWalletAccountId('0xLATEHEX', 'mtst1qlate2')).toBe(false);
+      expect(sameWalletAccountId('0xLATEHEX', 'mtst1qlate2')).toBe(true);
     });
   });
 

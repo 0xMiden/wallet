@@ -13,9 +13,12 @@
   "vars": {
     "ALLOWED_ORIGINS": "[]",
     "MAXMIND_DAILY_QUERY_LIMIT": "0",
-    "CALLER_REQUESTS_PER_MINUTE": "60",
     "DEPLOYMENT_REVISION": "unknown"
   },
+  "ratelimits": [
+    { "name": "CALLER_RATE_LIMIT", "namespace_id": "189401", "simple": { "limit": 60, "period": 60 } },
+    { "name": "COLO_RATE_LIMIT", "namespace_id": "189402", "simple": { "limit": 5000, "period": 10 } }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "ELIGIBILITY_GUARD", "class_name": "EligibilityGuard" },

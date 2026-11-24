@@ -1,8 +1,10 @@
-import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { OffscreenAbortFacts, OffscreenDeadlineTimer, OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { ProposalChainSyncError } from 'lib/miden/guardian';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
+import { markFailedReexecution, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { annotateOffscreenDeadline } from 'lib/telemetry/offscreen-deadline-diagnostics';
 
 import {
   chunkAutoConsumeBatch,
@@ -10,9 +12,11 @@ import {
   ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE,
   formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
+  guardianHoldRetryMessage,
   INVALID_NOTE_ERROR,
   isFeeConversionCommitmentMismatchError,
   isGuardianOutage,
+  isNodeOutage,
   isOutcomeUnconfirmed,
   isProverProcedureMismatch,
   isUnconfirmedFailure,
@@ -23,6 +27,7 @@ import {
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
+  STALE_PROOF_ERROR,
   SUBMIT_CROSSING_UNRECORDED_ERROR,
   TRANSACTION_FEE_COMMITMENT_MISMATCH_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
@@ -31,6 +36,8 @@ import {
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
+  ProposalEffectRefusedError,
+  ProposalFeeUnknownError,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -62,6 +69,14 @@ describe('chunkAutoConsumeBatch', () => {
 
   it('keeps every chunk on a chain that charges no fee', () => {
     expect(chunkAutoConsumeBatch(notes(20, '1'), 0).map(chunk => chunk.length)).toEqual([8, 8, 4]);
+  });
+
+  it('refuses every chunk of a split claim while the fee is unknown', () => {
+    expect(chunkAutoConsumeBatch(notes(9, '1000000000'), null)).toEqual([]);
+  });
+
+  it('refuses one chunk of eight notes while the fee is unknown', () => {
+    expect(chunkAutoConsumeBatch(notes(8, '1000000000'), null)).toEqual([]);
   });
 });
 
@@ -584,6 +599,76 @@ describe('isUnconfirmedFailure and isOutcomeUnconfirmed (#1081)', () => {
   });
 });
 
+describe('a proof that kept going stale (#2060)', () => {
+  it.each([
+    ['at the stage that reads as a prover failure, delegated', 'proving', true],
+    ['at the stage that reads as a prover failure, local', 'proving', false],
+    ['on an extension row, whose stage stays at sending', 'sending', true]
+  ] as const)('never blames the prover %s', (_label, stage, delegated) => {
+    expect(resolveTransactionErrorMessage(new StaleProofError(), stage, delegated)).toBe(STALE_PROOF_ERROR);
+  });
+
+  it('reads the same through a wrapper', () => {
+    const wrapped = new Error('wrapped', { cause: new StaleProofError() });
+    expect(resolveTransactionErrorMessage(wrapped, 'proving', true)).toBe(STALE_PROOF_ERROR);
+  });
+
+  it('lets a kill in the chain win, since that pipeline may still submit', () => {
+    const killed = new WasmClientPoisonedError('watchdog', new StaleProofError());
+    expect(resolveTransactionErrorMessage(killed, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('tells the user nothing went out and to try again', () => {
+    expect(STALE_PROOF_ERROR).toMatch(/nothing was sent and no funds moved/);
+    expect(STALE_PROOF_ERROR).toMatch(/try again/);
+  });
+
+  it('reads as Failed, not Not confirmed', () => {
+    expect(isUnconfirmedFailure({ type: 'send', status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR })).toBe(
+      false
+    );
+  });
+});
+
+describe('a sync or execute that failed on a re-execution (#2060)', () => {
+  it.each([
+    ['a dropped request, delegated', 'Failed to fetch', true],
+    ['a dropped request, local', 'Failed to fetch', false],
+    ['a timeout, delegated', 'sync timeout', true],
+    ['a timeout, local', 'sync timeout', false]
+  ])('keeps its own words at the proving stage: %s', (_label, message, delegated) => {
+    const failure = markFailedReexecution(new Error(message));
+    expect(resolveTransactionErrorMessage(failure, 'proving', delegated)).toBe(formatRawTransactionError(failure));
+  });
+
+  it('keeps the kernel copy a failed execute earns', () => {
+    const shortfall = new Error('the amount of the asset in the vault is less than the amount to remove');
+    expect(resolveTransactionErrorMessage(markFailedReexecution(shortfall), 'proving', true)).toBe(
+      TRANSACTION_VAULT_SHORTFALL_ERROR
+    );
+  });
+
+  it('leaves a kill as a kill, since that pipeline may still submit', () => {
+    const killed = markFailedReexecution(new WasmClientPoisonedError('watchdog', new Error('evicted')));
+    expect(resolveTransactionErrorMessage(killed, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('leaves every other failure at the proving stage to the prover', () => {
+    expect(resolveTransactionErrorMessage(new Error('Failed to fetch'), 'proving', true)).toBe(
+      REMOTE_PROVER_FAILED_ERROR
+    );
+  });
+});
+
+describe('guardianHoldRetryMessage (#2060)', () => {
+  // AM and PM are no zone, and a runner in UTC has no offset to print, so a bare GMT or UTC has to pass.
+  const NAMES_A_ZONE = /\b(?:(?:GMT|UTC)(?:[+-]\d{1,2}(?::\d{2})?)?|(?![AP]M\b)[A-Z]{2,5})\b/;
+
+  it('names an explicit zone or UTC offset', () => {
+    expect(guardianHoldRetryMessage(Math.floor(Date.now() / 1000) + 600)).toMatch(NAMES_A_ZONE);
+  });
+});
+
 describe('RotationGateConsumeRefusal', () => {
   it.each([ROTATION_PENDING_CONSUME_ERROR, ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR, ROTATION_FUNDING_NON_NATIVE_ERROR])(
     'lands on the row as written: %s',
@@ -603,6 +688,55 @@ describe('RotationGateConsumeRefusal', () => {
     // The requeue arm would retry a refusal until it expired, holding back the gate's claim or rotation meanwhile.
     expect(isGuardianOutage(new RotationGateConsumeRefusal('connection timed out'))).toBe(false);
   });
+});
+
+describe('ProposalEffectRefusedError', () => {
+  // A raw text a classifier would take for an outage or a shortfall, so only the identity check can name it.
+  const refusal = new ProposalEffectRefusedError(
+    'consume',
+    'connection reset; amount of the asset in the vault is less than the amount to remove',
+    'Localized refusal'
+  );
+
+  it('shows its localized sentence at any stage and keeps the type and detail as its raw text', () => {
+    expect(resolveTransactionErrorMessage(refusal, 'creating-proposal')).toBe('Localized refusal');
+    expect(resolveTransactionErrorMessage(refusal, 'proving', true)).toBe('Localized refusal');
+    expect(formatRawTransactionError(refusal)).toContain('Refused to sign this consume transaction: connection reset');
+  });
+
+  it('is never read as a guardian outage, so no requeue arm retries it (#2147)', () => {
+    expect(isGuardianOutage(new ProposalEffectRefusedError('execute', 'connection reset by peer', 'Localized'))).toBe(
+      false
+    );
+  });
+});
+
+describe('ProposalFeeUnknownError', () => {
+  it('is an outage, and a kill wrapping it is not', () => {
+    const unknown = new ProposalFeeUnknownError('Localized');
+    const wrapped = Object.assign(new Error('could not read the chain fee'), { cause: unknown });
+    expect(isGuardianOutage(unknown)).toBe(true);
+    expect(isGuardianOutage(wrapped)).toBe(true);
+    expect(isGuardianOutage(new WasmClientPoisonedError('realm-error', unknown))).toBe(false);
+  });
+});
+
+describe('the copy a row failed for an unknown chain fee shows', () => {
+  const unknown = () => new ProposalFeeUnknownError('Localized: nothing was sent, try again');
+
+  it.each(['sending', 'executing', 'proving', undefined] as const)(
+    "is the localized sentence outside a Guardian proposal stage (stage '%s')",
+    stage => {
+      expect(resolveTransactionErrorMessage(unknown(), stage, true)).toBe('Localized: nothing was sent, try again');
+    }
+  );
+
+  it.each(['creating-proposal', 'signing-proposal'] as const)(
+    "stays the Guardian outage copy at the Guardian proposal stage '%s'",
+    stage => {
+      expect(resolveTransactionErrorMessage(unknown(), stage, false)).toBe(GUARDIAN_UNREACHABLE_ERROR);
+    }
+  );
 });
 
 describe('a failed proposal chain sync as an outage (#1442)', () => {
@@ -648,6 +782,175 @@ describe('a Guardian request timeout as an outage (#1313)', () => {
     a.cause = b;
     b.cause = a;
     expect(isGuardianOutage(a)).toBe(false);
+  });
+});
+
+describe('a node that gave the leaf no usable answer (#2060)', () => {
+  // web-sdk's `build_error_chain`: its context, `ClientError::RpcError`, the request, then the tonic status.
+  const REQUEST = 'failed to sync chain: RPC error: grpc request failed for sync_chain_mmr: ';
+  const EXECUTE_REQUEST = 'failed to execute transaction: RPC error: grpc request failed for get_account: ';
+  const UNAVAILABLE = 'Miden node is unavailable; check that the node is running and reachable';
+  const INTERNAL = 'Miden node returned an internal error; this is likely a node-side issue';
+  const HEADER_MISSING = 'grpc-status header missing, mapped from HTTP status code';
+  // idxdb-store's `await_js_value`. wasm-bindgen's Debug prints the rejection's name, message and stack, and Dexie
+  // words an aborted transaction 'AbortError: <cause's name> <cause's message>'.
+  const STORE_REJECTED = 'database-related non-query error: failed to apply state sync: ';
+
+  it.each([
+    ['the SDK naming an unavailable node', `${REQUEST}${UNAVAILABLE}`],
+    ['the SDK timing a request out', `${REQUEST}request to Miden node timed out; the node may be under heavy load`],
+    ['a dropped request the SDK has no status for', `${REQUEST}unknown error: `],
+    ['a cancelled request', `${REQUEST}operation was cancelled`],
+    ['an aborted request', `${REQUEST}operation was aborted`],
+    ['a node-side failure', `${REQUEST}${INTERNAL}`],
+    ['a rate limit', `${REQUEST}request was rate-limited or the node's resources are exhausted; retry after a delay`],
+    [
+      'an outage, whatever its status says',
+      `${EXECUTE_REQUEST}${UNAVAILABLE}: code: 'The service is currently unavailable', message: "no healthy upstream"`
+    ],
+    ['a connection that never opened', 'failed to execute transaction: RPC error: failed to connect to the Miden node'],
+    ['Chrome dropping a fetch', 'Failed to fetch'],
+    ['WebKit dropping a fetch', 'Load failed'],
+    ['WebKit losing a connection', 'The network connection was lost.'],
+    ['a named read that failed on the network', `failed to fetch note script via RPC: ${REQUEST}${UNAVAILABLE}`],
+    ['a gateway that is struggling', 'transport error: status code 503'],
+    [
+      'a failed connection under the data store wrapper, which only sounds like the store',
+      'failed to execute transaction: data store error: failed to fetch storage map via RPC: ' +
+        'failed to connect to the Miden node'
+    ],
+    [
+      'an outage whose status quotes the store, since the kind decides a request',
+      `${REQUEST}${UNAVAILABLE}: code: 'The service is currently unavailable', ` +
+        `message: "storage error: ${STORE_REJECTED}"`
+    ]
+  ])('reads %s as an outage', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(true);
+  });
+
+  it.each([
+    [
+      'a store that ran out of quota',
+      `failed to sync chain: storage error: ${STORE_REJECTED}` +
+        'JsValue(AbortError: QuotaExceededError The quota has been exceeded.)'
+    ],
+    [
+      'an aborted IndexedDB transaction',
+      `failed to sync chain: storage error: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    [
+      'a rejection whose stack prints a 5xx line',
+      `failed to sync chain: storage error: ${STORE_REJECTED}JsValue(ConstraintError: Key already exists\n` +
+        'ConstraintError: Key already exists\n    at put (https://wallet.test/assets/Cargo-2c1.js:512:17))'
+    ],
+    [
+      'the same failure through the data store',
+      'failed to execute transaction: transaction execution failed: failed to fetch transaction inputs from the data ' +
+        `store: store error: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    [
+      'a StoreError the SDK reports bare',
+      `failed to get setting value from the store: ${STORE_REJECTED}JsValue(AbortError: Transaction aborted)`
+    ],
+    ['a block number the store prints', 'failed to sync chain: storage error: block header for block 512 not found'],
+    ['the data store printing one', 'failed to fetch inputs: store error: block header for block 512 not found']
+  ])('reads %s as no statement about the node', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(false);
+  });
+
+  it('reads the outage at any depth, and off a value that is not an Error', () => {
+    expect(isNodeOutage(new Error('could not execute', { cause: new TypeError('Failed to fetch') }))).toBe(true);
+    expect(isNodeOutage('Failed to fetch')).toBe(true);
+  });
+
+  it.each([
+    [
+      'a read of the local store the SDK named',
+      'failed to fetch transaction inputs from the data store: account with id 0xabc not found in data store'
+    ],
+    ['a request that can never succeed', `${HEADER_MISSING} 404`],
+    ['a node that refused', `${REQUEST}invalid request parameters`],
+    [
+      'a note the node does not hold',
+      'failed to execute transaction: RPC error: note 0xabc was not found on the Miden node'
+    ],
+    [
+      'an answer the SDK cannot read',
+      'failed to sync chain: RPC error: received an invalid response from the Miden node: missing block header'
+    ],
+    [
+      'an answer that does not decode',
+      'failed to sync chain: RPC error: failed to deserialize response from the Miden node: eof'
+    ],
+    [
+      'a client the node does not support',
+      'failed to sync chain: RPC error: accept header validation failed: server rejected request - please check your ' +
+        'version and network settings (client version: 0.17.5, genesis commitment: 0xabc)'
+    ],
+    [
+      'a gateway that rejects the bytes',
+      `${REQUEST}${INTERNAL}: code: 'Internal error', message: "${HEADER_MISSING} 400"`
+    ],
+    [
+      // Base ended these at once. A gateway's refusal the SDK words as a node's stays on that side of the lopsided cost.
+      'a gateway refusal the SDK words as the node refusing',
+      `${REQUEST}permission denied: code: 'The caller does not have permission to execute the specified operation', ` +
+        `message: "${HEADER_MISSING} 403"`
+    ],
+    [
+      'a kernel failure, whatever its diagnostic prints',
+      'failed to execute transaction: transaction execution failed: failed to execute transaction kernel program:\n' +
+        '  x connection assertion failed\n 512 |   exec.note::abort'
+    ],
+    ['a kernel failure read by its code', `execution failed: ${ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH_CODE} 503`],
+    ['a prover that lacks a procedure', 'procedure with root digest 0xabc could not be found: connection']
+  ])('leaves %s to the terminal path', (_label, message) => {
+    expect(isNodeOutage(new Error(message))).toBe(false);
+  });
+
+  // The gRPC kinds that answer the request, each with tonic's own text for the code.
+  it.each([
+    ['resource not found', 'Some requested entity was not found'],
+    ['invalid request parameters', 'Client specified an invalid argument'],
+    ['permission denied', 'The caller does not have permission to execute the specified operation'],
+    ['resource already exists', 'Some entity that we attempted to create already exists'],
+    ['precondition failed', "The system is not in a state required for the operation's execution"],
+    [
+      'the requested method is not implemented by this version of the Miden node',
+      'Operation is not implemented or not supported'
+    ],
+    [
+      'request was rejected as unauthenticated; check your credentials and connection settings',
+      'The request does not have valid authentication credentials'
+    ],
+    ['operation was attempted past the valid range', 'Operation was attempted past the valid range'],
+    ['unrecoverable data loss or corruption', 'Unrecoverable data loss or corruption']
+  ])('reads a node that answered "%s" by that kind alone, not by what its message prints', (kind, code) => {
+    for (const request of [REQUEST, EXECUTE_REQUEST]) {
+      expect(isNodeOutage(new Error(`${request}${kind}`))).toBe(false);
+      const printed = `${request}${kind}: code: '${code}', message: "connection timed out at block 512"`;
+      expect(isNodeOutage(new Error(printed))).toBe(false);
+    }
+  });
+
+  it('reads a kind this SDK does not name as an answer, the cheap side of the lopsided cost', () => {
+    expect(isNodeOutage(new Error(`${REQUEST}the node has moved on: connection`))).toBe(false);
+  });
+
+  it('is no statement about the node when a Guardian went silent', () => {
+    const timeout = new GuardianRequestTimeoutError('https://guardian.test/delta', GUARDIAN_REQUEST_TIMEOUT_MS);
+    expect(isNodeOutage(timeout)).toBe(false);
+    expect(isNodeOutage(new Error('the send failed', { cause: timeout }))).toBe(false);
+  });
+
+  it('is never an outage under a killed pipeline, at any depth', () => {
+    // The abandoned pipeline may still submit, and every kill reads as transport-shaped text.
+    const poisoned = new WasmClientPoisonedError('watchdog', new TypeError('Failed to fetch'));
+    const aborted = new OperationAbortedError('op-1', 'deadline');
+    for (const kill of [poisoned, aborted]) {
+      expect(isNodeOutage(kill)).toBe(false);
+      expect(isNodeOutage(new Error('transport error', { cause: kill }))).toBe(false);
+    }
   });
 });
 
@@ -705,5 +1008,385 @@ describe('an error whose cause getter throws (#1313)', () => {
   it('still reads a deadline kill as a recovered engine', () => {
     const aborted = withThrowingCause(new OperationAbortedError('op-1', 'deadline'));
     expect(resolveTransactionErrorMessage(aborted, 'creating-proposal')).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+});
+
+describe('offscreen deadline evidence (#2203)', () => {
+  it.each([false, true])('keeps deadline facts out of the warning (wrapped=%s)', wrapped => {
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    annotateOffscreenDeadline(abort, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving'
+    });
+    if (wrapped) abort.cause = new Error('inner');
+    const error = wrapped ? new Error('outer', { cause: abort }) : abort;
+    const expected = wrapped ? `Error: outer <- caused by ${abort} <- caused by Error: inner` : String(abort);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(resolveTransactionErrorMessage(error, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+      expect(warn).toHaveBeenCalledWith('[transaction] error classified, raw cause:', expected);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('distinguishes own and collateral deadlines with the same id', () => {
+    const own = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    const collateral = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'collateral', timer: 'started', killer: 'write' }
+    });
+    expect(formatRawTransactionError(own)).toBe(
+      'OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+    expect(formatRawTransactionError(collateral)).toBe(
+      'OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=collateral; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+    expect(formatRawTransactionError(own)).not.toBe(formatRawTransactionError(collateral));
+  });
+
+  it('retains every timer phase and trigger for both deadline reasons', () => {
+    const timers: OffscreenDeadlineTimer[] = ['dispatch', 'backstop', 'started', 'resumed'];
+    const triggers: Array<'read' | 'write'> = ['read', 'write'];
+    const reasons: Array<'deadline' | 'deadline-no-kill'> = ['deadline', 'deadline-no-kill'];
+    for (const timer of timers) {
+      for (const killer of triggers) {
+        for (const reason of reasons) {
+          const abort = new OperationAbortedError('op-1', reason, {
+            started: true,
+            deadline: { owner: 'own', timer, killer }
+          });
+          expect(formatRawTransactionError(abort)).toBe(
+            `OperationAbortedError: Offscreen operation op-1 aborted (${reason})` +
+              ` [offscreen deadline: owner=own; timer=${timer}; trigger=${killer}; method=unobserved; stage=not_observed]`
+          );
+        }
+      }
+    }
+    const ordinary = Object.assign(new Error('ordinary'), {
+      facts: { started: true, deadline: { owner: 'own', timer: 'started', killer: 'write' } }
+    });
+    expect(formatRawTransactionError(ordinary)).toBe('Error: ordinary');
+  });
+
+  it('uses only validated observations from the matching error link', () => {
+    const facts: OffscreenAbortFacts = {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    };
+    const abort = new OperationAbortedError('op-1', 'deadline', facts);
+    annotateOffscreenDeadline(abort, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'creating-proposal'
+    });
+    expect(formatRawTransactionError(new Error('outer', { cause: abort }))).toBe(
+      'Error: outer <- caused by OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=guardianPipeline; stage=creating-proposal]'
+    );
+
+    const unannotated = Object.assign(new OperationAbortedError('op-1', 'deadline', facts), {
+      offscreenDeadlineMethod: 'sendTransaction',
+      offscreenDeadlineStage: 'executing'
+    });
+    const wrapper = new Error('outer', { cause: unannotated });
+    annotateOffscreenDeadline(wrapper, {
+      offscreenDeadlineMethod: 'newTransaction',
+      offscreenDeadlineStage: 'proving'
+    });
+    expect(formatRawTransactionError(wrapper)).toBe(
+      'Error: outer <- caused by OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+
+    const invalid = new OperationAbortedError('op-1', 'deadline', facts);
+    annotateOffscreenDeadline(invalid, {
+      offscreenDeadlineMethod: 'INVALID_METHOD',
+      offscreenDeadlineStage: 'INVALID_STAGE'
+    });
+    expect(formatRawTransactionError(invalid)).toBe(
+      'OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+
+    const reconstructed = Object.assign(new Error('reconstructed'), {
+      name: 'OperationAbortedError',
+      reason: 'deadline',
+      facts
+    });
+    expect(Object.getPrototypeOf(reconstructed)).toBe(Error.prototype);
+    expect(formatRawTransactionError(reconstructed)).toBe(
+      'OperationAbortedError: reconstructed' +
+        ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+    );
+  });
+
+  it('prints explicit unknowns without invoking hostile diagnostic fields', () => {
+    const canary = 'DIAGNOSTIC_CANARY';
+    const valid = { owner: 'own', timer: 'started', killer: 'write' };
+    const cases: Array<{ facts: unknown; suffix: string }> = [
+      {
+        facts: undefined,
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { started: true },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: 7,
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { owner: 'own' } },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { timer: 'resumed' } },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=resumed; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { killer: 'read' } },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=read; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { ...valid, owner: canary } },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { ...valid, timer: canary } },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=unavailable; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { ...valid, killer: canary } },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=started; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: { ...valid, extra: canary }, extra: canary },
+        suffix: ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: Object.setPrototypeOf({}, { deadline: valid }),
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.setPrototypeOf({ timer: 'started', killer: 'write' }, { owner: 'own' }) },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.setPrototypeOf({ owner: 'own', killer: 'write' }, { timer: 'started' }) },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=unavailable; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.setPrototypeOf({ owner: 'own', timer: 'started' }, { killer: 'write' }) },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=started; trigger=unavailable; method=unobserved; stage=not_observed]'
+      }
+    ];
+    const throwingGetter = () =>
+      jest.fn(() => {
+        throw new Error(canary);
+      });
+    const getters = {
+      facts: throwingGetter(),
+      deadline: throwingGetter(),
+      owner: throwingGetter(),
+      timer: throwingGetter(),
+      killer: throwingGetter()
+    };
+    cases.push(
+      {
+        facts: Object.defineProperty({}, 'deadline', { get: getters.deadline }),
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.defineProperty({ ...valid }, 'owner', { get: getters.owner }) },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=started; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.defineProperty({ ...valid }, 'timer', { get: getters.timer }) },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=unavailable; trigger=write; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: Object.defineProperty({ ...valid }, 'killer', { get: getters.killer }) },
+        suffix:
+          ' [offscreen deadline: owner=own; timer=started; trigger=unavailable; method=unobserved; stage=not_observed]'
+      }
+    );
+    const descriptorTrap = jest.fn(() => {
+      throw new Error(canary);
+    });
+    const propertyTrap = throwingGetter();
+    const unreadable = new Proxy({}, { getOwnPropertyDescriptor: descriptorTrap, get: propertyTrap });
+    cases.push(
+      {
+        facts: unreadable,
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        facts: { deadline: unreadable },
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      }
+    );
+    const errors: Array<{ error: Error; suffix: string }> = cases.map(({ facts, suffix }) => ({
+      error: Object.defineProperty(new OperationAbortedError('op-1', 'deadline'), 'facts', { value: facts }),
+      suffix
+    }));
+    const inheritedFacts = new OperationAbortedError('op-1', 'deadline');
+    Reflect.deleteProperty(inheritedFacts, 'facts');
+    Object.setPrototypeOf(inheritedFacts, Object.assign(new Error(), { facts: { deadline: valid } }));
+    errors.push(
+      {
+        error: Object.defineProperty(new OperationAbortedError('op-1', 'deadline'), 'facts', { get: getters.facts }),
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      },
+      {
+        error: inheritedFacts,
+        suffix:
+          ' [offscreen deadline: owner=unavailable; timer=unavailable; trigger=unavailable; method=unobserved; stage=not_observed]'
+      }
+    );
+    for (const { error, suffix } of errors) {
+      Object.defineProperty(error, 'cause', { value: new Error('inner') });
+      const output = formatRawTransactionError(error);
+      expect(output).toBe(
+        `OperationAbortedError: Offscreen operation op-1 aborted (deadline)${suffix} <- caused by Error: inner`
+      );
+      expect(output).not.toContain(canary);
+      const appended = output.slice(
+        'OperationAbortedError: Offscreen operation op-1 aborted (deadline)'.length,
+        -' <- caused by Error: inner'.length
+      );
+      expect(appended).toMatch(/^ \[offscreen deadline: [\x20-\x7e]+\]$/);
+      expect(appended.length).toBeLessThan(200);
+    }
+    for (const getter of Object.values(getters)) expect(getter).not.toHaveBeenCalled();
+    expect(propertyTrap).not.toHaveBeenCalled();
+  });
+
+  it('keeps deadline facts within the existing cause-chain boundary', () => {
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    const suffix =
+      ' [offscreen deadline: owner=own; timer=started; trigger=write; method=unobserved; stage=not_observed]';
+    const wrapper = new Error('outer', { cause: abort });
+    Object.defineProperty(abort, 'cause', { value: wrapper });
+    const cyclic = formatRawTransactionError(wrapper);
+    expect(cyclic).toBe(
+      `Error: outer <- caused by OperationAbortedError: Offscreen operation op-1 aborted (deadline)${suffix}`
+    );
+    expect(cyclic.match(/\[offscreen deadline:/g)).toHaveLength(1);
+
+    const leaf = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    let fifth: Error = leaf;
+    for (let i = 4; i >= 1; i--) fifth = new Error(`w${i}`, { cause: fifth });
+    const fifthOutput = formatRawTransactionError(fifth);
+    expect(fifthOutput).toBe(
+      'Error: w1 <- caused by Error: w2 <- caused by Error: w3 <- caused by Error: w4 <- caused by ' +
+        `OperationAbortedError: Offscreen operation op-1 aborted (deadline)${suffix}`
+    );
+    expect(fifthOutput.match(/\[offscreen deadline:/g)).toHaveLength(1);
+    expect(formatRawTransactionError(new Error('w0', { cause: fifth }))).toBe(
+      'Error: w0 <- caused by Error: w1 <- caused by Error: w2 <- caused by Error: w3 <- caused by Error: w4'
+    );
+    const ordinary = new Error('w1', {
+      cause: new Error('w2', { cause: new Error('w3', { cause: new Error('w4', { cause: new Error('w5') }) }) })
+    });
+    expect(formatRawTransactionError(ordinary)).toBe(
+      'Error: w1 <- caused by Error: w2 <- caused by Error: w3 <- caused by Error: w4 <- caused by Error: w5'
+    );
+    expect(formatRawTransactionError(new Error('outer', { cause: 'leaf' }))).toBe('Error: outer <- caused by leaf');
+
+    const timers: OffscreenDeadlineTimer[] = ['dispatch', 'backstop', 'started', 'resumed'];
+    const owners: Array<'own' | 'collateral'> = ['own', 'collateral'];
+    const triggers: Array<'read' | 'write'> = ['read', 'write'];
+    const methods = ['sendTransaction', 'swapTransaction', 'consumeNoteId', 'newTransaction', 'guardianPipeline'];
+    for (const owner of owners) {
+      for (const timer of timers) {
+        for (const killer of triggers) {
+          for (const method of methods) {
+            const bounded = new OperationAbortedError('op-1', 'deadline', {
+              started: true,
+              deadline: { owner, timer, killer }
+            });
+            annotateOffscreenDeadline(bounded, {
+              offscreenDeadlineMethod: method,
+              offscreenDeadlineStage: 'registering-guardian'
+            });
+            const output = formatRawTransactionError(bounded);
+            const appended = output.slice('OperationAbortedError: Offscreen operation op-1 aborted (deadline)'.length);
+            expect(appended).toMatch(/^ \[offscreen deadline: [\x20-\x7e]+\]$/);
+            expect(appended.length).toBeLessThan(200);
+          }
+        }
+      }
+    }
+  });
+
+  it('keeps deadline classification and nondeadline strings unchanged', () => {
+    const owners: Array<'own' | 'collateral'> = ['own', 'collateral'];
+    const reasons: Array<'deadline' | 'deadline-no-kill'> = ['deadline', 'deadline-no-kill'];
+    for (const owner of owners) {
+      for (const reason of reasons) {
+        const abort = new OperationAbortedError('op-1', reason, {
+          started: true,
+          deadline: { owner, timer: 'started', killer: 'write' }
+        });
+        for (const error of [abort, new TypeError('Failed to fetch', { cause: abort })]) {
+          expect(isGuardianOutage(error)).toBe(false);
+          expect(isNodeOutage(error)).toBe(false);
+          expect(isProverProcedureMismatch(error)).toBe(false);
+          expect(resolveTransactionErrorMessage(error, 'creating-proposal')).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+        }
+      }
+    }
+    for (const reason of ['transport', 'doc-closed']) {
+      const abort = new OperationAbortedError('op-1', reason, {
+        started: true,
+        deadline: { owner: 'own', timer: 'started', killer: 'write' }
+      });
+      expect(formatRawTransactionError(abort)).toBe(
+        `OperationAbortedError: Offscreen operation op-1 aborted (${reason})`
+      );
+    }
+    const ordinary = Object.assign(new Error('ordinary'), {
+      reason: 'deadline',
+      facts: { started: true, deadline: { owner: 'own', timer: 'started', killer: 'write' } }
+    });
+    expect(formatRawTransactionError(ordinary)).toBe('Error: ordinary');
+    expect(formatRawTransactionError('primitive')).toBe('primitive');
+    expect(formatRawTransactionError(new Error('outer', { cause: new TypeError('inner') }))).toBe(
+      'Error: outer <- caused by TypeError: inner'
+    );
   });
 });

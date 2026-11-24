@@ -21,6 +21,11 @@ jest.mock('lib/store/utils/updateBalancesFromSyncData', () => ({
   updateBalancesFromSyncData: jest.fn().mockResolvedValue(undefined)
 }));
 
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveRpcUrl: () => 'https://node.example'
+}));
+
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => true),
   // False on an extension page an extension reload or update orphaned.
@@ -29,7 +34,8 @@ jest.mock('lib/platform', () => ({
 
 import { act, renderHook } from '@testing-library/react';
 
-import { WalletMessageType } from 'lib/shared/types';
+import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { updateBalancesFromSyncData } from 'lib/store/utils/updateBalancesFromSyncData';
 
 import { fetchStateFromBackend, retryFetchState, useIntercomSync } from './useIntercomSync';
 
@@ -38,6 +44,20 @@ const intercom = _g.__intSyncTest.intercomMock;
 const readyResponse = {
   type: WalletMessageType.GetStateResponse,
   state: { status: 'Ready', accounts: [] }
+};
+
+const idleState = {
+  status: WalletStatus.Idle,
+  accounts: [],
+  currentAccount: null,
+  networks: [],
+  settings: null,
+  ownMnemonic: null
+};
+
+const pendingResponse = {
+  type: WalletMessageType.GetStateResponse,
+  state: { ...idleState, backendInitialized: false }
 };
 
 beforeEach(() => {
@@ -50,6 +70,20 @@ describe('fetchStateFromBackend', () => {
     intercom.request.mockResolvedValueOnce(readyResponse);
     const state = await fetchStateFromBackend();
     expect(state).toEqual({ status: 'Ready', accounts: [] });
+  });
+
+  it('rejects the uninitialized backend sentinel', async () => {
+    intercom.request.mockResolvedValueOnce(pendingResponse);
+    await expect(fetchStateFromBackend()).rejects.toThrow('Backend initialization pending');
+  });
+
+  it.each([true, undefined])('accepts genuine Idle with initialization marker %s', async backendInitialized => {
+    intercom.request.mockResolvedValueOnce({
+      type: WalletMessageType.GetStateResponse,
+      state: { ...idleState, ...(backendInitialized === undefined ? {} : { backendInitialized }) }
+    });
+
+    await expect(fetchStateFromBackend()).resolves.toMatchObject(idleState);
   });
 
   it('throws when the response type is wrong', async () => {
@@ -142,6 +176,60 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
     _g.__intSyncTest.hasExtensionRuntime = true;
   });
 
+  it('lands the last matching vault before publishing Ready on popup startup', async () => {
+    const syncFromBackend = jest.fn();
+    _g.__intSyncTest.walletState = { currentAccount: null, balances: {}, syncFromBackend, setSyncStatus: jest.fn() };
+    const state = { ...readyResponse.state, status: WalletStatus.Ready, currentAccount: { publicKey: 'A' } };
+    intercom.request.mockResolvedValue({ ...readyResponse, state });
+    const snapshot = {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: 'https://node.example',
+      accountNonce: '1'
+    };
+    const vaultAssets = [{ faucetId: 'test-token', amountBaseUnits: '5000000' }];
+    get.mockImplementationOnce((_key, cb) =>
+      cb({ miden_sync_data: { accountPublicKey: 'A', vaultAssets, balanceSnapshot: snapshot } })
+    );
+    let finish!: () => void;
+    jest.mocked(updateBalancesFromSyncData).mockReturnValueOnce(new Promise<void>(resolve => (finish = resolve)));
+
+    renderHook(() => useIntercomSync());
+    await act(async () => jest.advanceTimersByTimeAsync(0));
+    expect(updateBalancesFromSyncData).toHaveBeenCalledWith('A', vaultAssets, snapshot, expect.any(Function));
+    expect(syncFromBackend).not.toHaveBeenCalled();
+
+    await act(async () => finish());
+    expect(syncFromBackend).toHaveBeenCalledWith(state);
+  });
+
+  it('does not wait for a different network’s cached vault', async () => {
+    const syncFromBackend = jest.fn();
+    _g.__intSyncTest.walletState = { currentAccount: null, balances: {}, syncFromBackend };
+    const state = { ...readyResponse.state, status: WalletStatus.Ready, currentAccount: { publicKey: 'A' } };
+    intercom.request.mockResolvedValue({ ...readyResponse, state });
+    jest.mocked(updateBalancesFromSyncData).mockClear();
+    get.mockImplementationOnce((_key, cb) =>
+      cb({
+        miden_sync_data: {
+          accountPublicKey: 'A',
+          vaultAssets: [],
+          balanceSnapshot: {
+            network: 'mainnet',
+            effectiveNetwork: 'mainnet',
+            rpcUrl: 'https://other',
+            accountNonce: '1'
+          }
+        }
+      })
+    );
+
+    renderHook(() => useIntercomSync());
+    await act(async () => jest.advanceTimersByTimeAsync(0));
+    expect(syncFromBackend).toHaveBeenCalledWith(state);
+    expect(updateBalancesFromSyncData).not.toHaveBeenCalled();
+  });
+
   it('stops reading extension storage once the runtime is gone', async () => {
     renderHook(() => useIntercomSync());
     const reads = get.mock.calls.length;
@@ -180,5 +268,101 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
 
     expect(() => renderHook(() => useIntercomSync())).not.toThrow();
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe('useIntercomSync backend initialization', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    _g.__intSyncTest.walletState = {
+      currentAccount: null,
+      hydrated: false,
+      syncFromBackend: jest.fn(() => {
+        _g.__intSyncTest.walletState.hydrated = true;
+      }),
+      setSyncStatus: jest.fn()
+    };
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    _g.__intSyncTest.walletState = {};
+  });
+
+  it('keeps hydration pending across retries until real onboarding state arrives', async () => {
+    intercom.request.mockResolvedValue(pendingResponse);
+    const { unmount } = renderHook(() => useIntercomSync());
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_000);
+    });
+    expect(_g.__intSyncTest.walletState.hydrated).toBe(false);
+    expect(_g.__intSyncTest.walletState.syncFromBackend).not.toHaveBeenCalled();
+    expect(intercom.request.mock.calls.length).toBeGreaterThan(1);
+
+    intercom.request.mockResolvedValue({
+      type: WalletMessageType.GetStateResponse,
+      state: { ...idleState, backendInitialized: true }
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_000);
+    });
+    expect(_g.__intSyncTest.walletState.hydrated).toBe(true);
+    expect(_g.__intSyncTest.walletState.syncFromBackend).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('cannot hydrate from a pending retry after unmount', async () => {
+    intercom.request.mockResolvedValue(pendingResponse);
+    const { unmount } = renderHook(() => useIntercomSync());
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    unmount();
+    intercom.request.mockResolvedValue(readyResponse);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(_g.__intSyncTest.walletState.hydrated).toBe(false);
+    expect(_g.__intSyncTest.walletState.syncFromBackend).not.toHaveBeenCalled();
+  });
+});
+
+describe('useIntercomSync initial response ordering', () => {
+  afterEach(() => {
+    _g.__intSyncTest.walletState = {};
+  });
+
+  it('does not overwrite a newer lock notification with an older initial response', async () => {
+    let completeInitial!: (value: unknown) => void;
+    let notify!: (message: { type: WalletMessageType }) => void;
+    const sync = jest.fn();
+    _g.__intSyncTest.walletState = { currentAccount: null, syncFromBackend: sync, setSyncStatus: jest.fn() };
+    intercom.request.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          completeInitial = resolve;
+        })
+    );
+    const locked = { ...idleState, status: WalletStatus.Locked, backendInitialized: true };
+    intercom.request.mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: locked });
+    intercom.subscribe.mockImplementation((callback: typeof notify) => {
+      notify = callback;
+      return () => {};
+    });
+    const { unmount } = renderHook(() => useIntercomSync());
+    await act(async () => {
+      notify({ type: WalletMessageType.StateUpdated });
+    });
+    expect(sync).toHaveBeenLastCalledWith(locked);
+    await act(async () => {
+      completeInitial({
+        type: WalletMessageType.GetStateResponse,
+        state: { ...idleState, status: WalletStatus.Ready, backendInitialized: true }
+      });
+    });
+    expect(sync).toHaveBeenLastCalledWith(locked);
+    unmount();
   });
 });

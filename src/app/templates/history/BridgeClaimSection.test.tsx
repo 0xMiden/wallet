@@ -79,8 +79,9 @@ jest.mock('lib/agglayer', () => {
   };
 });
 
+let mockSelectedAccount = 'acct-1';
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => ({ publicKey: 'acct-1' })
+  useAccount: () => ({ publicKey: mockSelectedAccount })
 }));
 
 let mockEvm = {
@@ -146,6 +147,7 @@ const UNCONFIRMED = 4;
 function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
   return {
     txId: 'tx-1',
+    address: 'acct-1',
     bridgeProvider: 'epoch',
     bridgeDestinationAddress: '0xdead',
     status: FAILED,
@@ -190,6 +192,7 @@ const READY = { id: 'deposit-1', tx_hash: '0xexit', deposit_cnt: 5, ready_for_cl
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
     mockFeeCopy = 'worker-fee-copy';
+    mockSelectedAccount = 'acct-1';
     jest.clearAllMocks();
     // clearAllMocks keeps a queued *Once, so a block read a test never reaches would leak into the next.
     mockGetCurrentMidenBlock.mockReset().mockImplementation(async () => 0);
@@ -220,6 +223,26 @@ describe('BridgeClaimSection', () => {
       await waitFor(() => expect(mockGetCurrentMidenBlock).toHaveBeenCalled());
       expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+    });
+
+    it('blocks Reclaim when the receipt belongs to another account, including after a selection change', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValue(1200);
+      mockSelectedAccount = 'acct-2';
+      const row = entry();
+      const view = renderSection({ entry: row });
+      const reclaim = await screen.findByRole('button', { name: 't:reclaimFunds' });
+      expect(reclaim).toBeDisabled();
+      fireEvent.click(reclaim);
+      expect(mockInitiateConsumeFromId).not.toHaveBeenCalled();
+
+      mockSelectedAccount = 'acct-1';
+      view.rerender(<BridgeClaimSection entry={row} restoredFromBackup={false} />);
+      expect(reclaim).toBeEnabled();
+      mockSelectedAccount = 'acct-2';
+      view.rerender(<BridgeClaimSection entry={row} restoredFromBackup={false} />);
+      expect(reclaim).toBeDisabled();
+      fireEvent.click(reclaim);
+      expect(mockInitiateConsumeFromId).not.toHaveBeenCalled();
     });
 
     it('shows a Reclaim button once the height passes and consumes the note on click', async () => {
@@ -548,8 +571,8 @@ describe('BridgeClaimSection', () => {
 
       it('shows Received and Circle fee from the recorded payout', () => {
         renderSection({ entry: burnRow({ payout }), sentAmount: 5_000_000n });
-        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.4365')).toBeInTheDocument();
-        expect(screen.getByText('t:usdcxCircleFeet:usdcxPayoutAmount|2.5635')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.43')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxCircleFeet:usdcxPayoutAmount|2.57')).toBeInTheDocument();
       });
 
       it('shows neither row for a legacy balance-confirmed row', () => {
@@ -564,7 +587,7 @@ describe('BridgeClaimSection', () => {
 
       it('shows no fee row when the paid amount is not below the sent amount', () => {
         renderSection({ entry: burnRow({ payout }), sentAmount: 2_436_500n });
-        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.4365')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.43')).toBeInTheDocument();
         expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
       });
 
@@ -1220,6 +1243,23 @@ describe('user-visible bridge action errors', () => {
     await expectErrorAfterDwell('evmChainNotApproved', 'inline');
   });
 
+  it('reports a reclaim error the node-ready state shows before the cached height reaches it', async () => {
+    mockGetCurrentMidenBlock.mockReset().mockResolvedValue(500);
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('private reclaim amount 7'));
+    render(
+      <BridgeClaimSection
+        entry={entry({ status: 2, bridgeEpochStatus: undefined, bridgeIntentNonce: undefined })}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'readyToClaim', messageKey: 'epochReturnReady' }}
+      />
+    );
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private reclaim amount 7');
+    await expectErrorAfterDwell('raw_bridge_reclaim_failed', 'inline');
+  });
+
   it('reports a live reclaim raw producer as raw_bridge_reclaim_failed', async () => {
     mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('private reclaim amount 42'));
     renderSection({ entry: entry() });
@@ -1302,5 +1342,63 @@ describe('user-visible bridge action errors', () => {
       jest.advanceTimersByTime(2000);
     });
     expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});
+
+describe('Epoch return details', () => {
+  it('shows a neutral status and guidance for an unspent note', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'awaitingReturn', messageKey: 'epochReturnWaiting' }}
+      />
+    );
+    expect(screen.getByText('t:epochAwaitingReturn')).toBeInTheDocument();
+    expect(screen.getByText('t:epochReturnWaiting')).toBeInTheDocument();
+    expect(screen.queryByText('t:bridgeFailed')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 't:reclaimFunds' })).not.toBeInTheDocument();
+  });
+
+  it('offers a verified ready note without a second chain-head read', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'readyToClaim', messageKey: 'epochReturnReady' }}
+      />
+    );
+    expect(screen.getByRole('button', { name: 't:reclaimFunds' })).toBeEnabled();
+  });
+
+  it('falls back to the reclaim height while the node has not answered', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+    render(<BridgeClaimSection entry={entry()} restoredFromBackup={false} epochReturn={{}} />);
+    expect(await screen.findByRole('button', { name: 't:reclaimFunds' })).toBeEnabled();
+  });
+
+  it('keeps the countdown while the node has not answered and the height is ahead', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValueOnce(500);
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ messageKey: 'epochReturnUnavailable' }}
+      />
+    );
+    expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+    expect(screen.queryByText('t:epochReturnUnavailable')).not.toBeInTheDocument();
+  });
+
+  it('does not offer a claim after funds were returned', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'fundsReturned', messageKey: 'epochReturnDone' }}
+      />
+    );
+    expect(screen.getByText('t:epochReturnDone')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 't:reclaimFunds' })).not.toBeInTheDocument();
   });
 });

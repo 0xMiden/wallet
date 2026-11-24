@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-The wallet only allows creating Guardian accounts. All accounts in the wallet are Guardian (guarded multisig) accounts. Treat this as a product invariant when implementing features or diagnosing reports; do not ask whether a wallet account is a Guardian account or assume a single-signature wallet account.
+Account creation offers only Guardian (guarded multisig) accounts, but a wallet can still hold single-key accounts: seed import offers "Import public account", private-key import creates a single-key `WalletType.OnChain` account, and older wallets may hold single-key accounts. Signing and execution paths must not assume a Guardian account.
 
 Miden Wallet ships as a Chrome/Firefox extension, iOS/Android app (Capacitor), and macOS app (Tauri). React + Zustand frontend; service-worker backend (Effector store + vault). The backend is the source of truth; the frontend syncs via intercom port messaging (`src/lib/intercom/`).
 
@@ -16,7 +16,7 @@ The main TypeScript/React application lives in `src/`. Put reusable UI in `src/c
 - `lib/woozie/` — hash-based router (`navigate`, `goBack`, `useLocation`, `<Link>`)
 - `lib/shared/types.ts` — message types
 
-Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemble each target. Browser tests are in `playwright/tests/`; blockchain, stress, iOS, and Android suites are under `playwright/e2e/`. Native shells live in `ios/`, `android/`, and `src-tauri/`; Capacitor plugins are in `packages/`. Static images and fonts belong in `src/assets/`, `public/`, `screenshots/`, and `fonts/` as appropriate.
+Entry points such as `popup.tsx`, `mobile-app.tsx`, and `desktop-app.tsx` assemble each target. Browser tests are in `playwright/tests/`; blockchain, stress, iOS, and Android suites are under `playwright/e2e/`. Native shells live in `ios/`, `android/`, and `src-tauri/`; Capacitor plugins are in `packages/`. Static images and fonts belong in `src/assets/`, `public/`, and `fonts/` as appropriate.
 
 ## Build, Test, and Development Commands
 
@@ -50,6 +50,14 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 - **Optimistic updates**: snapshot previous state, apply, roll back on catch.
 - **Background auto-ops**: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal), not `openLoadingFullPage`.
 - **Sanitized frontend state**: the frontend receives state via `toFront()`; vault/keys stay backend-only.
+
+## Amount displays
+
+Use `TokenAmount` or `UsdAmount` from `components/ui/TokenAmount` for user-facing monetary values. The default is `formatting="adaptive"`. Set `rounding="up"` for payments and fees, and `rounding="down"` for receipts and available balances. Use `formatting="exact"` for typed review amounts, approval values, and exact detail rows. Exact formatting does not round. Pass bigint base units with their known `decimals`; pass decimal strings and numbers without `decimals`. Do not guess a token scale.
+
+Keep each screen's text styles through `className` and `symbolClassName`. Use `animated` to retain the gradual `AnimatedNumber` transition; precision stays fixed during each transition. Do not create another amount display component or format values in JSX with base-unit converters. ESLint checks these paths.
+
+For translations, accessibility text, and APIs that require a string, use `formatAmountDisplay` or `amountFormatterFor` from `lib/i18n/amount-display`. These are the same policy used by the components. Keep exact transaction calculations, editable inputs, MAX values, and stored amounts separate. Never use a rounded display value as transaction input.
 
 ## Frontend UI, CSS, and Motion
 

@@ -17,7 +17,7 @@ import {
   type GuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryDismissal
 } from 'lib/guardian-note-recovery-progress';
-import { formatUsd } from 'lib/i18n/numbers';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
@@ -183,7 +183,8 @@ const markOwnFundingUnresolved = (address: string, requestedAt: number) =>
     }
   }).catch(error => console.warn('[wallet-prompts] failed to flag faucet funding marker unresolved:', error));
 
-const formatUsdTotal = (total: number | null): string | undefined => (total === null ? undefined : formatUsd(total));
+const formatUsdTotal = (total: number | null): string | undefined =>
+  total === null ? undefined : formatUsdDisplay(total);
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -251,6 +252,9 @@ interface HomePromptsProps {
   // mint land and left arrival to the balance alone.
   fundingNotes: readonly PendingNoteValue[] | undefined;
   tokenPrices: TokenPrices;
+  /** Command-only display mask; calculation and prompt lifecycle still use the unmasked values. */
+  maskMonetaryValues?: boolean;
+  requireReadableHiddenNotes?: boolean;
 }
 
 export const HomePrompts: FC<HomePromptsProps> = ({
@@ -259,7 +263,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   balancesLoading,
   claimableNotes,
   fundingNotes,
-  tokenPrices
+  tokenPrices,
+  maskMonetaryValues = false,
+  requireReadableHiddenNotes = false
 }) => {
   const { t } = useTranslation();
   useBridgeConfigSnapshot({ load: false });
@@ -365,10 +371,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // counted it and added its value to the total the user was told was waiting. The Pending tab's
   // "Hidden transfers — Restore" row reads the same set; this is what makes the two agree.
   const hiddenNotes = useActivityHiddenNotes(account.publicKey);
-  // `ids` is empty until the set has been read, so the banner waits rather than announcing a
-  // total it is about to revise down. An unreadable set settles too: it is `failed`, not pending
-  // forever, and the banner falls back to showing everything.
-  const hiddenSettled = hiddenNotes.loaded || hiddenNotes.failed;
+  // Command cannot expose a declined transfer when the preference is unreadable; Compact retains
+  // its existing fallback. Funding observes the unfiltered list independently of this attention card.
+  const hiddenSettled = hiddenNotes.loaded || (!requireReadableHiddenNotes && hiddenNotes.failed);
   const waitingNotes = useMemo(
     () => (claimableNotes ?? []).filter(note => !hiddenNotes.ids.has(note.id)),
     [claimableNotes, hiddenNotes.ids]
@@ -1078,9 +1083,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
                 ? {
                     icon: IconName.Checkmark,
                     label: t('faucetPromptFunded'),
-                    subLabel: formattedFundedMintUsdTotal
-                      ? t('faucetPromptFundedSub', { amount: formattedFundedMintUsdTotal })
-                      : t('faucetPromptFundedSubGeneric'),
+                    subLabel:
+                      formattedFundedMintUsdTotal && !maskMonetaryValues
+                        ? t('faucetPromptFundedSub', { amount: formattedFundedMintUsdTotal })
+                        : t('faucetPromptFundedSubGeneric'),
                     tone: 'positive' as const
                   }
                 : undefined
@@ -1097,7 +1103,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             // The count carries the fact; the money is the `bodyValue`, so it is read rather
             // than scanned past in the middle of a sentence.
             body: t(WALLET_PROMPT_DEFINITIONS[type].bodyKey, { count: pendingNoteIds.length }),
-            bodyValue: formattedPendingNotesUsdTotal
+            bodyValue:
+              formattedPendingNotesUsdTotal && maskMonetaryValues
+                ? t('commandMaskedBalance')
+                : formattedPendingNotesUsdTotal
           };
         case WalletPromptType.HotKeyHardwareUnavailable:
           return {
@@ -1134,6 +1143,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       faucetStatusIndicator,
       formattedFundedMintUsdTotal,
       formattedPendingNotesUsdTotal,
+      maskMonetaryValues,
       fundingReady,
       fundWallet,
       rearmedWhileMintClaimable,

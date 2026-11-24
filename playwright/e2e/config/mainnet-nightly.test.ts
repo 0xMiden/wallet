@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import YAML from 'yaml';
+
 import { getEnvironmentConfig } from './environments';
 
 describe('mainnet environment', () => {
@@ -11,13 +13,13 @@ describe('mainnet environment', () => {
     else process.env.E2E_NETWORK = previous;
   });
 
-  it('points at the cedar mainnet node and the bundled LambdaClass operator', () => {
+  it('points at the mainnet node and the bundled LambdaClass operator', () => {
     process.env.E2E_NETWORK = 'mainnet';
     expect(getEnvironmentConfig()).toMatchObject({
       name: 'mainnet',
-      rpcUrl: 'https://rpc.cedar.miden.io',
-      provingUrl: 'https://tx-prover.cedar.miden.io',
-      transportUrl: 'https://transport.cedar.miden.io',
+      rpcUrl: 'https://rpc.mainnet.miden.io',
+      provingUrl: 'https://tx-prover.mainnet.miden.io',
+      transportUrl: 'https://transport.mainnet.miden.io',
       networkFlag: 'mainnet',
       guardianUrl: 'https://guardian.cedar.internal.lambdaclass.com',
       chargesFees: true,
@@ -67,7 +69,8 @@ describe('mainnet nightly workflow', () => {
 
     const agglayer = jobText('mainnet-agglayer');
     expect(agglayer).toContain('    needs: mainnet-nightly');
-    expect(agglayer).toContain("    if: ${{ !cancelled() && needs.mainnet-nightly.outputs.started == 'true' }}");
+    expect(agglayer).toContain("!cancelled() && !inputs.swaps_only && needs.mainnet-nightly.outputs.started == 'true'");
+    expect(agglayer).toContain("needs.mainnet-nightly.outputs.recovery_only != 'true'");
     expect(agglayer).toContain('    runs-on: ubuntu-latest');
     expect(agglayer).toContain("    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 230 || 185 }}");
     expect(agglayer).toContain(
@@ -98,14 +101,48 @@ describe('mainnet nightly workflow', () => {
     const playwright = agglayer.indexOf('yarn playwright test mainnet-agglayer-loop.spec.ts');
     expect(guard).toBeGreaterThanOrEqual(0);
     expect(guard).toBeLessThan(playwright);
-    expect(guard).toBeLessThan(agglayer.indexOf('uses: actions/checkout@v4'));
+    expect(guard).toBeLessThan(agglayer.indexOf('uses: actions/checkout@'));
     expect(agglayer.slice(guard, playwright)).toContain('exit 1');
     expect(jobText('mainnet-nightly')).not.toContain('E2E_MAINNET_EVM_KEY is empty');
   });
 
   it('keeps the run one verdict: a failure in either job fails the run', () => {
-    // A job runs after a failed one only by its own if:, and a failed job fails the run; continue-on-error would hide it.
-    expect(jobText('mainnet-agglayer')).not.toContain('continue-on-error');
-    expect(jobText('mainnet-nightly')).not.toContain('continue-on-error');
+    // Only the four dedicated reporting steps are best effort. Job-level and all existing step failures retain their verdict.
+    for (const job of ['mainnet-nightly', 'mainnet-agglayer']) {
+      const [jobSettings, ...steps] = jobText(job).split(/^      - name: /m);
+      expect(jobSettings).not.toContain('continue-on-error');
+      expect(steps.filter(step => step.includes('continue-on-error')).map(step => step.split('\n')[0])).toEqual([
+        'Initialize Wallet E2E report',
+        'Capture Wallet E2E build identity',
+        'Assemble Wallet E2E report',
+        'Upload Wallet E2E report'
+      ]);
+      for (const step of steps.filter(step => step.includes('continue-on-error'))) {
+        expect(step).toMatch(/^ {8}continue-on-error: true$/m);
+      }
+    }
+  });
+
+  it('forwards every pre-build step outcome to the report without changing step gating', () => {
+    const parsed = YAML.parse(text) as { jobs: Record<string, { steps: Record<string, unknown>[] }> };
+    for (const job of ['mainnet-nightly', 'mainnet-agglayer']) {
+      const steps = parsed.jobs[job]?.steps ?? [];
+      const init = steps.findIndex(step => step.id === 'wallet-report-init');
+      const build = steps.findIndex(step => step.id === 'wallet-build');
+      const assemble = steps.find(step => step.id === 'wallet-report-assemble') as { env: Record<string, string> };
+      const pre = steps.slice(init + 1, build);
+      expect(pre.length).toBeGreaterThan(8);
+      const ids = pre.map(step => step.id);
+      expect(ids.every(id => typeof id === 'string' && id !== '')).toBe(true);
+      expect(new Set(ids).size).toBe(ids.length);
+      const forwarded = assemble.env.REPORT_SETUP_OUTCOMES ?? '';
+      expect(Array.from(forwarded.matchAll(/steps\.([\w-]+)\.outcome/g), match => match[1])).toEqual(ids);
+      expect(forwarded.replace(/\$\{\{ steps\.[\w-]+\.outcome \}\}/g, '').trim()).toBe('');
+      // Unchanged semantics: a failed setup step still stops the job and is never tolerated.
+      for (const step of pre) {
+        expect(step['continue-on-error']).toBeUndefined();
+        expect(String(step.if ?? '')).not.toMatch(/always\(\)|cancelled\(\)|failure\(\)/);
+      }
+    }
   });
 });

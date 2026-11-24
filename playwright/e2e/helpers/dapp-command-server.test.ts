@@ -96,12 +96,51 @@ interface FakePage {
 }
 
 describe('command server', () => {
-  it('settles a pending command as HarnessFault when the page reports its result undelivered', async () => {
+  it('retains the leading node failure when a measured retry stalls', async () => {
     const base = await start();
     const outcome = commandChannel(live(), 'A', 'one')
-      .send('session', {}, 1_000)
+      .send('submitCustomMeasured', {}, 2_000)
       .catch((error: unknown) => error);
     const command: unknown = await (await poll(base, 'A', 'one')).json();
+    const receipt = await fetch(`${base}/event?device=A&dapp=one`, {
+      method: 'POST',
+      body: JSON.stringify({
+        kind: 'leading-node-failure',
+        data: { id: idOf(command), name: 'ChainUnavailableError', message: 'leading node unavailable' }
+      })
+    });
+    expect(receipt.status).toBe(204);
+    await expect(outcome).resolves.toBeInstanceOf(ChainUnavailable);
+    await expect(outcome).resolves.toHaveProperty('message', expect.stringContaining('leading node unavailable'));
+    expect(fs.readFileSync(logFile, 'utf8')).toContain('"command":"submitCustomMeasured","status":"error"');
+  });
+
+  it('clears the leading error only for the matching live measured command', async () => {
+    const base = await start();
+    const outcome = commandChannel(live(), 'A', 'one')
+      .send('submitCustomMeasured', {}, 4_000)
+      .catch((error: unknown) => error);
+    const id = idOf(await (await poll(base, 'A', 'one')).json());
+    const report = (device: string, kind: string, data: object) =>
+      fetch(`${base}/event?device=${device}&dapp=one`, { method: 'POST', body: JSON.stringify({ kind, data }) });
+    const failure = { id, name: 'ChainUnavailableError', message: 'leading node unavailable' };
+    expect((await report('B', 'leading-node-failure', failure)).status).toBe(404);
+    expect((await report('A', 'leading-node-recovered', { id })).status).toBe(409);
+    expect((await report('A', 'leading-node-failure', failure)).status).toBe(204);
+    expect((await report('B', 'leading-node-recovered', { id })).status).toBe(404);
+    expect((await report('A', 'leading-node-recovered', { id })).status).toBe(204);
+    await expect(outcome).resolves.toBeInstanceOf(CellDeadlineExceeded);
+    expect((await report('A', 'leading-node-recovered', { id })).status).toBe(404);
+  });
+
+  it('settles a pending command as HarnessFault after a delayed result-undelivered event', async () => {
+    const base = await start();
+    const outcome = commandChannel(live(), 'A', 'one')
+      .send('session', {})
+      .catch((error: unknown) => error);
+    const command: unknown = await (await poll(base, 'A', 'one')).json();
+    // Coverage instrumentation can delay the event by more than a second along the HTTP path.
+    await pause(1_100);
     await fetch(`${base}/event?device=A&dapp=one`, {
       method: 'POST',
       body: JSON.stringify({ kind: 'result-undelivered', data: { id: idOf(command) } })
@@ -155,6 +194,20 @@ describe('command server', () => {
       status: 'ok',
       value: { adapterAddress: null },
       deliveredAt: expect.any(Number)
+    });
+  });
+
+  it('attaches the server deadline to the measured submission command', async () => {
+    const base = await start(300);
+    const pending = live().send('A', 'one', 'submitCustomMeasured', {}, 5_000);
+    const command: unknown = await (await poll(base, 'A', 'one')).json();
+    await postResult(base, 'A', 'one', { id: idOf(command), ok: true, value: {} });
+    const result = await pending;
+    expect(command).toEqual({
+      id: expect.any(String),
+      command: 'submitCustomMeasured',
+      input: {},
+      expiresAt: result.enqueuedAt + 5_000
     });
   });
 

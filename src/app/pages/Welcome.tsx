@@ -31,7 +31,12 @@ import { TelemetryStep } from 'lib/telemetry/types';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
-import { errorToMessage, isGuardianNotFound, isMainnetAccessCodeRejected } from 'screens/onboarding/error-message';
+import {
+  errorToMessage,
+  isGuardianNotFound,
+  isGuardianRecoveryRefusal,
+  isMainnetAccessCodeRejected
+} from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { NO_GUARDIAN_ID, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
@@ -633,6 +638,10 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
           // copy suggests a public import, which a pasted key cannot use (the screen hides it).
           lookupFailure = keyPairPayload ? failure : t('guardianAccountNotFound');
           lookupFailureId = keyPairPayload ? 'importHotKeyNoAccount' : 'guardianAccountNotFound';
+        } else if (isGuardianRecoveryRefusal(error)) {
+          // The refusal message is already localized, so the screen shows that sentence.
+          lookupFailure = failure;
+          lookupFailureId = ownMessage ? 'raw_import_recovery_lookup_failed' : 'smthWentWrong';
         } else if (isLikelyNetworkError(error)) {
           // A raw "Failed to fetch" / RPC timeout message is not translated; show the
           // operator-unreachable notice instead.
@@ -841,9 +850,8 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'select-import-type':
         beginOnboardingFlow('import');
         resetFlowState();
-        // Welcome's recover, and the no-code sheet's. On a test network the import flow waits
-        // behind the network notice (#875).
-        if (getTestNetworkNameKey()) {
+        // A mainnet-required flow changes networks in its host; only show this notice when staying on testnet.
+        if (getTestNetworkNameKey() && !inviteOnly) {
           setOnboardingType(OnboardingType.Import);
           navigate('/#network-notice');
         } else {
@@ -1381,10 +1389,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   );
 };
 
-const WelcomePage: FC = () => (
-  <OnboardingNetwork>
-    {(inviteOnly, onUnlockInviteOnly) => <Welcome inviteOnly={inviteOnly} onUnlockInviteOnly={onUnlockInviteOnly} />}
-  </OnboardingNetwork>
-);
+const WelcomePage: FC = () => {
+  const { hash } = useLocation();
+  return (
+    <OnboardingNetwork showWhilePreparing={!hash}>
+      {(inviteOnly, onUnlockInviteOnly) => <Welcome inviteOnly={inviteOnly} onUnlockInviteOnly={onUnlockInviteOnly} />}
+    </OnboardingNetwork>
+  );
+};
 
 export default WelcomePage;

@@ -385,6 +385,21 @@ describe('RouteOptions', () => {
     expect(resolveDisplayMetadata).toHaveBeenCalledWith('mtst1usdcxnative', {}, 'mtst1usdcxnative');
   });
 
+  it('groups the fast route fee as a USD amount', () => {
+    render(
+      <RouteOptions
+        route="epoch"
+        onRouteChange={jest.fn()}
+        fastFeeUsd={1234.5}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+
+    expect(screen.getByText('$1,234.50')).toBeInTheDocument();
+  });
+
   it('marks the withdrawal notice under the USDCx route for the e2e harness', () => {
     render(
       <RouteOptions
@@ -447,6 +462,30 @@ describe('RouteOptions', () => {
 });
 
 describe('route availability report', () => {
+  it('carries a known incoming route through the neutral notice without changing the dwell', () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...{ fastFeature: 'fastBridgeIn' as const }}
+        fastAvailability={DOWN}
+        slowAvailability={AVAILABLE}
+      />
+    );
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('bridgeFeatureUnavailableBody', 'notice', {
+      kind: 'feature_unavailable',
+      featureUnavailableFeature: 'fastBridgeIn',
+      featureUnavailableReason: 'service-down'
+    });
+  });
+
   const mockReport = jest.mocked(reportUserVisibleError);
   beforeEach(() => {
     jest.useFakeTimers();
@@ -466,7 +505,13 @@ describe('route availability report', () => {
       />
     );
     act(() => jest.advanceTimersByTime(1000));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
   });
 
   it('reports nothing for a route held while the startup decision is pending', () => {
@@ -524,4 +569,21 @@ describe('provider route labels', () => {
       }
     }
   });
+});
+
+it('omits the AggLayer card when the destination has no AggLayer route', () => {
+  render(
+    <RouteOptions
+      {...UP}
+      route="epoch"
+      onRouteChange={jest.fn()}
+      fastQuoteLoading={false}
+      slowStatus="error"
+      showSlowRoute={false}
+    />
+  );
+  expect(screen.getByTestId('bridge-route-fast')).toBeInTheDocument();
+  expect(screen.queryByTestId('bridge-route-slow')).not.toBeInTheDocument();
+
+  expect(screen.queryByText('agglayerTokenCheckFailed')).not.toBeInTheDocument();
 });

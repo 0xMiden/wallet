@@ -43,6 +43,8 @@ export interface PromptCardProps {
   bodyValue?: string;
   variant?: PromptCardVariant;
   icon?: IconName;
+  /** The icon on a solid accent bubble in white, for a card that carries a brand mark. */
+  solidIcon?: boolean;
   hero?: PromptCardHero;
   /**
    * The card action. Keyboard focus stays in the card when this swaps in a hero only
@@ -78,10 +80,11 @@ const CardActionButton: FC<{ className?: string; children?: React.ReactNode }> =
  * The tone of an icon bubble: the accent for anything neutral or in progress, the status green for
  * a finished one, the status red for a failed one.
  */
-type PromptIconTone = 'accent' | 'positive' | 'negative' | 'receive' | 'warning';
+type PromptIconTone = 'accent' | 'solid' | 'positive' | 'negative' | 'receive' | 'warning';
 
 const ICON_BUBBLE_TONE: Record<PromptIconTone, string> = {
   accent: 'bg-accent-primary/15 text-accent-primary',
+  solid: 'bg-accent-primary text-pure-white',
   positive: 'bg-status-positive/15 text-status-positive',
   negative: 'bg-status-negative/15 text-status-negative',
   // On the Receive tint a tint bubble would vanish, so it is the solid Receive colour with its
@@ -195,6 +198,7 @@ export const PromptCard: FC<PromptCardProps> = ({
   body,
   bodyValue,
   icon,
+  solidIcon = false,
   variant = 'default',
   hero,
   onClick,
@@ -337,7 +341,7 @@ export const PromptCard: FC<PromptCardProps> = ({
       >
         {!hero && icon && (
           <PromptIconBubble
-            tone={look.bubbleTone}
+            tone={solidIcon ? 'solid' : look.bubbleTone}
             size={look.bubbleSize}
             className={status === 'loading' ? 'animate-pulse' : undefined}
           >

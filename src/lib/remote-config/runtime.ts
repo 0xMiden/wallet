@@ -6,6 +6,7 @@ import {
 } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import type { BoundedJsonFailure } from 'lib/remote-json';
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import {
@@ -18,7 +19,13 @@ import {
 import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
-import type { FeatureEligibility, GeoLookup, StartupEligibilityDiagnostics, StartupEligibilityReason } from './geo';
+import {
+  retainedStartupRequestFailure,
+  type FeatureEligibility,
+  type GeoLookup,
+  type StartupEligibilityDiagnostics,
+  type StartupEligibilityReason
+} from './geo';
 import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
@@ -249,9 +256,11 @@ const kept = <T>(next: Probe<T>, previous: Probe<T>): Probe<T> =>
 
 // A read that failed says nothing new about a value of the same document, so a transient failure keeps the value
 // last read on that chain (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still
-// clears it, and liveness (allocator, indexer) always reports the latest read. Across a version only the swap
-// registry is kept, and only while the new document names the same solver: it prices IETH and IBTC for the spending
-// cap, and the solver, not the document, decides what it lists.
+// clears it, and liveness (allocator, indexer) always reports the latest read. A first read of a faucet still has no
+// scale, so the deposit picker omits the token while a send keeps the id, and a same-version refresh keeps the last
+// scaled read of that faucet id. Across a version only the swap registry is kept, and only while the new document
+// names the same solver: it prices IETH and IBTC for the spending cap, and the solver, not the document, decides
+// what it lists.
 function keepValuesRead(
   next: DerivedBridgeConfig,
   previous: DerivedBridgeConfig | null,
@@ -275,7 +284,29 @@ function keepValuesRead(
             l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode),
             depositTokens: kept(chain.agglayer.depositTokens, before.agglayer.depositTokens)
           },
-          epoch: { evmUsdc: kept(chain.epoch.evmUsdc, before.epoch.evmUsdc) }
+          epoch: {
+            tokens: Object.fromEntries(
+              Object.entries(chain.epoch.tokens).map(([symbol, read]) => {
+                const earlier = before.epoch.tokens[symbol];
+                const keptRead = earlier ? kept(read, earlier) : read;
+                // Same faucet id, newly unscaled: the last scaled read of that id still stands.
+                if (
+                  earlier &&
+                  keptRead === read &&
+                  read.state === 'ok' &&
+                  read.value.midenFaucetId !== undefined &&
+                  read.value.midenDecimals === undefined &&
+                  earlier.state === 'ok' &&
+                  earlier.value.midenFaucetId === read.value.midenFaucetId &&
+                  earlier.value.midenSymbol !== undefined &&
+                  earlier.value.midenDecimals !== undefined
+                ) {
+                  return [symbol, earlier];
+                }
+                return [symbol, keptRead];
+              })
+            )
+          }
         }
       : chain;
   }
@@ -485,8 +516,12 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
       startupEligibilityReason: 'config_unavailable',
       startupEligibilityRetry: 'not_attempted'
     };
-    const onFailure = (reason: StartupEligibilityReason) => {
+    const onFailure = (reason: StartupEligibilityReason, requestFailure?: BoundedJsonFailure) => {
       diagnostics.startupEligibilityReason = reason;
+      const startupEligibilityRequestFailure = retainedStartupRequestFailure(reason, requestFailure);
+      if (startupEligibilityRequestFailure)
+        diagnostics.startupEligibilityRequestFailure = startupEligibilityRequestFailure;
+      else delete diagnostics.startupEligibilityRequestFailure;
     };
     try {
       const snapshot = await ensureBridgeConfig();
@@ -510,6 +545,7 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
             diagnostics.startupEligibilityStage = 'config_refresh';
             diagnostics.startupEligibilityReason = 'config_unavailable';
             diagnostics.startupEligibilityRetry = 'refresh_failed';
+            delete diagnostics.startupEligibilityRequestFailure;
           } else {
             diagnostics.startupEligibilityRetry = 'config_not_advanced';
           }
@@ -519,6 +555,7 @@ export function initFeatureEligibility(): Promise<GeoLookup> {
     } catch {
       diagnostics.startupEligibilityReason =
         diagnostics.startupEligibilityStage === 'config_initialization' ? 'config_initialization_failed' : 'unexpected';
+      delete diagnostics.startupEligibilityRequestFailure;
       geo = { state: 'failed', diagnostics: { ...diagnostics } };
     }
     startupGeo = geo;

@@ -38,6 +38,10 @@ const storageKey = (network: string, address: string) => `hidden-tokens:v1:${net
 /** Test seam: forgets every key's set, as a wipe does, without reading it again. */
 export const resetHiddenTokens = store.reset;
 
+export function primeHiddenTokens(network: string, address: string): Promise<void> {
+  return store.load(storageKey(network, address));
+}
+
 export function useHiddenTokens(address: string): HiddenTokens {
   const key = storageKey(getEffectiveNetworkName(), address);
   const entry = store.useEntry(key);

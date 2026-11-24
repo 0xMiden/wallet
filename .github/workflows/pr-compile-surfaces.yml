@@ -38,18 +38,18 @@ jobs:
     # The ceiling only binds while those markers are present.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '21'
       # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platform-tools
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
       # These surfaces compile wallet code that imports unreleased APIs from
       # both the web SDK and the guardian multisig client. Without the
       # injections they build against the published packages and fail on the
@@ -84,11 +84,11 @@ jobs:
     # The ceiling only binds while those markers are present.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: src-tauri
       - name: Drop apt repositories this repo never installs from
@@ -137,21 +137,29 @@ jobs:
     name: Compile iOS
     # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
     # 33.8s to launch WebContent for a hosted fixture without changing its source.
-    # macos-26-xlarge also has the required toolchain. NOT macos-15:
+    # xcode-27-xlarge has the toolchain of the store build (the `ios` job in
+    # build-store-artifacts.yml): Xcode 27 and the iOS 27 SDK, which App Store
+    # Connect makes mandatory from April 2027 (ITMS-90725). NOT macos-15:
     # that image ships Xcode 16.4 / iOS 18.5, and the in-app browser plugin uses
     # `UIGlassEffect`, an iOS 26 API — so the build fails there with
     # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
     # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
-    runs-on: macos-26-xlarge
+    runs-on: xcode-27-xlarge
     # 120 rather than 75: this branch's web-sdk inject compiles miden-client-web
     # on the runner. That step finished in 73 minutes, and the 75 minute limit
     # then cancelled yarn install. The other linked-SDK jobs already use 120.
     # A run without the marker does not build the SDK, so the extra ceiling is idle.
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
+      # The image has more than one Xcode. This record shows which Xcode and
+      # which SDK compiled the app.
+      - name: Show Xcode and SDK versions
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
       # These surfaces compile wallet code that imports unreleased APIs from
       # both the web SDK and the guardian multisig client. Without the
       # injections they build against the published packages and fail on the
@@ -208,7 +216,7 @@ jobs:
             test
       - name: Upload iOS test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ios-unit-test-results
           path: |

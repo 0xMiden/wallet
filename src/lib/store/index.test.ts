@@ -1069,6 +1069,25 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('preserves the platform enrollment token returned by the worker', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.PlatformUnlockResponse,
+        result: { action: 'begin', enrollmentId: 'token' }
+      });
+      await expect(
+        useWalletStore.getState().platformUnlock({ action: 'begin', expectedCredentialId: null })
+      ).resolves.toEqual({ action: 'begin', enrollmentId: 'token' });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.PlatformUnlockRequest,
+        command: { action: 'begin', expectedCredentialId: null }
+      });
+    });
+
+    it('does not mistake another message response for platform unlock completion', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.UnlockResponse });
+      await expect(useWalletStore.getState().platformUnlock({ action: 'state' })).rejects.toThrow('Invalid response');
+    });
+
     it('unlock throws on invalid response', async () => {
       mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
 
@@ -1202,18 +1221,6 @@ describe('useWalletStore', () => {
   });
 
   describe('Signing actions', () => {
-    it('signData returns signature', async () => {
-      mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.SignDataResponse,
-        signature: 'sig123'
-      });
-
-      const { signData } = useWalletStore.getState();
-      const result = await signData('pk1', 'data-to-sign');
-
-      expect(result).toBe('sig123');
-    });
-
     it('signTransaction returns Uint8Array from hex', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignTransactionResponse,
@@ -1657,12 +1664,16 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '9007199254740993'
+        feeReserve: '9007199254740993',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
 
       await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
         outcome: 'measured',
-        reserve: 9007199254740993n
+        reserve: 9007199254740993n,
+        faucetId: 'native',
+        scope: 'source-scope'
       });
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
@@ -1675,12 +1686,40 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '0'
+        feeReserve: '0',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
 
       await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
         outcome: 'measured',
-        reserve: 0n
+        reserve: 0n,
+        faucetId: 'native',
+        scope: 'source-scope'
+      });
+    });
+
+    it('preserves a fixed failed-measurement reason across intercom', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'failed',
+        failure: 'dry_run_failed',
+        message: 'private-account amount=123'
+      });
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
+        outcome: 'failed',
+        failure: 'dry_run_failed'
+      });
+    });
+
+    it('drops unknown failed-measurement metadata from intercom', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+        outcome: 'failed',
+        failure: 'private-account amount=123'
+      });
+      await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
+        outcome: 'failed'
       });
     });
 
@@ -1877,7 +1916,405 @@ describe('useWalletStore', () => {
     it('throws on invalid response', async () => {
       mockRequest.mockResolvedValueOnce({ type: 'wrong' });
       await expect(useWalletStore.getState().createAccount(WalletType.OnChain, 'x')).rejects.toThrow();
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+      expect(mockRequest.mock.calls.some(([request]) => request.type === WalletMessageType.GetStateRequest)).toBe(
+        false
+      );
     });
+  });
+
+  describe('post-action state refresh during backend startup', () => {
+    const cases = [
+      ['createAccount', WalletMessageType.CreateAccountResponse, WalletMessageType.CreateAccountRequest],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, WalletMessageType.RemoveSeedPhraseRequest]
+    ] as const;
+
+    type PostAction = (typeof cases)[number][0];
+
+    function seedReady() {
+      const accounts = [
+        {
+          publicKey: 'pk1',
+          name: 'Account 1',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: 0,
+          authScheme: 'ecdsa' as const
+        }
+      ];
+      useWalletStore.setState({
+        status: WalletStatus.Ready,
+        isInitialized: true,
+        accounts,
+        currentAccount: accounts[0],
+        ownMnemonic: true,
+        seedPhraseStatus: 'stored'
+      });
+      return accounts;
+    }
+
+    function start(action: PostAction) {
+      return action === 'createAccount'
+        ? useWalletStore.getState().createAccount(WalletType.OnChain, 'New account')
+        : useWalletStore.getState().removeSeedPhrase('password');
+    }
+
+    function watch(action: PostAction) {
+      let settled = false;
+      const outcome = start(action).then(value => {
+        settled = true;
+        return value;
+      });
+      // Keep a rejection handled while timers advance; the original promise still rejects for the assertion.
+      void outcome.catch(() => {
+        settled = true;
+      });
+      return { outcome, isSettled: () => settled };
+    }
+
+    function mutationCalls(requestType: (typeof cases)[number][2]) {
+      return mockRequest.mock.calls.filter(([request]) => request.type === requestType);
+    }
+
+    function expectPendingLeftReady(action: PostAction, accounts: ReturnType<typeof seedReady>) {
+      const state = useWalletStore.getState();
+      expect(state.status).toBe(WalletStatus.Ready);
+      expect(state.accounts).toBe(accounts);
+      expect(state.currentAccount).toBe(accounts[0]);
+      expect(state.isInitialized).toBe(true);
+      expect(state.seedPhraseStatus).toBe(action === 'removeSeedPhrase' ? 'removed' : 'stored');
+    }
+
+    it.each(cases)(
+      '%s resolves pending when a refresh request never responds without repeating the action',
+      async (action, responseType, requestType) => {
+        jest.useFakeTimers();
+        try {
+          const accounts = seedReady();
+          let refreshSignal: AbortSignal | undefined;
+          let hungPending = true;
+          mockRequest.mockResolvedValueOnce({ type: responseType }).mockImplementationOnce((_request, options) => {
+            refreshSignal = options?.signal;
+            const hung = new Promise(() => {});
+            void hung.then(
+              () => {
+                hungPending = false;
+              },
+              () => {
+                hungPending = false;
+              }
+            );
+            return hung;
+          });
+          const watched = watch(action);
+          await jest.advanceTimersByTimeAsync(60_000);
+          await expect(watched.outcome).resolves.toBe('pending');
+          expect(watched.isSettled()).toBe(true);
+          expect(refreshSignal?.aborted).toBe(true);
+          expect(hungPending).toBe(true);
+          expect(mutationCalls(requestType)).toHaveLength(1);
+          expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+          expect(useWalletStore.getState().accounts).toBe(accounts);
+        } finally {
+          jest.useRealTimers();
+        }
+      }
+    );
+
+    it.each(cases)(
+      '%s resolves pending when the backend never initializes',
+      async (action, responseType, requestType) => {
+        jest.useFakeTimers();
+        try {
+          seedReady();
+          mockRequest.mockResolvedValueOnce({ type: responseType }).mockResolvedValue({
+            type: WalletMessageType.GetStateResponse,
+            state: { backendInitialized: false }
+          });
+          const watched = watch(action);
+          await jest.advanceTimersByTimeAsync(60_000);
+          await expect(watched.outcome).resolves.toBe('pending');
+          expect(watched.isSettled()).toBe(true);
+          expect(mutationCalls(requestType)).toHaveLength(1);
+          expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+          const callsAtSettlement = mockRequest.mock.calls.length;
+          await jest.advanceTimersByTimeAsync(10_000);
+          expect(mockRequest).toHaveBeenCalledTimes(callsAtSettlement);
+        } finally {
+          jest.useRealTimers();
+        }
+      }
+    );
+
+    it.each(cases)(
+      '%s returns synced after one uninitialized answer without repeating the mutation',
+      async (action, responseType) => {
+        jest.useFakeTimers();
+        try {
+          useWalletStore.setState({ status: WalletStatus.Ready, isInitialized: true });
+          const pending = {
+            status: WalletStatus.Idle,
+            accounts: [],
+            currentAccount: null,
+            networks: [],
+            settings: null,
+            ownMnemonic: null,
+            backendInitialized: false
+          };
+          const ready = { ...pending, status: WalletStatus.Locked, backendInitialized: true };
+          mockRequest
+            .mockResolvedValueOnce({ type: responseType })
+            .mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: pending })
+            .mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: ready });
+          let settled = false;
+          const operation = start(action).then(value => {
+            settled = true;
+            return value;
+          });
+          for (let i = 0; i < 10; i++) await Promise.resolve();
+          expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+          expect(settled).toBe(false);
+          await jest.advanceTimersByTimeAsync(250);
+          await expect(operation).resolves.toBe('synced');
+          expect(useWalletStore.getState().status).toBe(WalletStatus.Locked);
+          expect(mockRequest).toHaveBeenCalledTimes(3);
+        } finally {
+          jest.useRealTimers();
+        }
+      }
+    );
+
+    it.each([
+      ['createAccount', WalletMessageType.CreateAccountResponse, true],
+      ['createAccount', WalletMessageType.CreateAccountResponse, undefined],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, true],
+      ['removeSeedPhrase', WalletMessageType.RemoveSeedPhraseResponse, undefined]
+    ] as const)('%s returns synced for initialized Idle with marker %s', async (action, responseType, marker) => {
+      mockRequest.mockResolvedValueOnce({ type: responseType }).mockResolvedValueOnce({
+        type: WalletMessageType.GetStateResponse,
+        state: {
+          status: WalletStatus.Idle,
+          accounts: [],
+          currentAccount: null,
+          networks: [],
+          settings: null,
+          ownMnemonic: null,
+          backendInitialized: marker
+        }
+      });
+      await expect(start(action)).resolves.toBe('synced');
+      expect(useWalletStore.getState().status).toBe(WalletStatus.Idle);
+      expect(useWalletStore.getState().isInitialized).toBe(true);
+      expect(mockRequest).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(cases)('%s resolves pending when the refresh fails without retrying', async (action, responseType) => {
+      const accounts = seedReady();
+      mockRequest.mockResolvedValueOnce({ type: responseType }).mockRejectedValueOnce(new Error('refresh failed'));
+      await expect(start(action)).resolves.toBe('pending');
+      expect(mockRequest).toHaveBeenCalledTimes(2);
+      expectPendingLeftReady(action, accounts);
+    });
+
+    it.each(cases)('%s resolves pending when GetState has an invalid type', async (action, responseType) => {
+      const accounts = seedReady();
+      mockRequest.mockResolvedValueOnce({ type: responseType }).mockResolvedValueOnce({ type: 'not-state' });
+      await expect(start(action)).resolves.toBe('pending');
+      expect(mockRequest).toHaveBeenCalledTimes(2);
+      expectPendingLeftReady(action, accounts);
+    });
+
+    it.each(cases)('%s rejects a mutation failure before any refresh', async (action, _responseType, requestType) => {
+      const accounts = seedReady();
+      mockRequest.mockRejectedValueOnce(new Error('mutation failed'));
+      await expect(start(action)).rejects.toThrow('mutation failed');
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+      expect(mutationCalls(requestType)).toHaveLength(1);
+      expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+      expect(useWalletStore.getState().accounts).toBe(accounts);
+      expect(useWalletStore.getState().seedPhraseStatus).toBe('stored');
+    });
+
+    it.each(cases)('%s returns synced after one lost refresh and stores that state', async (action, responseType) => {
+      jest.useFakeTimers();
+      try {
+        seedReady();
+        let refreshSignal: AbortSignal | undefined;
+        let hungPending = true;
+        const landed = {
+          status: WalletStatus.Locked,
+          accounts: [
+            {
+              publicKey: 'pk-created',
+              name: 'Created',
+              isPublic: true,
+              type: WalletType.OnChain,
+              hdIndex: 1,
+              authScheme: 'ecdsa' as const
+            }
+          ],
+          currentAccount: null,
+          networks: [],
+          settings: null,
+          ownMnemonic: false,
+          backendInitialized: true
+        };
+        mockRequest
+          .mockResolvedValueOnce({ type: responseType })
+          .mockImplementationOnce((_request, options) => {
+            refreshSignal = options?.signal;
+            const hung = new Promise(() => {});
+            void hung.then(
+              () => {
+                hungPending = false;
+              },
+              () => {
+                hungPending = false;
+              }
+            );
+            return hung;
+          })
+          .mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: landed });
+        const watched = watch(action);
+        await jest.advanceTimersByTimeAsync(3_000);
+        expect(watched.isSettled()).toBe(false);
+        expect(refreshSignal?.aborted).toBe(true);
+        await Promise.resolve();
+        expect(hungPending).toBe(true);
+        await jest.advanceTimersByTimeAsync(250);
+        await expect(watched.outcome).resolves.toBe('synced');
+        expect(mockRequest).toHaveBeenCalledTimes(3);
+        expect(useWalletStore.getState().status).toBe(WalletStatus.Locked);
+        expect(useWalletStore.getState().accounts[0]?.publicKey).toBe('pk-created');
+        expect(hungPending).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it.each(cases)('%s returns synced when the lost refresh rejects Aborted on abort', async (action, responseType) => {
+      jest.useFakeTimers();
+      try {
+        seedReady();
+        const landed = {
+          status: WalletStatus.Locked,
+          accounts: [],
+          currentAccount: null,
+          networks: [],
+          settings: null,
+          ownMnemonic: false,
+          backendInitialized: true
+        };
+        mockRequest
+          .mockResolvedValueOnce({ type: responseType })
+          .mockImplementationOnce((_request, options) => {
+            return new Promise((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => {
+                reject(new Error('Aborted'));
+              });
+            });
+          })
+          .mockResolvedValueOnce({ type: WalletMessageType.GetStateResponse, state: landed });
+        const watched = watch(action);
+        await jest.advanceTimersByTimeAsync(3_250);
+        await expect(watched.outcome).resolves.toBe('synced');
+        expect(mockRequest).toHaveBeenCalledTimes(3);
+        expect(useWalletStore.getState().status).toBe(WalletStatus.Locked);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it.each(cases)(
+      '%s resolves pending after two lost refreshes that ignore abort',
+      async (action, responseType, requestType) => {
+        jest.useFakeTimers();
+        try {
+          const signals: AbortSignal[] = [];
+          const hungSettled: boolean[] = [];
+          mockRequest.mockResolvedValueOnce({ type: responseType }).mockImplementation((_request, options) => {
+            if (options?.signal) signals.push(options.signal);
+            const settled = { current: false };
+            hungSettled.push(false);
+            const index = hungSettled.length - 1;
+            const hung = new Promise(() => {});
+            void hung.then(
+              () => {
+                settled.current = true;
+                hungSettled[index] = true;
+              },
+              () => {
+                settled.current = true;
+                hungSettled[index] = true;
+              }
+            );
+            return hung;
+          });
+          const watched = watch(action);
+          await jest.advanceTimersByTimeAsync(3_000);
+          expect(watched.isSettled()).toBe(false);
+          await jest.advanceTimersByTimeAsync(3_250);
+          await expect(watched.outcome).resolves.toBe('pending');
+          expect(mutationCalls(requestType)).toHaveLength(1);
+          expect(signals.map(signal => signal.aborted)).toEqual([true, true]);
+          await Promise.resolve();
+          expect(hungSettled).toEqual([false, false]);
+        } finally {
+          jest.useRealTimers();
+        }
+      }
+    );
+
+    it.each(cases)(
+      '%s resolves pending after two lost refreshes that reject Aborted',
+      async (action, responseType, requestType) => {
+        jest.useFakeTimers();
+        try {
+          const signals: AbortSignal[] = [];
+          mockRequest.mockResolvedValueOnce({ type: responseType }).mockImplementation((_request, options) => {
+            if (options?.signal) signals.push(options.signal);
+            return new Promise((_resolve, reject) => {
+              options?.signal?.addEventListener('abort', () => {
+                reject(new Error('Aborted'));
+              });
+            });
+          });
+          const watched = watch(action);
+          await jest.advanceTimersByTimeAsync(3_000);
+          expect(watched.isSettled()).toBe(false);
+          await jest.advanceTimersByTimeAsync(3_250);
+          await expect(watched.outcome).resolves.toBe('pending');
+          expect(mutationCalls(requestType)).toHaveLength(1);
+          expect(signals.map(signal => signal.aborted)).toEqual([true, true]);
+        } finally {
+          jest.useRealTimers();
+        }
+      }
+    );
+
+    it.each(cases)(
+      '%s resolves pending after eight uninitialized refreshes',
+      async (action, responseType, requestType) => {
+        jest.useFakeTimers();
+        try {
+          const accounts = seedReady();
+          mockRequest.mockResolvedValueOnce({ type: responseType }).mockResolvedValue({
+            type: WalletMessageType.GetStateResponse,
+            state: { backendInitialized: false }
+          });
+          const watched = watch(action);
+          await jest.advanceTimersByTimeAsync(9_750);
+          expect(watched.isSettled()).toBe(false);
+          await jest.advanceTimersByTimeAsync(3_000);
+          await expect(watched.outcome).resolves.toBe('pending');
+          expect(mutationCalls(requestType)).toHaveLength(1);
+          expect(useWalletStore.getState().status).toBe(WalletStatus.Ready);
+          expect(useWalletStore.getState().accounts).toBe(accounts);
+        } finally {
+          jest.useRealTimers();
+        }
+      }
+    );
   });
 
   describe('revealMnemonic', () => {
@@ -1892,15 +2329,6 @@ describe('useWalletStore', () => {
   });
 
   describe('signing actions', () => {
-    it('signData returns signature', async () => {
-      mockRequest.mockResolvedValueOnce({
-        type: WalletMessageType.SignDataResponse,
-        signature: 'sig-base64'
-      });
-      const sig = await useWalletStore.getState().signData('pk', 'inputs');
-      expect(sig).toBe('sig-base64');
-    });
-
     it('signTransaction returns signature as Uint8Array from hex', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignTransactionResponse,
@@ -2030,11 +2458,14 @@ describe('useWalletStore', () => {
         balances: { 'addr-1': [row as any], 'addr-2': [row as any] },
         balancesLoading: { 'addr-1': false, 'addr-2': true },
         balancesLastFetched: { 'addr-1': 1, 'addr-2': 2 },
+        balanceReadFailed: { 'addr-1': true, 'addr-2': true },
+        balanceReadInFlight: { 'addr-1': true, 'addr-2': false },
         assetsMetadata: { 'asset-1': row.metadata },
-        tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0 } } as any,
+        tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } } as any,
         accounts: [{ publicKey: 'addr-1', name: 'One' } as any]
       });
-      const { balances, balancesLoading, balancesLastFetched, ...others } = useWalletStore.getState();
+      const { balances, balancesLoading, balancesLastFetched, balanceReadFailed, balanceReadInFlight, ...others } =
+        useWalletStore.getState();
 
       useWalletStore.getState().clearBalances();
 
@@ -2042,7 +2473,16 @@ describe('useWalletStore', () => {
       expect(after.balances).toEqual({});
       expect(after.balancesLoading).toEqual({});
       expect(after.balancesLastFetched).toEqual({});
-      const { balances: _b, balancesLoading: _l, balancesLastFetched: _f, ...othersAfter } = after;
+      expect(after.balanceReadFailed).toEqual({});
+      expect(after.balanceReadInFlight).toEqual({});
+      const {
+        balances: _b,
+        balancesLoading: _l,
+        balancesLastFetched: _f,
+        balanceReadFailed: _rf,
+        balanceReadInFlight: _ri,
+        ...othersAfter
+      } = after;
       expect(othersAfter).toEqual(others);
       expect(othersAfter.assetsMetadata).toBe(others.assetsMetadata);
       expect(othersAfter.tokenPrices).toBe(others.tokenPrices);
@@ -2075,7 +2515,9 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().selectedFiatCurrency).toBe('USD');
       useWalletStore.getState().setFiatRates({ usd: 1 });
       expect(useWalletStore.getState().fiatRates).toEqual({ usd: 1 });
-      useWalletStore.getState().setTokenPrices({ ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1 } });
+      useWalletStore
+        .getState()
+        .setTokenPrices({ ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1, kind: 'market' as const } });
       expect(useWalletStore.getState().tokenPrices.ETH?.price).toBe(3000);
     });
 
@@ -2096,7 +2538,7 @@ describe('useWalletStore', () => {
   // Price helpers read the switch outside React, so a memo keyed on tokenPrices recomputes only when
   // the switch hands it a new object.
   describe('nominal unquoted price switch', () => {
-    const prices = { ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1 } };
+    const prices = { ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1, kind: 'market' as const } };
 
     beforeEach(() => {
       useWalletStore.getState().setTokenPrices(prices);

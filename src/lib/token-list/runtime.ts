@@ -23,6 +23,10 @@ interface LoadedList {
   ids: Set<string> | null;
   logos: Map<string, string> | null;
   priceAssets: Map<string, string> | null;
+  faucetsBySymbol: Map<string, string> | null;
+  baskets: Map<string, string[]> | null;
+  decimals: Map<string, number> | null;
+  symbols: Map<string, string> | null;
 }
 
 const defaults = (): Dependencies => ({
@@ -80,7 +84,15 @@ async function readList(network: string): Promise<LoadedList> {
   const fromLegacy = legacy ? parseTokenList(legacy.body, network) : null;
   if (fromLegacy) return fromLegacy;
   const bundled = parseTokenList(bundledTokenList(network), network);
-  return { ids: bundled?.ids ?? null, logos: bundled?.logos ?? null, priceAssets: bundled?.priceAssets ?? null };
+  return {
+    ids: bundled?.ids ?? null,
+    logos: bundled?.logos ?? null,
+    priceAssets: bundled?.priceAssets ?? null,
+    faucetsBySymbol: bundled?.faucetsBySymbol ?? null,
+    baskets: bundled?.baskets ?? null,
+    decimals: bundled?.decimals ?? null,
+    symbols: bundled?.symbols ?? null
+  };
 }
 
 /** Fetches the list and stores it once it validates; rejects when it is not whole, not valid or not stored. */
@@ -165,8 +177,38 @@ export async function loadTokenPriceAssets(network: string): Promise<Map<string,
   return (await load(network)).priceAssets;
 }
 
+/** The faucet id the verified list gives each symbol on `network` (`TokenList.faucetsBySymbol`), as the list spells it. */
+export async function loadTokenFaucetsBySymbol(network: string): Promise<Map<string, string> | null> {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return (await load(network)).faucetsBySymbol;
+}
+
 /** The last loaded price assets, or undefined before the first load completes. */
 export function peekTokenPriceAssets(network: string): Map<string, string> | null | undefined {
   if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
   return settled.get(network)?.priceAssets;
+}
+
+/**
+ * The constituents of each basket token in the last loaded list (`TokenList.baskets`), by faucet id as the list spells
+ * it, or undefined before the first load completes. Loaded with the price assets.
+ */
+export function peekTokenBaskets(network: string): Map<string, string[]> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.baskets;
+}
+
+/** Each listed token's decimals (`TokenList.decimals`), by faucet id as the list spells it, or undefined before. */
+export function peekTokenDecimals(network: string): Map<string, number> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.decimals;
+}
+
+/**
+ * Each listed token's symbol (`TokenList.symbols`), by faucet id as the list spells it, or undefined before the first
+ * load completes. Loaded with the price assets.
+ */
+export function peekTokenSymbols(network: string): Map<string, string> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.symbols;
 }

@@ -54,6 +54,10 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.Toolbar;
+import android.window.BackEvent;
+import android.window.OnBackAnimationCallback;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.FileProvider;
@@ -61,7 +65,9 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
@@ -76,6 +82,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -112,10 +119,21 @@ public class WebViewDialog extends Dialog {
     private WebView _webView;
     private BreadPresentationController presentation;
     private BreadAuthController auth;
+    private Object presentationBackDispatcher;
+    private Object presentationBackCallback;
+    private enum BackAction { PAGE, MINIMIZE, DISMISS, NONE }
+    private BackAction backAction = BackAction.NONE;
     private boolean permanentlyClosed;
+    // Miden patch: the name of the WebMessageListener object for the wallet bridge.
+    static final String BRIDGE_LISTENER_NAME = "__midenWalletBridge";
+    // Miden patch: true when the WebMessageListener carries the wallet bridge.
+    // Then AndroidInterface.postMessage does not forward messages.
+    private volatile boolean bridgeListenerInstalled;
     private ManagedHostClose managedClose;
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
     ManagedHostClose managedClose() { return managedClose; }
+    boolean unseenWarmPresentation() { return presentation != null && presentation.unseenWarm(); }
+    boolean retireUnseenWarmPresentation() { return presentation != null && presentation.retireUnseenWarm(); }
     void disableClosingPage() {
         if (presentation != null) presentation.stopMotion();
         if (_webView != null) {
@@ -124,8 +142,10 @@ public class WebViewDialog extends Dialog {
         }
     }
     void configureManagedClose(String id, JSObject options, java.util.function.Consumer<JSObject> notify) {
-        if (options != null && !options.getString("token", "").isEmpty())
+        if (options != null && !options.getString("token", "").isEmpty()) {
+            if (managedClose != null && presentation != null) presentation.state.revokeInputAuthority();
             managedClose = new ManagedHostClose(id, this, capacitorWebView, options, notify, this::finishDismiss);
+        }
     }
     void requestClose(Runnable completion) {
         if (managedClose != null) managedClose.request(completion);
@@ -144,6 +164,9 @@ public class WebViewDialog extends Dialog {
 
     boolean hasPresentation() { return presentation != null; }
     public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
+    void prepareMorph(long durationMs) {
+        if (presentation != null) presentation.prepareMorph(durationMs);
+    }
     public void setClosedListener(Runnable listener) { closedListener = listener; }
     public void presentationForeground(boolean foreground) {
         if (managedClose != null) managedClose.foreground(foreground);
@@ -152,6 +175,105 @@ public class WebViewDialog extends Dialog {
     void presentationMinimizeRequested(long revision, long sequence, String morphId) {
         if (permanentlyClosed || managedClosing()) return;
         _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token, morphId);
+    }
+
+    @SuppressLint("NewApi")
+    private void registerPresentationBackCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || managedClose == null || presentation == null) return;
+        OnBackInvokedDispatcher dispatcher = getOnBackInvokedDispatcher();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            presentationBackCallback = new OnBackAnimationCallback() {
+                @Override public void onBackStarted(BackEvent event) {
+                    presentation.beginBackGesture();
+                    backAction = currentBackAction();
+                    if (backAction == BackAction.MINIMIZE) presentation.beginBackPreview();
+                }
+
+                @Override public void onBackProgressed(BackEvent event) {
+                    if (presentation != null) presentation.progressBackPreview(event.getProgress());
+                }
+
+                @Override public void onBackCancelled() {
+                    if (presentation != null) presentation.cancelBackGesture();
+                    backAction = BackAction.NONE;
+                }
+
+                @Override public void onBackInvoked() {
+                    finishPredictiveBack();
+                }
+            };
+        } else {
+            presentationBackCallback = (OnBackInvokedCallback) this::invokeBackWithoutPreview;
+        }
+        presentationBackDispatcher = dispatcher;
+        dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+            (OnBackInvokedCallback) presentationBackCallback);
+    }
+
+    private boolean pageHandlesBack() {
+        return _webView != null && _webView.canGoBack()
+            && (TextUtils.equals(_options.getToolbarType(), "navigation") || _options.getActiveNativeNavigationForWebview());
+    }
+
+    private boolean shouldMinimizeOnBack() {
+        if (permanentlyClosed || managedClosing() || managedClose == null || presentation == null
+            || _options.getDisableGoBackOnNativeApplication() || !presentation.canMinimizeFromBack()) return false;
+        return !pageHandlesBack();
+    }
+
+    private BackAction currentBackAction() {
+        if (permanentlyClosed || managedClosing()) return BackAction.NONE;
+        if (pageHandlesBack()) return BackAction.PAGE;
+        if (shouldMinimizeOnBack()) return BackAction.MINIMIZE;
+        if (!_options.getDisableGoBackOnNativeApplication()) return BackAction.DISMISS;
+        return BackAction.NONE;
+    }
+
+    private void performBackAction(BackAction action, boolean preview) {
+        if (action == BackAction.PAGE) {
+            if (_webView != null) _webView.goBack();
+        } else if (action == BackAction.MINIMIZE) {
+            if (presentation == null) return;
+            if (preview) presentation.commitBackPreview();
+            else presentation.minimizeFromBackWithoutPreview();
+        } else if (action == BackAction.DISMISS) {
+            dismiss();
+        }
+    }
+
+    private void finishPredictiveBack() {
+        boolean gestureStarted = presentation != null && presentation.finishBackGesture();
+        boolean preview = presentation != null && presentation.backPreviewActive();
+        BackAction action = gestureStarted ? backAction : currentBackAction();
+        backAction = BackAction.NONE;
+        if (permanentlyClosed || managedClosing()) {
+            if (preview && presentation != null) presentation.cancelBackPreview();
+            return;
+        }
+        if (gestureStarted && !presentation.backGestureIsCurrent()) {
+            presentation.discardBackPreview();
+            return;
+        }
+        // Preview teardown on resize does not revoke the accepted minimize intent.
+        performBackAction(action, preview || gestureStarted);
+    }
+
+    private void invokeBackWithoutPreview() {
+        if (permanentlyClosed || managedClosing()) return;
+        performBackAction(currentBackAction(), false);
+    }
+
+    @SuppressLint("NewApi")
+    private void unregisterPresentationBackCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            && presentationBackDispatcher != null && presentationBackCallback != null) {
+            ((OnBackInvokedDispatcher) presentationBackDispatcher).unregisterOnBackInvokedCallback(
+                (OnBackInvokedCallback) presentationBackCallback);
+        }
+        presentationBackDispatcher = null;
+        presentationBackCallback = null;
+        backAction = BackAction.NONE;
+        if (presentation != null) presentation.cancelBackGesture();
     }
 
     boolean presentationMorph(String to, JSObject card, JSObject velocity, String morphId, Integer revision, Integer sequence) {
@@ -206,6 +328,15 @@ public class WebViewDialog extends Dialog {
     void morphEvent(BreadMorphEvent event) {
         if (permanentlyClosed || managedClosing()) return;
         _options.getCallbacks().presentationMorph(event);
+    }
+
+    @Override public boolean isShowing() {
+        if (!permanentlyClosed && unseenWarmPresentation()) {
+            Window window = getWindow();
+            View decor = window == null ? null : window.getDecorView();
+            if (decor != null && decor.getParent() != null && decor.getVisibility() == View.INVISIBLE) return true;
+        }
+        return super.isShowing();
     }
 
     @Override public void show() {
@@ -271,6 +402,45 @@ public class WebViewDialog extends Dialog {
         this.capacitorWebView = capacitorWebView;
     }
 
+    // Miden patch: add the origin of the sender frame and the main-frame flag to a
+    // bridge message. The wallet compares this origin with the origin of the session.
+    // A message that is not a JSON object goes in "rawMessage".
+    static String bridgeMessage(String message, String origin) {
+        try {
+            JSONObject body;
+            try {
+                body = new JSONObject(message);
+            } catch (JSONException e) {
+                body = new JSONObject().put("rawMessage", message);
+            }
+            return body.put("frameOrigin", origin).put("mainFrame", true).toString();
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
+    // The JavaScript interface cannot identify its caller's frame; envelope fields are untrusted.
+    static String fallbackBridgeMessage(String envelope) {
+        try {
+            JSONObject parsed = new JSONObject(envelope);
+            Object top = parsed.opt("top");
+            Object origin = parsed.opt("origin");
+            Object message = parsed.opt("message");
+            if (!Boolean.TRUE.equals(top) || !(origin instanceof String) || !(message instanceof String)) return null;
+            String body = (String) message;
+            try {
+                JSONObject forwarded = new JSONObject(body);
+                forwarded.remove("frameOrigin");
+                forwarded.remove("mainFrame");
+                return forwarded.toString();
+            } catch (JSONException e) {
+                return body;
+            }
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
     // Add this class to provide safer JavaScript interface
     private class JavaScriptInterface {
 
@@ -289,7 +459,11 @@ public class WebViewDialog extends Dialog {
                     return;
                 }
 
-                _options.getCallbacks().javascriptCallback(message);
+                // The legacy interface forwards page events without frame identity.
+                if (bridgeListenerInstalled) return;
+                String forwarded = fallbackBridgeMessage(message);
+                if (forwarded == null) return;
+                _options.getCallbacks().javascriptCallback(forwarded);
             } catch (Exception e) {
                 Log.e("InAppBrowser", "Error in postMessage: " + e.getMessage());
             }
@@ -483,6 +657,26 @@ public class WebViewDialog extends Dialog {
         applyInsets();
 
         _webView.addJavascriptInterface(new JavaScriptInterface(), "AndroidInterface");
+        // Miden patch: the wallet bridge uses a WebMessageListener when the WebView has it.
+        // The listener gives the origin of the sender frame and the main-frame flag. The
+        // origin rule is "*" because the rules apply only to documents that load after this
+        // call, and the session can go to other origins. The wallet compares the origin.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(
+                _webView,
+                BRIDGE_LISTENER_NAME,
+                Collections.singleton("*"),
+                (view, message, sourceOrigin, isMainFrame, reply) -> {
+                    if (!isMainFrame || message.getType() != WebMessageCompat.TYPE_STRING) return;
+                    if (managedClosing() || permanentlyClosed) return;
+                    String data = message.getData();
+                    if (data == null || data.isEmpty() || _options == null || _options.getCallbacks() == null) return;
+                    String forwarded = bridgeMessage(data, sourceOrigin.toString());
+                    if (forwarded != null) _options.getCallbacks().javascriptCallback(forwarded);
+                }
+            );
+            bridgeListenerInstalled = true;
+        }
         _webView.addJavascriptInterface(new PreShowScriptInterface(), "PreShowScriptInterface");
         _webView.addJavascriptInterface(new PrintInterface(this._context, _webView), "PrintInterface");
         _webView.getSettings().setJavaScriptEnabled(true);
@@ -992,6 +1186,7 @@ public class WebViewDialog extends Dialog {
             auth.install();
             presentation = new BreadPresentationController(this, _webView, _options.getBreadPresentation(), _options.isInitiallyVisible());
             presentation.install();
+            registerPresentationBackCallback();
         }
         _webView.loadUrl(this._options.getUrl(), requestHeaders);
         _webView.requestFocus();
@@ -1243,7 +1438,16 @@ public class WebViewDialog extends Dialog {
                         postMessage: function(message) {
                           try {
                             var msg = typeof message === 'string' ? message : JSON.stringify(message);
-                            window.AndroidInterface.postMessage(msg);
+                            // Use the native listener when available; fallback envelope fields are untrusted.
+                            if (window.__midenWalletBridge) {
+                              window.__midenWalletBridge.postMessage(msg);
+                              return;
+                            }
+                            window.AndroidInterface.postMessage(JSON.stringify({
+                              origin: window.location.origin,
+                              top: window === window.top,
+                              message: msg
+                            }));
                           } catch(e) {
                             console.error('Error in mobileApp.postMessage:', e);
                           }
@@ -2869,15 +3073,7 @@ public class WebViewDialog extends Dialog {
 
     @Override
     public void onBackPressed() {
-        if (
-            _webView != null &&
-            _webView.canGoBack() &&
-            (TextUtils.equals(_options.getToolbarType(), "navigation") || _options.getActiveNativeNavigationForWebview())
-        ) {
-            _webView.goBack();
-        } else if (!_options.getDisableGoBackOnNativeApplication()) {
-            dismiss();
-        }
+        invokeBackWithoutPreview();
     }
 
     @Override
@@ -2960,6 +3156,7 @@ public class WebViewDialog extends Dialog {
         if (permanentlyClosed) return;
         permanentlyClosed = true;
         String closedUrl = getUrl();
+        unregisterPresentationBackCallback();
         if (auth != null) auth.close();
         if (presentation != null) presentation.close();
         if (closedListener != null) closedListener.run();
@@ -3000,6 +3197,10 @@ public class WebViewDialog extends Dialog {
 
                 // Remove JavaScript interfaces before destroying
                 _webView.removeJavascriptInterface("AndroidInterface");
+                if (bridgeListenerInstalled) {
+                    bridgeListenerInstalled = false;
+                    WebViewCompat.removeWebMessageListener(_webView, BRIDGE_LISTENER_NAME);
+                }
                 _webView.removeJavascriptInterface("PreShowScriptInterface");
                 _webView.removeJavascriptInterface("PrintInterface");
 

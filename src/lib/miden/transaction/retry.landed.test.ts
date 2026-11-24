@@ -11,6 +11,8 @@
  * Failed forever. Only `./cancel` is mocked here (to control the node verdict).
  */
 /* eslint-disable import/first */
+import { NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
+
 import * as Repo from 'lib/miden/repo';
 
 const mockVerifySendLanded = jest.fn();
@@ -75,21 +77,26 @@ const DELIVERY_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undef
   ]
 ];
 
-// Retry's landed row reads as the landed catches write one: the label the type's normal completion
-// writes (#1233).
-const LABEL_CASES: [string, Partial<ITransaction>, string][] = [
-  ['swap', { type: 'swap' }, 'Swapped'],
-  ['execute', { type: 'execute' }, 'Executed'],
-  ['Agglayer bridged-send', { type: 'bridged-send', extraInputs: { provider: 'agglayer' } }, 'Bridged to EVM']
-];
-
 const UNDELIVERED_EXECUTE = 'Executed - the private note could not be delivered';
 
-// Retry reads no count off the executed transaction, so a landed execute owes the recipient its request named,
-// and one whose relay was recorded as failed never reads as a clean success (#1233).
+// Retry's landed row reads as the landed catches write one: the label the type's normal completion
+// writes (#1233), which for an execute whose notes Retry cannot count says a private note may be owed.
+const LABEL_CASES: [string, Partial<ITransaction>, string, INoteDeliveryState | undefined][] = [
+  ['swap', { type: 'swap' }, 'Swapped', undefined],
+  ['execute', { type: 'execute' }, UNDELIVERED_EXECUTE, 'undelivered'],
+  [
+    'Agglayer bridged-send',
+    { type: 'bridged-send', extraInputs: { provider: 'agglayer' } },
+    'Bridged to EVM',
+    undefined
+  ]
+];
+
+// Retry reads no count off the executed transaction, so a landed execute is taken to owe a private note whether or
+// not its request named a recipient, and one whose relay was recorded as failed never reads as a clean success (#1233).
 const EXECUTE_CASES: [string, Partial<ITransaction>, INoteDeliveryState | undefined, string][] = [
   ['names a recipient', { type: 'execute', secondaryAccountId: 'recipient' }, 'undelivered', UNDELIVERED_EXECUTE],
-  ['names no recipient', { type: 'execute' }, undefined, 'Executed'],
+  ['names no recipient', { type: 'execute' }, 'undelivered', UNDELIVERED_EXECUTE],
   ['recorded its relay as failed', { type: 'execute', noteDelivery: 'undelivered' }, 'undelivered', UNDELIVERED_EXECUTE]
 ];
 
@@ -171,7 +178,7 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
 
   it.each(LABEL_CASES)(
     'completes a landed %s under its completion label (#1233)',
-    async (_label, overrides, message) => {
+    async (_label, overrides, message, delivery) => {
       await Repo.transactions.put(failedSend({ id: 'tx-landed-label', ...overrides }));
       mockVerifySendLanded.mockResolvedValue('landed');
 
@@ -180,7 +187,7 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
       const row = await Repo.transactions.where({ id: 'tx-landed-label' }).first();
       expect(row?.status).toBe(ITransactionStatus.Completed);
       expect(row?.displayMessage).toBe(message);
-      expect(row?.noteDelivery).toBeUndefined();
+      expect(row?.noteDelivery).toBe(delivery);
     }
   );
 
@@ -222,6 +229,206 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
 
     const row = await Repo.transactions.where({ id: 'tx-queued' }).first();
     expect(row?.status).toBe(ITransactionStatus.Queued);
+  });
+
+  // A Cancel or the reaper that finalized a swap mid-tail left the order its landing decided on the row, unopened.
+  const ORDER_NOTE = `0x${'ab'.repeat(32)}`;
+  const decidedSwap = (overrides: Partial<ITransaction> = {}): ITransaction =>
+    failedSend({
+      id: 'tx-landed-swap',
+      type: 'swap',
+      extraInputs: {
+        requestedFaucetId: 'faucet-req',
+        requestedAmount: 9n,
+        expirySeconds: 100,
+        landedOrder: { orderId: '42', expiresAt: 1100, noteId: ORDER_NOTE }
+      },
+      ...overrides
+    });
+
+  it('completes a landed swap a Cancel finalized mid-tail with the order its landed failure decided', async () => {
+    await Repo.transactions.put(decidedSwap());
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual({
+      requestedFaucetId: 'faucet-req',
+      requestedAmount: 9n,
+      expirySeconds: 100,
+      orderId: 42n,
+      expiresAt: 1100
+    });
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
+  });
+
+  // An ambiguous post-submit abort records no order. An expiry would read as one the wallet settles.
+  it('completes a landed swap whose failure decided no order without an expiry', async () => {
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    await Repo.transactions.put(decidedSwap({ extraInputs }));
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs).toEqual(extraInputs);
+    expect(row?.outputNoteIds).toBeUndefined();
+  });
+
+  // Verify-by-id passes no order of its own. The saved request's one public note is the order.
+  it('opens the order a saved request names when a landed swap holds none', async () => {
+    const bytes = new Uint8Array([9, 9, 9]);
+    const extraInputs = { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 };
+    await Repo.transactions.put(decidedSwap({ extraInputs, requestBytes: bytes }));
+    mockVerifySendLanded.mockResolvedValue('landed');
+    const lazySdk = await import('@miden-sdk/miden-sdk/lazy');
+    const deserialize = jest.mocked(lazySdk.TransactionRequest.deserialize);
+    const previous = deserialize.getMockImplementation();
+    deserialize.mockImplementation(
+      () =>
+        ({
+          expectedOutputOwnNotes: () => [
+            {
+              id: () => ({ toString: () => ORDER_NOTE }),
+              metadata: () => ({ noteType: () => NoteType.Public }),
+              recipient: () => ({
+                script: () => ({ root: () => NoteScript.pswap().root() }),
+                serialNum: () => ({ toFelts: () => [{ asInt: () => 1n }, { asInt: () => 42n }] })
+              })
+            }
+          ]
+        }) as unknown as ReturnType<typeof deserialize>
+    );
+    try {
+      await requeueFailedTransaction('tx-landed-swap');
+    } finally {
+      deserialize.mockImplementation(previous);
+    }
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs.orderId).toBe(42n);
+    expect(row?.extraInputs.expiresAt).toBe((row?.completedAt ?? 0) + 100);
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
+  });
+
+  // The order the saved request recorded is what a decode of those bytes would give, so Retry takes no lock for it.
+  it('opens the order a landed swap`s saved request recorded without decoding the request', async () => {
+    const extraInputs = {
+      requestedFaucetId: 'faucet-req',
+      requestedAmount: 9n,
+      expirySeconds: 100,
+      requestOrder: { orderId: '42', noteId: ORDER_NOTE }
+    };
+    await Repo.transactions.put(decidedSwap({ extraInputs, requestBytes: new Uint8Array([9, 9, 9]) }));
+    mockVerifySendLanded.mockResolvedValue('landed');
+    const lazySdk = await import('@miden-sdk/miden-sdk/lazy');
+    const deserialize = jest.mocked(lazySdk.TransactionRequest.deserialize);
+    deserialize.mockClear();
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs.orderId).toBe(42n);
+    expect(row?.extraInputs.expiresAt).toBe((row?.completedAt ?? 0) + 100);
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
+    expect(deserialize).not.toHaveBeenCalled();
+  });
+
+  // A single-key swap saves no request: the order is the one the verified transaction's attempt named on its stamp.
+  it('opens the order the verified transaction`s attempt recorded on a swap with no saved request', async () => {
+    const otherNote = `0x${'cd'.repeat(32)}`;
+    await Repo.transactions.put(
+      decidedSwap({
+        extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: 9n, expirySeconds: 100 },
+        submitEvidence: [
+          {
+            attemptId: 'a0',
+            capturedAt: 1000,
+            source: 'stage',
+            transactionId: '0xother',
+            orderId: '7',
+            orderNoteId: otherNote
+          },
+          {
+            attemptId: 'a1',
+            capturedAt: 1100,
+            source: 'stage',
+            transactionId: '0xlanded',
+            orderId: '42',
+            orderNoteId: ORDER_NOTE
+          }
+        ]
+      })
+    );
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Completed);
+    expect(row?.extraInputs.orderId).toBe(42n);
+    expect(row?.extraInputs.expiresAt).toBe((row?.completedAt ?? 0) + 100);
+    expect(row?.outputNoteIds).toEqual([ORDER_NOTE]);
+  });
+
+  // A replay resends the same bytes, so the order they name stays recorded; only the dead attempt's landing goes.
+  it('a proven-dead swap`s requeue keeps the order its saved request recorded', async () => {
+    const submitEvidence = [{ attemptId: 'a1', capturedAt: 1100, source: 'stage' as const }];
+    const requestOrder = { orderId: '42', noteId: ORDER_NOTE };
+    await Repo.transactions.put(
+      decidedSwap({
+        neverCommittedAt: 1150,
+        submitEvidence,
+        extraInputs: {
+          requestedFaucetId: 'faucet-req',
+          requestedAmount: 9n,
+          expirySeconds: 100,
+          requestOrder,
+          landedOrder: { orderId: '42', expiresAt: 1100, noteId: ORDER_NOTE }
+        }
+      })
+    );
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(row?.extraInputs.landedOrder).toBeUndefined();
+    expect(row?.extraInputs.requestOrder).toEqual(requestOrder);
+  });
+
+  it('a proven-dead swap`s requeue drops the order its dead attempt decided', async () => {
+    const submitEvidence = [{ attemptId: 'a1', capturedAt: 1100, source: 'stage' as const }];
+    await Repo.transactions.put(decidedSwap({ neverCommittedAt: 1150, submitEvidence }));
+
+    await requeueFailedTransaction('tx-landed-swap');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(row?.extraInputs.landedOrder).toBeUndefined();
+    expect(row?.extraInputs).toMatchObject({ requestedFaucetId: 'faucet-req', requestedAmount: 9n });
+    expect(row?.transactionId).toBe('0xlanded');
+    expect(row?.submitEvidence).toEqual(submitEvidence);
+    expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
+
+  // That attempt can still land, so its decided order stays for the landing that completes the row.
+  it('an acknowledged swap requeue keeps the order its attempt decided', async () => {
+    await Repo.transactions.put(
+      decidedSwap({ transactionId: undefined, mayHaveSubmitted: true, attemptId: 'attempt-1' })
+    );
+    mockVerifySendLanded.mockResolvedValue('unknown');
+
+    await requeueFailedTransaction('tx-landed-swap', { acknowledged: { attemptId: 'attempt-1' } });
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-swap' }).first();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    expect(row?.extraInputs.landedOrder).toEqual({ orderId: '42', expiresAt: 1100, noteId: ORDER_NOTE });
   });
 
   it('documents WHY the reconcile cannot go through updateTransactionStatus', async () => {

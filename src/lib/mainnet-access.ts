@@ -6,6 +6,10 @@ import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_ENDPOINTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import {
+  annotateMainnetAccessCheckFailure,
+  type MainnetAccessCheckFailure
+} from 'lib/telemetry/ui-producer-diagnostics';
 
 /** The number of characters in a node-generated access code. */
 export const MAINNET_ACCESS_CODE_LENGTH = 12;
@@ -30,13 +34,23 @@ export interface MainnetAccessTarget {
  */
 export async function checkMainnetAccessCode(
   code: string,
-  rpcUrl: string = getEffectiveRpcUrl()
+  rpcUrl: string | undefined = undefined
 ): Promise<MainnetAccessOutcome> {
-  if (!code) return 'rejected';
-  await MidenClient.ready();
-  const rpc = new RpcClient(new Endpoint(rpcUrl));
-  const valid = await withRpcTimeout(() => rpc.isInvitationCodeValid(code), 'mainnet-access-check');
-  return valid ? 'granted' : 'rejected';
+  let stage: MainnetAccessCheckFailure = 'endpoint_resolve';
+  try {
+    const endpoint = rpcUrl === undefined ? getEffectiveRpcUrl() : rpcUrl;
+    if (!code) return 'rejected';
+    stage = 'sdk_ready';
+    await MidenClient.ready();
+    stage = 'rpc_client';
+    const rpc = new RpcClient(new Endpoint(endpoint));
+    stage = 'invitation_check';
+    const valid = await withRpcTimeout(() => rpc.isInvitationCodeValid(code), 'mainnet-access-check');
+    return valid ? 'granted' : 'rejected';
+  } catch (error) {
+    annotateMainnetAccessCheckFailure(error, stage);
+    throw error;
+  }
 }
 
 /**
@@ -45,8 +59,15 @@ export async function checkMainnetAccessCode(
  * node that enforces no allowlist accepts every code.
  */
 export async function checkMainnetAccessCodeBeforeSwitch(code: string): Promise<MainnetAccessOutcome> {
-  const rpcUrl = MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET);
-  if (!rpcUrl) throw new Error('This build has no mainnet node');
+  let rpcUrl: string;
+  try {
+    const configured = MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET);
+    if (!configured) throw new Error('This build has no mainnet node');
+    rpcUrl = configured;
+  } catch (error) {
+    annotateMainnetAccessCheckFailure(error, 'endpoint_resolve');
+    throw error;
+  }
   return checkMainnetAccessCode(code, rpcUrl);
 }
 

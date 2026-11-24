@@ -39,11 +39,36 @@ const addTo = <K, V>(index: Map<K, V[]>, key: K, value: V) => {
 function consumedTotals(claim: ITransaction): (faucetId: string) => bigint | undefined {
   if (claim.assetTotals) {
     const totals = new Map<string, bigint>();
-    for (const { faucetId, amount } of claim.assetTotals) if (!totals.has(faucetId)) totals.set(faucetId, amount);
-    return faucetId => totals.get(faucetId);
+    for (const { faucetId, amount } of claim.assetTotals) {
+      if (faucetId && !totals.has(faucetId)) totals.set(faucetId, amount);
+    }
+    return faucetId => {
+      if (!faucetId) return undefined;
+      const exact = totals.get(faucetId);
+      if (exact !== undefined) return exact;
+      for (const [key, amount] of totals) {
+        if (compareAccountIds(key, faucetId)) return amount;
+      }
+      return undefined;
+    };
   }
-  const faucets = new Set(claim.consumedNotes?.map(note => note.faucetId));
-  return faucetId => (faucets.size === 1 && faucets.has(faucetId) ? claim.amount : undefined);
+  const faucets: string[] = [];
+  let emptyFaucet = false;
+  for (const note of claim.consumedNotes ?? []) {
+    const noteFaucet = note.faucetId;
+    if (!noteFaucet) {
+      emptyFaucet = true;
+      break;
+    }
+    if (!faucets.some(seen => seen === noteFaucet || compareAccountIds(seen, noteFaucet))) {
+      faucets.push(noteFaucet);
+      if (faucets.length > 1) break;
+    }
+  }
+  return faucetId =>
+    !emptyFaucet && faucets.length === 1 && faucetId && compareAccountIds(faucets[0]!, faucetId)
+      ? claim.amount
+      : undefined;
 }
 
 function claimedNotes(claim: ITransaction): Map<string, IConsumedNote[]> {
@@ -141,7 +166,7 @@ export function badgeCandidates(
           compareAccountIds(row.accountId, other.accountId) &&
           notesOf(other)
             .get(depositNote)
-            ?.some(note => note.faucetId === faucetId && note.amount === row.amount)
+            ?.some(note => compareAccountIds(note.faucetId, faucetId) && note.amount === row.amount)
       );
       const balance = claim ? consumedBalance(claim, faucetId) : undefined;
       if (balance) result.push({ badge: 'first-deposit', transactionIds: [transactionId], balances: [balance] });
@@ -161,7 +186,11 @@ export function badgeCandidates(
     const balances: BalanceRequirement[] = [];
     let received = 0n;
     for (const claim of claims) {
-      if (claim.extraInputs?.swapSettleKind !== 'settle' || claim.faucetId !== faucet || !positive(claim.amount))
+      if (
+        claim.extraInputs?.swapSettleKind !== 'settle' ||
+        !compareAccountIds(claim.faucetId ?? '', faucet) ||
+        !positive(claim.amount)
+      )
         continue;
       const ids = claim.noteIds ?? (claim.noteId ? [claim.noteId] : []);
       const keys = ids.map(noteKey);

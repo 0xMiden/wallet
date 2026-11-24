@@ -5,12 +5,15 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { ActivityRow } from 'components/ui/ActivityRow';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { getCurrentLocale } from 'lib/i18n/core';
+import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
@@ -18,6 +21,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
@@ -35,13 +39,15 @@ export interface PendingActivityItem {
   /** The refusal its last Retry met, shown in place of the hint. */
   retryError?: string;
   /** Stable for one producer failure, including when the note's details refresh. */
-  failure?: { id: UserErrorId };
+  failure?: { id: UserErrorId; diagnostics?: UiEvidenceInput };
   /** Accepting it is certain to fail on the network fee, so Accept is withheld and the card says why. */
   cannotPayFee?: boolean;
   /** Its claim is queued again because the Guardian is still settling the previous change, #1666. */
   guardianBusy?: true;
   /** A stored proof-submission outcome for this claim. Absent while the submit is still in progress. */
   submission?: SubmissionFeedback;
+  /** When the Guardian hold on its finished row clears, while one applies: Retry stays off until then (#2060). */
+  holdUntil?: number;
 }
 
 interface PendingActivityCardProps {
@@ -49,6 +55,7 @@ interface PendingActivityCardProps {
   onAccept: (note: ClaimableNoteWithMetadata) => void;
   onReject?: (note: ClaimableNoteWithMetadata) => void;
   onRetryHeld?: (item: PendingActivityItem) => void;
+  initiallyExpanded?: boolean;
 }
 
 function formatDateTime(unixSeconds: number): string {
@@ -72,7 +79,13 @@ function formatDateTime(unixSeconds: number): string {
 // same component as every other settled transaction and carrying that component's own navigation
 // to the transaction page. `ActivityPendingHistory` drops a `claimed` item from the card list and
 // `History` stops standing its consume row down, so the two swap cleanly with nothing in between.
-export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: PendingActivityCardProps) => {
+export const PendingActivityCard = ({
+  item,
+  onAccept,
+  onReject,
+  onRetryHeld,
+  initiallyExpanded = false
+}: PendingActivityCardProps) => {
   const { t } = useTranslation();
   const { note, status } = item;
   const transition = useMotion(springs.standard);
@@ -87,9 +100,15 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const unread = !isActivityRead(readState, unreadKey, note.receivedAt ?? Number.NaN);
   const detailsId = useId();
   const feeNoticeId = useId();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
-  const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
+  const amount = hasKnownScale(note.metadata)
+    ? formatAmountDisplay(BigInt(note.amount), {
+        decimals: note.metadata.decimals,
+        rounding: 'down',
+        minimumFractionDigits: 3
+      })
+    : undefined;
   const tokenLabel = midenTokenLabel(bridgeConfig, note.faucetId, note.metadata.symbol);
   const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.
@@ -101,6 +120,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   // Retry runs only for a held claim (`onRetryHeld`). A claim still in flight keeps its spinner even
   // with a stored submit outcome, and the notice below explains it.
   const busy = (status === 'claiming' && !held) || status === 'checking';
+  const { holdUntil } = item;
+  const heldByGuardian = holdUntil !== undefined;
   const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true && submission === undefined;
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
@@ -132,10 +153,13 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   let hint = t('activityNotYetAccepted');
   if (item.retryError !== undefined) hint = item.retryError;
   else if (held) hint = t('transactionNotConfirmedHint');
-  else if (status === 'failed') hint = t('noteClaimFailedRetry');
+  else if (status === 'failed' && heldByGuardian) {
+    hint = t('guardianHoldRetryRefused', { time: formatHoldDeadline(holdUntil, { locale: getCurrentLocale() }) });
+  } else if (status === 'failed' && submission?.kind !== 'guardianHold') hint = t('noteClaimFailedRetry');
   else if (waitingOnGuardian) hint = t('guardianBusyDescription');
   const negative =
-    item.retryError !== undefined || (submission !== undefined ? submission.kind === 'rejected' : status === 'failed');
+    item.retryError !== undefined ||
+    (submission !== undefined ? submission.kind === 'rejected' : status === 'failed' && !heldByGuardian);
   const failureId =
     item.retryError !== undefined ? (item.failure?.id ?? null) : status === 'failed' ? 'noteClaimFailedRetry' : null;
   const [observedFailure, setObservedFailure] = useState<{
@@ -157,6 +181,16 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
       errorId: observedFailure.noteId === note.id ? failureId : null
     });
   }
+
+  const failureDiagnostics =
+    observedFailure.failure?.diagnostics ??
+    (observedFailure.errorId === 'noteClaimFailedRetry'
+      ? ({
+          kind: 'note_claim',
+          noteClaimFailureOrigin: 'transaction_row',
+          uiFailureKind: 'unavailable'
+        } satisfies UiEvidenceInput)
+      : undefined);
 
   // A refusal's message lives in the folded section, so it opens with it (#1081).
   useEffect(() => {
@@ -268,6 +302,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
                   <Notice
                     errorId={observedFailure.errorId}
                     errorOccurrence={observedFailure.failure}
+                    errorDiagnostics={failureDiagnostics}
                     data-testid="pending-activity-hint"
                     tone={negative ? 'negative' : 'neutral'}
                     role={negative ? 'alert' : 'status'}
@@ -298,10 +333,16 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
                 tone={submission.kind === 'rejected' ? 'negative' : 'neutral'}
                 role={submission.kind === 'rejected' ? 'alert' : 'status'}
                 errorId={submission.rowCopy === undefined ? submission.messageKey : undefined}
+                errorDiagnostics={submission.errorDiagnostics}
                 data-testid="pending-activity-submission"
               >
                 {submissionText}
               </Notice>
+            </div>
+          )}
+          {heldByGuardian && (
+            <div className="px-4 pb-3">
+              <GuardianHoldNotice clearsAtSec={holdUntil} variant="inline" />
             </div>
           )}
           {feeBlocked && (
@@ -346,7 +387,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
               size="sm"
               className="h-12 min-w-0 flex-1 rounded-none"
               title={actionLabel}
-              disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked}
+              disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked || heldByGuardian}
               isLoading={status === 'claiming' && !held}
               aria-busy={busy}
               aria-describedby={feeBlocked ? feeNoticeId : undefined}

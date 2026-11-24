@@ -5,6 +5,11 @@ on:
     branches:
       - 'main'
       - 'rc/1.17.7'
+      - 'rc/1.17.8'
+      - 'rc/1.17.9'
+      - 'rc/1.17.10'
+      - 'rc/1.17.11'
+      - 'rc/1.18.1'
 
 permissions:
   contents: read

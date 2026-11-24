@@ -1,19 +1,25 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+import { isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
-import { hiddenMsBetween, hiddenSecondsSince } from 'lib/mobile/background-time';
+import { hiddenMsBetween, hiddenSecondsSince, isBackgroundTimeTrackingInstalled } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
+import { ownDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
 import { logOperationEnd, type DiagnosticEndOutcome } from 'lib/telemetry/diagnostic-log';
+import { classifyReapStartRelation } from 'lib/telemetry/reap-start-diagnostics';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import {
+  captureSubmitContext,
   reportTransactionFailure,
+  type PreflightSyncReport,
   type QueueAgeBucket,
+  type QueueHiddenBucket,
   type ReapSnapshot,
   type StartupSnapshot,
   type TransactionFailureReason
@@ -22,12 +28,13 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 
 import {
   CLAIM_VAULT_SHORTFALL_ERROR,
-  formatRawTransactionError,
+  formatTransactionErrorChain,
   INVALID_NOTE_ERROR,
   isUnconfirmedFailure,
   isUnconfirmedFailureReason,
   isWalletFailureReason,
   PRE_SUBMIT_STAGES,
+  ProposalEffectRefusedError,
   resolveTransactionErrorMessage,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
@@ -50,7 +57,9 @@ import {
   recordOutOfBandEnd,
   updateTransactionStatus
 } from './helper';
-import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
+import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
+import { attemptSubmitCrossing, hiddenShareBucket, submitApproach } from './submit-approach-diagnostics';
+import { canAwaitVerdict, crossedCandidateNonce, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
   notifyBackgroundTransactionFailed,
@@ -95,17 +104,22 @@ const SWAP_END_BY_REASON = new Map<TransactionFailureReason, DiagnosticEndOutcom
   ['user_cancelled', 'cancelled'],
   ['interrupted_on_startup', 'interrupted'],
   ['stuck_reaped', 'timeout'],
-  ['queued_expired', 'timeout']
+  ['queued_expired', 'timeout'],
+  ['stale_proof', 'timeout']
 ]);
 
-const swapEndOutcome = (reason: TransactionFailureReason | undefined, rawError: string): DiagnosticEndOutcome =>
+const swapEndOutcome = (reason: TransactionFailureReason | undefined, errorChain: string): DiagnosticEndOutcome =>
   (reason === undefined ? undefined : SWAP_END_BY_REASON.get(reason)) ??
-  (classifyError(rawError) === 'timeout' ? 'timeout' : 'failed');
+  (classifyError(errorChain) === 'timeout' ? 'timeout' : 'failed');
 
 const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
   error instanceof RotationGateConsumeRefusal
     ? (REPORTED_ROTATION_REFUSALS.get(error.message) ?? 'rotation_gate_refusal')
-    : REPORTED_WALLET_REASONS.get(error);
+    : isStaleProofError(error)
+      ? 'stale_proof'
+      : error instanceof ProposalEffectRefusedError
+        ? 'proposal_effect_refused'
+        : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
@@ -116,11 +130,11 @@ const describeFailure = (
   transaction: Pick<ITransaction, 'type' | 'delegateTransaction'>,
   error: unknown,
   existing: ITransaction | undefined
-): { displayError: string; rawError: string } => {
+): { displayError: string; rawError: string; errorChain: string } => {
   // The stage the tx died in (persisted by setTransactionStage) disambiguates
   // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
   const failedStage = existing?.stage;
-  const rawError = formatRawTransactionError(error);
+  const { rawError, errorChain } = formatTransactionErrorChain(error);
   // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
   // withhold the may-have-submitted crossing, re-derived HERE from the row the caller
   // already read, so the message and the crossing can never disagree: hedging "left in an
@@ -138,9 +152,9 @@ const describeFailure = (
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
   // A claim has no amount sent for the shortfall copy to name.
   if (displayError === TRANSACTION_VAULT_SHORTFALL_ERROR && (existing ?? transaction).type === 'consume') {
-    return { displayError: CLAIM_VAULT_SHORTFALL_ERROR, rawError };
+    return { displayError: CLAIM_VAULT_SHORTFALL_ERROR, rawError, errorChain };
   }
-  return { displayError, rawError };
+  return { displayError, rawError, errorChain };
 };
 
 /**
@@ -170,6 +184,27 @@ const describeFailure = (
  * turning a settled send into a reported failure. That direction needs no opt-in
  * — no caller has a reason to fail a row that finished.
  */
+interface ReapSelection {
+  id: unknown;
+  start: unknown;
+  valid: boolean;
+}
+function reapSelectionFor(row: unknown): ReapSelection {
+  try {
+    const id = ownDiagnosticData(row, 'id'),
+      start = ownDiagnosticData(row, 'processingStartedAt');
+    if (typeof id !== 'string' || !id || (start !== undefined && typeof start !== 'number'))
+      return { id: undefined, start: undefined, valid: false };
+    return { id, start, valid: true };
+  } catch {
+    return { id: undefined, start: undefined, valid: false };
+  }
+}
+function matchesReapSelection(row: unknown, selection: ReapSelection): boolean {
+  const current = reapSelectionFor(row);
+  return selection.valid && current.valid && current.id === selection.id && current.start === selection.start;
+}
+
 export const cancelTransaction = async (
   transaction: Transaction,
   error: any,
@@ -180,7 +215,8 @@ export const cancelTransaction = async (
   reportedReason?: TransactionFailureReason,
   reap?: ReapSnapshot,
   startup?: StartupSnapshot,
-  onlyIfRow?: (row: ITransaction) => boolean
+  onlyIfRow?: (row: ITransaction) => boolean,
+  reapSelection?: ReapSelection
 ) => {
   const returnedAtMs = Date.now();
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
@@ -198,8 +234,9 @@ export const cancelTransaction = async (
   }
 
   const failedStage = existing?.stage;
-  const { displayError, rawError } = describeFailure(transaction, error, existing);
+  const { displayError, rawError, errorChain } = describeFailure(transaction, error, existing);
   const nodeDiscarded = isGuardianWriteDiscardedError(error);
+  const effectRefused = error instanceof ProposalEffectRefusedError;
   let applied = false;
   let racedTerminal = false;
   let attemptRefused = false;
@@ -227,6 +264,8 @@ export const cancelTransaction = async (
     dbTx.displayIcon = 'FAILED';
     // The node's verdict is recorded in the write that fails the row, so no reader sees it unmarked (#1233).
     if (nodeDiscarded) dbTx.extraInputs = { ...dbTx.extraInputs, nodeDiscarded: true };
+    // Retry is withheld from a refused proposal: the same effect would be refused again (#2147).
+    if (effectRefused) dbTx.proposalEffectRefused = true;
     // Copied from the row this write is committing, not from the `existing` read
     // above it, so a submit stamp that lands between that read and this write is
     // seen by the notice below (#1250).
@@ -259,10 +298,11 @@ export const cancelTransaction = async (
     return false;
   }
 
+  const queueAdmissionObservation = committed === undefined ? undefined : consumeQueueAdmission(committed);
   if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
     logOperationEnd(
       'swap',
-      swapEndOutcome(reportedReason ?? reportedWalletReason(error), rawError),
+      swapEndOutcome(reportedReason ?? reportedWalletReason(error), errorChain),
       elapsedMsSince(committed.initiatedAt)
     );
   }
@@ -278,14 +318,29 @@ export const cancelTransaction = async (
       lastDeferral: committed.lastDeferral,
       feeAdmission: committed.feeAdmission,
       reason: failureReason,
-      ...(failureReason === 'queued_expired' ? { queueAge: queueAgeBucket(committed, returnedAtMs) } : {}),
+      ...(failureReason === 'queued_expired'
+        ? {
+            queueAge: queueAgeBucket(committed, returnedAtMs),
+            queueAdmissionObservation,
+            queueSighting: queueSightingFor(committed),
+            preflightSync: reportedPreflightSync(committed),
+            queueHidden: queueHiddenBucket(committed, returnedAtMs)
+          }
+        : {}),
       submitCrossing: attemptSubmitCrossing(committed),
-      reap,
+      reap:
+        reapSelection === undefined
+          ? reap
+          : {
+              ...reap!,
+              startRelation: matchesReapSelection(committed, reapSelection) ? reap?.startRelation : 'unavailable'
+            },
       startup,
       error,
       hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
       submitLegMs: submitLegMs(committed, returnedAtMs),
-      ...expiryWait(committed)
+      ...expiryWait(committed),
+      ...submitApproach(committed)
     });
   }
 
@@ -347,7 +402,7 @@ export const cancelTransaction = async (
       operation: operationOfType(transaction.type),
       result: 'errored',
       durationMs: elapsedMsSince(existing.initiatedAt),
-      errorKind: classifyError(rawError),
+      errorKind: classifyError(errorChain),
       step: stepOfStage(failedStage)
     });
   }
@@ -387,33 +442,32 @@ const QUEUE_AGE_LIMITS: ReadonlyArray<[number, Exclude<QueueAgeBucket, 'over_24h
   [86_400_000, '6h_to_24h']
 ];
 
+const reportedPreflightSync = (row: ITransaction): PreflightSyncReport => {
+  const step = row.preflightSync;
+  if (
+    row.preflightSyncAt === row.initiatedAt &&
+    row.preflightSyncSeq === (row.queuedSeq ?? null) &&
+    (step === 'entered' || step === 'returned' || step === 'threw')
+  )
+    return step;
+  return 'not_entered';
+};
+
+/** Hidden time this process recorded over the wait. A restarted process can report `none` for time it did not see. */
+export const queueHiddenBucket = (row: ITransaction, nowMs: number): QueueHiddenBucket => {
+  if (!isMobile()) return 'not_measured';
+  if (!isBackgroundTimeTrackingInstalled()) return 'unobserved';
+  if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
+  const ageSec = nowMs / 1000 - row.initiatedAt;
+  if (!Number.isFinite(ageSec) || ageSec <= 0) return 'unavailable';
+  return hiddenShareBucket(hiddenSecondsSince(row.initiatedAt, nowMs), ageSec);
+};
+
 const queueAgeBucket = (row: ITransaction, nowMs: number): QueueAgeBucket => {
   if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
   const ageMs = nowMs - row.initiatedAt * 1000;
   if (!Number.isFinite(ageMs) || ageMs < MAX_QUEUED_AGE * 1000) return 'unavailable';
   return QUEUE_AGE_LIMITS.find(([limit]) => ageMs < limit)?.[1] ?? 'over_24h';
-};
-
-const SUBMIT_CROSSING_EVIDENCE_FIELDS = [
-  'transactionId',
-  'initialCommitment',
-  'finalCommitment',
-  'initialNonce',
-  'outputNoteIds',
-  'nullifiers',
-  'refBlock',
-  'refBlockCommitment',
-  'expirationBlock'
-] as const;
-
-const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | 'unavailable' => {
-  if (row.attemptId === undefined) return 'unavailable';
-  const attempt = row.submitEvidence?.find(({ attemptId }) => attemptId === row.attemptId);
-  if (attempt === undefined) return 'unavailable';
-  if (attempt.preSubmitEnd === true) return 'not_crossed';
-  return attempt.source === 'stage' || SUBMIT_CROSSING_EVIDENCE_FIELDS.some(field => attempt[field] !== undefined)
-    ? 'crossed'
-    : 'unavailable';
 };
 
 /**
@@ -423,11 +477,15 @@ const attemptSubmitCrossing = (row: ITransaction): 'crossed' | 'not_crossed' | '
  * cancel-in-flight window ends on every path. Raises the not-confirmed notice and an `errored` report, as the Failed
  * write does for an unconfirmed row today.
  */
-export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
+export const markTransactionUnconfirmed = async (
+  tx: ITransaction,
+  error: unknown,
+  originAttemptId?: string
+): Promise<number> => {
   // Before the first await: the submit returned its unknown outcome by the time this is called.
   const returnedAtMs = Date.now();
   const existing = await Repo.transactions.where({ id: tx.id }).first();
-  const { displayError, rawError } = describeFailure(tx, error, existing);
+  const { displayError, rawError, errorChain } = describeFailure(tx, error, existing);
   const transactionId = indefiniteSubmitTransactionId(error);
   const nowSec = Math.floor(Date.now() / 1000);
   let entered = false;
@@ -451,7 +509,45 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     // window left open would refuse its Retry as possibly still running.
     row.cancelledInFlightAt = undefined;
     if (row.status !== ITransactionStatus.GeneratingTransaction) {
+      if (
+        row.status === ITransactionStatus.Failed &&
+        originAttemptId !== undefined &&
+        row.attemptId === originAttemptId
+      ) {
+        const matching = (row.submitEvidence ?? []).filter(entry => entry.attemptId === originAttemptId);
+        const entry = matching.length === 1 ? matching[0] : undefined;
+        if (
+          entry &&
+          entry.submitContext === undefined &&
+          (transactionId === undefined || entry.transactionId === transactionId)
+        ) {
+          const context = captureSubmitContext(
+            error,
+            hiddenDuringSubmit(row, returnedAtMs),
+            submitLegMs(row, returnedAtMs)
+          );
+          if (context) entry.submitContext = context;
+        }
+      }
       return attemptId === undefined && !windowOpen ? false : undefined;
+    }
+    if (tx.attemptId !== undefined && row.attemptId === tx.attemptId) {
+      const entries = row.submitEvidence ?? [];
+      const matching = entries.filter(entry => entry.attemptId === tx.attemptId);
+      const context = captureSubmitContext(
+        error,
+        hiddenDuringSubmit(row, returnedAtMs),
+        submitLegMs(row, returnedAtMs)
+      );
+      if (
+        matching.length === 1 &&
+        context &&
+        matching[0] !== undefined &&
+        matching[0].submitContext === undefined &&
+        (transactionId === undefined || matching[0].transactionId === transactionId)
+      ) {
+        matching[0].submitContext = context;
+      }
     }
     row.status = ITransactionStatus.Unconfirmed;
     row.completedAt = nowSec;
@@ -462,7 +558,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     committed = { ...row };
     return undefined;
   });
-  if (!entered) return;
+  if (!entered) return returnedAtMs;
   if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
     logOperationEnd('swap', 'unconfirmed', elapsedMsSince(committed.initiatedAt));
   }
@@ -479,7 +575,8 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
       error,
       outcome: 'unconfirmed',
       hiddenDuringSubmit: hiddenDuringSubmit(committed, returnedAtMs),
-      submitLegMs: submitLegMs(committed, returnedAtMs)
+      submitLegMs: submitLegMs(committed, returnedAtMs),
+      ...submitApproach(committed)
     });
   }
   notifyBackgroundTransactionNotConfirmed();
@@ -487,9 +584,10 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     operation: operationOfType(tx.type),
     result: 'errored',
     durationMs: elapsedMsSince(existing?.initiatedAt ?? tx.initiatedAt),
-    errorKind: classifyError(rawError),
+    errorKind: classifyError(errorChain),
     step: stepOfStage(existing?.stage)
   });
+  return returnedAtMs;
 };
 
 /**
@@ -523,7 +621,12 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
  * asymmetry is what still lets a genuine execute or prove failure rebuild its
  * request — the rebuild this guard exists to gate, not to prevent.
  */
-const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any, reap?: ReapSnapshot) => {
+const cancelWhilePipelineMayStillRun = async (
+  tx: Transaction,
+  error: any,
+  reap?: ReapSnapshot,
+  selection?: ReapSelection
+) => {
   // Before the cancel, while the row is still in flight: liveness reads this end, never the source (#1081).
   await recordOutOfBandEnd(tx.id);
   // Only a `send` reaches the retry path this protects. The in-flight half of the
@@ -535,7 +638,7 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any, reap?
     // Before the cancel: if that throws, the row is still guarded.
     await markCancelledInFlight(tx.id);
   }
-  await cancelTransaction(tx, error, undefined, undefined, undefined, reap);
+  await cancelTransaction(tx, error, undefined, undefined, undefined, reap, undefined, undefined, selection);
 };
 
 /**
@@ -588,11 +691,11 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any, reap?
  */
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 
-export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
+export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any, originAttemptId?: string) => {
   // An unknown submit outcome waits for the node's verdict instead of failing (#1081). Only an eligible row: the
   // rest keep today's Failed tail and #1250's derived label. A kill never classifies here (see the classifier).
   if (isIndefiniteSubmitOutcomeError(error) && canAwaitVerdict(tx)) {
-    await markTransactionUnconfirmed(tx, error);
+    await markTransactionUnconfirmed(tx, error, originAttemptId);
     return;
   }
   // A lock-recovery eviction (issue #775) is treated like an offscreen
@@ -771,11 +874,13 @@ export const cancelStuckTransactions = async () => {
     // something to protect: Retry waits out the window instead of being refused for
     // good. The attempt's out-of-band end is recorded before it (#1081).
     .map(async tx => {
+      const selection = reapSelectionFor(tx);
       const reap: ReapSnapshot = {
+        startRelation: classifyReapStartRelation(selection.start, SESSION_STARTED_AT),
         age: tx.processingStartedAt ? 'past_limit' : 'missing_start',
         attempt: startedInThisRealm.has(tx.id) ? 'started_here' : 'not_started_here'
       };
-      await cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR, reap);
+      await cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR, reap, selection);
     });
 
   await Promise.all(cancelTransactionUpdates);
@@ -784,12 +889,18 @@ export const cancelStuckTransactions = async () => {
 /**
  * Cancel queued transactions that have been waiting too long (TTL expired)
  */
-export const cancelStaleQueuedTransactions = async () => {
+export const cancelStaleQueuedTransactions = async (
+  onQueuedSnapshot?: (rows: readonly QueueAdmissionMember[]) => void
+): Promise<void> => {
   const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
   const stale = queued.filter(
     tx => !tx.awaitingRecoverySeed && Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE
   );
   await Promise.all(stale.map(tx => cancelTransaction(tx, TRANSACTION_EXPIRED_ERROR)));
+  try {
+    const expired = new Set(stale);
+    onQueuedSnapshot?.(queued.filter(tx => !expired.has(tx)));
+  } catch {}
 };
 
 /**
@@ -886,28 +997,32 @@ const hasUnexplainedFutureStamp = (tx: Transaction, nowSeconds: number): boolean
   tx.processingStartedAt > nowSeconds + MAX_WAIT_BEFORE_CANCEL;
 
 /**
- * Hand the candidate a dead process's Guardian write left before its submit back to the account's abandon retry
- * (#1666): that process's record of it died with it, so the next write met the Guardian's 409 for its whole hold.
- * Only the candidate the dead attempt itself proposed, on a row that recorded no submit crossing and whose stage is
- * before its submit: a write that may have reached the node keeps its candidate, since abandoning one still in the
- * mempool releases the account onto stale state. A record this process already holds is a later write's and stands.
- * The retry window is measured from the wall-clock stamp alone, because the monotonic one restarted with the process:
- * a clock set back while the app was down can make an older candidate look younger, and past its hold an abandon at
- * that nonce could only reach another device's candidate. Accepted.
+ * Give this process the record of the candidate a dead process's Guardian write left (#1666): that process's record
+ * died with it, so the next write met the Guardian's 409 for its whole hold. Only the candidate the dead attempt itself
+ * proposed. Before its submit (no crossing recorded, a stage before it) the record is marked for the abandon retry. A
+ * write that may have reached the node keeps its candidate, since abandoning one still in the mempool releases the
+ * account onto stale state, so an attempt that crossed gets the plain record the leaf's keep writes, naming the attempt:
+ * the settlement gate waits on it, and the release abandons it only once the node proves that attempt dead (#2060). A
+ * record this process already holds is a later write's and stands. The retry window is measured from the wall-clock
+ * stamp alone, because the monotonic one restarted with the process: a clock set back while the app was down can make
+ * an older candidate look younger, and past its hold an abandon at that nonce could only reach another device's
+ * candidate. Accepted.
  */
 const handBackInterruptedCandidate = (tx: ITransaction): void => {
   const candidate = tx.guardianCandidate;
-  if (candidate === undefined || candidate.attemptId !== tx.attemptId || tx.mayHaveSubmitted === true) return;
-  if (tx.stage === undefined || !PRE_SUBMIT_STAGES.has(tx.stage)) return;
+  if (candidate === undefined || candidate.attemptId !== tx.attemptId) return;
+  const crossed = crossedCandidateNonce(tx) === candidate.nonce;
+  if (!crossed && (tx.mayHaveSubmitted === true || tx.stage === undefined || !PRE_SUBMIT_STAGES.has(tx.stage))) return;
   const ageMs = Date.now() - candidate.proposedAt;
   const accountId = canonicalWalletAccountId(tx.accountId);
   if (ageMs < 0 || getGuardianCandidate(accountId) !== undefined) return;
   recordGuardianCandidate(accountId, {
     endpoint: candidate.endpoint,
     nonce: candidate.nonce,
+    ...(candidate.proposalId === undefined ? {} : { proposalId: candidate.proposalId }),
     proposedAt: candidate.proposedAt,
     proposedAtMono: monotonicNowMs() - ageMs,
-    abandon: true
+    ...(crossed ? { attemptId: candidate.attemptId } : { abandon: true as const })
   });
 };
 

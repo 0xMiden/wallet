@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { NavigatorProvider, type Route } from 'components/Navigator';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
@@ -13,6 +14,7 @@ import {
   onNativeAssetChanged
 } from 'lib/miden-chain/native-asset';
 import type { TokenPrices } from 'lib/prices';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 import { SendManager } from './SendManager';
 import { SendFlowStep } from './types';
@@ -41,6 +43,7 @@ jest.mock('lib/miden/assets', () => ({ getFaucetIdSetting: () => Promise.resolve
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({ useFilteredContacts: () => ({ contacts: [] }) }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
 jest.mock('utils/miden', () => ({
+  isValidMidenAddress: () => true,
   isValidRecipientAddress: () => true,
   detectAddressChain: () => 'miden'
 }));
@@ -59,6 +62,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetMetadataSync: () => ({ symbol: 'USDCX', decimals: 6 }),
   getSdkSyncedNativeAssetIdSync: () => 'current-native',
   getVerificationBaseFee: jest.fn(),
+  refreshVerificationBaseFee: jest.fn(),
   getVerificationBaseFeeSync: jest.fn(),
   onNativeAssetChanged: jest.fn()
 }));
@@ -103,7 +107,32 @@ beforeEach(() => {
   jest.mocked(getNativeAssetIdSync).mockReset();
   jest.mocked(getVerificationBaseFee).mockReset().mockResolvedValue(7);
   jest.mocked(getVerificationBaseFeeSync).mockReset().mockReturnValue(7);
-  jest.mocked(onNativeAssetChanged).mockReset();
+  jest
+    .mocked(onNativeAssetChanged)
+    .mockReset()
+    .mockReturnValue(() => {});
+});
+
+it('uses the real native fee reserve in Command without saving a balance in its draft', async () => {
+  jest.mocked(getNativeAssetId).mockResolvedValue('current-native');
+  jest.mocked(getNativeAssetIdSync).mockReturnValue('current-native');
+  jest.mocked(getVerificationBaseFeeSync).mockReturnValue(7);
+  render(
+    <CommandDraftProvider scope={{ accountId: 'sender-account', network: 'testnet', rpcUrl: 'rpc' }}>
+      <FlowPresentationProvider value="command">
+        <NavigatorProvider routes={[amountRoute]} initialRouteName={SendFlowStep.SelectAmount}>
+          <SendManager isLoading={false} preselectedTokenId="current-native" preselectedRecipient="other-account" />
+        </NavigatorProvider>
+      </FlowPresentationProvider>
+    </CommandDraftProvider>
+  );
+  await act(async () => {});
+  expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 9.9997');
+  fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '10' } });
+  expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();
+  expect(screen.getByTestId('command-send-review')).toBeDisabled();
+  fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '9.9997' } });
+  expect(screen.getByTestId('command-send-review')).toBeEnabled();
 });
 
 it('keeps the real Send reserve when an obsolete fee-identity read finishes after discovery', async () => {
@@ -140,7 +169,7 @@ it('keeps the real Send reserve when an obsolete fee-identity read finishes afte
   expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();
 
   fireEvent.click(screen.getByTestId('send-amount-max'));
-  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.9997');
+  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.99979');
   expect(screen.getByTestId('send-amount-confirm')).toBeEnabled();
 });
 
@@ -178,6 +207,6 @@ it('keeps the real Send reserve when an obsolete base-fee read finishes after di
   expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();
 
   fireEvent.click(screen.getByTestId('send-amount-max'));
-  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.9997');
+  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.99979');
   expect(screen.getByTestId('send-amount-confirm')).toBeEnabled();
 });

@@ -15,7 +15,7 @@ import { allocatorHealthResponse } from '../../helpers/fake-epoch-allocator';
  *   POST /checkIfDepositNeeded                 → quote w/ resourceLockRequired:true
  *   POST /compact                              → allocation ack
  *   GET  /intentStatus/{address}/{nonce}       → [] (pending) then Miden-leg success
- *   GET  /health                               → HealthCheckResponse (Fast bridge availability)
+ *   GET  /health                               → HealthCheckResponse (service configuration, Fast bridge availability)
  *   GET  /miden-recipient                      → allocator Miden collateral config
  *
  * The app fetches these cross-origin from the WKWebView, so every response

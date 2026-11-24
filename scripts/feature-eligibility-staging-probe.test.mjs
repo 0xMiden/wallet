@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -8,7 +11,8 @@ import {
   createProbeController,
   createLocalProbeEffects,
   main,
-  validatePreflight
+  validatePreflight,
+  validateOwnershipCheck
 } from './feature-eligibility-staging-probe.mjs';
 
 const identity = {
@@ -27,7 +31,7 @@ const absent = () =>
 
 function fixture(options = {}) {
   let time = 0;
-  let remote;
+  let remote = options.remote;
   let active = 0;
   let maxActive = 0;
   let timerId = 0;
@@ -114,6 +118,7 @@ function fixture(options = {}) {
       if (name !== 'miden-elig-probe-40265000001-1') return envelope({ bindings: [] });
       if (!remote) return absent();
       if (suffix === '/settings') return envelope(remote.settings);
+      if (suffix === '/script-settings') return envelope(remote.scriptSettings);
       if (suffix === '/subdomain') return envelope({ enabled: true, previews_enabled: false });
       if (suffix === '/content/v2') {
         const body = new FormData();
@@ -147,7 +152,11 @@ function fixture(options = {}) {
           { name: 'PROBE_HASH_SECRET', type: 'secret_text' }
         ]
       };
-      remote = { bytes: files.get('/private/probe/staging-probe.mjs'), settings };
+      remote = {
+        bytes: files.get('/private/probe/staging-probe.mjs'),
+        settings,
+        scriptSettings: structuredClone({ observability: settings.observability, logpush: false, tail_consumers: [] })
+      };
       options.mutateRemote?.(remote);
       if (options.deployError) throw options.deployError;
       return { exitCode: 0 };
@@ -181,7 +190,12 @@ const deployed = f => f.events.filter(event => event[0] === 'deploy');
 const deleted = f => f.events.filter(event => event[0] === 'api' && event[1] === 'DELETE');
 
 function assertClosed(result) {
-  const { preflight, ...verdict } = result;
+  const { preflight, ownershipCheck, ...verdict } = result;
+  if (ownershipCheck) {
+    assert.deepEqual(validateOwnershipCheck(ownershipCheck), ownershipCheck);
+    assert.equal(result.cleanup, 'blocked');
+    assert.equal(result.support, 'unknown');
+  }
   if (preflight) {
     validatePreflight(preflight);
     assert.deepEqual(preflight.identity, identity);
@@ -354,7 +368,7 @@ for (const variant of [
   'logging',
   'preview'
 ]) {
-  test(`ownership readback ${variant} blocks exercise and deletion`, async () => {
+  test(`ownership readback ${variant} blocks exercise and handles cleanup safely`, async () => {
     const f = fixture({
       mutateRemote(remote) {
         const bindings = remote.settings.bindings;
@@ -390,10 +404,15 @@ for (const variant of [
       }
     });
     const result = await createProbeController(f.effects).run(identity);
-    assert.equal(result.cleanup, 'blocked');
     assert.equal(result.reason, 'ownership_mismatch');
     assert.equal(f.calls.length, 0);
-    assert.equal(deleted(f).length, 0);
+    if (['logging', 'preview'].includes(variant)) {
+      assert.equal(result.cleanup, 'removed');
+      assert.equal(deleted(f).length, 1);
+    } else {
+      assert.equal(result.cleanup, 'blocked');
+      assert.equal(deleted(f).length, 0);
+    }
     assertClosed(result);
   });
 }
@@ -725,7 +744,7 @@ test('staging workflow exposes only fixed operation and prior-run coordinates wi
     [...inputs.matchAll(/^      ([a-z_]+):/gm)].map(match => match[1]),
     ['operation', 'cleanup_run_id', 'cleanup_attempt']
   );
-  assert.match(inputs, /options: \[probe, cleanup\]/);
+  assert.match(inputs, /options: \[probe, cleanup, inspect\]/);
   assert.equal(section(workflow, '\npermissions:\n', '\nconcurrency:'), '  contents: read\n  actions: read\n');
   assert.match(workflow, /group: feature-eligibility-staging-probe/);
   assert.match(workflow, /cancel-in-progress: false/);
@@ -737,6 +756,8 @@ test('staging workflow exposes only fixed operation and prior-run coordinates wi
     'CLOUDFLARE_ACCOUNT_ID',
     'CLOUDFLARE_ACCOUNT_ID',
     'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_ACCOUNT_ID',
+    'CLOUDFLARE_API_TOKEN',
     'CLOUDFLARE_API_TOKEN',
     'CLOUDFLARE_API_TOKEN',
     'CLOUDFLARE_API_TOKEN'
@@ -903,6 +924,7 @@ test('local account adapter binds exact configured URL and rejects credential-ro
     ['/workers/subdomain', 'GET'],
     ['/workers/scripts?page=1&per_page=100', 'GET'],
     ['/workers/scripts/example/settings', 'GET'],
+    ['/workers/scripts/example/script-settings', 'GET'],
     ['/workers/scripts/example/subdomain', 'GET'],
     ['/workers/scripts/example/content/v2', 'GET'],
     ['/workers/scripts/example', 'DELETE']
@@ -911,4 +933,647 @@ test('local account adapter binds exact configured URL and rejects credential-ro
     assert.equal(calls.at(-1)[0], `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}${path}`);
     assert.equal(calls.at(-1)[1].method, method);
   }
+});
+
+async function ownershipFixture(options = {}) {
+  let remote;
+  const seed = fixture({
+    mutateRemote: value => {
+      remote = structuredClone(value);
+    }
+  });
+  assert.equal((await createProbeController(seed.effects).run(identity)).support, 'supported');
+  const f = fixture({ ...options, remote });
+  options.mutate?.(f.remote().settings);
+  return f;
+}
+
+const ownershipCases = [
+  [
+    'settings_bindings',
+    'wrong_type',
+    s => {
+      s.bindings = {};
+    }
+  ],
+  [
+    'settings_binding_count',
+    'different_value',
+    s => {
+      s.bindings.pop();
+    }
+  ],
+  [
+    'compatibility_date',
+    'different_value',
+    s => {
+      s.compatibility_date = '2000-01-01';
+    }
+  ],
+  [
+    'compatibility_flags',
+    'different_value',
+    s => {
+      s.compatibility_flags = ['private-canary'];
+    }
+  ],
+  [
+    'logpush',
+    'missing',
+    s => {
+      delete s.logpush;
+    }
+  ],
+  [
+    'observability',
+    'different_value',
+    s => {
+      s.observability.enabled = true;
+    }
+  ],
+  [
+    'observability_logs',
+    'null',
+    s => {
+      s.observability.logs.enabled = null;
+    }
+  ],
+  [
+    'observability_invocations',
+    'wrong_type',
+    s => {
+      s.observability.logs.invocation_logs = 'private-canary';
+    }
+  ],
+  [
+    'observability_traces',
+    'null',
+    s => {
+      s.observability.traces.enabled = null;
+    }
+  ],
+  [
+    'tail_consumers',
+    'different_value',
+    s => {
+      s.tail_consumers = [{ service: 'private-canary' }];
+    }
+  ],
+  [
+    'assets',
+    'different_value',
+    s => {
+      s.assets = { private: 'private-canary' };
+    }
+  ],
+  [
+    'migration_tag',
+    'different_value',
+    s => {
+      s.migration_tag = 'private-canary';
+    }
+  ],
+  [
+    'cache_enabled',
+    'different_value',
+    s => {
+      s.cache_options = { enabled: true };
+    }
+  ],
+  [
+    'binding_record',
+    'null',
+    s => {
+      s.bindings[0] = null;
+    }
+  ],
+  [
+    'binding_duplicate',
+    'different_value',
+    s => {
+      s.bindings[1].name = s.bindings[0].name;
+    }
+  ],
+  [
+    'binding_unexpected',
+    'different_value',
+    s => {
+      s.bindings[0].name = 'private-canary';
+    }
+  ],
+  ...[
+    ['PROBE_SOURCE', 'source'],
+    ['PROBE_CONFIG_SHA', 'config'],
+    ['PROBE_OWNER', 'owner']
+  ].flatMap(([name, gate]) => [
+    [
+      `${gate}_type`,
+      'different_value',
+      s => {
+        s.bindings.find(b => b.name === name).type = 'json';
+      }
+    ],
+    [
+      `${gate}_value`,
+      'different_value',
+      s => {
+        s.bindings.find(b => b.name === name).text = 'private-canary';
+      }
+    ]
+  ]),
+  ...[
+    ['PROBE_BEARER', 'bearer_type'],
+    ['PROBE_HASH_SECRET', 'hash_secret_type']
+  ].map(([name, gate]) => [
+    gate,
+    'different_value',
+    s => {
+      s.bindings.find(b => b.name === name).type = 'plain_text';
+    }
+  ]),
+  ...[
+    ['CALLER_PROBE', 'caller'],
+    ['COLO_PROBE', 'colo']
+  ].flatMap(([name, gate]) => [
+    [
+      `${gate}_type`,
+      'different_value',
+      s => {
+        s.bindings.find(b => b.name === name).type = 'plain_text';
+      }
+    ],
+    [
+      `${gate}_namespace`,
+      'wrong_type',
+      s => {
+        s.bindings.find(b => b.name === name).namespace_id = 123;
+      }
+    ],
+    [
+      `${gate}_simple`,
+      'additional_fields',
+      s => {
+        s.bindings.find(b => b.name === name).simple.mitigation_timeout = 0;
+      }
+    ]
+  ])
+];
+const privacyGates = new Set([
+  'logpush',
+  'observability',
+  'observability_logs',
+  'observability_invocations',
+  'observability_traces',
+  'tail_consumers'
+]);
+for (const [gate, form, mutate] of ownershipCases.filter(([gate]) => !privacyGates.has(gate)))
+  test(`cleanup retains only closed ${gate}/${form} at its first failed predicate`, async () => {
+    const f = await ownershipFixture({ mutate });
+    const received = await createProbeController(f.effects).cleanup(manifest());
+    assert.deepEqual(received, { cleanup: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+    assert.deepEqual(
+      f.events.filter(e => e[0] === 'api').map(e => e[2]),
+      ['/account', '/workers/scripts/miden-elig-probe-40265000001-1/settings']
+    );
+    assert.equal(deployed(f).length, 0);
+    assert.equal(deleted(f).length, 0);
+    assert.equal(f.calls.length, 0);
+    assert.doesNotMatch(JSON.stringify(received), /private-canary|never-publish|40265000001/);
+  });
+
+for (const [gate, form, mutate] of ownershipCases.filter(([gate]) => privacyGates.has(gate)))
+  test(`inspection refuses unsafe ${gate}/${form} before any probe traffic`, async () => {
+    const f = await ownershipFixture({ mutate });
+    const received = await createProbeController(f.effects).inspect(manifest());
+    assert.deepEqual(received, { inspection: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+    assert.equal(deleted(f).length, 0);
+    assert.equal(f.calls.length, 0);
+    assert.deepEqual(
+      f.events.filter(e => e[0] === 'api').map(e => e[2]),
+      ['/account', '/workers/scripts/miden-elig-probe-40265000001-1/settings']
+    );
+  });
+
+for (const [gate, api] of [
+  [
+    'subdomain_enabled',
+    path => (path.endsWith('/subdomain') ? envelope({ enabled: false, previews_enabled: false }) : undefined)
+  ],
+  [
+    'subdomain_previews',
+    path => (path.endsWith('/subdomain') ? envelope({ enabled: true, previews_enabled: true }) : undefined)
+  ],
+  ['content_status', path => (path.endsWith('/content/v2') ? new Response('', { status: 403 }) : undefined)],
+  [
+    'content_type',
+    path =>
+      path.endsWith('/content/v2')
+        ? new Response('private-canary', { headers: { 'content-type': 'text/plain' } })
+        : undefined
+  ],
+  [
+    'content_entrypoint',
+    path =>
+      path.endsWith('/content/v2')
+        ? new Response(workerBytes, {
+            headers: { 'content-type': 'application/javascript', 'cf-entrypoint': 'private-canary' }
+          })
+        : undefined
+  ],
+  [
+    'content_hash',
+    path =>
+      path.endsWith('/content/v2')
+        ? new Response('private-canary', {
+            headers: { 'content-type': 'application/javascript', 'cf-entrypoint': 'staging-probe.mjs' }
+          })
+        : undefined
+  ],
+  [
+    'multipart_count',
+    path => {
+      if (!path.endsWith('/content/v2')) return;
+      const body = new FormData();
+      body.append('staging-probe.mjs', 'private-canary');
+      body.append('extra', 'private-canary');
+      return new Response(body, { headers: { 'cf-entrypoint': 'staging-probe.mjs' } });
+    }
+  ],
+  [
+    'multipart_name',
+    path => {
+      if (!path.endsWith('/content/v2')) return;
+      const body = new FormData();
+      body.append('private-canary', 'private-canary');
+      return new Response(body, { headers: { 'cf-entrypoint': 'staging-probe.mjs' } });
+    }
+  ]
+])
+  test(`${gate.startsWith('subdomain') ? 'inspection' : 'cleanup'} identifies ${gate} without deleting or reading past its failed gate`, async () => {
+    const f = await ownershipFixture({ api });
+    const readiness = gate.startsWith('subdomain');
+    const received = await (readiness
+      ? createProbeController(f.effects).inspect(manifest())
+      : createProbeController(f.effects).cleanup(manifest()));
+    assert.equal(received.reason, 'ownership_mismatch');
+    assert.equal(readiness ? received.inspection : received.cleanup, 'blocked');
+    assert.equal(received.ownershipCheck?.gate, gate);
+    assert.ok(
+      ['missing', 'null', 'wrong_type', 'different_value', 'additional_fields', 'unavailable'].includes(
+        received.ownershipCheck?.form
+      )
+    );
+    assert.equal(deleted(f).length, 0);
+    assert.equal(f.calls.length, 0);
+    const paths = f.events.filter(e => e[0] === 'api').map(e => e[2]);
+    assert.equal(paths.length, readiness ? 4 : 3);
+    assert.doesNotMatch(JSON.stringify(received), /private-canary|never-publish/);
+  });
+
+test('only cleanup captures ownership diagnostics; prior verification preflight remains independent', async () => {
+  const f = fixture({
+    mutateRemote: r => {
+      delete r.settings.logpush;
+    }
+  });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.preflight.stage, 'verification');
+  assert.equal(result.preflight.reason, 'ownership_mismatch');
+  assert.deepEqual(Object.keys(result.preflight).sort(), ['deployment', 'identity', 'manifest', 'reason', 'stage']);
+  assert.equal(result.ownershipCheck, undefined);
+  assert.equal(result.counts.requests, 0);
+  assert.equal(result.cleanup, 'removed');
+  assert.equal(deleted(f).length, 1);
+});
+
+test('ownership validator never invokes supplied getters or accepts inherited, symbolic or extra data', () => {
+  let reads = 0;
+  const accessor = Object.defineProperty({ form: 'missing' }, 'gate', {
+    enumerable: true,
+    get() {
+      reads++;
+      throw new Error('private-canary');
+    }
+  });
+  for (const value of [
+    accessor,
+    Object.create({ gate: 'logpush', form: 'missing' }),
+    { gate: 'logpush', form: 'missing', [Symbol('private-canary')]: true },
+    new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error('private-canary');
+        }
+      }
+    )
+  ])
+    assert.throws(() => validateOwnershipCheck(value));
+  assert.equal(reads, 0);
+});
+
+test('CLI exact-manifest cleanup retains the closed failure without exercising or deleting', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'probe-cli-owned-'));
+  const account = 'a'.repeat(32);
+  const paths = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    paths.push(new URL(url).pathname);
+    assert.equal(init.method, 'GET');
+    if (new URL(url).pathname === `/client/v4/accounts/${account}`) return envelope({ id: account });
+    assert.equal(
+      new URL(url).pathname,
+      `/client/v4/accounts/${account}/workers/scripts/miden-elig-probe-40265000001-1/settings`
+    );
+    return envelope({ bindings: [] });
+  });
+  try {
+    await mkdir(join(root, 'feature-eligibility-probe'));
+    await writeFile(join(root, 'feature-eligibility-probe/manifest.json'), JSON.stringify(manifest()));
+    const received = await main(['cleanup'], {
+      RUNNER_TEMP: root,
+      GITHUB_REPOSITORY: identity.repository,
+      GITHUB_WORKFLOW_REF: `${identity.repository}/${identity.workflowPath}@refs/heads/main`,
+      GITHUB_RUN_ID: identity.runId,
+      GITHUB_RUN_ATTEMPT: identity.runAttempt,
+      GITHUB_SHA: identity.sourceSha,
+      GITHUB_REF: 'refs/heads/main',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      CLOUDFLARE_ACCOUNT_ID: account,
+      CLOUDFLARE_API_TOKEN: 'private-canary'
+    });
+    assert.deepEqual(received.ownershipCheck, { gate: 'settings_binding_count', form: 'different_value' });
+    assert.equal(received.cleanup, 'blocked');
+    assert.equal(received.reason, 'ownership_mismatch');
+    assert.equal(received.counts.requests, 0);
+    assert.equal(paths.length, 2);
+    assert.doesNotMatch(JSON.stringify(received), /private-canary|aaaaaaaa/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('inspection requires independent script-level switches when version readback omits observability', async () => {
+  const f = await ownershipFixture({
+    mutate: settings => {
+      delete settings.observability;
+    }
+  });
+  const result = await createProbeController(f.effects).inspect(manifest());
+  assert.equal(result.inspection, 'verified');
+  assert.equal(deleted(f).length, 0);
+  const paths = f.events.filter(e => e[0] === 'api').map(e => e[2]);
+  assert.ok(paths.includes('/workers/scripts/miden-elig-probe-40265000001-1/script-settings'));
+});
+
+test('cleanup deletes an exact run-owned worker when privacy readback is unknown', async () => {
+  const f = await ownershipFixture();
+  f.remote().settings.observability = null;
+  f.remote().scriptSettings.observability = null;
+  const result = await createProbeController(f.effects).cleanup(manifest());
+  assert.deepEqual(result, { cleanup: 'removed', reason: 'complete' });
+  assert.equal(deleted(f).length, 1);
+  assert.equal(f.calls.length, 0);
+  assert.ok(!f.events.some(e => e[0] === 'api' && (e[2].endsWith('/script-settings') || e[2].endsWith('/subdomain'))));
+});
+
+test('run refuses unknown privacy readback, then removes only the exact owned worker', async () => {
+  const f = fixture({
+    mutateRemote(remote) {
+      remote.settings.observability = null;
+      remote.scriptSettings.observability = null;
+    }
+  });
+  const result = await createProbeController(f.effects).run(identity);
+  assert.equal(result.support, 'unknown');
+  assert.equal(result.reason, 'ownership_mismatch');
+  assert.equal(result.counts.requests, 0);
+  assert.equal(result.cleanup, 'removed');
+  assert.equal(deleted(f).length, 1);
+  assert.equal(f.calls.length, 0);
+});
+
+for (const [gate, path] of [
+  ['script_observability', ['enabled']],
+  ['script_observability_logs', ['logs', 'enabled']],
+  ['script_observability_invocations', ['logs', 'invocation_logs']],
+  ['script_observability_traces', ['traces', 'enabled']]
+])
+  for (const [form, value] of [
+    ['missing', undefined],
+    ['null', null],
+    ['wrong_type', 'private-authority-canary'],
+    ['different_value', true]
+  ]) {
+    test(`authoritative ${gate}/${form} refuses despite version-level explicit false`, async () => {
+      const f = await ownershipFixture();
+      let target = f.remote().scriptSettings.observability;
+      for (const key of path.slice(0, -1)) target = target[key];
+      if (value === undefined) delete target[path.at(-1)];
+      else target[path.at(-1)] = value;
+      const result = await createProbeController(f.effects).inspect(manifest());
+      assert.deepEqual(result, { inspection: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+      assert.equal(deleted(f).length, 0);
+      assert.equal(f.calls.length, 0);
+      assert.equal(
+        f.events.filter(e => e[0] === 'api').at(-1)[2],
+        '/workers/scripts/miden-elig-probe-40265000001-1/script-settings'
+      );
+      assert.doesNotMatch(JSON.stringify(result), /private-authority-canary/);
+    });
+  }
+
+for (const [label, mutate, gate, form] of [
+  [
+    'object absent',
+    s => {
+      delete s.observability;
+    },
+    'script_observability',
+    'missing'
+  ],
+  [
+    'object null',
+    s => {
+      s.observability = null;
+    },
+    'script_observability',
+    'null'
+  ],
+  [
+    'logs null',
+    s => {
+      s.observability.logs = null;
+    },
+    'script_observability_logs',
+    'null'
+  ],
+  [
+    'traces array',
+    s => {
+      s.observability.traces = [];
+    },
+    'script_observability_traces',
+    'wrong_type'
+  ],
+  [
+    'logpush enabled',
+    s => {
+      s.logpush = true;
+    },
+    'script_logpush',
+    'different_value'
+  ],
+  [
+    'tail consumer',
+    s => {
+      s.tail_consumers = [{ service: 'private-tail-canary' }];
+    },
+    'script_tail_consumers',
+    'different_value'
+  ]
+])
+  test(`authoritative ${label} remains ambiguous or conflicting`, async () => {
+    const f = await ownershipFixture();
+    mutate(f.remote().scriptSettings);
+    const result = await createProbeController(f.effects).inspect(manifest());
+    assert.deepEqual(result, { inspection: 'blocked', reason: 'ownership_mismatch', ownershipCheck: { gate, form } });
+    assert.equal(deleted(f).length, 0);
+  });
+
+for (const value of [null, [], 'private-version-canary', { enabled: true }, { logs: null }, { traces: [] }])
+  test(`present malformed version observability refuses before authority read ${JSON.stringify(value)}`, async () => {
+    const f = await ownershipFixture();
+    f.remote().settings.observability = value;
+    const result = await createProbeController(f.effects).inspect(manifest());
+    assert.equal(result.inspection, 'blocked');
+    assert.equal(deleted(f).length, 0);
+    assert.ok(!f.events.some(e => e[0] === 'api' && e[2].endsWith('/script-settings')));
+  });
+
+test('authoritative all-false cannot bypass original content ownership', async () => {
+  const f = await ownershipFixture({
+    mutate: s => {
+      delete s.observability;
+    }
+  });
+  f.remote().bytes = 'private-content-canary';
+  const result = await createProbeController(f.effects).cleanup(manifest());
+  assert.equal(result.cleanup, 'blocked');
+  assert.equal(deleted(f).length, 0);
+});
+
+for (const failure of ['auth', 'network', 'malformed', 'absent'])
+  test(`script settings ${failure} is never ownership`, async () => {
+    const f = await ownershipFixture();
+    const api = f.effects.providerAPI;
+    f.effects.providerAPI = async (path, init) => {
+      if (!path.endsWith('/script-settings')) return api(path, init);
+      if (failure === 'network') throw new Error('private-network-canary');
+      if (failure === 'auth') return new Response('', { status: 403 });
+      if (failure === 'absent') return absent();
+      return Response.json({ success: true, errors: [], result: null });
+    };
+    const result = await createProbeController(f.effects).inspect(manifest());
+    assert.equal(result.inspection, 'blocked');
+    assert.equal(deleted(f).length, 0);
+  });
+
+for (const version of [{}, { enabled: false }, { logs: { enabled: false } }, { traces: {} }])
+  test(`partial version observation defers only to explicit authoritative switches ${JSON.stringify(version)}`, async () => {
+    const f = await ownershipFixture();
+    f.remote().settings.observability = version;
+    assert.equal((await createProbeController(f.effects).inspect(manifest())).inspection, 'verified');
+    assert.equal(deleted(f).length, 0);
+  });
+for (const [field, value] of [
+  ['logpush', null],
+  ['logpush', 'private-global-canary'],
+  ['tail_consumers', null],
+  ['tail_consumers', {}]
+])
+  test(`malformed script-level ${field} refuses without merging`, async () => {
+    const f = await ownershipFixture();
+    f.remote().scriptSettings[field] = value;
+    assert.equal((await createProbeController(f.effects).inspect(manifest())).inspection, 'blocked');
+    assert.equal(deleted(f).length, 0);
+  });
+
+async function inspectionFixture(mutateRemote) {
+  const f = fixture({
+    mutateRemote,
+    api(path, method) {
+      if (method === 'DELETE') throw new Error('retained inspection fixture');
+    }
+  });
+  await createProbeController(f.effects).run(identity);
+  f.events.length = 0;
+  f.calls.length = 0;
+  return f;
+}
+
+test('inspection verifies the exact retained owner using five GETs without cleanup or exercise', async () => {
+  const f = await inspectionFixture();
+  const result = await createProbeController(f.effects).inspect(manifest(f));
+  assert.deepEqual(result, { inspection: 'verified', reason: 'complete' });
+  assert.equal(f.events.filter(event => event[0] === 'api').length, 5);
+  assert.ok(f.events.filter(event => event[0] === 'api').every(event => event[1] === 'GET'));
+  assert.equal(deployed(f).length, 0);
+  assert.equal(f.calls.length, 0);
+});
+
+test('inspection keeps canonical null observability blocked with the original ownership diagnostic', async () => {
+  const f = await inspectionFixture(remote => {
+    remote.scriptSettings.observability = null;
+  });
+  const result = await createProbeController(f.effects).inspect(manifest(f));
+  assert.equal(result.inspection, 'blocked');
+  assert.equal(result.reason, 'ownership_mismatch');
+  assert.deepEqual(result.ownershipCheck, { gate: 'script_observability', form: 'null' });
+  assert.equal(deleted(f).length, 0);
+});
+
+test('inspection rejects untrusted provenance before any provider request', async () => {
+  const f = fixture({ context: { ref: 'refs/heads/untrusted' } });
+  const result = await createProbeController(f.effects).inspect(manifest(f));
+  assert.deepEqual(result, { inspection: 'blocked', reason: 'ownership_mismatch' });
+  assert.equal(f.events.length, 0);
+});
+
+for (const [name, mutateRemote] of [
+  [
+    'binding owner',
+    remote => {
+      remote.settings.bindings[0].text = 'different-owner';
+    }
+  ],
+  [
+    'worker content',
+    remote => {
+      remote.bytes = 'different-source';
+    }
+  ],
+  [
+    'enabled canonical logs',
+    remote => {
+      remote.scriptSettings.observability.logs.enabled = true;
+    }
+  ]
+])
+  test(`inspection blocks changed ${name} without cleanup or exercise`, async () => {
+    const f = await inspectionFixture(mutateRemote);
+    const result = await createProbeController(f.effects).inspect(manifest(f));
+    assert.equal(result.inspection, 'blocked');
+    assert.equal(result.reason, 'ownership_mismatch');
+    assert.ok(result.ownershipCheck);
+    assert.equal(deleted(f).length, 0);
+    assert.equal(deployed(f).length, 0);
+    assert.equal(f.calls.length, 0);
+  });
+
+test('inspection rejects the wrong configured account before reading script metadata', async () => {
+  const f = await inspectionFixture();
+  f.effects.environment.CLOUDFLARE_ACCOUNT_ID = 'other-account';
+  const result = await createProbeController(f.effects).inspect(manifest(f));
+  assert.deepEqual(result, { inspection: 'blocked', reason: 'auth' });
+  assert.deepEqual(f.events, [['api', 'GET', '/account']]);
 });

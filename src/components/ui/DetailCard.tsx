@@ -37,6 +37,8 @@ export interface DetailRowProps {
    * rows apart and make the card read as prose.
    */
   info?: React.ReactNode;
+  /** A tag after the label (a `Pill size="tag"`), on the label line. Never an action: that is `action`. */
+  badge?: React.ReactNode;
   /** Inline action after the value, e.g. "Edit": a small selected `Pill`, whose tint ink clears 4.5:1 (Rule 6). */
   action?: DetailRowAction;
   /** Stack the value under the label, for values too long to sit beside it (e.g. a full address). */
@@ -60,6 +62,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
   children,
   sub,
   info,
+  badge,
   action,
   stacked = false,
   onClick,
@@ -72,6 +75,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
   const content = (
     <>
       <span
+        data-slot="label"
         className={cn(
           'flex shrink-0 items-center gap-0.5 text-body-sm text-muted',
           !stacked && 'min-w-20',
@@ -80,6 +84,13 @@ export const DetailRow: React.FC<DetailRowProps> = ({
       >
         {label}
         {info}
+        {badge != null && (
+          // A box of its own with no leading, so the tag sets its height: an inherited line box grew the
+          // 20px label line by a pixel under WebKit's metrics.
+          <span data-slot="badge" className="ml-1 flex items-center leading-none">
+            {badge}
+          </span>
+        )}
       </span>
       <div className={cn('flex min-w-0 flex-1 flex-col gap-1', stacked ? 'items-start' : 'items-end text-right')}>
         <div className={cn('flex max-w-full items-center gap-2 text-value text-ink', stacked && 'break-all')}>
@@ -145,6 +156,13 @@ export interface DetailDisclosureProps {
   summary?: React.ReactNode;
   /** Draws the summary in `accent-tint-ink` rather than `muted`: a choice that departs from the default. */
   summaryEmphasis?: boolean;
+  /**
+   * `end` lays the header out like a `DetailRow`: the title in the muted label face, the summary as
+   * the value on the right and `summarySub` under it, all top-aligned. Default `below`.
+   */
+  summaryPlacement?: 'below' | 'end';
+  /** With `summaryPlacement="end"`: a muted line under the summary, like a row's `sub`. */
+  summarySub?: React.ReactNode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The `DetailRow`s revealed when open. */
@@ -163,6 +181,8 @@ export const DetailDisclosure: React.FC<DetailDisclosureProps> = ({
   title,
   summary,
   summaryEmphasis = false,
+  summaryPlacement = 'below',
+  summarySub,
   open,
   onOpenChange,
   children,
@@ -171,6 +191,8 @@ export const DetailDisclosure: React.FC<DetailDisclosureProps> = ({
 }) => {
   const regionId = useId();
   const reveal = usePreset('reveal');
+  const face = useContext(DetailCardFaceContext);
+  const atEnd = summaryPlacement === 'end';
   return (
     <div data-testid={dataTestId} data-open={open} className={className}>
       <button
@@ -183,21 +205,41 @@ export const DetailDisclosure: React.FC<DetailDisclosureProps> = ({
           onOpenChange(!open);
         }}
         className={cn(
-          'flex w-full items-center gap-x-4 px-4 py-3 text-left transition-colors active:bg-fill-pressed',
+          'flex w-full gap-x-4 px-4 py-3 text-left transition-colors active:bg-fill-pressed',
+          atEnd ? 'items-start' : 'items-center',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset'
         )}
       >
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-label text-ink">{title}</span>
-          {!open && summary && (
+        {atEnd ? (
+          <>
+            <span className={cn('shrink-0 text-body-sm text-muted', face === 'heading' && 'font-semibold')}>
+              {title}
+            </span>
             <span
               data-testid={dataTestId && `${dataTestId}-summary`}
-              className={cn('text-caption', summaryEmphasis ? 'text-accent-tint-ink' : 'text-muted')}
+              className="flex min-w-0 flex-1 flex-col items-end gap-1 text-right"
             >
-              {summary}
+              {!open && summary && (
+                <span className={cn('text-value', summaryEmphasis ? 'text-accent-tint-ink' : 'text-ink')}>
+                  {summary}
+                </span>
+              )}
+              {!open && summarySub && <span className="text-caption text-muted">{summarySub}</span>}
             </span>
-          )}
-        </span>
+          </>
+        ) : (
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-label text-ink">{title}</span>
+            {!open && summary && (
+              <span
+                data-testid={dataTestId && `${dataTestId}-summary`}
+                className={cn('text-caption', summaryEmphasis ? 'text-accent-tint-ink' : 'text-muted')}
+              >
+                {summary}
+              </span>
+            )}
+          </span>
+        )}
         <ChevronDownIcon
           aria-hidden="true"
           className={cn(

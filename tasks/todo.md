@@ -1,3 +1,40 @@
+# Nightly mainnet solver swap, Epoch and NEAR loops (2026-11-11)
+
+- [x] Inspect current mainnet nightly, live solver registry, wallet minimum and recovery paths.
+- [x] Record the approved design and implementation plan in `docs/superpowers/`.
+- [x] Confirm the implementation plan and native execution approach.
+- [x] Implement and unit-test cost planning, checkpoint recovery and real UI submission guards.
+- [x] Wire the serial nightly stages and recovery artifacts; update architecture docs and changelog.
+- [x] Qualify a real funded solver swap and return without unrelated sends or bridges.
+- [ ] Complete finished-code review and current-head verification of the combined scope.
+- [x] Verify the Epoch mainnet coverage gap, enabled routes, real flow and read-only quote availability.
+- [x] Confirm Epoch scope: one cheapest funded route nightly.
+- [x] Implement and test the approved Epoch loop with durable authorization and recovery.
+- [ ] Qualify Epoch with real settlement.
+- [x] Verify NEAR Intents now lists Miden assets and inspect the existing disabled 1Click loop.
+- [x] Verify real NEAR dry-quote parsing/signatures and identify the existing nightly-only configuration override.
+- [x] Approve the shared $2 added-loop loss ceiling and nightly-only NEAR enablement; continue inline.
+- [ ] Reuse and qualify the 1Click loop with actual out/back settlement and durable recovery.
+
+## Verification
+
+- Current mainnet nightly run `42966766471` passed without native solver swaps; optional funded 1Click was skipped.
+- Read-only live registry and price queries succeeded; no funds moved.
+- Browser-free helper tests are in `scripts/` so the guarded runner can distinguish them from browser execution.
+- Cost planner: 16 tests passed after observed functional red. Checkpoint and pre-sign boundary checks: 36 tests passed across three suites before the subsequent native-intermediate-fee regression was added.
+- Checkpoint and quote boundary tests were observed failing before their implementations. The live swap spec is wired into the serial nightly stages.
+- CI regression runs `43022109772`, `43022545803`, `43023136856`, `43024272405`, and `43027642754` confirmed the intended native-fee, recovery, workflow, address-format and exact-order guards. Intermediate fixture setup errors were corrected before accepting clean functional red evidence.
+- CI `43029057782` passed 298 tests, full type-check, harness conventions and nonzero mainnet spec discovery at `602b79c01de320535c4f799954b10b7a30d387a1`.
+- Push permission is explicit (`push at will`). Funded run `43030108324` stopped during read-only preparation; the cached-registry correction passed CI `43035197496` with 303 tests, types, harness checks and nonzero spec selection.
+- Second swaps-only run `43036590393` at `ab391bd` stopped in xvfb setup before wallet execution. Ubuntu mirror DNS failed even though xvfb was installed; no swap signature occurred in either attempt.
+- Funded swaps-only run `43053422637` at `b03e844f3f09606f997799d0e1c99f76f0111edc` passed on the existing alternate runner. The retained checkpoint is complete: USDCX -> USDT -> USDCX; 1,010,464 base units offered, 1,010,091 returned, 532 native fee units paid, and $0.000905 realized loss at the pinned price. Both durable authorizations and both settled order identities are retained. No top-up or new account was needed.
+- Draft PR #2149 is open. CI `43039871550` at `0370ed4f6` observed the intended xvfb assertion failure: 1 failed, 33,306 passed, 4 skipped. A guarded local RED/GREEN proves the skip-if-installed correction (7 tests pass). The mock-browser job independently failed fetching required fonts because Ubuntu mirrors did not resolve.
+- Verified-price regression CI `43046060955` at `f7d2782e7` observed the intended 2 failures with 305 tests passing. The correction uses the same validated token-list cache as wallet valuation, bound by faucet id, and adds USDT/SOL/NEAR/PAXG to the quote search. The current-head CI passes 307 focused tests, harness conventions, nonzero discovery (8 tests), lint and types. The full unit job passes 33,309 tests, with 4 skips; all coverage shards and the unchanged 95% gate pass. Remaining setup failures are confirmed Ubuntu DNS failures, not passing checks; only failed non-funding jobs have been retried.
+- Initial Epoch inspection found Ethereum, Base, Arbitrum, Polygon and Robinhood enabled; a read-only Base quote requested 1,000,501 USDC base units for 1,000,000 USDCX before gas/claim fees. Scope was subsequently approved and the actual loop implemented; this quote is not funded acceptance.
+- NEAR's live token API lists five Miden assets. Read-only quote API responses succeeded both ways for USDCX/Arbitrum ETH at about $10 and USDCX/Base USDC at $5; the $1.01 Arbitrum ETH probe returned no liquidity. These are independent dry probes, not funded round trips. All four responses pass the actual wallet parser and pinned-key signature verification in a guarded local check. The published wallet config remains `nearIntents: false` with no `swap.oneClick`, and no global flag or repository variable was changed.
+- Funded standalone solver swaps remain accepted at `b03e844f3` / `43053422637` and were not repeated for monitoring. Integrated swap -> Epoch -> NEAR execution/recovery, original-authority SDK/signed-EVM/native-claim upload gates, shared accounting and both spending barriers are implemented. CI `43276914808` passed 1,369 focused Jest checks and 151 actual SDK checks; after canonical formatting and main sync through `94e5ba9b2`, CI `43278208584` passed 1,375 Jest checks, 151 SDK checks, types/equivalence and actual public RPC inclusion at block 833753. These are keyless focused proofs, not full current-head CI/95% or funded Epoch/NEAR acceptance. Both funded qualifications and finished-code Council/fresh-context review remain pending. No additional funds, public flag changes or PR merge.
+- Legacy v1 1Click funded execution is retired rather than reinterpreted as v2; unsafe or unknown original authority remains blocked. `loops_only` qualifies all three added loops without legacy fees; normal scheduled coverage retains send/USDCx/AggLayer only after all-provider recovery and no-unresolved-new-principal barriers.
+
 # Follow-up to #1790: describe wallet-file contents accurately
 
 ## Plan
@@ -88,6 +125,7 @@ The wallet's singleton client already uses the supported web-client `accounts.ex
 # Bridge-IN e2e harness — REAL WalletConnect on iOS simulator
 
 ## ✅ PROVEN (both make-or-break unknowns resolved)
+
 - [x] Real Miden receipt path on iOS (commit 5e8b5b4d5): CLI solver delivers real note ->
       real sync -> real Claim-All consume -> real takeAgglayerBridgeInInfo reconcile ->
       bridged-receive row -> received / "Bridged from EVM". GREEN on the sim.
@@ -101,6 +139,7 @@ The wallet's singleton client already uses the supported web-client `accounts.ex
       of d18d112eb50cbe764f03e51a90210611, and this check has not been re-run on that id.
 
 ## Deposit half — ✅ GREEN on sim (AggLayer/ETH route, full real UI)
+
 PASSED (testnet build + local Anvil, 1.6m): real wallet → real WC pairing → real UI deposit
 (Receive → ETH → amount → Slow → review → Confirm) → REAL bridgeAsset signed by counterparty +
 broadcast to Anvil (asserted: destNet 78, token 0x0, amount, value==amount, stub depositCount=1) →
@@ -111,6 +150,7 @@ MockUsdc balance. Connect step is retry-guarded (relay rate-limit); needed a coo
 Scope decision: full-UI deposit e2e targets the **AggLayer ETH (Slow)** route. It has a
 proven receipt path + a single `bridgeAsset` call (one stub), vs Epoch/USDC which needs
 The Compact + USDC ERC-20 + the allocator service + Epoch solver all doubled. Epoch = follow-up.
+
 - [x] Anvil (chain 11155111) bring-up: `helpers/anvil.ts` (AnvilInstance start/stop); spec beforeAll/afterAll.
 - [x] EVM read override: `config.ts` E2E-gated RPC → `E2E_EVM_RPC_URL` (Anvil); vite.mobile define added.
       Covers BOTH balance reads (`rpcRequest`) and `waitForSepoliaReceipt` (both read getChain().rpcUrl).
@@ -120,33 +160,28 @@ The Compact + USDC ERC-20 + the allocator service + Epoch solver all doubled. Ep
 - [x] data-testids: `receive-cross-chain` (AddressTab), `bridge-token-{ETH,USDC}` (EvmBridgeTokenDrawer).
       (route/amount/review testids already existed.)
 - [x] IosWalletPage nav: openBridgeDeposit / selectBridgeToken / enterBridgeAmount / selectBridgeRouteSlow /
-      confirmBridgeDeposit / latestBridgeReceive (+ __TEST_LATEST_BRIDGE_RECEIVE__ hook — UI doesn't hand
+      confirmBridgeDeposit / latestBridgeReceive (+ **TEST_LATEST_BRIDGE_RECEIVE** hook — UI doesn't hand
       the txId to the DOM).
 - [x] Full spec `bridge-in-deposit.ios.spec.ts`: create wallet -> solver faucet + setAgglayerSender ->
       real WC connect -> Receive/CrossChain/ETH/amount/Slow/review/Confirm -> assert real bridgeAsset
       broadcast (decoded: destNet 78, token 0x0, amount, value==amount, stub depositCount=1) ->
       row 'delivering' (real Anvil receipt) -> solver mints matching note -> Claim-All -> 'received'.
 - [x] Typecheck clean (tsc --noEmit).
-- [~] RUN on sim (testnet). Iterating through real bugs the harness surfaced:
-      1. devnet on protocol 0.16 vs @miden-sdk 0.15.8 → create_wallet registration rejected.
-         Fix: TESTNET (0.15-compatible). [env, not code]
-      2. openBridgeDeposit race: cross-chain tap reads React `connected` before useNativeReown's
-         on-mount getState() refresh lands → opens un-tappable native modal. Fix: /bridge/deposit
-         route fallback (declarative, reactive). [helper]
-      3. Deposit screen defaults to USDC, reads its balance on mount; no USDC contract on Anvil →
-         eth_call "0x" → viem decodeFunctionResult throws → amount screen never renders. Fix:
-         MockUsdc double at BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS (getBalance/balanceOf → 0). [double]
-      4. In `isBridge` mode SelectAmount uses `bridgeSelector` (no testid), NOT the send
-         `tokenSelector` — so send-token-selector never existed on the deposit form (Explore map
-         was wrong). Fix: add send-token-selector to the bridge token button. [app source → rebuild]
-      5. CurrencyInput decimalsLimit=6 → 0.00000005 truncates to 0; smallest ETH is 0.000001 →
-         parseUnits(.,18)=1e12, but faucet max_supply was 1e12. Fix: createFaucet maxSupply param,
-         1e15 for this test; deposit 0.000001 ETH → mint 1e12 note. [harness]
-      Diagnosis was evidence-driven: DEBUG dump showed native connected the whole time + the exact
-      "Cannot decode zero data" error + which screen rendered. Rebuild+run in progress.
-      NOTE: bridge-in harness is HYBRID — local EVM (Anvil + stub + WC counterparty) + REAL Miden
-      testnet (no local Miden node in mobile harness; same as every iOS spec + bridge-OUT). Only the
-      WC relay is non-local (transport, not chain).
+- [~] RUN on sim (testnet). Iterating through real bugs the harness surfaced: 1. devnet on protocol 0.16 vs @miden-sdk 0.15.8 → create_wallet registration rejected.
+  Fix: TESTNET (0.15-compatible). [env, not code] 2. openBridgeDeposit race: cross-chain tap reads React `connected` before useNativeReown's
+  on-mount getState() refresh lands → opens un-tappable native modal. Fix: /bridge/deposit
+  route fallback (declarative, reactive). [helper] 3. Deposit screen defaults to USDC, reads its balance on mount; no USDC contract on Anvil →
+  eth_call "0x" → viem decodeFunctionResult throws → amount screen never renders. Fix:
+  MockUsdc double at BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS (getBalance/balanceOf → 0). [double] 4. In `isBridge` mode SelectAmount uses `bridgeSelector` (no testid), NOT the send
+  `tokenSelector` — so send-token-selector never existed on the deposit form (Explore map
+  was wrong). Fix: add send-token-selector to the bridge token button. [app source → rebuild] 5. CurrencyInput decimalsLimit=6 → 0.00000005 truncates to 0; smallest ETH is 0.000001 →
+  parseUnits(.,18)=1e12, but faucet max_supply was 1e12. Fix: createFaucet maxSupply param,
+  1e15 for this test; deposit 0.000001 ETH → mint 1e12 note. [harness]
+  Diagnosis was evidence-driven: DEBUG dump showed native connected the whole time + the exact
+  "Cannot decode zero data" error + which screen rendered. Rebuild+run in progress.
+  NOTE: bridge-in harness is HYBRID — local EVM (Anvil + stub + WC counterparty) + REAL Miden
+  testnet (no local Miden node in mobile harness; same as every iOS spec + bridge-OUT). Only the
+  WC relay is non-local (transport, not chain).
 - [x] CI gate: `.github/workflows/e2e-bridge-in.yml` — post-merge on main (push + workflow_dispatch),
       macos-26-xlarge, installs Foundry, reuses the tuned sim-boot pattern from e2e-blockchain.yml,
       bakes E2E_EVM_RPC_URL, runs `bridge-in-deposit --retries=2`. Optional WC_COUNTERPARTY_PROJECT_ID
@@ -154,12 +189,14 @@ The Compact + USDC ERC-20 + the allocator service + Epoch solver all doubled. Ep
       f277263fa ci). Both SSH-signed.
 
 ## Epoch/USDC "Fast" route — HERMETIC DOUBLES (user chose the PR-gate path)
+
 Investigation done: Epoch solver is hosted-only + watches REAL Sepolia (can't run vs Anvil), so a
 gateable test must stub the allocator+solver. Reconcile is note-id-only (vs AggLayer sender+amount).
 Wallet flow: quote (/checkIfDepositNeeded → gates Fast route) → executeEVMToMiden (solveIntent:
 approve+depositERC20AndRegister on-chain + createAllocation) → row 'delivering' + registerPendingBridgeIn
 by nonce → poll/consume reconcile matches midenNoteId from getIntentStatus.
 Build plan:
+
 - [x] epoch/client.ts E2E RPC override (SDK reads use chain default RPC, NOT config.ts override) —
       withE2eRpc() on both builders; EVM→Miden uses buildEpochWalletClient (confirmed via sdk.ts). tsc clean.
 - [x] Fake allocator HTTP server (`fake-epoch-allocator.ts`, port 8548): /suggested-nonce, /checkIfDepositNeeded
@@ -182,15 +219,18 @@ Build plan:
       deposit specs serially (workers:1), each with its own Anvil (+ Epoch's fake allocator).
 
 ## Both bridge-in deposit routes GREEN + committed + pushed. AggLayer (ETH/Slow) + Epoch (USDC/Fast).
+
 Branch wiktor/bridge-in-e2e: d8ff8699c/f277263fa (agglayer feat+ci), e686dbe22/5178e8025 (epoch feat+ci).
 CI e2e-bridge-in.yml runs BOTH deposit specs on main. AggLayer re-verified green vs the Epoch build (1.2m).
 
 ## Coverage matrix (2x2): bridge-OUT AggLayer is the ONLY uncovered quadrant
+
 | dir | Epoch/Fast | AggLayer/Slow |
-| IN  | ✅ new hermetic | ✅ new (Anvil stub) |
+| IN | ✅ new hermetic | ✅ new (Anvil stub) |
 | OUT | ✅ existing (real testnet + hosted solver) | ❌ building now |
 
 ## Bridge-OUT AggLayer (Miden->EVM "Slow") e2e — IN PROGRESS
+
 Flow: initiateB2AggBridge builds a B2AGG note (MIDEN_AGGLAYER_FAUCET_ID -> MIDEN_BRIDGE_ID, destNetwork 0 +
 0x addr) -> proved+submitted on Miden as a bridged-send(agglayer) row; the AggLayer infra claims on EVM
 (claimAsset), tracked via the indexer (AGGLAYER_BRIDGE_API). Complications: wallet must HOLD the real
@@ -204,9 +244,10 @@ Approach: assert the real Miden leg; leave the EVM claim uncovered. Chrome test 
 reuses the bridge-out-epoch harness; faster CI).
 Two blockers solved via an E2E override (mirrors setAgglayerSenderForE2E): (1) faucet-id gate, (2) a
 callback-flag vault-slot mismatch (B2AGG forces Enabled; CLI faucet mints Disabled → 0 balance).
+
 - [x] Wallet-source (E2E-gated): b2agg/constant.ts getAgglayerFaucetId/setAgglayerFaucetForE2E/
       hasAgglayerFaucetOverride; b2agg/index.ts uses them + flips callback flag; SendManager+ReviewTransaction
-      route gate uses getAgglayerFaucetId(); store/index.ts installs __TEST_SET_AGGLAYER_FAUCET__ (front hook).
+      route gate uses getAgglayerFaucetId(); store/index.ts installs **TEST_SET_AGGLAYER_FAUCET** (front hook).
 - [x] Chrome harness: bridge.ts bridgeOutSlow (+ faucet-override set after page load, before route gate;
       toBeEnabled guard on bridge-route-slow) + readBridgedSendRows extended (provider/claimStatus/
       outputNoteIds/transactionId).
@@ -222,12 +263,14 @@ callback-flag vault-slot mismatch (B2AGG forces Enabled; CLI faucet mints Disabl
       Updated the gate header to document both routes. No new job needed.
 
 ## 🎉 FULL 2x2 MATRIX COVERED
+
 | dir | Epoch/Fast | AggLayer/Slow |
-| IN  | ✅ hermetic (fake allocator + Anvil doubles) | ✅ Anvil bridge stub |
+| IN | ✅ hermetic (fake allocator + Anvil doubles) | ✅ Anvil bridge stub |
 | OUT | ✅ real testnet + hosted solver | ✅ real Miden leg (EVM claim external, uncovered by design) |
 Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-merge on main.
 
 ## Findings to report to the team
+
 - WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to
   DEFAULT_WC_PROJECT_ID in src/lib/walletconnect/config.ts. Fragile: any build not manually
   setting it ships the fallback. Verify the release process sets it.
@@ -314,7 +357,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Regression: 12 real SDK fetch-boundary assertions and 3 sweep assertions failed before their fixes.
 - Deployed transport (0.5.0-rc.2, probed 2026-10-01): a duplicate SendNote is a headers-only
   `grpc-status: 13` with `Failed to store note: ConstraintViolation("Unique constraint violation:
-  UNIQUE constraint failed: notes.id")`. The helper recognises it from the headers alone.
+UNIQUE constraint failed: notes.id")`. The helper recognises it from the headers alone.
 - Real browser WASM, committed as `playwright/tests/note-relay-outbox.spec.ts` (hermetic, one recorded
   RPC): that duplicate retires the 232-byte outbox entry and the next sync sends nothing; a genuine
   storage failure stays in the outbox and is sent again.
@@ -328,6 +371,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Four-seat review: 22 findings fixed across 10 commits, 2 rejected with evidence, 1 deferred by
   decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
   earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
+
 # Faucet funding follow-up after v1.17.1
 
 - [x] Reproduce the reported testnet target and trace the server's amount-scaled difficulty.
@@ -519,6 +563,7 @@ Follow-up regressions keep refunded deposits terminal in Activity while preservi
 2026-10-22 recovery: the initial independent review was incomplete and its evidence remains preserved. The user chose to fix confirmed findings before fresh verification. Config PR #24 completed review with zero findings and all 152 CI checks passed. Wallet preflight passed 175 checks across eight suites; dedicated mocked Chrome and visual acceptance remain CI gates. Eligibility now recognizes explicitly enabled 1Click-only routes while preserving place restrictions.
 
 2026-10-22 authorization update: the user explicitly requested deployment of the matching feature-eligibility service after tests and finished-code review. Keep nearIntents false. This authorizes that service deployment only; wallet PR merge/release and the new partner proxy deployment are not authorized.
+
 # NEAR Intents eligibility service deployment
 
 The service must recognize explicitly enabled valid 1Click-only configurations while preserving existing location restrictions and default-off behavior. Prepare a service-only deployment from protected main without a wallet release.
@@ -531,6 +576,7 @@ The service must recognize explicitly enabled valid 1Click-only configurations w
 - [x] Deploy the reviewed service and verify its live revision and backward compatibility, retaining nearIntents false.
 
 Service validation: 145 Node tests passed with zero skips, all five targeted mutations failed at their named assertions, and all 15 required checks passed. PR #1746 merged as 76148bdb5b23cc66913dbe2af386f96eb442a549. Deployment run 39818501102 succeeded, and live health reports ready at that revision. The four configured wallet origins and rejected-origin cases match pre-deployment behavior. The daily query cap remains 10,000, and nearIntents stays false.
+
 # #1752: retain swap fill progress after cancellation
 
 ## Plan
@@ -583,3 +629,135 @@ Expected-red 40231995182 failed all three intended helper assertions. Green 4023
 - [x] Prove absent-pay-input regression red in CI (40239138581: intended wrong-field value failure, 262 other tests passed).
 - [x] Bind amount edits and assertions to their existing pay/receive side containers.
 - [ ] Verify focused green CI and hand off for normal review and full Swap integration.
+
+# Issue #2100 - diagnose coverage runner shutdowns
+
+- [x] Add tests for timestamped memory and workspace-disk sampling, interval, cleanup, and non-fatal sampler errors; CI run 41327233660 confirmed the intended assertion failures against the no-op stub on all three shards.
+- [x] Add a 30-second resource sampler to each coverage shard without changing Jest, shard count, workers, or the 95% gate.
+- [x] Run guarded Node tests (3/3), badge Jest tests (33/33), Prettier on implementation files, and diff-check.
+- [ ] Complete a current-source Review Council loop and apply every actionable finding.
+- [ ] Push the reviewed implementation and verify exact-head CI logs include samples and pass the unchanged coverage gate.
+
+# Issue #1936 - readable transaction notes
+
+## Plan
+
+- [x] Trace TransactionSummary, executed simulation, fee partition and pinned SDK note accessors.
+- [x] Add red focused tests for exact note flow, partial/custom notes, fee identification and unavailable detail.
+- [x] Build a responsive, localized note-flow hierarchy with raw bytes secondary.
+- [ ] Verify focused tests, type/lint gates and light/dark screenshots through approved CI routing.
+- [ ] Hand the branch and source evidence to the issue owner for Review Council, CI and PR.
+
+## Review
+
+- SDK 0.17.1 provides full input notes and output IDs, metadata and optional assets. Output scripts exist only for full output notes. Known script roots can label P2ID, P2IDE and PSWAP; partial output semantics need richer SDK data. The storage patch exposes named slots, operations and changed map entry counts, but application-specific slot meaning needs an account schema.
+- The extension confirmation and shared mobile/desktop modal now use the same note-flow DTO. The mobile/desktop request takes it from the existing dry run, without repeating execution.
+- Local preflight: 171 tests across 6 suites, TypeScript, named ESLint and i18n lint passed. Wrong P2ID root and stale asset-label mutations each failed their intended assertions; both were restored.
+- Latest green PR coverage report showed 95.81% branches against the unchanged 95% gate. Current-head CI and both-theme screenshots remain pending with the issue owner.
+
+# Issue #1840 - Android dApp touch-down warm-up
+
+- [x] Resume after the 1.17.7 hold and merge current main into the issue branch.
+- [x] Add and prove red Robolectric lifecycle tests in Android CI.
+- [x] Implement and route the per-dialog warm-up.
+- [ ] Pass Android unit tests and the complete exact-head CI gate.
+- [x] Add opt-in native-tap Android E2E, FrameTimeline capture and comparison output.
+- [ ] Collect and inspect the before/after FrameTimeline artifacts and comparison report.
+- [x] Diagnose current CI red: `linked-pr-injection.test.ts` still treated the presentation-compare baseline install and 180-minute comparison timeout as ordinary push/dispatch installs.
+- [x] Update the workflow harness to assert the baseline install and extended timeout are limited to the presentation-compare dispatch.
+- [x] Diagnose exact-head run 41165198245: the E2E harness convention gate rejected an `expect` nested in the conditional baseline-install case.
+- [x] Refactor that assertion so the expected guard is selected before an unconditional assertion.
+- [ ] Verify the named harness suite and mutation checks, then rerun exact-head CI after review.
+- [ ] Complete exact-head CI and the recorded independent review, then merge.
+
+Acceptance plan for the native-tap measurement:
+
+- Use the PR base and candidate APKs on the same API 34 emulator and run the same E2E sequence against each.
+- Trigger the minimized-card expansion with `adb shell input tap`, using the WebView's native screen bounds and the card's CSS rectangle to calculate the physical tap point.
+- Record Perfetto FrameTimeline data around repeated taps, mark each attempt in the trace, and upload both raw traces plus a process-scoped frame-duration/jank comparison.
+- Keep the measurement as an opt-in `workflow_dispatch` suite so routine dApp E2E and PR CI are unchanged.
+- Pin and verify the Trace Processor binary used for the summary; preserve exact baseline and candidate SHAs in the artifact.
+
+# Issue #1840 - Android warm-dialog expand CI follow-up
+
+- [x] Read the exact current-head failure and identify the zero-sized root guard in `expand()`.
+- [x] Compare the failing setup with the existing `openMorph()` fixture.
+- [x] Use a measured, revealed dialog before hiding and exercising the warm expand.
+- [x] Advance Robolectric Choreographer frames in the expanded-animation assertion; advancing only the main looper does not render frames.
+- [x] Restore the saved accessibility importance after the hide operation changes the dialog decor.
+- [x] Write trace and metadata into the uploaded artifact directory and assert required files are nonempty.
+- [ ] Commit and push the final CI correction, then watch all exact-head checks.
+- [ ] Complete the independent direct review and send the final behavior/SHA to the #1956 owner.
+
+# Issues #2034 and #2035 - token row values and amount normalization
+
+- [x] Confirm the expected-red PR run on be7ad2f: AssetRow leaves an empty value slot, and `listedFiatValue` returns Infinity for an overflowing product.
+- [x] Integrate current main f8a348 in a clean worktree, committed as local merge 8d7181a, while preserving the original dirty checkout.
+- [x] Add the smallest finite-result guard and render unavailable status without an empty value element.
+- [x] Add narrow 320/360/402px light and dark visual acceptance to the PR job.
+- [x] Run the seven focused regression suites, TypeScript and named ESLint through the guarded local helper on Node 22.
+- [x] Integrate current main 79b4795 locally as merge 4640ced, preserving the release-note and task-file edits.
+- [x] Integrate current main a328096 locally as merge 0222550, preserving the release-note and task-file edits.
+- [x] Re-run the focused suites, TypeScript, named lint, source-only Prettier and diff-check on integrated head 06c9945; seven suites passed 257/257, and all named checks passed.
+- [ ] Complete Review Council, fix verified P0-P2 findings, and re-verify.
+- [ ] Push once, monitor exact-head checks and screenshots, and resolve failures.
+- [ ] Squash-merge after current-head CI, Council review and mergeability pass.
+
+- [x] Read the issue brief and latest main source.
+- [x] Create an isolated worktree and install dependencies with Node 22.
+- [x] Write and self-review the private spec and implementation plan.
+- [x] Add failing exact-string and caret tests.
+- [x] Implement normalization without Number coercion.
+- [x] Verify token/USD behavior, named suites, TypeScript and named ESLint.
+- [ ] Run repository-wide lint, i18n and prover-pin gates in CI; capture both-theme UI evidence.
+- [ ] Complete Review Council, commit, push and watch exact-head CI.
+- [ ] Merge only after the pre-merge check passes.
+
+## Review
+
+Before integrating the latest main, the seven named Jest suites passed 257 tests, TypeScript passed, and named ESLint passed. The guarded helper refused the first ESLint command when the Playwright path matched its browser restriction; ESLint for the visual harness remains for the CI route. Prettier and browser acceptance are still pending. The separate 63-test focused run on AssetRow and Binance also passed.
+
+After v1.17.9 published at 10:22 UTC, moved the #2035 amount-normalization note into the next (TBD) section. At 12:32 UTC, merged current main 79b4795 locally as 4640ced. At 13:25 UTC, merged current main a328096 locally as 0222550 after preserving and restoring the release-note and task-file edits. The remote PR remains at be7ad2f; no branch push has happened. Re-ran the integrated-head checks at 06c9945: seven suites passed 257/257, TypeScript, named ESLint, source-only Prettier and the base-to-head diff check passed. The remaining Council, current-head CI and visual screenshot gates are queued.
+
+RED: the first two named suites ran 104 tests, with five expected failures for redundant integer zeroes and caret behavior, plus one empty-input test setup failure corrected before implementation. GREEN: both suites passed all 105 tests. TypeScript and named ESLint passed. The guarded helper refused `lint:e2e` before execution because it launches a Node script; repository-wide lint, i18n, prover-pin and screenshots remain with the issue owner and CI.
+
+Review found `.15` and `-.15` were left without a leading zero despite the accepted plan. Added both failing cases, then normalized them to `0.15` and `-0.15`. The two named suites now pass all 107 tests; named ESLint passes.
+
+# Bread Command fullscreen wallet integration
+
+## Plan
+
+- [x] Record V6 visual/UX approval and the request for full integration with a real bridge-portal source port.
+- [x] Establish an isolated worktree on freshly fetched `origin/main`.
+- [x] Map the real five journeys, wallet ownership, live data, configuration, and portal port boundaries.
+- [x] Write the integration design and complete the independent builder-readiness check.
+- [x] Obtain approval of the written production design and feature-branch/PR publication for CI; incorporate the prominently labelled sidebar launcher.
+- [ ] Execute the confirmed implementation plan and verify a clean dependency/test baseline (plan written and self-checked; baseline not run).
+- [ ] Implement the scoped React Command shell, desktop presentation variants, live data, drafts and existing four action controllers.
+- [ ] Port the bridge portal core/providers and required tests, with wallet-native signing, durable tracking and compatibility for existing bridge records.
+- [ ] Verify protected execution, recovery, routing and unaffected compact/mobile/desktop behavior with meaningful tests and current-head CI.
+- [ ] Inspect rendered wide-desktop visuals, all action states, keyboard/focus and normal/reduced motion.
+- [ ] Complete finished-code review, apply actionable findings, verify the final source and hand over without an unauthorized merge or release.
+
+## Status
+
+V6 is approved and real integration is requested. The written design is `docs/bread-command-integration-design.md`, approved with feature-branch/PR publication for CI. The user additionally delegated a prominent sidebar fullscreen launcher; the design now specifies a pinned, full-width orange button with charcoal text above existing Home action tabs. Fresh builder-readiness check `d178b4b3-ae2b-4c6b-a4ce-b0e785e0b53e` returned "nothing important left". Product code, dependencies and runtime wallet state are not changed. Baseline: `9f239a3171140260d1c3b1133b49a04eaecc5683`. Portal source: `0xMiden/bridge-portal` at `cb52c470395273e05e84460fdadc59652d9ef5b3`, freshly confirmed remote HEAD. The three read-only discovery lanes in `66df5a70-d4f5-49ce-baa6-37c45ed09fb3` completed successfully. Existing task sections above are inherited, not owned by this integration task. The story-wide tracker is `/Users/celrisen/tasks/wallet-dashboard/todo.md`.
+
+## Design verification
+
+- Confirmed both frozen refs, the clean starting worktree, unchanged approved V6 hashes, portal MIT terms, wallet execution ownership and the three discovery outputs.
+- Fresh builder-readiness check reported no important planning questions. This is not finished-code review or runtime validation. Two additional read-only plan-source lanes in `ef9fe4c9-6a2a-47c3-acc5-bf38e1473ac9` completed successfully; the plan itself was self-checked, not delegated for review.
+- Launcher planning explicitly accounts for the collapsed Home-action wrapper, fixed 48px target, both-theme/Devnet tokens and hover contrast. Data planning reuses existing balance-snapshot evidence, avoids the stubbed account-removal/FX paths, and adds no second balance fetcher or signing owner.
+- Guarded document Prettier and diff preflight passed. Earlier lock refusals returned75 and ran nothing; no guard was bypassed. Existing unsupported Prettier import-order options emitted warnings, not document failures.
+- The shared design lives in `docs/` because this clone locally excludes `docs/superpowers/`; no ignore rule was changed or bypassed.
+- No dependency installation, product test/build, browser/device check, live wallet connection, signature, provider operation, push, PR, merge or deployment has occurred. Design and feature-branch CI publication are approved. The self-checked implementation plan is `docs/bread-command-integration-plan.md` (15 task-sized deliverables). Plan confirmation and execution-method selection are the next user-dependent gate; subagent-driven execution is recommended, with native inline execution also offered. No product changes start before that handoff.
+
+# PR #2149 - nightly extension merge goal (2026-11-15)
+
+- [ ] Integrate current main and preserve the user-correction lesson in the existing isolated branch.
+- [ ] Pass current-head CI, unchanged 95% coverage and connected internal review.
+- [ ] Explain the failing NEAR planner case with controlled read-only evidence; do not infer fault from healthy quotes.
+- [ ] Complete genuine serialized swap/Epoch/NEAR funded acceptance and independent settlement/cost audits within the original remaining allowance.
+- [ ] Obtain required external approval and normally squash-merge without an admin bypass.
+
+Current evidence: paired quote watch 43710907682 attempts 1 and 2 each returned twelve valid signed quotes, with actual wallet bodies matching the official SDK inputs. Neither captured a failure. Funded NEAR send/return remains unproven. Last independently audited costs are 39,106 micro-USD spent and 1,960,894 remaining, with all funded principal settled. Refresh inventory and authority before any financial dispatch; all prior financial payloads remain consumed.

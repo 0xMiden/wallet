@@ -8,12 +8,14 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET
 } from 'lib/epoch/testing/bridge-config';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { IOneClickTrackingData, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS } from 'lib/one-click/expiry';
+import { paymentTracking } from 'lib/one-click/testing/payment-tracking';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
@@ -30,6 +32,7 @@ import {
   fontColorForType,
   formatDate,
   formatMoneyAmount,
+  hasOwnBridgeBadge,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
@@ -711,6 +714,24 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
   });
 
+  it('reads Stopped before sending for a proven original pre-source stop, not a pending or failed delivery', () => {
+    const stopped = Object.assign(deposit({ bridgeInPhase: 'submitting' }), { bridgeInStoppedBeforeSource: true });
+    expect(bridgeBadgeStatusOf(stopped)).toBe('stoppedBeforeSource');
+    expect(hasOwnBridgeBadge(stopped)).toBe(true);
+  });
+
+  it('does not turn a restored, unresolved, or failed receive into a proven pre-source stop', () => {
+    const cases: Partial<IHistoryEntry>[] = [
+      { restoredFromBackup: true, bridgeInPhase: 'submitting' },
+      { bridgeInPhase: 'delivering' },
+      { bridgeInPhase: 'failed' }
+    ];
+    for (const overrides of cases) {
+      const entry = Object.assign(deposit(overrides), { bridgeInStoppedBeforeSource: true });
+      expect(bridgeBadgeStatusOf(entry)).toBe(overrides.bridgeInPhase === 'failed' ? 'failed' : 'pending');
+    }
+  });
+
   it('reads Failed for a failed deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
   });
@@ -721,6 +742,85 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
         bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'epoch', bridgeInPhase: 'received' })
       )
     ).toBe('confirmed');
+  });
+});
+
+describe('bridgeBadgeStatusOf for a NEAR Intents deposit', () => {
+  const deadline = Date.parse(paymentTracking().fundingDeadline ?? '');
+  const pastGrace = deadline + NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS + 60_000;
+  const deposit = (tracking: Partial<IOneClickTrackingData>, overrides: Partial<IHistoryEntry> = {}) =>
+    bridgeEntry({
+      txType: 'bridged-receive',
+      bridgeInProvider: 'near-intents',
+      bridgeInPhase: 'submitting',
+      oneClickTracking: paymentTracking(tracking),
+      ...overrides
+    });
+
+  it('reads Pending before the funding deadline and its grace time', () => {
+    expect(bridgeBadgeStatusOf(deposit({}), deadline)).toBe('pending');
+  });
+
+  it('reads Expired once the deadline and its grace time pass with no deposit, before the reconciler records it', () => {
+    expect(bridgeBadgeStatusOf(deposit({}), pastGrace)).toBe('expired');
+    expect(bridgeBadgeStatusOf(deposit({ providerStatus: 'PENDING_DEPOSIT' }), pastGrace)).toBe('expired');
+  });
+
+  it('reads Expired, not Failed, once the reconciler records the expiry', () => {
+    const expired = deposit({ phase: 'expired' }, { bridgeInPhase: 'failed' });
+    expect(bridgeBadgeStatusOf(expired, deadline)).toBe('expired');
+    expect(bridgeStatusOf(expired)).toBe('expired');
+  });
+
+  it('keeps Pending past the deadline once 1Click saw a deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ providerStatus: 'PROCESSING' }), pastGrace)).toBe('pending');
+    expect(bridgeBadgeStatusOf(deposit({ originTransactionHash: '0xhash' }), pastGrace)).toBe('pending');
+  });
+
+  it('keeps Failed for a failed or refunded deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ phase: 'refunded' }, { bridgeInPhase: 'failed' }), pastGrace)).toBe('failed');
+  });
+});
+
+describe('bridgeBadgeStatusOf for an Epoch deposit locked in The Compact (#2120)', () => {
+  const lock = {
+    sponsorAddress: '0x00000000000000000000000000000000000000aa',
+    chainId: 11155111,
+    lockId: '42',
+    tokenAddress: '0x0000000000000000000000000000000000000002',
+    isNative: false,
+    amount: '1000000',
+    taskTypeString: 'task',
+    intentData: {},
+    lockedAt: 1
+  };
+  const locked = (overrides: Partial<IHistoryEntry>) =>
+    bridgeEntry({
+      txType: 'bridged-receive',
+      bridgeInProvider: 'epoch',
+      bridgeInPhase: 'failed',
+      bridgeInLockedDeposit: lock,
+      ...overrides
+    });
+
+  it('reads Deposit locked, and Deposit withdrawn once the deposit went back', () => {
+    expect(hasOwnBridgeBadge(locked({}))).toBe(true);
+    expect(bridgeBadgeStatusOf(locked({}))).toBe('depositLocked');
+    expect(bridgeBadgeStatusOf(locked({ bridgeInLockedDeposit: { ...lock, withdrawnAt: 2 } }))).toBe(
+      'depositWithdrawn'
+    );
+  });
+
+  it('reads the normal bridge status after a retry registered the deposit again', () => {
+    const retried = locked({ bridgeInPhase: 'delivering', bridgeInLockedDeposit: { ...lock, reallocatedAt: 2 } });
+    expect(hasOwnBridgeBadge(retried)).toBe(false);
+    expect(bridgeBadgeStatusOf(retried)).toBe('pending');
+  });
+
+  it('reads plain Failed for a restored row', () => {
+    const restored = locked({ restoredFromBackup: true });
+    expect(hasOwnBridgeBadge(restored)).toBe(false);
+    expect(bridgeBadgeStatusOf(restored)).toBe('failed');
   });
 });
 
@@ -858,6 +958,41 @@ describe('bridgeStatusOf', () => {
 });
 
 describe('bridgeRowDisplay', () => {
+  it.each([
+    { chainId: 1, network: 'Ethereum' },
+    { chainId: 11155111, network: 'Sepolia' },
+    { chainId: 8453, network: 'Base' },
+    { chainId: 999999, network: '999999' }
+  ])('shows the saved Agglayer destination chain $chainId', ({ chainId, network }) => {
+    const entry = bridgeEntry({
+      token: 'ETH',
+      bridgeProvider: 'agglayer',
+      bridgeDestinationNetwork: 0,
+      bridgeAgglayerRoute: {
+        chainId,
+        contractAddress: '0x0000000000000000000000000000000000000001',
+        midenBridgeId: '0xbridge',
+        indexerUrl: 'https://indexer.example',
+        rollupId: 1,
+        evmNetworkId: 0
+      }
+    });
+
+    expect(bridgeRowDisplay(UNLOADED, entry).network).toBe(network);
+  });
+
+  it('keeps Sepolia for an older Agglayer row without a saved route', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'agglayer', bridgeDestinationNetwork: 0 })).network
+    ).toBe('Sepolia');
+  });
+
+  it('shows the saved Epoch destination chain', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'epoch', bridgeDestinationNetwork: 8453 })).network
+    ).toBe('Base');
+  });
+
   it('renders an epoch row from its quoted output', () => {
     expect(
       bridgeRowDisplay(
@@ -896,22 +1031,31 @@ describe('bridgeRowDisplay', () => {
     expect(quoted('0.00')).toBe('0');
   });
 
-  it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
+  it.each(['NEAR', 'WBTC', 'USDC', 'ETH', 'MIDEN'])(
+    'uses %s on both sides of an Agglayer withdrawal without an output symbol',
+    token => {
+      expect(
+        bridgeRowDisplay(
+          UNLOADED,
+          bridgeEntry({ token, amount: '1.2', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+        )
+      ).toEqual({
+        inSymbol: token,
+        outSymbol: token,
+        inLabel: token,
+        outLabel: token,
+        outAmount: '1.2',
+        providerLabel: 'Agglayer',
+        network: 'Sepolia',
+        status: 'confirmed'
+      });
+    }
+  );
+
+  it('keeps the saved Agglayer output symbol', () => {
     expect(
-      bridgeRowDisplay(
-        UNLOADED,
-        bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
-      )
-    ).toEqual({
-      inSymbol: 'MIDEN',
-      outSymbol: 'ETH',
-      inLabel: 'MIDEN',
-      outLabel: 'ETH',
-      outAmount: '7',
-      providerLabel: 'Agglayer',
-      network: 'Sepolia',
-      status: 'confirmed'
-    });
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'WETH', bridgeProvider: 'agglayer', bridgeOutputSymbol: 'ETH' }))
+    ).toMatchObject({ inSymbol: 'WETH', outSymbol: 'ETH', outLabel: 'ETH' });
   });
 
   it('falls back to em dash / USDC / "Bridge" when the row carries no provider or token', () => {
@@ -1230,6 +1374,47 @@ describe('bridge rows testnet bridge USDC label', () => {
         })
       )
     ).toMatchObject({ inLabel: 'Test Epoch USDC', outLabel: 'Test Epoch USDC' });
+  });
+
+  it('labels an Epoch output whose symbol is the route USDC read, and keeps ETH and WETH', () => {
+    const derived = TEST_BRIDGE_CONFIG_SNAPSHOT.derived;
+    const chain = derived?.chains[11155111];
+    const read = chain?.epoch.tokens.USDC;
+    if (!derived || !chain || !read || read.state !== 'ok') throw new Error('The test USDC read is missing');
+    const usdcE: BridgeConfigSnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      derived: {
+        ...derived,
+        chains: {
+          ...derived.chains,
+          11155111: {
+            ...chain,
+            epoch: {
+              ...chain.epoch,
+              tokens: {
+                ...chain.epoch.tokens,
+                USDC: { state: 'ok', value: { ...read.value, symbol: 'USDC.e' } }
+              }
+            }
+          }
+        }
+      }
+    };
+    expect(
+      bridgeRowDisplay(usdcE, bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'USDC.e' })).outLabel
+    ).toBe('Test Epoch USDC');
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'ETH', bridgeOutputAmount: '2' })
+      )
+    ).toMatchObject({ outSymbol: 'ETH', outLabel: 'ETH' });
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'WETH', bridgeOutputAmount: '2' })
+      ).outLabel
+    ).toBe('WETH');
   });
 
   it('leaves an Agglayer ETH row on ETH', () => {

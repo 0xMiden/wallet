@@ -820,17 +820,21 @@ export class MidenCli {
    */
   async sync(): Promise<void> {
     const maxAttempts = 5;
+    const timeoutMs = 60_000;
+    let retriedTimeout = false;
     let lastErr = '';
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const result = await this.run('sync', { timeoutMs: 60_000 });
+      const result = await this.run('sync', { timeoutMs });
       if (result.exitCode === 0) return;
-      lastErr = result.stderr;
-      const transient = isTransientCliError(lastErr);
-      if (!transient || attempt === maxAttempts) break;
+      const timedOut = result.timedOut && result.exitCode === null && result.signal === 'SIGTERM';
+      lastErr = timedOut ? `CLI sync timed out after ${timeoutMs}ms` : result.stderr;
+      // The process deadline can kill sync before it writes any stderr. Retry only this read, once.
+      if ((timedOut ? retriedTimeout : !isTransientCliError(lastErr)) || attempt === maxAttempts) break;
+      retriedTimeout ||= timedOut;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
       console.log(
-        `[miden-cli] sync attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`
+        `[miden-cli] sync attempt ${attempt}/${maxAttempts} ${timedOut ? 'process timeout' : 'transient RPC failure'}, retrying in ${backoffMs}ms`
       );
       await new Promise(r => setTimeout(r, backoffMs));
     }

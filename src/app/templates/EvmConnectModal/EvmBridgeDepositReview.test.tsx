@@ -48,8 +48,8 @@ jest.mock('components/Button', () => {
 jest.mock('components/TokenLogo', () => {
   const R = require('react');
   return {
-    TokenLogo: ({ symbol, size }: any) =>
-      R.createElement('div', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': size })
+    TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) =>
+      R.createElement('div', { 'data-testid': 'token-logo', 'data-faucet-id': faucetId, 'data-size': size })
   };
 });
 
@@ -64,12 +64,113 @@ const baseProps = (overrides: Partial<EvmBridgeDepositReviewProps> = {}): EvmBri
 });
 
 describe('EvmBridgeDepositReview', () => {
+  it('keys the hero logo by the arriving faucet and marks the To row with the Miden logo (#2093)', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({ symbol: 'POL', outputFaucetId: 'mm1azjm2663ak76y52vwyfcthr0xyuy7ll6' })}
+      />
+    );
+
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'mm1azjm2663ak76y52vwyfcthr0xyuy7ll6');
+    expect(screen.getByText('miden').querySelector('[data-testid="miden-logo"]')).not.toBeNull();
+  });
+
+  it('matches the actual extension ID and the Slow ETH bridge action before opening the mobile wallet', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({
+          route: 'agglayer',
+          symbol: 'ETH',
+          nativeSource: true,
+          extensionId: 'abcdefghijklmnopabcdefghijklmnop',
+          promptAmount: '1.25',
+          promptContract: '0x1111111111111111111111111111111111111111'
+        })}
+      />
+    );
+
+    expect(screen.getByText('abcdefghijklmnopabcdefghijklmnop')).toBeInTheDocument();
+    expect(screen.getByText('bridgeWalletPromptIdentity')).toBeInTheDocument();
+    expect(screen.getByText('bridgeWalletPromptAgglayerDeposit')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptAgglayerApprove')).not.toBeInTheDocument();
+    expect(screen.getByText('0x1111111111111111111111111111111111111111')).toBeInTheDocument();
+  });
+
+  it('names the bounded approval and deposit for each token route', () => {
+    const cases: Array<[EvmBridgeDepositReviewProps['route'], string, string]> = [
+      ['epoch', 'bridgeWalletPromptEpochApprove', 'bridgeWalletPromptEpochDeposit'],
+      ['agglayer', 'bridgeWalletPromptAgglayerApprove', 'bridgeWalletPromptAgglayerDeposit'],
+      ['usdcx', 'bridgeWalletPromptUsdcxApprove', 'bridgeWalletPromptUsdcxDeposit']
+    ];
+    for (const [route, approval, deposit] of cases) {
+      const { unmount } = render(
+        <EvmBridgeDepositReview
+          {...baseProps({
+            route,
+            promptAmount: '10',
+            promptContract: '0x1111111111111111111111111111111111111111'
+          })}
+        />
+      );
+      expect(screen.getByText(approval)).toBeInTheDocument();
+      expect(screen.getByText(deposit)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('still names the approval for an ERC-20 whose symbol happens to be ETH', () => {
+    render(<EvmBridgeDepositReview {...baseProps({ route: 'agglayer', symbol: 'ETH', nativeSource: false })} />);
+    expect(screen.getByText('bridgeWalletPromptAgglayerApprove')).toBeInTheDocument();
+  });
+
+  it('names the Circle burn instead of an xReserve deposit when the source uses the executor', () => {
+    render(<EvmBridgeDepositReview {...baseProps({ route: 'usdcx', usdcxExecutor: true })} />);
+    expect(screen.getByText('bridgeWalletPromptExecutorApprove')).toBeInTheDocument();
+    expect(screen.getByText('bridgeWalletPromptExecutorBurn')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptUsdcxDeposit')).not.toBeInTheDocument();
+  });
+
+  it('shows the quoted wallet calls instead of a Compact deposit when Fast reuses collateral', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({
+          epochResourceLockRequired: false,
+          epochQuoteTransactions: [
+            {
+              chainId: 11155111,
+              target: '0x1234567890123456789012345678901234567890',
+              value: '1000000000000000',
+              callData: '0x12345678abcdef'
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.queryByText('bridgeWalletPromptEpochApprove')).not.toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptEpochDeposit')).not.toBeInTheDocument();
+    expect(screen.getByText('bridgeWalletPromptEpochExistingCollateral')).toBeInTheDocument();
+    expect(screen.getByText('0x1234567890123456789012345678901234567890')).toBeInTheDocument();
+    expect(screen.getByText('0x12345678')).toBeInTheDocument();
+    expect(screen.getByText('1000000000000000')).toBeInTheDocument();
+  });
+
+  it('does not imply a wallet prompt when the Fast quote has no execution transactions', () => {
+    render(<EvmBridgeDepositReview {...baseProps({ epochResourceLockRequired: false, epochQuoteTransactions: [] })} />);
+
+    expect(screen.getByText('bridgeWalletPromptEpochNoTransactions')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptEpochApprove')).not.toBeInTheDocument();
+    expect(screen.queryByText('bridgeWalletPromptEpochDeposit')).not.toBeInTheDocument();
+  });
+
   describe('hero', () => {
     it('renders the deposit caption, logo and amount', () => {
-      render(<EvmBridgeDepositReview {...baseProps({ amount: '10', symbol: 'USDC' })} />);
+      render(
+        <EvmBridgeDepositReview {...baseProps({ amount: '10', symbol: 'USDC', outputFaucetId: 'faucet-usdc' })} />
+      );
 
       expect(screen.getByText('youAreDepositing')).toBeInTheDocument();
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'faucet-usdc');
       // Rendered twice by design: once as the Hero value, once as the Amount detail row.
       expect(screen.getAllByText('10 USDC')).toHaveLength(2);
     });
@@ -79,7 +180,13 @@ describe('EvmBridgeDepositReview', () => {
         <EvmBridgeDepositReview
           {...baseProps({
             fiat: 100.5,
-            sourceQuote: { price: 10.05, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+            sourceQuote: {
+              price: 10.05,
+              change24h: 0,
+              percentageChange24h: 0,
+              observedAt: Date.now(),
+              kind: 'market' as const
+            }
           })}
         />
       );
@@ -100,11 +207,17 @@ describe('EvmBridgeDepositReview', () => {
   it('names the token by its label in the hero, the amount row and "you receive", keeping the logo on its symbol', () => {
     render(
       <EvmBridgeDepositReview
-        {...baseProps({ amount: '10', symbol: 'USDC', label: 'Test Epoch USDC', outputAmount: '9.5' })}
+        {...baseProps({
+          amount: '10',
+          symbol: 'USDC',
+          label: 'Test Epoch USDC',
+          outputAmount: '9.5',
+          outputFaucetId: 'faucet-usdc'
+        })}
       />
     );
 
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 'faucet-usdc');
     expect(screen.getAllByText('10 Test Epoch USDC')).toHaveLength(2);
     expect(screen.getByText('≈ 9.5 Test Epoch USDC')).toBeInTheDocument();
   });

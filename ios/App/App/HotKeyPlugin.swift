@@ -350,9 +350,11 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         let signatureHex: String
         do {
             let pk = try P256K.Recovery.PrivateKey(dataRepresentation: unwrapped)
-            let digestBuffer = HashDigest(Array(keccakDigest))
-            let sig = try pk.signature(for: digestBuffer)
-            let compact = try sig.compactRepresentation
+            // P256K 0.25: `HashDigest` throws if the input is not 32 bytes.
+            // `signature(for:)` and `compactRepresentation` do not throw.
+            let digestBuffer = try HashDigest(Array(keccakDigest))
+            let sig = pk.signature(for: digestBuffer)
+            let compact = sig.compactRepresentation
             let v = UInt8(truncatingIfNeeded: compact.recoveryId)
             let rs = compact.signature.map { String(format: "%02x", $0) }.joined()
             signatureHex = "0x" + rs + String(format: "%02x", v)

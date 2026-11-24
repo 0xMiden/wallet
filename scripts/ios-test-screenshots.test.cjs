@@ -212,7 +212,7 @@ test('a handled request ID can be captured after its app container changes', asy
   const f = await fixture(t);
   await f.start();
   const first = await f.request(path.join(f.root, 'container-a'));
-  assert.ok(await until(() => exists(first.png)));
+  assert.ok(await until(() => exists(first.png)), `first capture: ${f.errors()}${f.output()}`);
   assert.ok(await until(() => f.output().includes('handled-id')));
   const container = path.join(f.root, 'container-b');
   const next = await f.request(container, { id: first.id });

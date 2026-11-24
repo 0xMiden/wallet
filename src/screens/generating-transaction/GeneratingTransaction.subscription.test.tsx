@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { transactions } from 'lib/miden/repo';
@@ -14,12 +14,14 @@ jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction:
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/mobile/external-browser', () => ({ openExternalUrl: jest.fn() }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), Redirect: () => <div data-testid="redirect" /> }));
+const mockCanRetry = jest.fn(() => false);
+const mockRequeueFailed = jest.fn();
 jest.mock('lib/miden/activity', () => ({
   bridgeProviderOf: () => undefined,
-  isRequeueableTransaction: () => false,
+  isRequeueableTransaction: () => mockCanRetry(),
   acknowledgementOf: () => null,
   requestSWTransactionProcessing: jest.fn(),
-  requeueFailedTransaction: jest.fn(),
+  requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailed(...args),
   safeGenerateTransactionsLoop: jest.fn(),
   isOutcomeUnconfirmed: jest.requireActual('lib/miden/transaction/constants').isOutcomeUnconfirmed,
   notConfirmedHintKey: jest.requireActual('lib/miden/transaction/verdict-rules').notConfirmedHintKey
@@ -36,7 +38,11 @@ jest.mock('lib/store', () => ({
   useWalletStore: Object.assign((select: (state: typeof store) => unknown) => select(store), { getState: () => store })
 }));
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  mockCanRetry.mockReset().mockReturnValue(false);
+  mockRequeueFailed.mockClear();
+});
 
 it('keeps the receipt mounted during the first read failure and recovers without another write', async () => {
   const error = new Error('temporary read failure');
@@ -54,9 +60,40 @@ it('keeps the receipt mounted during the first read failure and recovers without
   });
   const view = render(<GeneratingTransactionPage txId="recovering-receipt" />);
   await waitFor(() => expect(logError).toHaveBeenCalledWith('[useTransactionRow] Failed to read transaction:', error));
+  expect(view.getByText('historyDetailsLoadError')).toBeInTheDocument();
   expect(view.queryByTestId('redirect')).toBeNull();
   await waitFor(() => expect(view.queryByTestId('completed-receipt')).not.toBeNull(), { timeout: 10_000 });
   expect(view.queryByTestId('redirect')).toBeNull();
+});
+
+it('suppresses stale Retry after a loaded read fails and restores it on the same row after a read recovery', async () => {
+  const error = new Error('later read failure');
+  const logError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  mockCanRetry.mockReturnValue(true);
+  const row = {
+    id: 'stale-receipt',
+    accountId: 'account-1',
+    initiatedAt: 1,
+    type: 'send' as const,
+    displayIcon: 'SEND' as const,
+    status: ITransactionStatus.Failed,
+    error: 'temporary failure'
+  };
+  await transactions.put(row);
+  const view = render(<GeneratingTransactionPage txId={row.id} />);
+  await waitFor(() => expect(view.getByRole('button', { name: 'retry' })).toBeInTheDocument());
+  jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
+    throw error;
+  });
+  await act(async () => {
+    await transactions.put({ ...row, displayMessage: 'updated' });
+  });
+  await waitFor(() => expect(logError).toHaveBeenCalledWith('[useTransactionRow] Failed to read transaction:', error));
+  expect(view.getByText('historyDetailsLoadError')).toBeInTheDocument();
+  expect(view.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
+  expect(mockRequeueFailed).not.toHaveBeenCalled();
+  await waitFor(() => expect(view.getByRole('button', { name: 'retry' })).toBeInTheDocument(), { timeout: 2500 });
+  expect(mockRequeueFailed).not.toHaveBeenCalled();
 });
 
 it('still handles a successfully read unknown transaction as missing', async () => {
