@@ -23,7 +23,7 @@ import { navigate, Redirect } from 'lib/woozie';
 import { BridgeNetworkId } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 
-import { contactNetwork } from './contact-network';
+import { contactNetwork, useContactBridgeNetworks } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
 import { ContactNameInput } from './ContactNameInput';
 
@@ -56,10 +56,12 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
   const { updateContact, removeContact } = useContacts();
   const confirm = useConfirm();
   const { kind, bridgeNetwork } = contactNetwork(contact.address, contact.network);
+  const networks = useContactBridgeNetworks(contact.network);
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(contact.name);
   const [network, setNetwork] = useState<BridgeNetworkId | undefined>(bridgeNetwork?.id);
+  const selectedNetwork = networks.find(option => option.id === network)?.id ?? bridgeNetwork?.id;
   const [saving, setSaving] = useState(false);
   // Only cleared on failure: a success unmounts this page via `onDeleted`.
   const [removing, setRemoving] = useState(false);
@@ -99,7 +101,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
   // `defaultBridgeNetwork()`, so a `0x` contact saved without a network seeds `network` to that
   // default while `contact.network` stays undefined - which read as "changed" the moment edit mode
   // opened, enabling Save with nothing edited and writing a network the user never picked.
-  const changed = trimmedName !== contact.name || (kind === 'ethereum' && network !== bridgeNetwork?.id);
+  const changed = trimmedName !== contact.name || (kind === 'ethereum' && selectedNetwork !== bridgeNetwork?.id);
 
   const startEditing = () => {
     setName(contact.name);
@@ -120,7 +122,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
     try {
       await updateContact(contact.address, {
         name: trimmedName,
-        ...(kind === 'ethereum' ? { network } : {})
+        ...(kind === 'ethereum' ? { network: selectedNetwork } : {})
       });
       setEditing(false);
     } catch (err: unknown) {
@@ -209,7 +211,8 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
         <ContactNameInput value={name} onChange={setName} autoFocus />
         <NetworkField
           chain={kind === 'ethereum' ? 'ethereum' : 'miden'}
-          network={network}
+          network={selectedNetwork}
+          networks={networks}
           onSelect={setNetwork}
           testIdPrefix="contact"
         />

@@ -27,6 +27,7 @@ import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
+import { useContactBridgeNetworks } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
 import { ContactNameInput } from './ContactNameInput';
 
@@ -49,6 +50,8 @@ export const NewContactPage: React.FC = () => {
   const [addressTouched, setAddressTouched] = useState(false);
   const [name, setName] = useState('');
   const [network, setNetwork] = useState<BridgeNetworkId>(() => defaultBridgeNetwork().id);
+  const networks = useContactBridgeNetworks();
+  const selectedNetwork = networks.find(option => option.id === network)?.id ?? defaultBridgeNetwork().id;
   const [scanError, setScanError] = useState<string>();
   const [pasteError, setPasteError] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
@@ -131,7 +134,7 @@ export const NewContactPage: React.FC = () => {
         address: trimmedAddress,
         name: trimmedName,
         addedAt: Date.now(),
-        ...(isEvm ? { network } : {})
+        ...(isEvm ? { network: selectedNetwork } : {})
       });
       // Pop our own entry, and only while this page is still live - see the delete in
       // ContactDetailPage for why a named Replace duplicates the address book in history.
@@ -235,7 +238,8 @@ export const NewContactPage: React.FC = () => {
             <motion.div key="network" {...reveal} className="overflow-hidden">
               <NetworkField
                 chain={isEvm ? 'ethereum' : 'miden'}
-                network={network}
+                network={selectedNetwork}
+                networks={networks}
                 onSelect={setNetwork}
                 testIdPrefix="new-contact"
               />
