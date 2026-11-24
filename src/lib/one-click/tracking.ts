@@ -64,18 +64,21 @@ function oneClickOf(transaction: ITransaction): IOneClickTrackingData | undefine
   return tracking;
 }
 
-const isOneClickTransaction = (transaction: ITransaction): boolean => oneClickOf(transaction) !== undefined;
+const isOpenOneClickTransaction = (transaction: ITransaction): boolean => {
+  const tracking = oneClickOf(transaction);
+  return tracking !== undefined && !isTerminal(tracking.phase);
+};
 
-async function getOneClickTransactions(): Promise<ITransaction[]> {
+export async function getOneClickTransactions(): Promise<ITransaction[]> {
   // A send from Miden is a `bridged-send` row; an older build wrote it as a `send` row.
+  const queryOpen = (type: ITransaction['type']) =>
+    Repo.transactions.where('type').equals(type).filter(isOpenOneClickTransaction).toArray();
   const [sends, bridgedSends, receives] = await Promise.all([
-    Repo.transactions.where('type').equals('send').toArray(),
-    Repo.transactions.where('type').equals('bridged-send').toArray(),
-    Repo.transactions.where('type').equals('bridged-receive').toArray()
+    queryOpen('send'),
+    queryOpen('bridged-send'),
+    queryOpen('bridged-receive')
   ]);
-  return [...sends, ...bridgedSends, ...receives]
-    .filter(isOneClickTransaction)
-    .sort((left, right) => right.initiatedAt - left.initiatedAt);
+  return [...sends, ...bridgedSends, ...receives].sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
 
 function validateTrackingInput(input: OneClickTrackingInput): string {

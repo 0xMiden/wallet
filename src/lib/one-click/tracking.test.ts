@@ -8,6 +8,7 @@ import {
   NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR,
   NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS,
   NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS,
+  getOneClickTransactions,
   initiateOneClickMidenDeposit,
   isNearIntentsDepositExpired,
   persistNearIntentsDeposit,
@@ -22,17 +23,25 @@ const initiateSend = jest.fn();
 const storedRows: any[] = [];
 const fetchStatus = jest.fn();
 const submitDeposit = jest.fn();
+const filterSpy = jest.fn();
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
     add: (...args: unknown[]) => addTransaction(...args),
     where: (field: string) => ({
-      equals: (value: unknown) => ({
-        toArray: async () => storedRows.filter(row => row[field] === value),
-        modify: async (mutator: (row: any) => unknown) => {
-          for (const row of storedRows.filter(candidate => candidate[field] === value)) mutator(row);
-        }
-      })
+      equals: (value: unknown) => {
+        const matches = () => storedRows.filter(row => row[field] === value);
+        return {
+          toArray: async () => matches(),
+          filter: (predicate: (row: any) => boolean) => {
+            filterSpy(value);
+            return { toArray: async () => matches().filter(predicate) };
+          },
+          modify: async (mutator: (row: any) => unknown) => {
+            for (const row of matches()) mutator(row);
+          }
+        };
+      }
     })
   }
 }));
@@ -893,5 +902,34 @@ describe('NEAR Intents deposit expiry', () => {
       isNearIntentsDepositExpired(inboundTracking({ originTransactionHash: '0xhash', fundingDeadline: deadline }))
     ).toBe(false);
     expect(isNearIntentsDepositExpired(inboundTracking({ fundingDeadline: deadline }))).toBe(true);
+  });
+
+  it('filters out terminal and non-1Click rows in the Dexie query inside getOneClickTransactions', async () => {
+    filterSpy.mockClear();
+    storedRows.push(
+      { id: 'plain-send', type: 'send', initiatedAt: 100 },
+      inboundRow('delivered-row', { phase: 'delivered' }),
+      inboundRow('refunded-row', { phase: 'refunded' }),
+      inboundRow('failed-row', { phase: 'failed' }),
+      inboundRow('expired-row', { phase: 'expired' }),
+      {
+        ...inboundRow('open-bridged-send', { phase: 'processing', direction: 'miden-to-evm' }),
+        type: 'bridged-send',
+        initiatedAt: 300
+      },
+      {
+        ...inboundRow('open-legacy-send', { phase: 'depositing', direction: 'miden-to-evm' }),
+        type: 'send',
+        initiatedAt: 200
+      },
+      { ...inboundRow('open-receive', { phase: 'pending-deposit' }), initiatedAt: 400 }
+    );
+
+    const open = await getOneClickTransactions();
+
+    expect(filterSpy).toHaveBeenCalledWith('send');
+    expect(filterSpy).toHaveBeenCalledWith('bridged-send');
+    expect(filterSpy).toHaveBeenCalledWith('bridged-receive');
+    expect(open.map(row => row.id)).toEqual(['open-receive', 'open-bridged-send', 'open-legacy-send']);
   });
 });
