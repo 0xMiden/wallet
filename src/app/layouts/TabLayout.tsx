@@ -191,12 +191,7 @@ const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(
     return (
       <div
         data-navbar-presentation={mobile ? presentation : undefined}
-        className={classNames(
-          'pointer-events-none flex-1 min-w-0 flex justify-center px-4',
-          !isIOS() && 'pb-2',
-          // Reserve the expanded pill's height so the dApp peek tray keeps its clearance.
-          mobile && 'box-content min-h-[calc(3.5rem+2px)] items-end'
-        )}
+        className={classNames('pointer-events-none flex-1 min-w-0 flex justify-center px-4', !isIOS() && 'pb-2')}
       >
         <BottomNav
           items={items}

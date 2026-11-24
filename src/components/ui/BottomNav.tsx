@@ -321,7 +321,8 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
     <nav
       className={cn(
         BAR_CLASS_NAME,
-        presentation === 'condensed' ? 'p-0.5' : 'p-1',
+        // Reserve the removed vertical padding above the pill to keep the footer in place.
+        presentation === 'condensed' ? 'mt-1 p-0.5' : 'p-1',
         presentation && 'contrast-more:bg-app-bg [@media(prefers-reduced-transparency:reduce)]:bg-app-bg',
         className
       )}
