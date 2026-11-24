@@ -55,8 +55,15 @@ const test = base.extend({
 // Cold extension startup includes loading the wallet bundle and its local policy fixture.
 test.setTimeout(60_000);
 
-async function activity(context: BrowserContext, id: string, entry = 'sidepanel.html') {
+async function openActivity(
+  context: BrowserContext,
+  id: string,
+  entry: string,
+  route: string,
+  viewport?: { width: number; height: number }
+) {
   const page = await context.newPage();
+  if (viewport) await page.setViewportSize(viewport);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`chrome-extension://${id}/${entry}`);
@@ -70,27 +77,64 @@ async function activity(context: BrowserContext, id: string, entry = 'sidepanel.
         { cause: error }
       );
     });
-  await page.evaluate(walletType => {
-    const account: WalletAccount = {
-      publicKey: '0x0123456789abcdef0123456789abcd00',
-      name: 'Activity fixture',
-      isPublic: false,
-      type: walletType,
-      hdIndex: 0,
-      authScheme: 'ecdsa'
-    };
-    const store = window.__TEST_STORE__;
-    if (!store) throw new Error('Build with MIDEN_E2E_TEST=true');
-    // Fixture is frontend state only: the empty backend remains locked/idle.
-    store.setState({ status: 2, isInitialized: true, accounts: [account], currentAccount: account });
-    window.history.replaceState(null, '', `${window.location.pathname}#/history?filter=all&view=list`);
-  }, WalletType.OffChain);
+  await page.evaluate(
+    ({ walletType, destination }) => {
+      const account: WalletAccount = {
+        publicKey: '0x0123456789abcdef0123456789abcd00',
+        name: 'Activity fixture',
+        isPublic: false,
+        type: walletType,
+        hdIndex: 0,
+        authScheme: 'ecdsa'
+      };
+      const store = window.__TEST_STORE__;
+      if (!store) throw new Error('Build with MIDEN_E2E_TEST=true');
+      // Fixture is frontend state only: the empty backend remains locked/idle.
+      store.setState({ status: 2, isInitialized: true, accounts: [account], currentAccount: account });
+      window.history.replaceState(null, '', `${window.location.pathname}#${destination}`);
+    },
+    { walletType: WalletType.OffChain, destination: route }
+  );
+  return page;
+}
+
+async function activity(context: BrowserContext, id: string, entry = 'sidepanel.html') {
+  const page = await openActivity(context, id, entry, '/history?filter=all&view=list');
   const row = page.getByRole('radiogroup', { name: 'Activity filters' });
   await expect(row).toBeVisible();
   await expect(row.getByRole('radio')).toHaveText(['All', 'Pending', 'Transfer', 'Swap', 'Earn', 'Others']);
   // Wait for the entering page to settle and the row to receive input before using raw coordinates.
   await row.hover();
   return { page, row };
+}
+
+for (const target of [
+  { name: 'compact side panel', entry: 'sidepanel.html', width: 400, height: 600 },
+  { name: 'full page', entry: 'fullpage.html', width: 1200, height: 800 }
+]) {
+  test(`cold Groups opens in the ${target.name}`, async ({ extensionContext, extensionId }, info) => {
+    const page = await openActivity(extensionContext, extensionId, target.entry, '/history', {
+      width: target.width,
+      height: target.height
+    });
+    const groups = page.getByTestId('activity-groups');
+    await expect(groups).toBeVisible();
+    await expect(groups.getByText("You don't currently have any transactions.")).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'Activity filters' })).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('activity_view_setting'))).toBeNull();
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await expect.poll(() => page.locator('html').evaluate(root => root.classList.contains('dark'))).toBe(
+        colorScheme === 'dark'
+      );
+      await page.screenshot({
+        path: info.outputPath(`activity-groups-${colorScheme}.png`),
+        animations: 'disabled',
+        caret: 'hide'
+      });
+    }
+    await page.close();
+  });
 }
 
 async function drag(page: Page, row: Locator, from = 270, to = 50) {

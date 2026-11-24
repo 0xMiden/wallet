@@ -1,284 +1,48 @@
-name: Red-before tests
-run-name: Red-before (${{ inputs.expect }}) ${{ inputs.sha }}
-
-# Runs named Jest test files at one exact commit and checks the outcome against
-# what the caller expects. It exists so a regression test pushed in its own
-# commit can be shown failing in CI before its fix lands, without pushing every
-# historical commit through the whole PR workflow set (pr.yml runs only on
-# pull_request, cancels in progress and keeps no Jest JSON).
-#
-# The job passes only when the observed result matches `expect`:
-#   red   - Jest exited 1 with at least one failed test (and, with `failing`,
-#           exactly those tests failed);
-#   green - Jest exited 0 with at least one passed test and none failed;
-# and, either way, every requested file ran as a suite, nothing else ran, and
-# every suite loaded. A kill or timeout gives no verdict. The Jest JSON and log
-# are uploaded for every run.
-#
-# Dispatch it on the branch that holds the commit, never on the default branch:
-# the tested commit's code runs here (install scripts, Jest config and tests),
-# and a run on a branch can write only that branch's Actions cache.
+name: Activity offline Chrome acceptance
+run-name: Activity offline Chrome acceptance ${{ inputs.sha }}
 
 on:
   workflow_dispatch:
     inputs:
       sha:
-        description: Full 40-character commit SHA, an ancestor of (or equal to) the dispatched branch
+        description: Exact diagnostic commit
         required: true
         type: string
-      tests:
-        description: Space-separated test files, relative to the repository root, on one line
-        required: true
-        type: string
-      pattern:
-        description: Optional Jest -t name pattern
-        required: false
-        default: ''
-        type: string
-      failing:
-        description: Optional full names of the tests that must fail, separated by ' | ' (red only)
-        required: false
-        default: ''
-        type: string
-      expect:
-        description: The outcome that counts as a pass
-        required: true
-        default: red
-        type: choice
-        options:
-          - red
-          - green
 
 permissions:
   contents: read
-  # The linked-PR injections list a dispatched branch's open pull request and read its description.
-  pull-requests: read
 
 jobs:
-  run:
-    name: Red-before (${{ inputs.expect }})
-    # Never scheduled on the default branch or a tag: the tested commit's code
-    # runs in this job, and only a run on another branch is kept out of the
-    # default branch's Actions cache scope. The Validate step repeats the check
-    # with an error message.
-    if: github.ref_type == 'branch' && github.event.repository.default_branch != '' && github.ref_name != github.event.repository.default_branch
+  offline-chrome:
+    if: github.ref == 'refs/heads/ci/801-activity-visual'
     runs-on: ubuntu-latest
-    # A linked web-sdk PR is built from source first (linked-pr-injection.test.ts).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 30 }}
+    timeout-minutes: 18
+    env:
+      MIDEN_E2E_TEST: 'true'
+      MIDEN_USE_MOCK_CLIENT: 'true'
+      E2E_HEADLESS: '1'
     steps:
-      # Inputs reach the shell only through env, never through ${{ }} in run:,
-      # so a crafted value cannot inject commands.
-      - name: Validate inputs
-        id: validate
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify diagnostic source
         env:
-          SHA: ${{ inputs.sha }}
-          TESTS: ${{ inputs.tests }}
-          PATTERN: ${{ inputs.pattern }}
-          FAILING: ${{ inputs.failing }}
-          EXPECT: ${{ inputs.expect }}
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ inputs.sha }}
         run: |
-          set -euo pipefail
-          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full lowercase 40-character SHA"; exit 1; }
-          [[ "$EXPECT" == red || "$EXPECT" == green ]] || { echo "::error::expect must be red or green"; exit 1; }
-          [[ "$REF_TYPE" == branch && -n "$DEFAULT_BRANCH" && "$REF_NAME" != "$DEFAULT_BRANCH" && "$REF_NAME" =~ ^[A-Za-z0-9._/-]+$ && "$REF_NAME" != *..* ]] \
-            || { echo "::error::dispatch on the branch that holds the commit, not on $DEFAULT_BRANCH or a tag"; exit 1; }
-          for v in "$TESTS" "$PATTERN" "$FAILING"; do
-            [[ "$v" != *$'\n'* && "$v" != *$'\r'* ]] || { echo "::error::tests, pattern and failing must each be one line"; exit 1; }
-          done
-          read -ra files <<< "$TESTS"
-          (( ${#files[@]} > 0 && ${#files[@]} <= 20 )) || { echo "::error::give 1-20 test files"; exit 1; }
-          # Jest collects these, and under playwright/ only the *.test.ts unit files
-          # (jest.config.ts testPathIgnorePatterns).
-          for f in "${files[@]}"; do
-            [[ ( "$f" =~ ^(src|test|scripts|packages)/[A-Za-z0-9_./@-]+\.test\.(ts|tsx|js)$ \
-              || "$f" =~ ^playwright/[A-Za-z0-9_./@-]+\.test\.ts$ ) && "$f" != *..* ]] \
-              || { echo "::error::not an allowed test path: $f"; exit 1; }
-          done
-          (( ${#PATTERN} <= 500 && ${#FAILING} <= 4000 )) || { echo "::error::pattern or failing is too long"; exit 1; }
-          [[ -z "$FAILING" || "$EXPECT" == red ]] || { echo "::error::failing applies to expect=red only"; exit 1; }
-
-      # Before any of the commit's code runs: the commit must be on this
-      # repository's dispatched branch, which rules out fork and pull refs.
-      - name: Confirm the commit is on the dispatched branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SHA: ${{ inputs.sha }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$SHA...$REF_NAME" --jq .status)
-          [[ "$status" == ahead || "$status" == identical ]] \
-            || { echo "::error::$SHA is not on $REF_NAME (compare status: $status)"; exit 1; }
-
-      - name: Check out the tested commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ inputs.sha }}
-          persist-credentials: false
-
-      - name: Confirm the checked-out commit
-        env:
-          SHA: ${{ inputs.sha }}
-          TESTS: ${{ inputs.tests }}
-        run: |
-          set -euo pipefail
-          head=$(git rev-parse HEAD)
-          [[ "$head" == "$SHA" ]] || { echo "::error::checked out $head, expected $SHA"; exit 1; }
-          read -ra files <<< "$TESTS"
-          for f in "${files[@]}"; do [[ -f "$f" ]] || { echo "::error::$f does not exist at $SHA"; exit 1; }; done
-          echo "Tested commit: $head" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Use Node 22
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git log -3 --format='%H %s' | tee "$RUNNER_TEMP/source.txt"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
-
-      # The linked web-sdk and Guardian PRs of the branch's open pull request, as
-      # pr.yml builds them, so a red-before run tests what that PR's CI tests.
-      - name: Inject linked web-sdk PR
-        id: inject-sdk
-        uses: ./.github/actions/inject-linked-web-sdk-pr
-      - name: Inject linked guardian PR
-        id: inject-guardian
-        uses: ./.github/actions/inject-linked-guardian-pr
-
-      - name: Run Install
-        uses: ./.github/actions/yarn-install
-
-      # What this run actually tested against: whether either linked PR was
-      # injected (and at which head), whether package.json or yarn.lock now differ
-      # from the tested commit, and the installed SDK versions.
-      - name: Record the dependency context
-        env:
-          SDK_PATCHED: ${{ steps.inject-sdk.outputs.patched }}
-          SDK_PR: ${{ steps.inject-sdk.outputs.web_sdk_repo }}#${{ steps.inject-sdk.outputs.web_sdk_pr }}
-          SDK_HEAD: ${{ steps.inject-sdk.outputs.web_sdk_head_sha }}
-          GUARDIAN_PATCHED: ${{ steps.inject-guardian.outputs.patched }}
-          GUARDIAN_PR: ${{ steps.inject-guardian.outputs.guardian_repo }}#${{ steps.inject-guardian.outputs.guardian_pr }}
-          GUARDIAN_HEAD: ${{ steps.inject-guardian.outputs.guardian_head_sha }}
-        run: |
-          set -euo pipefail
-          version() { node -p "JSON.parse(require('fs').readFileSync('node_modules/$1/package.json', 'utf8')).version" 2>/dev/null || echo missing; }
-          changed=$(git status --porcelain -- package.json yarn.lock | awk '{print $2}' | tr '\n' ' ')
-          {
-            echo "Linked web-sdk PR injected: ${SDK_PATCHED:-false}${SDK_HEAD:+ ($SDK_PR at $SDK_HEAD)}"
-            echo "Linked Guardian PR injected: ${GUARDIAN_PATCHED:-false}${GUARDIAN_HEAD:+ ($GUARDIAN_PR at $GUARDIAN_HEAD)}"
-            echo "Changed from the tested commit after install: ${changed:-none}"
-            echo "@miden-sdk/miden-sdk $(version @miden-sdk/miden-sdk), @openzeppelin/guardian-client $(version @openzeppelin/guardian-client)"
-          } | tee "$RUNNER_TEMP/dependency-context.txt" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Run the selected tests
-        env:
-          TESTS: ${{ inputs.tests }}
-          PATTERN: ${{ inputs.pattern }}
-          # Named files are run on purpose, so the opt-in benchmarks in jest.config.ts run here.
-          GUARDIAN_HISTORY_BENCHMARK: '1'
-        run: |
-          set -uo pipefail
-          read -ra files <<< "$TESTS"
-          # Written outside the checkout, so the tested commit's tree stays as it is.
-          cat > "$RUNNER_TEMP/bigint-json-processor.cjs" <<'PROCESSOR'
-          // Jest's --json writer cannot serialize a bigint, and a failed matcher's result can hold one.
-          module.exports = (results) => {
-            const seen = new WeakSet();
-            const stack = [results];
-            while (stack.length > 0) {
-              const node = stack.pop();
-              if (node === null || typeof node !== 'object' || seen.has(node)) continue;
-              seen.add(node);
-              for (const key of Object.keys(node)) {
-                const value = node[key];
-                if (typeof value === 'bigint') node[key] = `${value}n`;
-                else stack.push(value);
-              }
-            }
-            return results;
-          };
-          PROCESSOR
-          # --runTestsByPath: positional paths are exact, not regexes that can
-          # match a neighbouring file.
-          args=(--ci --maxWorkers=2 --runTestsByPath --json --outputFile="$RUNNER_TEMP/jest.json"
-            --testResultsProcessor="$RUNNER_TEMP/bigint-json-processor.cjs")
-          if [[ -n "$PATTERN" ]]; then args+=(-t "$PATTERN"); fi
-          # The default run shell is `bash -e`: a failing test exits Jest 1,
-          # which must not end this step before its exit code is recorded.
-          set +e
-          yarn jest "${args[@]}" "${files[@]}" 2>&1 | tee "$RUNNER_TEMP/jest.log"
-          codes=("${PIPESTATUS[@]}")
-          set -e
-          echo "${codes[0]}" > "$RUNNER_TEMP/jest-exit"
-          echo "jest exit ${codes[0]}, tee exit ${codes[1]}" | tee -a "$RUNNER_TEMP/jest.log"
-          [[ "${codes[1]}" == 0 ]] || { echo "::error::could not write the Jest log"; exit 1; }
-
-      - name: Check the outcome
-        env:
-          EXPECT: ${{ inputs.expect }}
-          SHA: ${{ inputs.sha }}
-          TESTS: ${{ inputs.tests }}
-          FAILING: ${{ inputs.failing }}
-        run: |
-          set -euo pipefail
-          node - <<'EOF'
-          const fs = require('fs');
-          const path = require('path');
-          const temp = process.env.RUNNER_TEMP;
-          const out = (line) => fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
-          const rel = (f) => path.relative(process.cwd(), f);
-          const exitPath = `${temp}/jest-exit`;
-          const jestExit = fs.existsSync(exitPath) ? Number(fs.readFileSync(exitPath, 'utf8').trim()) : NaN;
-          if (!Number.isInteger(jestExit) || !fs.existsSync(`${temp}/jest.json`)) {
-            out('No Jest exit code or JSON was recorded: the run is invalid.');
-            process.exit(1);
-          }
-          const r = JSON.parse(fs.readFileSync(`${temp}/jest.json`, 'utf8'));
-          const loadErrors = r.numRuntimeErrorTestSuites;
-          // Every requested file must have run as a suite, and nothing else.
-          const requested = new Set(process.env.TESTS.split(/\s+/).filter(Boolean).map((f) => path.resolve(f)));
-          const ran = new Set(r.testResults.map((suite) => suite.name));
-          const missing = [...requested].filter((f) => !ran.has(f));
-          const extra = [...ran].filter((f) => !requested.has(f));
-          const failed = r.testResults.flatMap((suite) =>
-            suite.assertionResults
-              .filter((a) => a.status === 'failed')
-              .map((a) => ({ suite: rel(suite.name), name: a.fullName, why: firstLine(a.failureMessages) }))
-          );
-          function firstLine(messages) {
-            const text = (messages && messages[0]) || '';
-            return text.replace(/\u001b\[[0-9;]*m/g, '').split('\n').find((l) => l.trim()) || '';
-          }
-          out(`Expect: ${process.env.EXPECT} at ${process.env.SHA}`);
-          out(`Jest exit ${jestExit}. Passed ${r.numPassedTests}, failed ${r.numFailedTests}, skipped ${r.numPendingTests}, total ${r.numTotalTests}, suites that failed to load ${loadErrors}`);
-          for (const f of missing) out(`- requested but did not run: ${rel(f)}`);
-          for (const f of extra) out(`- ran but not requested: ${rel(f)}`);
-          for (const f of failed) out(`- failed: ${f.suite} :: ${f.name} :: ${f.why}`);
-          // With `failing`, the failed set must be exactly the named tests.
-          const named = process.env.FAILING.split(' | ').map((s) => s.trim()).filter(Boolean);
-          const failedNames = new Set(failed.map((f) => f.name));
-          const namedMatch =
-            named.length === 0 || (named.length === failedNames.size && named.every((n) => failedNames.has(n)));
-          if (!namedMatch) out('The failed tests are not exactly the ones named in `failing`.');
-          // Jest exits 1 for failing tests and 0 for a clean run; any other code
-          // (a kill, a timeout) leaves no verdict even beside a JSON that names failures.
-          let ok;
-          if (loadErrors > 0 || missing.length > 0 || extra.length > 0) ok = false;
-          else if (process.env.EXPECT === 'red') ok = jestExit === 1 && r.numFailedTests > 0 && namedMatch;
-          else ok = jestExit === 0 && r.numFailedTests === 0 && r.numPassedTests > 0;
-          out(ok ? 'Outcome matches the expectation.' : 'Outcome does NOT match the expectation.');
-          process.exit(ok ? 0 : 1);
-          EOF
-
-      - name: Upload the Jest results
-        if: always() && steps.validate.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: ./.github/actions/yarn-install
+      - name: Install Chrome test browser
+        run: yarn playwright install chrome
+      - name: Build offline Chrome extension
+        run: yarn build:extension
+      - name: Exercise the Activity view with synthetic state
+        run: yarn playwright test --config playwright.activity.config.ts --workers=1 --retries=0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: red-before-${{ inputs.sha }}-${{ github.run_attempt }}
+          name: activity-offline-chrome
           path: |
-            ${{ runner.temp }}/jest.json
-            ${{ runner.temp }}/jest.log
-            ${{ runner.temp }}/jest-exit
-            ${{ runner.temp }}/dependency-context.txt
-          if-no-files-found: warn
-          retention-days: 30
+            test-results/
+            ${{ runner.temp }}/source.txt
