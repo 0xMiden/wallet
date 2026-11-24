@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][mobile] Wrap long transaction details, warnings, and errors inside the dApp confirmation dialog so long identifiers stay within narrow screens (#2045).
 - [FIX][all] Reject malformed numeric suffixes and blank strings in `formatDate` by requiring strict finite numeric timestamp parsing before scaling as Unix seconds.
 - [FEATURE][all] A basket's row in the asset list moves like its tokens: its 24h move and a 1D line weighted by the vault's mix, as on its token page, instead of a flat grey line.
 - [FIX][ci] Reload the selected extension build before using a saved Playwright wallet profile.

@@ -1065,3 +1065,58 @@ describe('DappConfirmationModal - a login signature', () => {
     expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
   });
 });
+
+describe('DappConfirmationModal horizontal overflow protection (#2045)', () => {
+  it('constrains dialog width and wraps long note-import errors and identifiers', () => {
+    const longErrorToken = `Reason,NoteImportFailed_${'0123456789abcdef'.repeat(8)}`;
+    render(
+      <DappConfirmationModal
+        request={buildRequest({
+          type: 'transaction',
+          sourcePublicKey: FULL_ACCOUNT_ID,
+          network: 'testnet',
+          previousAttemptError: `NoteImportRpcFailure:${'deadbeef'.repeat(12)}`,
+          transactionMessages: ['This transaction could not be simulated, so its effects are unknown.', longErrorToken]
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    const sheet = dialog.querySelector('.tx-stage-sheet') as HTMLElement;
+    expect(sheet).not.toBeNull();
+    expect(sheet).toHaveClass('min-w-0');
+
+    const messages = screen.getAllByTestId('dapp-confirmation-message');
+    const detailRow = messages[1]!;
+    expect(detailRow).toHaveTextContent(longErrorToken);
+    expect(detailRow).toHaveClass('min-w-0', 'wrap-anywhere');
+    expect(detailRow.parentElement).toHaveClass('min-w-0');
+    expect(detailRow.parentElement!.parentElement).toHaveClass('min-w-0', 'overflow-x-hidden');
+
+    const approvalError = screen.getByTestId('dapp-approval-error');
+    expect(approvalError).toHaveClass('wrap-anywhere');
+  });
+
+  it('wraps network mismatch warning text without breaking domain display', () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    render(
+      <DappConfirmationModal
+        request={buildRequest({
+          origin: 'https://login.secure.pickupboomers.app',
+          network: 'testnet'
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const noticeBody = screen.getByTestId('dapp-network-mismatch').querySelector('[data-slot="body"]');
+    expect(noticeBody).not.toBeNull();
+    expect(noticeBody).toHaveClass('wrap-anywhere');
+
+    const domain = within(screen.getByRole('heading', { level: 2 })).getByTestId('dapp-origin-domain');
+    expectDomainNeverClipped(domain, domain.parentElement!.parentElement!);
+  });
+});

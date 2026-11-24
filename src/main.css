@@ -1146,6 +1146,7 @@ body[data-home-band]::before {
 .tx-story {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -1153,6 +1154,7 @@ body[data-home-band]::before {
 .tx-story-summary {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 8px;
   border-radius: 16px;
   background: var(--ds-fill);
@@ -1161,6 +1163,8 @@ body[data-home-band]::before {
 }
 
 .tx-story-total {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--font-heading);
   font-size: 16px;
   font-weight: 800;
@@ -1264,6 +1268,7 @@ body[data-home-band]::before {
 
 .tx-notes-disclosure-inner {
   min-height: 0;
+  min-width: 0;
 }
 
 .tx-story-hop {
@@ -1295,6 +1300,8 @@ body[data-home-band]::before {
 }
 
 .tx-story-party {
+  min-width: 0;
+  overflow-wrap: anywhere;
   border-radius: 16px;
   background: var(--ds-fill);
   color: var(--ds-ink);
@@ -1302,6 +1309,8 @@ body[data-home-band]::before {
 }
 
 .tx-originator {
+  min-width: 0;
+  overflow-wrap: anywhere;
   border-radius: 16px;
   background: var(--ds-accent-tint);
   color: var(--ds-ink);
@@ -1354,6 +1363,8 @@ body[data-home-band]::before {
 
 .tx-story-amount {
   max-width: 70%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   border-radius: 999px;
   background: var(--ds-accent-tint);
   color: var(--ds-accent-tint-ink);
