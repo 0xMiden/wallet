@@ -115,6 +115,58 @@ function syntheticReadApi({ manifest, targetAbsentFirst = false, scriptSettings 
   };
 }
 
+function deletableWorkerFixture(manifest) {
+  const basePath = `/workers/scripts/${manifest.scriptName}`;
+  const namespaces = manifest.config.durable_objects.bindings.map((binding, index) => ({
+    id: String(index + 1).padStart(32, '0'),
+    class: binding.class_name,
+    script: manifest.scriptName,
+    use_sqlite: true
+  }));
+  const bindings = topologyBindings(manifest).map(binding =>
+    binding.type === 'durable_object_namespace'
+      ? { ...binding, namespace_id: namespaces.find(row => row.class === binding.class_name).id }
+      : binding
+  );
+  const page = (result, perPage) => ({
+    success: true,
+    errors: [],
+    result,
+    result_info: { page: 1, per_page: perPage, count: result.length, total_pages: 1, total_count: result.length }
+  });
+  let deleted = false;
+  return {
+    isDeleted: () => deleted,
+    options: {
+      createReadApi: () => async requestPath => {
+        if (requestPath === '/account') return { success: true, errors: [], result: { id: accountId } };
+        if (requestPath === `${basePath}/settings`) {
+          return deleted
+            ? { status: 404, body: { success: false, errors: [{ code: 10007 }] } }
+            : { success: true, errors: [], result: { bindings } };
+        }
+        if (requestPath === `${basePath}/script-settings`)
+          return {
+            success: true,
+            errors: [],
+            result: { logpush: false, observability: manifest.config.observability, tail_consumers: [] }
+          };
+        if (requestPath === `${basePath}/content/v2`) return { sha256: manifest.bundleSha256 };
+        if (requestPath === '/workers/scripts?page=1&per_page=100')
+          return page([{ id: manifest.scriptName }], 100);
+        if (requestPath === '/workers/durable_objects/namespaces?page=1&per_page=1000')
+          return page(namespaces, 1000);
+        assert.fail(`unexpected synthetic API path: ${requestPath}`);
+      },
+      createScriptDeleter: () => async scriptName => {
+        assert.equal(scriptName, manifest.scriptName);
+        deleted = true;
+        return true;
+      }
+    }
+  };
+}
+
 test('topology identity accepts only this repository main workflow dispatch', () => {
   assert.deepEqual(topologyIdentity(context), {
     repository: context.repository,
@@ -744,24 +796,6 @@ test('recovery cleans up a deployed worker from verified prepared artifact when 
   const prepared = await preparedTestRun();
   try {
     const { manifest } = prepared;
-    const basePath = `/workers/scripts/${manifest.scriptName}`;
-    const namespaces = manifest.config.durable_objects.bindings.map((binding, index) => ({
-      id: String(index + 1).padStart(32, '0'),
-      class: binding.class_name,
-      script: manifest.scriptName,
-      use_sqlite: true
-    }));
-    const bindings = topologyBindings(manifest).map(binding =>
-      binding.type === 'durable_object_namespace'
-        ? { ...binding, namespace_id: namespaces.find(row => row.class === binding.class_name).id }
-        : binding
-    );
-    const page = (result, perPage) => ({
-      success: true,
-      errors: [],
-      result,
-      result_info: { page: 1, per_page: perPage, count: result.length, total_pages: 1, total_count: result.length }
-    });
     const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
     await mkdir(path.dirname(resultFile), { recursive: true, mode: 0o700 });
     await writeFile(
@@ -800,7 +834,7 @@ test('recovery cleans up a deployed worker from verified prepared artifact when 
       })}\n`,
       { mode: 0o600 }
     );
-    let deleted = false;
+    const fixture = deletableWorkerFixture(manifest);
     const exitCode = await topologyRunner.cleanup(
       {
         ...prepared.env,
@@ -810,38 +844,12 @@ test('recovery cleans up a deployed worker from verified prepared artifact when 
         CLEANUP_ATTEMPT: context.runAttempt
       },
       true,
-      {
-        createReadApi: () => async requestPath => {
-          if (requestPath === '/account') return { success: true, errors: [], result: { id: accountId } };
-          if (requestPath === `${basePath}/settings`) {
-            return deleted
-              ? { status: 404, body: { success: false, errors: [{ code: 10007 }] } }
-              : { success: true, errors: [], result: { bindings } };
-          }
-          if (requestPath === `${basePath}/script-settings`)
-            return {
-              success: true,
-              errors: [],
-              result: { logpush: false, observability: manifest.config.observability, tail_consumers: [] }
-            };
-          if (requestPath === `${basePath}/content/v2`) return { sha256: manifest.bundleSha256 };
-          if (requestPath === '/workers/scripts?page=1&per_page=100')
-            return page([{ id: manifest.scriptName }], 100);
-          if (requestPath === '/workers/durable_objects/namespaces?page=1&per_page=1000')
-            return page(namespaces, 1000);
-          assert.fail(`unexpected synthetic API path: ${requestPath}`);
-        },
-        createScriptDeleter: () => async scriptName => {
-          assert.equal(scriptName, manifest.scriptName);
-          deleted = true;
-          return true;
-        }
-      }
+      fixture.options
     );
     const result = JSON.parse(await readFile(resultFile, 'utf8'));
 
     assert.equal(exitCode, 0);
-    assert.equal(deleted, true);
+    assert.equal(fixture.isDeleted(), true);
     assert.equal(result.phase, 'recovery_cleanup');
     assert.equal(result.cleanup, 'removed');
     assert.equal(result.providerReads.preflight, 250);
@@ -955,6 +963,176 @@ test('cli failure handler preserves existing valid result.json instead of clobbe
       });
     } finally {
       await rm(recoveryRunnerTemp, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test('cli failure handler preserves validated identity and conservative reads for null-result cleanup-recovered', async () => {
+  const prepared = await preparedTestRun();
+  try {
+    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
+    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
+    const recoveryFile = path.join(recoveryDir, 'recovery.json');
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
+    const validRecovery = {
+      schema: 1,
+      repository: context.repository,
+      workflowPath: context.workflowPath,
+      runId: context.runId,
+      runAttempt: context.runAttempt,
+      sourceSha: context.sourceSha,
+      artifactId: '1234',
+      resultArtifactId: null
+    };
+    await writeFile(recoveryFile, `${JSON.stringify(validRecovery)}\n`, { mode: 0o600 });
+
+    const runBadToken = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+      env: {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: recoveryFile,
+        TOPOLOGY_PRIOR_RESULT_FILE: '',
+        CLEANUP_RUN_ID: context.runId,
+        CLEANUP_ATTEMPT: context.runAttempt,
+        CLOUDFLARE_API_TOKEN: 'bad'
+      },
+      encoding: 'utf8'
+    });
+    assert.equal(runBadToken.status, 1);
+    const written = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.deepEqual(written.identity, prepared.identity);
+    assert.equal(written.phase, 'recovery_cleanup');
+    assert.equal(written.cleanup, 'blocked');
+    assert.equal(written.reason, 'cleanup_failed');
+    assert.equal(written.deploymentAttempted, 'unknown');
+    assert.equal(written.providerReads.preflight, 250);
+    assert.equal(written.providerReads.cleanup, 0);
+    assert.equal(written.providerReads.total, 250);
+
+    // Verify a follow-up cleanup-recovered continuation consumes this fallback result.json cleanly.
+    const nextTemp = await mkdtemp(path.join(tmpdir(), 'topology-cli-cont-'));
+    try {
+      const nextRecoveryDir = path.join(nextTemp, 'eligibility-topology-recovery');
+      const nextPrepDir = path.join(nextTemp, 'eligibility-topology-prepared');
+      const priorCopy = path.join(nextTemp, 'prior.json');
+      await mkdir(nextRecoveryDir, { recursive: true, mode: 0o700 });
+      await mkdir(nextPrepDir, { recursive: true, mode: 0o700 });
+      await writeFile(priorCopy, `${JSON.stringify(written)}\n`, { mode: 0o600 });
+      await writeFile(
+        path.join(nextRecoveryDir, 'recovery.json'),
+        `${JSON.stringify({ ...validRecovery, runId: '789', resultArtifactId: '9999' })}\n`,
+        { mode: 0o600 }
+      );
+      await writeFile(
+        path.join(nextPrepDir, 'prepared.json'),
+        await readFile(path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'prepared.json'), 'utf8'),
+        { mode: 0o600 }
+      );
+      await writeFile(
+        path.join(nextPrepDir, 'staging-topology-worker.mjs'),
+        await readFile(path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'staging-topology-worker.mjs'))
+      );
+      const fixture = deletableWorkerFixture(prepared.manifest);
+      const exitCode = await topologyRunner.cleanup(
+        {
+          ...prepared.env,
+          RUNNER_TEMP: nextTemp,
+          TOPOLOGY_RECOVERY_FILE: path.join(nextRecoveryDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: priorCopy,
+          CLEANUP_RUN_ID: '789',
+          CLEANUP_ATTEMPT: '1'
+        },
+        true,
+        fixture.options
+      );
+      const nextResult = JSON.parse(
+        await readFile(path.join(nextTemp, 'eligibility-topology-result', 'result.json'), 'utf8')
+      );
+      assert.equal(exitCode, 0);
+      assert.equal(fixture.isDeleted(), true);
+      assert.deepEqual(nextResult.identity, prepared.identity);
+      assert.equal(nextResult.cleanup, 'removed');
+    } finally {
+      await rm(nextTemp, { recursive: true, force: true });
+    }
+
+    // run-state.json on disk is preserved in fallback deploymentAttempted / cleanupCalls / cleanupStartedAt.
+    await rm(resultFile, { force: true });
+    const runStatePath = path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'run-state.json');
+    await writeFile(
+      runStatePath,
+      `${JSON.stringify({
+        schema: 1,
+        identity: prepared.identity,
+        accountSha256: prepared.accountSha256,
+        startedAt: prepared.startedAt,
+        preflightCalls: 9,
+        cleanupCalls: 7,
+        cleanupStartedAt: prepared.startedAt + 1_000,
+        cleanupDeadlineAt: prepared.startedAt + 121_000,
+        deploymentAttempted: true,
+        deploymentExitCode: 0,
+        phase: 'cleanup'
+      })}\n`,
+      { mode: 0o600 }
+    );
+    const runWithState = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+      env: {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: recoveryFile,
+        TOPOLOGY_PRIOR_RESULT_FILE: '',
+        CLEANUP_RUN_ID: context.runId,
+        CLEANUP_ATTEMPT: context.runAttempt,
+        CLOUDFLARE_API_TOKEN: 'bad'
+      },
+      encoding: 'utf8'
+    });
+    assert.equal(runWithState.status, 1);
+    const writtenWithState = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.deepEqual(writtenWithState.identity, prepared.identity);
+    assert.equal(writtenWithState.deploymentAttempted, true);
+    assert.equal(writtenWithState.providerReads.preflight, 250);
+    assert.equal(writtenWithState.providerReads.cleanup, 7);
+    assert.equal(writtenWithState.providerReads.cleanupStartedAt, prepared.startedAt + 1_000);
+    assert.equal(writtenWithState.providerReads.cleanupDeadlineAt, prepared.startedAt + 121_000);
+    await rm(runStatePath, { force: true });
+
+    // Missing CLOUDFLARE_ACCOUNT_ID still preserves validated identity & preflight: 250.
+    await rm(resultFile, { force: true });
+    const envNoAcct = {
+      ...prepared.env,
+      TOPOLOGY_RECOVERY_FILE: recoveryFile,
+      TOPOLOGY_PRIOR_RESULT_FILE: '',
+      CLEANUP_RUN_ID: context.runId,
+      CLEANUP_ATTEMPT: context.runAttempt
+    };
+    delete envNoAcct.CLOUDFLARE_ACCOUNT_ID;
+    const runNoAcct = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+      env: envNoAcct,
+      encoding: 'utf8'
+    });
+    assert.equal(runNoAcct.status, 1);
+    const writtenNoAcct = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.deepEqual(writtenNoAcct.identity, prepared.identity);
+    assert.equal(writtenNoAcct.providerReads.preflight, 250);
+
+    // Mismatched valid CLOUDFLARE_ACCOUNT_ID, tampered recovery.json, and non-empty invalid prior file fail closed to identity: null.
+    const negativeCases = [
+      { ...prepared.env, TOPOLOGY_RECOVERY_FILE: recoveryFile, TOPOLOGY_PRIOR_RESULT_FILE: '', CLEANUP_RUN_ID: context.runId, CLEANUP_ATTEMPT: context.runAttempt, CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32), CLOUDFLARE_API_TOKEN: 'bad' },
+      { ...prepared.env, TOPOLOGY_RECOVERY_FILE: recoveryFile, TOPOLOGY_PRIOR_RESULT_FILE: '', CLEANUP_RUN_ID: '999', CLEANUP_ATTEMPT: context.runAttempt, CLOUDFLARE_API_TOKEN: 'bad' },
+      { ...prepared.env, TOPOLOGY_RECOVERY_FILE: recoveryFile, TOPOLOGY_PRIOR_RESULT_FILE: path.join(prepared.runnerTemp, 'missing-prior.json'), CLEANUP_RUN_ID: context.runId, CLEANUP_ATTEMPT: context.runAttempt, CLOUDFLARE_API_TOKEN: 'bad' }
+    ];
+    for (const negEnv of negativeCases) {
+      await rm(resultFile, { force: true });
+      const negRun = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+        env: negEnv,
+        encoding: 'utf8'
+      });
+      assert.equal(negRun.status, 1);
+      const negWritten = JSON.parse(await readFile(resultFile, 'utf8'));
+      assert.equal(negWritten.identity, null);
     }
   } finally {
     await rm(prepared.runnerTemp, { recursive: true, force: true });

@@ -118,6 +118,19 @@ export async function prepareTopologyRecovery(input, effects) {
       }
       if (candidate.id === Number(effects.context.runId)) continue;
       requireValue(typeof candidate.name === 'string');
+      const skippedNonMain =
+        candidate.status === 'completed' &&
+        candidate.conclusion === 'skipped' &&
+        candidate.event === 'workflow_dispatch' &&
+        typeof candidate.head_branch === 'string' &&
+        candidate.head_branch.length > 0 &&
+        candidate.head_branch !== 'main' &&
+        candidate.path === WORKFLOW &&
+        candidate.workflow_id === prior.workflow_id &&
+        candidate.repository?.id === prior.repository.id &&
+        candidate.repository?.full_name === REPOSITORY &&
+        candidate.repository?.fork === false;
+      if (skippedNonMain) continue;
       const parent = marker.exec(candidate.name);
       requireValue(!candidate.name.startsWith(`cleanup_run_id=${input.runId} `) || parent !== null);
       requireValue(parent?.[1] !== input.runId || parent?.[2] !== input.runAttempt);

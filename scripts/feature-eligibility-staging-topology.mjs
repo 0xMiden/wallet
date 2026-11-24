@@ -279,6 +279,137 @@ async function loadPrepared(env, { identity, accountSha256 } = {}) {
   return { paths, value: validatePrepared(value, { identity, accountSha256, bundle }), bundle };
 }
 
+async function readRecoveryReceipt(env, { requireNullResult = false } = {}) {
+  const recoveryFile = env.TOPOLOGY_RECOVERY_FILE;
+  if (typeof recoveryFile !== 'string') fail('missing_recovery_receipt');
+  const recovery = JSON.parse(await readFile(recoveryFile, 'utf8'));
+  if (!exactKeys(recovery, ['schema', 'repository', 'workflowPath', 'runId', 'runAttempt', 'sourceSha', 'artifactId', 'resultArtifactId']))
+    fail('invalid_recovery_receipt');
+  if (requireNullResult && recovery.resultArtifactId !== null) fail('invalid_recovery_receipt');
+  const priorPath = env.TOPOLOGY_PRIOR_RESULT_FILE;
+  let previous = {};
+  let identity;
+  if (recovery.resultArtifactId === null) {
+    if (typeof priorPath === 'string' && priorPath.length > 0) fail('invalid_recovery_receipt');
+    identity = topologyRecoveryIdentity({
+      recovery,
+      selectedRunId: env.CLEANUP_RUN_ID,
+      selectedRunAttempt: env.CLEANUP_ATTEMPT
+    });
+  } else {
+    if (typeof recovery.resultArtifactId !== 'string' || !/^[1-9][0-9]{0,17}$/.test(recovery.resultArtifactId))
+      fail('invalid_recovery_receipt');
+    if (typeof priorPath !== 'string' || priorPath.length === 0) fail('missing_prior_topology_result');
+    previous = JSON.parse(await readFile(priorPath, 'utf8'));
+    identity = topologyRecoveryIdentity({
+      recovery,
+      previous,
+      selectedRunId: env.CLEANUP_RUN_ID,
+      selectedRunAttempt: env.CLEANUP_ATTEMPT
+    });
+  }
+  if (
+    recovery.repository !== identity.repository ||
+    recovery.workflowPath !== identity.workflowPath ||
+    typeof recovery.sourceSha !== 'string' ||
+    recovery.sourceSha !== identity.sourceSha ||
+    !/^[a-f0-9]{40}$/.test(recovery.sourceSha) ||
+    !/^[1-9][0-9]{0,17}$/.test(String(recovery.artifactId))
+  )
+    fail('invalid_recovery_receipt');
+  return { recovery, identity, previous };
+}
+
+async function readValidRunState(statePath, { identity, accountSha256, startedAt, preflightCalls }) {
+  try {
+    const saved = JSON.parse(await readFile(statePath, 'utf8'));
+    if (
+      exactKeys(saved, [
+        'schema',
+        'identity',
+        'accountSha256',
+        'startedAt',
+        'preflightCalls',
+        'cleanupCalls',
+        'cleanupStartedAt',
+        'cleanupDeadlineAt',
+        'deploymentAttempted',
+        'deploymentExitCode',
+        'phase'
+      ]) &&
+      saved.schema === 1 &&
+      same(saved.identity, identity) &&
+      saved.accountSha256 === accountSha256 &&
+      saved.startedAt === startedAt &&
+      Number.isSafeInteger(saved.preflightCalls) &&
+      saved.preflightCalls >= preflightCalls &&
+      saved.preflightCalls <= 250 &&
+      Number.isSafeInteger(saved.cleanupCalls) &&
+      saved.cleanupCalls >= 0 &&
+      saved.cleanupCalls <= 250 &&
+      ((saved.cleanupStartedAt === null && saved.cleanupDeadlineAt === null && saved.cleanupCalls === 0) ||
+        (Number.isSafeInteger(saved.cleanupStartedAt) &&
+          saved.cleanupDeadlineAt === saved.cleanupStartedAt + 120_000)) &&
+      typeof saved.deploymentAttempted === 'boolean'
+    )
+      return saved;
+  } catch {
+  }
+  return undefined;
+}
+
+function buildFallbackProviderReads(startedAt, state) {
+  const hasCleanupWindow =
+    Number.isSafeInteger(state?.cleanupStartedAt) && state.cleanupStartedAt >= startedAt;
+  const nowMs = Math.max(Date.now(), startedAt, hasCleanupWindow ? state.cleanupStartedAt : startedAt);
+  const preflightElapsedMs = nowMs - startedAt;
+  const cleanup = state?.cleanupCalls ?? 0;
+  const providerReads = {
+    preflight: MAX_PHASE_READS,
+    cleanup,
+    total: MAX_PHASE_READS + cleanup,
+    elapsedMs: preflightElapsedMs,
+    preflightStartedAt: startedAt,
+    preflightDeadlineAt: startedAt + 120_000,
+    cleanupStartedAt: hasCleanupWindow ? state.cleanupStartedAt : null,
+    cleanupDeadlineAt: hasCleanupWindow ? state.cleanupStartedAt + 120_000 : null,
+    preflightElapsedMs,
+    cleanupElapsedMs: hasCleanupWindow ? nowMs - state.cleanupStartedAt : null
+  };
+  if (!validProviderReads(providerReads, startedAt)) fail('cleanup_budget_lineage_unavailable');
+  return providerReads;
+}
+
+async function buildNullResultRecoveryFallback(env) {
+  const { identity } = await readRecoveryReceipt(env, { requireNullResult: true });
+  const paths = preparedPaths(env);
+  const rawPrepared = JSON.parse(await readFile(paths.manifest, 'utf8'));
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const expectedAccountSha256 =
+    typeof accountId === 'string' && ACCOUNT_ID.test(accountId) ? hash(accountId) : rawPrepared?.accountSha256;
+  if (typeof expectedAccountSha256 !== 'string' || !SHA256.test(expectedAccountSha256)) {
+    fail('prepared_artifact_mismatch');
+  }
+  const loaded = await loadPrepared(env, { identity, accountSha256: expectedAccountSha256 });
+  const state = await readValidRunState(loaded.paths.state, {
+    identity,
+    accountSha256: loaded.value.accountSha256,
+    startedAt: loaded.value.startedAt,
+    preflightCalls: loaded.value.preflightCalls
+  });
+  return {
+    schema: 1,
+    identity,
+    phase: 'recovery_cleanup',
+    manifestSha256: hash(JSON.stringify(loaded.value.manifest)),
+    bundleSha256: loaded.value.manifest.bundleSha256,
+    deploymentAttempted: state?.deploymentAttempted ?? 'unknown',
+    cleanup: 'blocked',
+    reason: 'cleanup_failed',
+    providerReads: buildFallbackProviderReads(loaded.value.startedAt, state)
+  };
+}
+
 async function writeRunState(file, value) {
   await writeJson(file, value);
 }
@@ -575,78 +706,16 @@ export async function cleanup(
   let recovery;
   let previous = {};
   if (recovered) {
-    const recoveryFile = env.TOPOLOGY_RECOVERY_FILE;
-    if (typeof recoveryFile !== 'string') fail('missing_recovery_receipt');
-    recovery = JSON.parse(await readFile(recoveryFile, 'utf8'));
-    if (!exactKeys(recovery, ['schema', 'repository', 'workflowPath', 'runId', 'runAttempt', 'sourceSha', 'artifactId', 'resultArtifactId']))
-      fail('invalid_recovery_receipt');
-    const priorPath = env.TOPOLOGY_PRIOR_RESULT_FILE;
-    if (recovery.resultArtifactId === null) {
-      if (typeof priorPath === 'string' && priorPath.length > 0) fail('invalid_recovery_receipt');
-      identity = topologyRecoveryIdentity({
-        recovery,
-        selectedRunId: env.CLEANUP_RUN_ID,
-        selectedRunAttempt: env.CLEANUP_ATTEMPT
-      });
-    } else {
-      if (typeof recovery.resultArtifactId !== 'string' || !/^[1-9][0-9]{0,17}$/.test(recovery.resultArtifactId))
-        fail('invalid_recovery_receipt');
-      if (typeof priorPath !== 'string' || priorPath.length === 0) fail('missing_prior_topology_result');
-      previous = JSON.parse(await readFile(priorPath, 'utf8'));
-      identity = topologyRecoveryIdentity({
-        recovery,
-        previous,
-        selectedRunId: env.CLEANUP_RUN_ID,
-        selectedRunAttempt: env.CLEANUP_ATTEMPT
-      });
-    }
-    if (
-      recovery.repository !== identity.repository ||
-      recovery.workflowPath !== identity.workflowPath ||
-      typeof recovery.sourceSha !== 'string' ||
-      recovery.sourceSha !== identity.sourceSha ||
-      !/^[a-f0-9]{40}$/.test(recovery.sourceSha) ||
-      !/^[1-9][0-9]{0,17}$/.test(String(recovery.artifactId))
-    )
-      fail('invalid_recovery_receipt');
+    ({ recovery, identity, previous } = await readRecoveryReceipt(env));
   } else identity = currentIdentity(env);
 
   const loaded = await loadPrepared(env, { identity, accountSha256: credentials.accountSha256 });
-  let state;
-  try {
-    const saved = JSON.parse(await readFile(loaded.paths.state, 'utf8'));
-    if (
-      exactKeys(saved, [
-        'schema',
-        'identity',
-        'accountSha256',
-        'startedAt',
-        'preflightCalls',
-        'cleanupCalls',
-        'cleanupStartedAt',
-        'cleanupDeadlineAt',
-        'deploymentAttempted',
-        'deploymentExitCode',
-        'phase'
-      ]) &&
-      saved.schema === 1 &&
-      same(saved.identity, identity) &&
-      saved.accountSha256 === credentials.accountSha256 &&
-      saved.startedAt === loaded.value.startedAt &&
-      Number.isSafeInteger(saved.preflightCalls) &&
-      saved.preflightCalls >= loaded.value.preflightCalls &&
-      saved.preflightCalls <= 250 &&
-      Number.isSafeInteger(saved.cleanupCalls) &&
-      saved.cleanupCalls >= 0 &&
-      saved.cleanupCalls <= 250 &&
-      ((saved.cleanupStartedAt === null && saved.cleanupDeadlineAt === null && saved.cleanupCalls === 0) ||
-        (Number.isSafeInteger(saved.cleanupStartedAt) &&
-          saved.cleanupDeadlineAt === saved.cleanupStartedAt + 120_000)) &&
-      typeof saved.deploymentAttempted === 'boolean'
-    )
-      state = saved;
-  } catch {
-  }
+  const state = await readValidRunState(loaded.paths.state, {
+    identity,
+    accountSha256: credentials.accountSha256,
+    startedAt: loaded.value.startedAt,
+    preflightCalls: loaded.value.preflightCalls
+  });
   if (recovered && recovery.resultArtifactId !== null) {
     if (
       previous?.schema !== 1 ||
@@ -776,16 +845,23 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     .catch(async error => {
       const env = process.env;
       if (!(await hasValidResultOnDisk(env))) {
-        const prior = process.argv[2] === 'cleanup-recovered' ? await readValidPriorResult(env) : null;
-        if (prior) {
-          await writeResult(env, {
-            ...prior,
-            phase: 'recovery_cleanup',
-            cleanup: 'blocked',
-            reason: 'cleanup_failed'
-          }).catch(() => {});
-        } else {
-          await writeResult(env, {
+        const priorPath = env.TOPOLOGY_PRIOR_RESULT_FILE;
+        const isRecoveredCli = process.argv[2] === 'cleanup-recovered';
+        const prior = isRecoveredCli ? await readValidPriorResult(env) : null;
+        const fallback =
+          prior !== null
+            ? {
+                ...prior,
+                phase: 'recovery_cleanup',
+                cleanup: 'blocked',
+                reason: 'cleanup_failed'
+              }
+            : isRecoveredCli && (typeof priorPath !== 'string' || priorPath.length === 0)
+              ? await buildNullResultRecoveryFallback(env).catch(() => null)
+              : null;
+        await writeResult(
+          env,
+          fallback ?? {
             schema: 1,
             identity: null,
             phase: 'preparation',
@@ -796,8 +872,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
             )
               ? error.reason
               : 'preparation_failed'
-          }).catch(() => {});
-        }
+          }
+        ).catch(() => {});
       }
       process.exitCode = 1;
     });

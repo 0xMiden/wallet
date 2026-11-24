@@ -535,3 +535,70 @@ test('recovery CLI prepare writes formatted GITHUB_OUTPUT and receipt with empty
     await rm(runnerTemp, { recursive: true, force: true });
   }
 });
+
+test('recovery ignores completed skipped non-main workflow dispatches matching parent markers', async () => {
+  for (const name of ['cleanup_run_id=77 cleanup_attempt=1', 'cleanup_run_id=77 cleanup_attempt=']) {
+    const skippedRun = githubRecord({
+      id: 89,
+      run_attempt: 1,
+      name,
+      head_branch: 'feature/typo',
+      status: 'completed',
+      conclusion: 'skipped'
+    });
+    const { calls, value } = lineageEffects({
+      runs: [skippedRun],
+      attemptsByRun: { 89: [skippedRun] },
+      artifactsByRun: { 89: [] }
+    });
+    const receipt = await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value);
+    assert.equal(receipt.runId, '77');
+    assert.equal(calls.some(p => p.startsWith('/actions/runs/89/attempts/')), false);
+    assert.equal(calls.some(p => p.startsWith('/actions/runs/89/artifacts?')), false);
+  }
+});
+
+test('recovery remains fail-closed for skipped main runs, non-skipped runs, and malformed skipped candidates', async () => {
+  const marker = 'cleanup_run_id=77 cleanup_attempt=1';
+  const baseSkipped = {
+    id: 89,
+    run_attempt: 1,
+    name: marker,
+    head_branch: 'feature/typo',
+    status: 'completed',
+    conclusion: 'skipped'
+  };
+  const blockingCases = [
+    { head_branch: '' },
+    { head_branch: null },
+    { head_branch: undefined },
+    { head_branch: 'main' },
+    { status: 'in_progress' },
+    { event: 'push' },
+    { repository: { id: 2, full_name: '0xMiden/wallet', fork: false } },
+    { repository: { id: 1, full_name: 'other/wallet', fork: false } },
+    { repository: { id: 1, full_name: '0xMiden/wallet', fork: true } },
+    { path: '.github/workflows/probe-feature-eligibility.yml' },
+    { workflow_id: 99 },
+    { conclusion: 'failure' },
+    { conclusion: 'success' },
+    { conclusion: 'cancelled' },
+    { conclusion: null },
+    { name: null }
+  ];
+
+  for (const overrides of blockingCases) {
+    const candidate = githubRecord({ ...baseSkipped, ...overrides });
+    const { calls, value } = lineageEffects({
+      runs: [candidate],
+      attemptsByRun: { 89: [candidate] },
+      artifactsByRun: { 89: [] }
+    });
+    await assert.rejects(
+      prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value),
+      /Recovery provenance blocked/
+    );
+    assert.equal(calls.some(p => p.startsWith('/actions/runs/89/attempts/')), false);
+    assert.equal(calls.some(p => p.startsWith('/actions/runs/89/artifacts?')), false);
+  }
+});
