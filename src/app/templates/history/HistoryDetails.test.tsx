@@ -1020,7 +1020,12 @@ describe('HistoryDetails', () => {
     expect(rowByLabel('route')).toBeUndefined();
     expect(rowByLabel('noteId')).toBeUndefined();
     expect(rowByLabel('from')).toBeUndefined();
-    expect(screen.getAllByRole('link').some(link => link.getAttribute('href')?.includes('etherscan.io'))).toBe(false);
+    const linkHosts = screen
+      .getAllByRole('link')
+      .map(link => link.getAttribute('href'))
+      .filter((href): href is string => href !== null)
+      .map(href => new URL(href, 'https://wallet.invalid').hostname);
+    expect(linkHosts.some(host => host === 'etherscan.io' || host.endsWith('.etherscan.io'))).toBe(false);
     const details = screen.getAllByTestId('detail-row');
     expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
       'Ethereum'
