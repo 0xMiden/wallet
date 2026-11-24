@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
 - [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
 - [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
 - [CHORE][ci] Run Guardian Bridge-Out E2E through Release E2E instead of on every pull request.
