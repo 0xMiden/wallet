@@ -64,18 +64,20 @@ async function openActivity(
 ) {
   const page = await context.newPage();
   if (viewport) await page.setViewportSize(viewport);
+  if (entry !== 'fullpage.html') {
+    // An empty background would close the compact surface and open real onboarding first.
+    await page.addInitScript(() => {
+      window.close = () => {};
+    });
+  }
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`chrome-extension://${id}/${entry}`);
   expect(await page.evaluate(() => chrome.extension.inIncognitoContext)).toBe(false);
   await page
-    .getByTestId('onboarding-welcome')
-    .waitFor({ timeout: 45_000 })
-    .catch(async error => {
-      throw new Error(
-        `Activity fixture startup failed: ${await page.locator('body').innerText()} | ${errors.join('; ')}`,
-        { cause: error }
-      );
+    .waitForFunction(() => window.__TEST_STORE__?.getState().isInitialized === true, undefined, { timeout: 45_000 })
+    .catch(error => {
+      throw new Error(`Activity fixture startup failed: ${errors.join('; ')}`, { cause: error });
     });
   await page.evaluate(
     ({ walletType, destination }) => {
@@ -90,7 +92,7 @@ async function openActivity(
       const store = window.__TEST_STORE__;
       if (!store) throw new Error('Build with MIDEN_E2E_TEST=true');
       // Fixture is frontend state only: the empty backend remains locked/idle.
-      store.setState({ status: 2, isInitialized: true, accounts: [account], currentAccount: account });
+      store.setState({ status: 2, isInitialized: true, settings: {}, accounts: [account], currentAccount: account });
       window.history.replaceState(null, '', `${window.location.pathname}#${destination}`);
     },
     { walletType: WalletType.OffChain, destination: route }
