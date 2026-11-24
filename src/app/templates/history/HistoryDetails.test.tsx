@@ -660,6 +660,7 @@ describe('HistoryDetails', () => {
     label: string;
     type: ITransactionType;
     bridgeInProvider?: 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
+    bridgeProvider?: 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
     hasOneClick?: boolean;
     isCancelled?: boolean;
     isUnconfirmed?: boolean;
@@ -744,6 +745,19 @@ describe('HistoryDetails', () => {
       expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
     },
     {
+      label: 'bridged-send (near-intents with 1Click)',
+      type: 'bridged-send',
+      bridgeProvider: 'near-intents',
+      hasOneClick: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'bridged-send (near-intents without 1Click)',
+      type: 'bridged-send',
+      bridgeProvider: 'near-intents',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
       label: 'bridged-receive (legacy undefined provider)',
       type: 'bridged-receive',
       expected: { bridgeClaim: false, inboundBridge: true, oneClick: false, from: 'none', to: 'account' }
@@ -811,7 +825,16 @@ describe('HistoryDetails', () => {
     }
   ])(
     'selects explicit sections and address roles for $label',
-    ({ type, bridgeInProvider, hasOneClick, isCancelled, isUnconfirmed, guardianRecovered, expected }) => {
+    ({
+      type,
+      bridgeInProvider,
+      bridgeProvider,
+      hasOneClick,
+      isCancelled,
+      isUnconfirmed,
+      guardianRecovered,
+      expected
+    }) => {
       const entry: IHistoryEntry = {
         key: 'policy-entry',
         address: 'account',
@@ -819,6 +842,7 @@ describe('HistoryDetails', () => {
         type: HistoryEntryType.CompletedTransaction,
         txType: type,
         bridgeInProvider,
+        bridgeProvider,
         isCancelled,
         isUnconfirmed,
         guardianRecovered,
@@ -1113,6 +1137,95 @@ describe('HistoryDetails', () => {
     expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
       'unknown-chain'
     );
+  });
+
+  it('renders an outbound near-intents bridged-send row with 1Click details, destination address, and no claim section', async () => {
+    setMockRow({
+      ...baseSendTx,
+      id: 'one-click-bridged-send',
+      type: 'bridged-send',
+      secondaryAccountId: 'mtst1depositaddr',
+      extraInputs: {
+        provider: 'near-intents',
+        destinationAddress: 'So1anaRecipient11111111111111111111111111111',
+        destinationNetwork: -1,
+        destinationChain: { id: 'sol', name: 'Solana' },
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        outputAmount: '250',
+        outputSymbol: 'USDC',
+        oneClick: {
+          direction: 'miden-to-evm',
+          request: {
+            amount: '1000000',
+            originAsset: 'miden-usdc',
+            destinationAsset: 'sol-usdc',
+            refundTo: 'acct-A',
+            recipient: 'So1anaRecipient11111111111111111111111111111',
+            deadline: '2026-10-22T12:00:00.000Z',
+            slippageTolerance: 100
+          },
+          quote: {
+            correlationId: 'correlation',
+            timestamp: '2026-10-22T11:00:00.000Z',
+            signature: 'signature',
+            quoteRequest: {
+              dry: false,
+              swapType: 'EXACT_INPUT',
+              slippageTolerance: 100,
+              originAsset: 'miden-usdc',
+              depositType: 'ORIGIN_CHAIN',
+              destinationAsset: 'sol-usdc',
+              amount: '1000000',
+              refundTo: 'acct-A',
+              refundType: 'ORIGIN_CHAIN',
+              recipient: 'So1anaRecipient11111111111111111111111111111',
+              recipientType: 'DESTINATION_CHAIN',
+              deadline: '2026-10-22T12:00:00.000Z'
+            },
+            quote: {
+              amountIn: '1000000',
+              amountInFormatted: '1',
+              amountInUsd: '1',
+              minAmountIn: '1000000',
+              amountOut: '250000000',
+              amountOutFormatted: '250',
+              amountOutUsd: '250',
+              minAmountOut: '240000000',
+              depositAddress: 'mtst1depositaddr',
+              deadline: '2026-10-22T12:00:00.000Z',
+              timeEstimate: 30
+            }
+          },
+          config: {
+            serviceUrl: 'https://service.example',
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+          },
+          network: 'mainnet',
+          accountId: 'acct-A',
+          accountAddress: 'acct-A',
+          faucetId: 'faucet',
+          amount: '1000000',
+          originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+          destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+          phase: 'processing',
+          depositAddress: 'mtst1depositaddr',
+          providerStatus: 'PROCESSING',
+          updatedAt: Date.now()
+        }
+      }
+    });
+
+    await renderAndLoad({ transactionId: 'one-click-bridged-send' });
+
+    expect(mockBridgeClaimSection).not.toHaveBeenCalled();
+    expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+    expect(screen.queryByTestId('history-near-intents-deposit-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-status-pill')).toHaveTextContent('pending');
+    const toRow = rowByLabel('to');
+    expect(toRow).toBeDefined();
+    expect(toRow).toHaveTextContent('So1ana');
+    expect(toRow!.querySelector('a')).toBeNull();
   });
 
   it('shows both Guardians on a recovered switch receipt', async () => {

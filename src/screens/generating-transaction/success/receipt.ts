@@ -111,10 +111,12 @@ export const buildReceiptRows = (
 export const bridgeRouteValue = (t: TFn, provider: IBridgeProvider): string =>
   provider === 'epoch'
     ? t('bridgeRouteViaEpoch', { defaultValue: 'Via Epoch' })
-    : t('bridgeRouteViaAgglayer', { defaultValue: 'Via Agglayer' });
+    : provider === 'near-intents'
+      ? t('bridgeRouteViaOneClick', { defaultValue: 'Via 1Click' })
+      : t('bridgeRouteViaAgglayer', { defaultValue: 'Via Agglayer' });
 
 /** Human speed label used as the "Route" row value, by provider. */
 export const bridgeSpeedLabel = (t: TFn, provider: IBridgeProvider): string =>
-  provider === 'epoch'
+  provider === 'epoch' || provider === 'near-intents'
     ? t('bridgeSpeedFast', { defaultValue: 'Fast' })
     : t('bridgeSpeedSlow', { defaultValue: 'Slow' });

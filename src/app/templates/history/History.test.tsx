@@ -3097,6 +3097,67 @@ describe('History Agglayer destination plumbing', () => {
   });
 });
 
+describe('History near-intents outbound plumbing', () => {
+  it('keeps destinationChain and oneClickTracking on completed and pending bridged-send entries', async () => {
+    const destinationChain = { id: 'sol', name: 'Solana' };
+    const completedTracking = { updatedAt: 1000, phase: 'delivered' };
+    const pendingTracking = { updatedAt: 2000, phase: 'processing' };
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'NI-COMPLETE',
+              status: STATUS.Completed,
+              type: 'bridged-send',
+              completedAt: 3000,
+              extraInputs: {
+                provider: 'near-intents',
+                destinationAddress: 'So1anaDest111',
+                destinationNetwork: -1,
+                destinationChain,
+                oneClick: completedTracking
+              }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'NI-PENDING',
+        status: STATUS.GeneratingTransaction,
+        type: 'bridged-send',
+        initiatedAt: 1000,
+        extraInputs: {
+          provider: 'near-intents',
+          destinationAddress: 'So1anaDest111',
+          destinationNetwork: -1,
+          destinationChain,
+          oneClick: pendingTracking
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    expect(mockHistoryViewProps.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'completed-NI-COMPLETE',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationChain: destinationChain,
+          oneClickTracking: completedTracking
+        }),
+        expect.objectContaining({
+          key: 'pending-NI-PENDING',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationChain: destinationChain,
+          oneClickTracking: pendingTracking
+        })
+      ])
+    );
+  });
+});
+
 describe('History USDCx entry plumbing', () => {
   it('threads burn and bridged-receive state onto completed and pending entries', async () => {
     const completedBurn = {
@@ -4735,5 +4796,46 @@ describe('patchLoadedActivityStatus', () => {
     );
     expect(replaced).not.toBe(loaded);
     expect(replaced.entries[0]?.oneClickTracking).toBe(moved);
+  });
+
+  it('tracks destinationChain and 1Click status on a near-intents bridged-send row', () => {
+    const tracking = { updatedAt: 1_000, phase: 'processing' };
+    const row = {
+      id: 'near-send-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'bridged-send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'SEND',
+      extraInputs: {
+        provider: 'near-intents',
+        destinationAddress: 'So1anaDest111',
+        destinationNetwork: -1,
+        destinationChain: { id: 'sol', name: 'Solana' },
+        oneClick: tracking
+      }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-near-send-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.oneClickTracking).toBe(tracking);
+    expect(loaded.entries[0]?.bridgeDestinationChain).toEqual({ id: 'sol', name: 'Solana' });
+
+    const delivered = { ...tracking, phase: 'delivered', updatedAt: 2_000 };
+    const updated = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: delivered } }]])
+    );
+    expect(updated.entries[0]?.oneClickTracking).toBe(delivered);
   });
 });
