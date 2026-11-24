@@ -3156,6 +3156,42 @@ describe('History near-intents outbound plumbing', () => {
       ])
     );
   });
+
+  it('keeps legacy send oneClickTracking when provider is omitted on completed and pending rows', async () => {
+    const completedTracking = { updatedAt: 1000, phase: 'delivered' };
+    const pendingTracking = { updatedAt: 2000, phase: 'processing' };
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'NI-LEGACY-COMPLETE',
+              status: STATUS.Completed,
+              type: 'send',
+              completedAt: 3000,
+              extraInputs: { oneClick: completedTracking }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'NI-LEGACY-PENDING',
+        status: STATUS.GeneratingTransaction,
+        type: 'send',
+        initiatedAt: 1000,
+        extraInputs: { oneClick: pendingTracking }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    expect(mockHistoryViewProps.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'completed-NI-LEGACY-COMPLETE', oneClickTracking: completedTracking }),
+        expect.objectContaining({ key: 'pending-NI-LEGACY-PENDING', oneClickTracking: pendingTracking })
+      ])
+    );
+  });
 });
 
 describe('History USDCx entry plumbing', () => {
@@ -4837,5 +4873,30 @@ describe('patchLoadedActivityStatus', () => {
       new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: delivered } }]])
     );
     expect(updated.entries[0]?.oneClickTracking).toBe(delivered);
+  });
+
+  it('preserves oneClickTracking on a legacy send row without provider', () => {
+    const tracking = { updatedAt: 1_000, phase: 'processing' };
+    const row = {
+      id: 'near-legacy-send-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'SEND',
+      extraInputs: { oneClick: tracking }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-near-legacy-send-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.oneClickTracking).toBe(tracking);
   });
 });

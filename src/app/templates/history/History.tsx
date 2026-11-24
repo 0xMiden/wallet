@@ -22,6 +22,7 @@ import {
   IBridgeInInfo,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
+  ISendExtraInputs,
   ITransaction,
   ITransactionStatus,
   ISwitchGuardianExtraInputs
@@ -804,8 +805,8 @@ const loadedActivityOneClickTracking = (tx: ITransaction): IBridgedReceiveExtraI
     const extra = tx.extraInputs as IBridgedSendExtraInputs | undefined;
     return extra?.provider === 'near-intents' ? extra.oneClick : undefined;
   }
-  if (tx.type === 'send' && tx.extraInputs?.provider === 'near-intents') {
-    return (tx.extraInputs as { oneClick?: IBridgedSendExtraInputs['oneClick'] }).oneClick;
+  if (tx.type === 'send') {
+    return (tx.extraInputs as ISendExtraInputs | undefined)?.oneClick;
   }
   return undefined;
 };
