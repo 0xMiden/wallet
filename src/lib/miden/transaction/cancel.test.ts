@@ -22,6 +22,7 @@ import {
 } from './cancel';
 import {
   CLAIM_VAULT_SHORTFALL_ERROR,
+  PROOF_FRESHNESS_UNKNOWN_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
@@ -269,6 +270,18 @@ describe('the end of a swap, recorded when its row fails (#1660)', () => {
   ])('names %s as %s', async (_label, error, outcome) => {
     await cancelTransaction(swapRow('swap-1'), error);
     expect(ends()).toEqual([['operation_end', { operation: 'swap', outcome, duration: '1_to_5s' }]]);
+  });
+
+  it('preserves rawError with a network TypeError cause on ProofFreshnessUnknownError', async () => {
+    const error = new ProofFreshnessUnknownError('Could not establish proof freshness: TypeError: Failed to fetch', {
+      cause: new TypeError('Failed to fetch')
+    });
+    await cancelTransaction(swapRow('swap-freshness-cause'), error);
+    const row = mockRows.get('swap-freshness-cause');
+    expect(row?.error).toBe(PROOF_FRESHNESS_UNKNOWN_ERROR);
+    expect(row?.rawError).toContain('ProofFreshnessUnknownError:');
+    expect(row?.rawError).toContain('TypeError: Failed to fetch');
+    expect(ends()).toEqual([['operation_end', { operation: 'swap', outcome: 'timeout', duration: '1_to_5s' }]]);
   });
 
   it('records nothing for a row that was not failed', async () => {

@@ -2248,6 +2248,7 @@ const generateTransactionWithProvider = async (
         (currentRow?.stage === 'executing' || currentRow?.stage === 'proving') &&
         !abandonedWrite &&
         !isSubmitCrossingUnrecorded(error) &&
+        !isProofFreshnessUnknownError(error) &&
         !isGuardianUnauthorizedExecutionError(error) &&
         GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) &&
         isNodeOutage(error)

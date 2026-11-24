@@ -4935,6 +4935,7 @@ describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
     fireReady();
     const error = await failed;
     expect(isProofFreshnessUnknownError(error)).toBe(true);
+    expect((error as Error).message).toBe('tip unknown');
     expect(hasErrorBeforeSubmit(error)).toBe(true);
   });
 

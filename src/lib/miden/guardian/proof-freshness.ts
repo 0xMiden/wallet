@@ -72,18 +72,57 @@ export function markFailedReexecution(error: unknown): unknown {
 export const isFailedReexecution = (error: unknown): boolean =>
   someInCauseChain(error, link => 'failedReexecution' in link && link.failedReexecution === true);
 
+const MAX_TIP_ERROR_SUMMARY_CHARS = 300;
+
+const summarizeTipReadError = (cause: unknown): string => {
+  let name: string | undefined;
+  try {
+    if (cause instanceof Error && typeof cause.name === 'string' && cause.name.length > 0) {
+      name = cause.name;
+    }
+  } catch {
+    // Guarded: an unreadable name must not lose the error message.
+  }
+  const detail = errorMessageParts(cause).find(part => part.length > 0);
+  if (name && detail) return `${name}: ${detail}`.slice(0, MAX_TIP_ERROR_SUMMARY_CHARS);
+  if (detail) return detail.slice(0, MAX_TIP_ERROR_SUMMARY_CHARS);
+  if (name) return name.slice(0, MAX_TIP_ERROR_SUMMARY_CHARS);
+  try {
+    return String(cause).slice(0, MAX_TIP_ERROR_SUMMARY_CHARS);
+  } catch {
+    return 'unreadable error';
+  }
+};
+
 /** A proof cannot be sent unless a chain tip establishes its freshness within the bounded read. */
 export class ProofFreshnessUnknownError extends Error {
   readonly errorBeforeSubmit = true;
 
-  constructor() {
-    super(`Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`);
+  constructor(message?: string, options?: ErrorOptions) {
+    super(message || `Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`, options);
     this.name = 'ProofFreshnessUnknownError';
   }
 }
 
 export const isProofFreshnessUnknownError = (error: unknown): boolean =>
   someInCauseChain(error, link => link instanceof ProofFreshnessUnknownError);
+
+type TipReadOutcome =
+  | { ok: true; tip: number }
+  | { ok: false; timedOut: boolean; rejection?: { error: unknown } };
+
+const buildProofFreshnessUnknownError = (
+  outcome: Extract<TipReadOutcome, { ok: false }>
+): ProofFreshnessUnknownError => {
+  if (!outcome.rejection) {
+    return new ProofFreshnessUnknownError();
+  }
+  const summary = summarizeTipReadError(outcome.rejection.error);
+  const message = outcome.timedOut
+    ? `Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms: ${summary}`
+    : `Could not establish proof freshness: ${summary}`;
+  return new ProofFreshnessUnknownError(message, { cause: outcome.rejection.error });
+};
 
 /**
  * The timeout abandons a read on an RpcClient of its own, so nothing it leaves running touches the WASM client. A
@@ -95,23 +134,24 @@ const readTipInTime = (readTip: () => Promise<number>): Promise<number | undefin
     const startedAt = runningNow();
     let settled = false;
     let cancelBound = () => {};
-    const finish = (tip: number | undefined): void => {
+    let priorRejection: { error: unknown } | undefined;
+    const finish = (outcome: TipReadOutcome): void => {
       if (settled) return;
       settled = true;
       cancelBound();
-      resolve(tip);
+      resolve(outcome);
     };
     const accept = (tip: number): void => {
       if (runningNow() - startedAt >= CHAIN_TIP_READ_TIMEOUT_MS) {
         console.warn('[Guardian] chain tip read outlasted its bound; freshness is unknown');
-        finish(undefined);
+        finish({ ok: false, timedOut: true, rejection: priorRejection });
       } else {
-        finish(tip);
+        finish({ ok: true, tip });
       }
     };
     cancelBound = setRunningTimeout(() => {
       console.warn('[Guardian] chain tip read outlasted its bound; freshness is unknown');
-      finish(undefined);
+      finish({ ok: false, timedOut: true, rejection: priorRejection });
     }, CHAIN_TIP_READ_TIMEOUT_MS);
     void (async () => {
       try {
@@ -119,15 +159,22 @@ const readTipInTime = (readTip: () => Promise<number>): Promise<number | undefin
       } catch (error) {
         if (runningNow() - startedAt >= CHAIN_TIP_READ_TIMEOUT_MS) {
           console.warn('[Guardian] chain tip read outlasted its bound; freshness is unknown', error);
-          finish(undefined);
+          finish({ ok: false, timedOut: true, rejection: { error } });
           return;
         }
+        priorRejection = { error };
         console.warn('[Guardian] chain tip read failed; reading it once more', error);
         try {
           accept(await readTip());
         } catch (retryError) {
-          console.warn('[Guardian] chain tip read failed; freshness is unknown', retryError);
-          finish(undefined);
+          const timedOut = runningNow() - startedAt >= CHAIN_TIP_READ_TIMEOUT_MS;
+          console.warn(
+            timedOut
+              ? '[Guardian] chain tip read outlasted its bound; freshness is unknown'
+              : '[Guardian] chain tip read failed; freshness is unknown',
+            retryError
+          );
+          finish({ ok: false, timedOut, rejection: { error: retryError } });
         }
       }
     })();
@@ -188,9 +235,10 @@ export async function withFreshProof<T>({
     const proven = await executeAndProve({ reexecuting: reexecutions > 0, proveLocally, delegatedProveFailed });
     const expirationBlock = expirationBlockOf(proven);
     if (expirationBlock === undefined) return proven;
-    const tip = await readTipInTime(readTip);
+    const tipRead = await readTipInTime(readTip);
     assertLive();
-    if (tip === undefined) throw markErrorBeforeSubmit(new ProofFreshnessUnknownError());
+    if (!tipRead.ok) throw markErrorBeforeSubmit(buildProofFreshnessUnknownError(tipRead));
+    const tip = tipRead.tip;
     if (!isProofStale(expirationBlock, tip)) return proven;
     const now = runningNow();
     const elapsed = now - startedAt;

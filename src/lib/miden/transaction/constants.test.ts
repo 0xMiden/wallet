@@ -647,6 +647,16 @@ describe('an unreadable chain tip (#2193)', () => {
     expect(resolveTransactionErrorMessage(wrapped, 'proving', true)).toBe(PROOF_FRESHNESS_UNKNOWN_ERROR);
   });
 
+  it('keeps the user copy while preserving rawError when caused by a network TypeError', () => {
+    const networkFailure = new TypeError('Failed to fetch');
+    const error = new ProofFreshnessUnknownError('Could not establish proof freshness: TypeError: Failed to fetch', {
+      cause: networkFailure
+    });
+    expect(resolveTransactionErrorMessage(error, 'proving', false)).toBe(PROOF_FRESHNESS_UNKNOWN_ERROR);
+    expect(formatRawTransactionError(error)).toContain('ProofFreshnessUnknownError:');
+    expect(formatRawTransactionError(error)).toContain('TypeError: Failed to fetch');
+  });
+
   it('lets a kill in the chain win, since that pipeline may still submit', () => {
     const killed = new WasmClientPoisonedError('watchdog', new ProofFreshnessUnknownError());
     expect(resolveTransactionErrorMessage(killed, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);

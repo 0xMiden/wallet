@@ -54,6 +54,26 @@ describe('StaleProofError', () => {
   });
 });
 
+describe('ProofFreshnessUnknownError', () => {
+  it('defaults to the timeout message with no cause', () => {
+    const error = new ProofFreshnessUnknownError();
+    expect(error.name).toBe('ProofFreshnessUnknownError');
+    expect(error.message).toBe(`Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`);
+    expect(error.cause).toBeUndefined();
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+  });
+
+  it('accepts an explicit message and cause option', () => {
+    const cause = new TypeError('Failed to fetch');
+    const error = new ProofFreshnessUnknownError('Could not establish proof freshness: TypeError: Failed to fetch', {
+      cause
+    });
+    expect(error.message).toBe('Could not establish proof freshness: TypeError: Failed to fetch');
+    expect(error.cause).toBe(cause);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+  });
+});
+
 describe('markFailedReexecution', () => {
   it('keeps the thrown error, so its class still reaches the lock and the classifiers', () => {
     const failure = new Error('Failed to fetch');
@@ -139,15 +159,35 @@ describe('withFreshProof', () => {
     expect(executions).toHaveLength(1 + MAX_PROOF_REEXECUTIONS);
   });
 
-  it('fails before submit when both bounded tip reads reject', async () => {
+  it('fails before submit when both bounded tip reads reject, preserving cause without claiming 3000 ms', async () => {
+    const failure = new Error('node down');
     const { pending, executions } = run([STALE], async () => {
-      throw new Error('node down');
+      throw failure;
     });
     const error = await pending.catch((reason: unknown) => reason);
     expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+    expect((error as Error).message).toContain('node down');
+    expect((error as Error).message).not.toContain('3000 ms');
+    expect((error as Error).cause).toBe(failure);
     expect(hasErrorBeforeSubmit(error)).toBe(true);
     expect(isProofFreshnessUnknownError(new Error('wrapped', { cause: error }))).toBe(true);
     expect(executions).toEqual([false]);
+  });
+
+  it('guards hostile rejection causes without losing the error message or failing to classify', async () => {
+    const hostile = Object.defineProperty(new Error('node unreachable'), 'name', {
+      get() {
+        throw new Error('throwing name');
+      }
+    });
+    const { pending } = run([STALE], async () => {
+      throw hostile;
+    });
+    const error = await pending.catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+    expect((error as Error).message).toContain('node unreachable');
+    expect((error as Error).message).not.toContain('3000 ms');
+    expect((error as Error).cause).toBe(hostile);
   });
 
   it('reads the tip once more after a failed read, and judges that answer', async () => {
@@ -169,21 +209,25 @@ describe('withFreshProof', () => {
     expect(executions).toEqual([false]);
   });
 
-  it('gives the second read what is left of the one bound', async () => {
+  it('gives the second read what is left of the one bound, keeping 3000 ms with the prior cause when retry hangs', async () => {
     jest.useFakeTimers();
+    const priorFailure = new Error('connection lost on resume');
     const readTip = jest
       .fn<Promise<number>, []>()
       .mockImplementationOnce(async () => {
         jest.advanceTimersByTime(CHAIN_TIP_READ_TIMEOUT_MS - 1);
-        throw new Error('connection lost on resume');
+        throw priorFailure;
       })
       .mockImplementation(() => new Promise<number>(() => {}));
     const { pending, executions } = run([STALE], readTip);
-    const rejected = (async () => {
-      await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
-    })();
+    const rejected = pending.catch((reason: unknown) => reason);
     await jest.advanceTimersByTimeAsync(1);
-    await rejected;
+    const error = await rejected;
+    expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+    expect((error as Error).message).toContain('3000 ms');
+    expect((error as Error).message).toContain('connection lost on resume');
+    expect((error as Error).cause).toBe(priorFailure);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
     expect(readTip).toHaveBeenCalledTimes(2);
     expect(executions).toEqual([false]);
   });
@@ -199,7 +243,11 @@ describe('withFreshProof', () => {
       doc.setHidden(true);
       doc.freezeFor(60_000);
       doc.setHidden(false);
-      await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+      const error = await pending.catch((reason: unknown) => reason);
+      expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+      expect((error as Error).message).toBe(`Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`);
+      expect((error as Error).cause).toBeUndefined();
+      expect(hasErrorBeforeSubmit(error)).toBe(true);
       expect(executions).toEqual([false]);
     } finally {
       __resetBackgroundTimeForTest();
@@ -211,35 +259,43 @@ describe('withFreshProof', () => {
     const { pending, executions } = run([STALE], () => {
       throw new Error('no endpoint');
     });
-    await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
+    const error = await pending.catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+    expect((error as Error).message).toContain('no endpoint');
+    expect((error as Error).message).not.toContain('3000 ms');
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
     expect(executions).toEqual([false]);
   });
 
-  it('fails before submit when the tip read outlasts its bound', async () => {
+  it('fails before submit when the tip read outlasts its bound, with no cause', async () => {
     jest.useFakeTimers();
     const { pending, executions } = run([STALE], () => new Promise<number>(() => {}));
-    const rejected = (async () => {
-      await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
-    })();
+    const rejected = pending.catch((reason: unknown) => reason);
     await jest.advanceTimersByTimeAsync(CHAIN_TIP_READ_TIMEOUT_MS);
-    await rejected;
+    const error = await rejected;
+    expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+    expect((error as Error).message).toBe(`Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`);
+    expect((error as Error).cause).toBeUndefined();
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
     expect(executions).toEqual([false]);
   });
 
-  it('rejects a tip delivered after the deadline before the overdue timer callback runs', async () => {
+  it('rejects a tip delivered after the deadline before the overdue timer callback runs, with no cause', async () => {
     jest.useFakeTimers();
     let now = performance.now();
     const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
     try {
       let answer!: (tip: number) => void;
       const { pending, executions } = run([STALE], () => new Promise<number>(resolve => (answer = resolve)));
-      const rejected = (async () => {
-        await expect(pending).rejects.toMatchObject({ errorBeforeSubmit: true });
-      })();
+      const rejected = pending.catch((reason: unknown) => reason);
       await jest.advanceTimersByTimeAsync(0);
       now += CHAIN_TIP_READ_TIMEOUT_MS;
       answer(TIP);
-      await rejected;
+      const error = await rejected;
+      expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+      expect((error as Error).message).toBe(`Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`);
+      expect((error as Error).cause).toBeUndefined();
+      expect(hasErrorBeforeSubmit(error)).toBe(true);
       expect(executions).toEqual([false]);
     } finally {
       nowSpy.mockRestore();

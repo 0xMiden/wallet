@@ -535,7 +535,7 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       return;
     }
     if (resp.errorName === 'ProofFreshnessUnknownError') {
-      reject(new ProofFreshnessUnknownError());
+      reject(new ProofFreshnessUnknownError(resp.error));
       return;
     }
     if (resp.errorName === 'CalendarRecallReviewRequiredError') {

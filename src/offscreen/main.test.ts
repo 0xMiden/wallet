@@ -5495,6 +5495,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         errorName: 'ProofFreshnessUnknownError',
         errorBeforeSubmit: true
       });
+      expect(sendResponse.mock.calls[0][0].error).toContain('node down');
+      expect(sendResponse.mock.calls[0][0].error).not.toContain('3000 ms');
       expect(events).toEqual(['executing', 'execute', 'proving']);
       expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
       expect(G.__off.guardianSubmitted).toBe(false);

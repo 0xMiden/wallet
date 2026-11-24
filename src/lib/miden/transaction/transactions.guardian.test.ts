@@ -7210,6 +7210,32 @@ describe('generateTransaction - Guardian routing', () => {
         expect(stored.status).toBe(ITransactionStatus.Queued);
       }
     );
+
+    it('local: fails closed without requeueing as node_unreachable when the tip read fails with TypeError("Failed to fetch")', async () => {
+      const txId = 'send-guardian-tip-unreadable-inline-fetch';
+      const { tx, abandonCandidate, client } = arrangeSend(txId, false);
+      mockReadChainTip.mockImplementation(async () => {
+        throw new TypeError('Failed to fetch');
+      });
+
+      await run(tx);
+
+      expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+
+      const stored = txStore.find(row => row.id === txId)!;
+      expect(stored).toMatchObject({
+        status: ITransactionStatus.Failed,
+        stage: 'proving',
+        error: PROOF_FRESHNESS_UNKNOWN_ERROR
+      });
+      expect(stored.rawError).toContain('TypeError: Failed to fetch');
+      expect(stored.lastDeferral).toBeUndefined();
+      expect(stored.nextEligibleAt).toBeUndefined();
+      expect(stored.mayHaveSubmitted).toBeUndefined();
+    });
   });
 
   it('Guardian send (delegated): a prover outage the local fallback cannot rescue REQUEUES instead of terminal-failing (#419)', async () => {
