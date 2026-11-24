@@ -126,6 +126,7 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   const [busy, setBusy] = useState<LockAction>();
   const [error, setError] = useState<LockedDepositErrorDisplay>();
   const [withdrawn, setWithdrawn] = useState(false);
+  const [withdrawalDisabled, setWithdrawalDisabled] = useState(false);
 
   const network = getChain(lock.chainId)?.name ?? String(lock.chainId);
   const sponsor = shortenAddress(lock.sponsorAddress);
@@ -201,47 +202,19 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
       }),
     [lock, phase, run]
   );
-  const handleCancel = useCallback(() => run('cancel', () => cancelLockWithdrawal(lock)), [lock, run]);
+  const handleCancel = useCallback(
+    () =>
+      run('cancel', async () => {
+        await cancelLockWithdrawal(lock);
+        if (withdrawn) setWithdrawalDisabled(true);
+      }),
+    [lock, run, withdrawn]
+  );
   const retryTxId = state.local.retryTxId;
   const handleRetry = useCallback(
     () => run('retry', async () => (retryTxId === undefined ? undefined : retryLockedDeposit(retryTxId))),
     [retryTxId, run]
   );
-
-  if (withdrawn) {
-    return (
-      <SubPageLayout
-        title={t('recoverFundsLockTitle')}
-        onBack={onBack}
-        footerLayout="stack"
-        data-testid="recover-funds-withdrawal-success"
-        footer={
-          <>
-            <Button
-              variant={ButtonVariant.Primary}
-              title={t('returnToLockedFunds')}
-              onClick={() => navigate(RECOVER_FUNDS_PATH)}
-              data-testid="recover-funds-return-to-list"
-              className="w-full max-w-none"
-            />
-            <Button
-              variant={ButtonVariant.Secondary}
-              title={t('home')}
-              onClick={() => navigate('/')}
-              data-testid="recover-funds-return-home"
-              className="w-full max-w-none"
-            />
-          </>
-        }
-      >
-        <EmptyState
-          icon={IconName.ShieldCheck}
-          title={t('bridgeWithdrawalSuccessful')}
-          data-testid="recover-funds-withdrawal-success-state"
-        />
-      </SubPageLayout>
-    );
-  }
 
   const balance = state.chain.balance;
   const balanceContent = (() => {
@@ -277,58 +250,6 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   })();
   const empty = balance === 0n && !withdrawalOn;
 
-  const actions = (() => {
-    // An empty lock with no withdrawal on leaves the sponsor nothing to do.
-    if (refusal === undefined && empty) return undefined;
-    switch (refusal) {
-      case 'walletDisconnected':
-      case 'wrongAccount':
-        return (
-          <Button
-            variant={ButtonVariant.Secondary}
-            title={refusal === 'wrongAccount' ? t('switchWallet') : t('connectEvmWallet')}
-            onClick={openWalletPicker}
-            data-testid="recover-funds-lock-connect"
-            className="w-full max-w-none"
-          />
-        );
-      case undefined:
-      default:
-        return (
-          <>
-            {retryTxId !== undefined && (
-              <Button
-                variant={ButtonVariant.Primary}
-                title={busy === 'retry' ? t('epochDepositRetrying') : t('epochDepositRetry')}
-                onClick={handleRetry}
-                disabled={busy !== undefined}
-                data-testid="recover-funds-lock-retry"
-                className="w-full max-w-none"
-              />
-            )}
-            <Button
-              variant={retryTxId === undefined ? ButtonVariant.Primary : ButtonVariant.Secondary}
-              title={busy === 'withdraw' ? t('epochDepositWithdrawing') : t('epochDepositWithdraw')}
-              onClick={handleWithdraw}
-              disabled={busy !== undefined || phase === 'pending' || !state.loaded}
-              data-testid="recover-funds-lock-withdraw"
-              className="w-full max-w-none"
-            />
-            {withdrawalOn && (
-              <Button
-                variant={ButtonVariant.Secondary}
-                title={busy === 'cancel' ? t('recoverFundsCancelling') : t('recoverFundsCancelWithdrawal')}
-                onClick={handleCancel}
-                disabled={busy !== undefined}
-                data-testid="recover-funds-lock-cancel"
-                className="w-full max-w-none"
-              />
-            )}
-          </>
-        );
-    }
-  })();
-
   const connectHint = (() => {
     switch (refusal) {
       case 'walletDisconnected':
@@ -341,29 +262,110 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
     }
   })();
 
+  const connectButton = (
+    <Button
+      variant={ButtonVariant.Secondary}
+      title={refusal === 'wrongAccount' ? t('switchWallet') : t('connectEvmWallet')}
+      onClick={openWalletPicker}
+      data-testid="recover-funds-lock-connect"
+      className="w-full max-w-none"
+    />
+  );
+
+  const cancelButton = (
+    <Button
+      variant={ButtonVariant.Secondary}
+      title={busy === 'cancel' ? t('recoverFundsCancelling') : t('recoverFundsCancelWithdrawal')}
+      onClick={handleCancel}
+      disabled={busy !== undefined}
+      data-testid="recover-funds-lock-cancel"
+      className="w-full max-w-none"
+    />
+  );
+
+  const actions = (() => {
+    if (withdrawn) {
+      return (
+        <>
+          <Button
+            variant={ButtonVariant.Primary}
+            title={t('returnToLockedFunds')}
+            onClick={() => navigate(RECOVER_FUNDS_PATH)}
+            data-testid="recover-funds-return-to-list"
+            className="w-full max-w-none"
+          />
+          <Button
+            variant={ButtonVariant.Secondary}
+            title={t('home')}
+            onClick={() => navigate('/')}
+            data-testid="recover-funds-return-home"
+            className="w-full max-w-none"
+          />
+          {!withdrawalDisabled && (refusal === undefined ? cancelButton : connectButton)}
+        </>
+      );
+    }
+    // An empty lock with no withdrawal on leaves the sponsor nothing to do.
+    if (refusal === undefined && empty) return undefined;
+    if (refusal !== undefined) return connectButton;
+    return (
+      <>
+        {retryTxId !== undefined && (
+          <Button
+            variant={ButtonVariant.Primary}
+            title={busy === 'retry' ? t('epochDepositRetrying') : t('epochDepositRetry')}
+            onClick={handleRetry}
+            disabled={busy !== undefined}
+            data-testid="recover-funds-lock-retry"
+            className="w-full max-w-none"
+          />
+        )}
+        <Button
+          variant={retryTxId === undefined ? ButtonVariant.Primary : ButtonVariant.Secondary}
+          title={busy === 'withdraw' ? t('epochDepositWithdrawing') : t('epochDepositWithdraw')}
+          onClick={handleWithdraw}
+          disabled={busy !== undefined || phase === 'pending' || !state.loaded}
+          data-testid="recover-funds-lock-withdraw"
+          className="w-full max-w-none"
+        />
+        {withdrawalOn && cancelButton}
+      </>
+    );
+  })();
+
+  const showCancellationUi = !withdrawn || !withdrawalDisabled;
+
   return (
     <SubPageLayout
       title={t('recoverFundsLockTitle')}
       onBack={onBack}
       footer={actions}
       footerLayout="stack"
-      data-testid="recover-funds-lock-page"
+      data-testid={withdrawn ? 'recover-funds-withdrawal-success' : 'recover-funds-lock-page'}
     >
-      <SubPageSection footnote={connectHint}>
-        <DetailCard>
-          <DetailRow label={t('recoverFundsWallet')} stacked>
-            <span className="font-mono select-text" data-testid="recover-funds-lock-sponsor">
-              {lock.sponsorAddress}
-            </span>
-          </DetailRow>
-          <DetailRow label={t('network')}>{network}</DetailRow>
-          <DetailRow label={t('recoverFundsLocked')} data-testid="recover-funds-lock-balance">
-            {balanceContent}
-          </DetailRow>
-          <DetailRow label={t('recoverFundsWithdrawal')} data-testid="recover-funds-lock-status">
-            {withdrawalText}
-          </DetailRow>
-        </DetailCard>
+      <SubPageSection footnote={showCancellationUi ? connectHint : undefined}>
+        {withdrawn ? (
+          <EmptyState
+            icon={IconName.ShieldCheck}
+            title={t('bridgeWithdrawalSuccessful')}
+            data-testid="recover-funds-withdrawal-success-state"
+          />
+        ) : (
+          <DetailCard>
+            <DetailRow label={t('recoverFundsWallet')} stacked>
+              <span className="font-mono select-text" data-testid="recover-funds-lock-sponsor">
+                {lock.sponsorAddress}
+              </span>
+            </DetailRow>
+            <DetailRow label={t('network')}>{network}</DetailRow>
+            <DetailRow label={t('recoverFundsLocked')} data-testid="recover-funds-lock-balance">
+              {balanceContent}
+            </DetailRow>
+            <DetailRow label={t('recoverFundsWithdrawal')} data-testid="recover-funds-lock-status">
+              {withdrawalText}
+            </DetailRow>
+          </DetailCard>
+        )}
       </SubPageSection>
       {empty && (
         <EmptyState
@@ -373,17 +375,22 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
           data-testid="recover-funds-lock-empty"
         />
       )}
-      {/* This notice is never an error display: its tone is warning or neutral, so it has no error id. */}
-      <Notice
-        tone={withdrawalOn ? 'warning' : 'neutral'}
-        errorId={null}
-        icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-      >
-        {t('recoverFundsWithdrawBlocksBridge', { token: tokenSymbol, address: sponsor })}
-      </Notice>
-      <ErrorLine errorId={error?.id ?? EVM_WALLET_PICKER_ERROR_ID} data-testid="recover-funds-lock-error">
-        {error?.text ?? pickerError}
-      </ErrorLine>
+      {showCancellationUi && (
+        <>
+          {/* This notice is never an error display: its tone is warning or neutral, so it has no error id. */}
+          <Notice
+            tone={withdrawn || withdrawalOn ? 'warning' : 'neutral'}
+            errorId={null}
+            icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+            data-testid="recover-funds-lock-notice"
+          >
+            {t('recoverFundsWithdrawBlocksBridge', { token: tokenSymbol, address: sponsor })}
+          </Notice>
+          <ErrorLine errorId={error?.id ?? EVM_WALLET_PICKER_ERROR_ID} data-testid="recover-funds-lock-error">
+            {error?.text ?? pickerError}
+          </ErrorLine>
+        </>
+      )}
     </SubPageLayout>
   );
 };

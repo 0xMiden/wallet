@@ -30,8 +30,9 @@ jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => m
 const mockConnection: { address: string | undefined; connected: boolean } = { address: SPONSOR, connected: true };
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({ useEvmWalletConnection: () => mockConnection }));
 const mockOpenPicker = jest.fn();
+const mockPicker: { error: string | undefined } = { error: undefined };
 jest.mock('lib/walletconnect/useEvmWalletPicker', () => ({
-  useEvmWalletPicker: () => ({ openWalletPicker: mockOpenPicker, error: undefined })
+  useEvmWalletPicker: () => ({ openWalletPicker: mockOpenPicker, error: mockPicker.error })
 }));
 // The real bridge-in-recovery module, which supplies the pure retry rule below, loads the rest of this module.
 jest.mock('lib/walletconnect/config', () => ({
@@ -100,15 +101,17 @@ jest.mock('lib/epoch/bridge-in-recovery', () => {
 });
 
 async function renderLock(chainId = '11155111', lockId = LOCK_ID) {
-  render(<RecoverLockedFundsLock chainId={chainId} lockId={lockId} />);
+  const view = render(<RecoverLockedFundsLock chainId={chainId} lockId={lockId} />);
   // Let the reads settle.
   await act(async () => undefined);
+  return view;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
   mockLocation.search = `?address=${SPONSOR}`;
+  mockPicker.error = undefined;
   mockSelectTokens.mockReturnValue([USDC_TOKEN]);
   mockConnection.address = SPONSOR;
   mockConnection.connected = true;
@@ -184,12 +187,75 @@ describe('RecoverLockedFundsLock', () => {
     expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toHaveTextContent(
       'bridgeWithdrawalSuccessful'
     );
+    expect(screen.getByTestId('recover-funds-lock-notice')).toHaveTextContent('recoverFundsWithdrawBlocksBridge');
+    expect(screen.getByTestId('recover-funds-lock-notice')).toHaveClass('bg-status-pending/10');
+    expect(screen.getByTestId('recover-funds-lock-cancel')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('recover-funds-return-to-list'));
     expect(mockNavigate).toHaveBeenCalledWith('/settings/recover-funds');
 
     fireEvent.click(screen.getByTestId('recover-funds-return-home'));
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('disables the forced withdrawal from the confirmation view and hides cancellation controls once completed', async () => {
+    const { LockedDepositError } = jest.requireMock('lib/epoch/bridge-in-recovery');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
+      const view = await renderLock();
+
+      await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+      expect(screen.getByTestId('recover-funds-withdrawal-success')).toBeInTheDocument();
+
+      mockConnection.connected = false;
+      mockConnection.address = undefined;
+      mockPicker.error = 'picker failed';
+      view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+      expect(screen.getByTestId('recover-funds-lock-connect')).toHaveTextContent('connectEvmWallet');
+      expect(screen.getByText(/epochDepositConnectSponsor/)).toBeInTheDocument();
+      expect(screen.getByTestId('recover-funds-lock-error')).toHaveTextContent('picker failed');
+      expect(screen.queryByTestId('recover-funds-lock-cancel')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('recover-funds-lock-connect'));
+      expect(mockOpenPicker).toHaveBeenCalledTimes(1);
+
+      mockConnection.connected = true;
+      mockConnection.address = OTHER;
+      mockPicker.error = undefined;
+      view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+      expect(screen.getByTestId('recover-funds-lock-connect')).toHaveTextContent('switchWallet');
+      expect(screen.getByText(/epochDepositWrongWallet/)).toBeInTheDocument();
+
+      mockConnection.address = SPONSOR;
+      view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+      mockCancel.mockRejectedValueOnce(new LockedDepositError('wrongChain', 'switch'));
+      await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-cancel')));
+      expect(screen.getByTestId('recover-funds-lock-error')).toHaveTextContent('epochDepositErrorWrongChain');
+      expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toBeInTheDocument();
+      expect(screen.getByTestId('recover-funds-lock-notice')).toBeInTheDocument();
+      expect(screen.getByTestId('recover-funds-lock-cancel')).toBeEnabled();
+
+      mockPicker.error = 'stale picker error';
+      await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-cancel')));
+      expect(mockCancel).toHaveBeenCalledWith(REF);
+      expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-notice')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-cancel')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-connect')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-error')).not.toBeInTheDocument();
+      expect(screen.queryByText(/epochDepositConnectSponsor/)).not.toBeInTheDocument();
+
+      mockConnection.connected = false;
+      mockConnection.address = undefined;
+      view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+      expect(screen.queryByTestId('recover-funds-lock-notice')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-cancel')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-connect')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-error')).not.toBeInTheDocument();
+      expect(screen.queryByText(/epochDepositConnectSponsor/)).not.toBeInTheDocument();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it('uses the recorded enable time when The Compact does not answer', async () => {
