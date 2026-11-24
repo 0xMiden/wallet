@@ -116,16 +116,6 @@ describe('Miden and Ethereum address utilities', () => {
     expect(detectAddressChain('mtst1abc')).toBe('miden');
   });
 
-  const SOLANA_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-  const BITCOIN_ADDRESS = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
-  const NEAR_ADDRESS = 'alice.near';
-
-  it('detects Solana, Bitcoin and NEAR recipients from a full address', () => {
-    expect(detectAddressChain(`  ${SOLANA_ADDRESS} `)).toBe('solana');
-    expect(detectAddressChain(BITCOIN_ADDRESS)).toBe('bitcoin');
-    expect(detectAddressChain(NEAR_ADDRESS)).toBe('near');
-  });
-
   it('reads a partial or Miden-prefixed input as Miden', () => {
     for (const value of ['m', 'mt', 'mtst', 'mm', 'mdev', 'mlcl', 'abc', 'alice', TESTNET_ADDRESS_WITH_ROUTING]) {
       expect(detectAddressChain(value)).toBe('miden');
@@ -134,12 +124,13 @@ describe('Miden and Ethereum address utilities', () => {
     expect(detectAddressChain('0x')).toBe('ethereum');
   });
 
-  it('accepts a Solana, Bitcoin or NEAR address as a recipient by its format', () => {
-    expect(isValidRecipientAddress(SOLANA_ADDRESS)).toBe(true);
-    expect(isValidRecipientAddress(BITCOIN_ADDRESS)).toBe(true);
-    expect(isValidRecipientAddress(NEAR_ADDRESS)).toBe(true);
-    expect(isValidRecipientAddress('alice')).toBe(false);
-  });
+  it.each(['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq', 'alice.near'])(
+    'keeps external-chain input %s on the Miden path until routing is wired',
+    address => {
+      expect(detectAddressChain(address)).toBe('miden');
+      expect(isValidRecipientAddress(address)).toBe(false);
+    }
+  );
 });
 
 it.each([
