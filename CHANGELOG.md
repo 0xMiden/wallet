@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Add and edit contact network pickers follow the current Miden network, keeping test chains out of Mainnet choices while preserving saved contact destinations.
 - [FIX][e2e] Link stress-test sends to wallet transaction receipts, wait for timed-out send UI helpers to settle, and audit send completion against the configured failure budget.
 - [FIX][all] Read recent Activity history in bounded batches for the unread indicator, preserving History's newest 50 visible rows across timestamp ties and reusing claim checks within each scan (#2202).
 - [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
@@ -365,7 +366,6 @@
 
 ### Fixes
 
-- [FIX][all] Add and edit contact network pickers follow the current Miden network, keeping test chains out of Mainnet choices while preserving saved contact destinations.
 - [FIX][all] USDCx bridge deposits keep the signing flow open through source-wallet approvals and confirmation. Close, Hide and mobile back return after initiation or failure.
 
 - [FIX][all] Guardian 1Click startup retries eligibility against a refreshed wallet-config version when the first lookup races a config update; the hermetic fixture keeps both services on the same version.
