@@ -67,21 +67,30 @@ interface LineageTip {
 }
 
 /**
- * Node and key pairs with a read still unsettled in this realm. The timeout ends the caller's wait, not the read, and
- * a read's client is freed only once it settles, so against a node that accepts and never answers every later poll
- * parked one more client: a key with a read out on a node refuses the next read of it there until it settles, at most
- * one per note or order and node. A read parked on one node says nothing of another, so after an endpoint change every
- * note and order is read on the new node at once (#1487).
+ * Node and key pairs with reads still unsettled in this realm, keyed by `${url} ${key}` with the active count. The
+ * timeout ends the caller's wait, not the read, and a read's client is freed only once it settles, so against a node
+ * that accepts and never answers every later poll parked one more client: each slot caps unsettled reads on that node
+ * until they settle. A read parked on one node says nothing of another, so after an endpoint change reads run on the
+ * new node at once (#1487).
  */
-const unsettledReads = new Set<string>();
+const unsettledReads = new Map<string, number>();
 
-function read<T>(key: string, label: string, run: (rpc: RpcClient) => Promise<T>): Promise<T> {
-  // The node `readWithOwnRpcClient` builds its client for, read in the same synchronous turn.
-  const slot = `${getEffectiveRpcUrl()} ${key}`;
-  if (unsettledReads.has(slot)) return Promise.reject(new Error(`${label}: the previous node read has not settled`));
-  unsettledReads.add(slot);
+const MAX_UNSETTLED_CHAIN_TIP_READS = 4;
+
+function boundedRead<T>(
+  slot: string,
+  limit: number,
+  limitMessage: string,
+  label: string,
+  run: (rpc: RpcClient) => Promise<T>
+): Promise<T> {
+  const active = unsettledReads.get(slot) ?? 0;
+  if (active >= limit) return Promise.reject(new Error(limitMessage));
+  unsettledReads.set(slot, active + 1);
   const settled = () => {
-    unsettledReads.delete(slot);
+    const next = (unsettledReads.get(slot) ?? 0) - 1;
+    if (next > 0) unsettledReads.set(slot, next);
+    else unsettledReads.delete(slot);
   };
   let pending: Promise<T>;
   try {
@@ -92,6 +101,17 @@ function read<T>(key: string, label: string, run: (rpc: RpcClient) => Promise<T>
   }
   void pending.then(settled, settled);
   return withRpcTimeout(() => pending, label, { timeoutMs: PSWAP_ORDER_NOTE_READ_TIMEOUT_MS, retries: 0 });
+}
+
+function read<T>(key: string, label: string, run: (rpc: RpcClient) => Promise<T>): Promise<T> {
+  // The node `readWithOwnRpcClient` builds its client for, read in the same synchronous turn.
+  return boundedRead(
+    `${getEffectiveRpcUrl()} ${key}`,
+    1,
+    `${label}: the previous node read has not settled`,
+    label,
+    run
+  );
 }
 
 /** The PSWAP fields of `note`, a PSWAP note under `noteId` of the script's shape; undefined for any other note. */
@@ -225,12 +245,14 @@ export function pswapNoteTag(offeredFaucet: AccountId, requestedFaucet: AccountI
   );
 }
 
-/** The node's current block height, on an RpcClient of its own. */
+/** The node's current block height, on an RpcClient of its own, bounded per node while allowing retries. */
 export function readChainTip(): Promise<number> {
-  return withRpcTimeout(
-    () => readWithOwnRpcClient(async rpc => (await rpc.getBlockHeaderByNumber(null, false)).blockNum()),
+  return boundedRead(
+    `${getEffectiveRpcUrl()} chain-tip`,
+    MAX_UNSETTLED_CHAIN_TIP_READS,
+    'chain tip: too many unsettled node reads',
     'chain tip',
-    { timeoutMs: PSWAP_ORDER_NOTE_READ_TIMEOUT_MS, retries: 0 }
+    async rpc => (await rpc.getBlockHeaderByNumber(null, false)).blockNum()
   );
 }
 

@@ -3,7 +3,11 @@ import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import { isLikelyNetworkError, isPermanentHttpRejection } from 'lib/miden/activity/connectivity-classify';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
-import { isFailedReexecution, isProofFreshnessUnknownError, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
+import {
+  isFailedReexecution,
+  isProofFreshnessUnknownError,
+  isStaleProofError
+} from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';

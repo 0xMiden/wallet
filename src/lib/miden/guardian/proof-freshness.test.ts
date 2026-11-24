@@ -245,7 +245,9 @@ describe('withFreshProof', () => {
       doc.setHidden(false);
       const error = await pending.catch((reason: unknown) => reason);
       expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
-      expect((error as Error).message).toBe(`Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`);
+      expect((error as Error).message).toBe(
+        `Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`
+      );
       expect((error as Error).cause).toBeUndefined();
       expect(hasErrorBeforeSubmit(error)).toBe(true);
       expect(executions).toEqual([false]);
@@ -293,7 +295,9 @@ describe('withFreshProof', () => {
       answer(TIP);
       const error = await rejected;
       expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
-      expect((error as Error).message).toBe(`Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`);
+      expect((error as Error).message).toBe(
+        `Could not establish proof freshness within ${CHAIN_TIP_READ_TIMEOUT_MS} ms`
+      );
       expect((error as Error).cause).toBeUndefined();
       expect(hasErrorBeforeSubmit(error)).toBe(true);
       expect(executions).toEqual([false]);

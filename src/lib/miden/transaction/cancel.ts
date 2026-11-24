@@ -121,8 +121,8 @@ const reportedWalletReason = (error: unknown): TransactionFailureReason | undefi
       : isProofFreshnessUnknownError(error)
         ? 'proof_freshness_unknown'
         : error instanceof ProposalEffectRefusedError
-        ? 'proposal_effect_refused'
-        : REPORTED_WALLET_REASONS.get(error);
+          ? 'proposal_effect_refused'
+          : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)

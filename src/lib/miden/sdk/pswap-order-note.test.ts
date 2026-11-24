@@ -938,4 +938,54 @@ describe('readChainTip', () => {
       jest.useRealTimers();
     }
   });
+
+  it('bounds unsettled tip reads per node while still permitting retries after timeout and node switches', async () => {
+    jest.useFakeTimers();
+    try {
+      mockRpcUrl = 'https://node-tip-cap';
+      const releases: Array<(header: { blockNum: () => number }) => void> = [];
+      for (let i = 0; i < 4; i++) {
+        mockGetBlockHeaderByNumber.mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              releases.push(resolve);
+            })
+        );
+      }
+      mockGetBlockHeaderByNumber.mockResolvedValueOnce({ blockNum: () => 999 });
+
+      for (let i = 0; i < 4; i++) {
+        const attempt = readChainTip().catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(5_000);
+        expect(await attempt).toBeInstanceOf(Error);
+      }
+
+      await expect(readChainTip()).rejects.toThrow('too many unsettled node reads');
+      expect(mockGetBlockHeaderByNumber).toHaveBeenCalledTimes(4);
+      expect(RpcClient).toHaveBeenCalledTimes(4);
+
+      mockRpcUrl = 'https://node-tip-other';
+      await expect(readChainTip()).resolves.toBe(999);
+
+      mockRpcUrl = 'https://node-tip-cap';
+      releases.shift()!({ blockNum: () => 900 });
+      await Promise.resolve();
+      await Promise.resolve();
+      mockGetBlockHeaderByNumber.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releases.push(resolve);
+          })
+      );
+      const refilled = readChainTip();
+      await expect(readChainTip()).rejects.toThrow('too many unsettled node reads');
+
+      releases.forEach((resolve, index) => resolve({ blockNum: () => 901 + index }));
+      await expect(refilled).resolves.toBe(904);
+      mockGetBlockHeaderByNumber.mockResolvedValueOnce({ blockNum: () => 1_000 });
+      await expect(readChainTip()).resolves.toBe(1_000);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

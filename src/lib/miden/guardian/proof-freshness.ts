@@ -1,5 +1,5 @@
 import { DELEGATED_PROVE_TIMEOUT_MS } from 'lib/miden/sdk/delegated-prove-timeout';
-import { markErrorBeforeSubmit, someInCauseChain } from 'lib/miden/sdk/sdk-error-code';
+import { errorMessageParts, markErrorBeforeSubmit, someInCauseChain } from 'lib/miden/sdk/sdk-error-code';
 import { WASM_LOCK_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 
@@ -107,9 +107,7 @@ export class ProofFreshnessUnknownError extends Error {
 export const isProofFreshnessUnknownError = (error: unknown): boolean =>
   someInCauseChain(error, link => link instanceof ProofFreshnessUnknownError);
 
-type TipReadOutcome =
-  | { ok: true; tip: number }
-  | { ok: false; timedOut: boolean; rejection?: { error: unknown } };
+type TipReadOutcome = { ok: true; tip: number } | { ok: false; timedOut: boolean; rejection?: { error: unknown } };
 
 const buildProofFreshnessUnknownError = (
   outcome: Extract<TipReadOutcome, { ok: false }>
