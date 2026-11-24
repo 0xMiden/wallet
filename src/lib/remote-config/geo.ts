@@ -1,4 +1,6 @@
-import type { OneClickConfig } from './schema';
+import { BOUNDED_JSON_FAILURES, type BoundedJsonFailure } from 'lib/remote-json';
+
+import type { NearIntentsConfig } from '../one-click/types';
 
 /**
  * Place rules from a wallet-config document. A rule is a phrase such as "block NY state" or
@@ -25,23 +27,77 @@ export interface FeatureEligibility {
   allowed: Record<GeoFeature, boolean>;
 }
 
-/** A failed startup decision keeps the wallet closed until the page restarts. */
-export type GeoLookup = { state: 'loading' } | { state: 'failed' } | ({ state: 'ready' } & FeatureEligibility);
+export const STARTUP_ELIGIBILITY_STAGES = [
+  'endpoint_overrides',
+  'config_initialization',
+  'eligibility_lookup',
+  'config_refresh',
+  'eligibility_retry'
+] as const;
+export const STARTUP_ELIGIBILITY_REASONS = [
+  'override_load_failed',
+  'config_unavailable',
+  'config_initialization_failed',
+  'endpoint_missing',
+  'endpoint_invalid',
+  'request_failed',
+  'response_invalid',
+  'network_mismatch',
+  'version_mismatch',
+  'unexpected'
+] as const;
+export const STARTUP_ELIGIBILITY_RETRIES = [
+  'not_attempted',
+  'config_not_advanced',
+  'refresh_failed',
+  'retry_failed'
+] as const;
+export type StartupEligibilityReason = (typeof STARTUP_ELIGIBILITY_REASONS)[number];
+export interface StartupEligibilityDiagnostics {
+  startupEligibilityStage: (typeof STARTUP_ELIGIBILITY_STAGES)[number];
+  startupEligibilityReason: StartupEligibilityReason;
+  startupEligibilityRetry: (typeof STARTUP_ELIGIBILITY_RETRIES)[number];
+  startupEligibilityRequestFailure?: BoundedJsonFailure;
+}
 
-/** Structural feature availability; live route and market probes remain separate. */
+/** The bounded JSON failure kept when eligibility failed on the request itself. */
+export function retainedStartupRequestFailure(
+  reason: StartupEligibilityReason,
+  failure: unknown
+): BoundedJsonFailure | undefined {
+  if (reason !== 'request_failed') return undefined;
+  return BOUNDED_JSON_FAILURES.find(value => value === failure);
+}
+
+/** A failed startup decision keeps geo-gated features off until the page restarts; the wallet stays open. */
+export type GeoLookup =
+  | { state: 'loading' }
+  | { state: 'failed'; diagnostics?: StartupEligibilityDiagnostics }
+  | ({ state: 'ready' } & FeatureEligibility);
+
+/**
+ * Structural feature availability; live route and market probes remain separate. The `swap` place rules also cover
+ * the NEAR Intents deposit of the Receive page, so a configured NEAR Intents section enables them.
+ */
 export function geoFeatureEnabled(
   feature: GeoFeature,
   config: {
     features: { earn: boolean; nearIntents?: unknown };
-    swap?: { etaUrl?: string; oneClick?: OneClickConfig };
+    swap?: { etaUrl?: string };
+    nearIntents?: NearIntentsConfig;
   }
 ): boolean {
-  if (feature === 'wallet') return true;
-  if (feature === 'earn') return config.features.earn;
-  return (
-    Boolean(config.swap?.etaUrl) ||
-    (config.features.nearIntents === true && (config.swap?.oneClick?.midenAssets.length ?? 0) > 0)
-  );
+  switch (feature) {
+    case 'wallet':
+      return true;
+    case 'earn':
+      return config.features.earn;
+    case 'swap':
+      return (
+        Boolean(config.swap?.etaUrl) ||
+        (config.features.nearIntents === true && (config.nearIntents?.chains.length ?? 0) > 0)
+      );
+  }
 }
 
 const PHRASE_ALIASES: Readonly<Record<string, GeoPlace>> = {

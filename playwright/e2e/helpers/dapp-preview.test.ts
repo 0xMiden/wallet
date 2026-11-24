@@ -75,6 +75,7 @@ describe('expectVerifiedPreview', () => {
       shown(`${VERIFIED}.getByText(Asset changes, exact true)`, 'toHaveCount', 0),
       shown(`${VERIFIED} [data-verified="true"]`, 'toHaveCount', 0),
       shown('testid=tx-output-notes-created', 'toHaveText', '0'),
+      shown(`${VERIFIED} [data-testid="tx-held-notes-spent"]`, 'toHaveCount', 0),
       shown('testid=tx-storage-changed', 'toHaveAttribute', 'data-changed', 'false'),
       shown('testid=tx-storage-changed', 'toHaveText', 'No'),
       shown('testid=tx-simulation-failed', 'toHaveCount', 0)
@@ -88,22 +89,39 @@ describe('expectVerifiedPreview', () => {
       shown(`${VERIFIED}.getByText(Asset changes, exact true)`, 'toHaveCount', 1),
       shown(`${VERIFIED} [data-verified="true"].filter(/^2 TST$/)`, 'toHaveCount', 1),
       shown('testid=tx-output-notes-created', 'toHaveText', '1'),
+      shown(`${VERIFIED} [data-testid="tx-held-notes-spent"]`, 'toHaveCount', 0),
       shown('testid=tx-storage-changed', 'toHaveAttribute', 'data-changed', /^(true|false)$/),
       shown('testid=tx-storage-changed', 'toHaveText', /^(Yes|No)$/),
       shown('testid=tx-simulation-failed', 'toHaveCount', 0)
     ]);
   });
 
-  it('records a declared view as soft evidence for the cell, and asserts nothing more', async () => {
-    const softFail = jest.fn();
+  it('checks the held-note count a cell names: one held-note line with that count', async () => {
     await expectVerifiedPreview(
-      fakePopup(0),
-      { amount: null, outputNotes: 0, storageChanged: false },
-      ctxWith(softFail)
+      fakePopup(1),
+      { amount: /^1 TST$/, heldNotesSpent: 1, outputNotes: 1 },
+      ctxWith(jest.fn())
     );
+    expect(mockRecorded).toEqual([
+      OUTCOME,
+      shown(`${VERIFIED}.getByText(Asset changes, exact true)`, 'toHaveCount', 1),
+      shown(`${VERIFIED} [data-verified="true"].filter(/^1 TST$/)`, 'toHaveCount', 1),
+      shown('testid=tx-output-notes-created', 'toHaveText', '1'),
+      shown(`${VERIFIED} [data-testid="tx-held-notes-spent"].filter(/^1$/)`, 'toHaveCount', 1),
+      shown('testid=tx-storage-changed', 'toHaveAttribute', 'data-changed', /^(true|false)$/),
+      shown('testid=tx-storage-changed', 'toHaveText', /^(Yes|No)$/),
+      shown('testid=tx-simulation-failed', 'toHaveCount', 0)
+    ]);
+  });
+
+  it('fails the cell when the popup has no simulated view, since its approval stays blocked', async () => {
+    const softFail = jest.fn();
+    const ctx = ctxWith(softFail);
+    await expect(
+      expectVerifiedPreview(fakePopup(0), { amount: null, outputNotes: 0, storageChanged: false }, ctx)
+    ).rejects.toThrow('no simulated view, so the approval stays blocked; simulation failed shown: true');
     expect(mockRecorded).toEqual([OUTCOME]);
-    expect(softFail).toHaveBeenCalledWith('preview-verified', 'declared view, simulation failed shown: true', {
-      previewSimulationFailed: true
-    });
+    expect(softFail).not.toHaveBeenCalled();
+    expect(ctx.evidence).toEqual({ previewSimulationFailed: true });
   });
 });

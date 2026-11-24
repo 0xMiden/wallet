@@ -5,7 +5,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
-import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+import {
+  GUARDIAN_ACCOUNT_NOT_FOUND,
+  GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
+  GUARDIAN_RECOVERY_UNVERIFIED
+} from 'lib/miden/sdk/guardian-recovery-errors';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import {
   type GuardianProbeState,
@@ -57,12 +61,20 @@ const finishWarns = (warn: jest.SpyInstance) =>
 
 let mockInviteOnly = false;
 const mockUnlockInviteOnly = jest.fn();
+const mockNetworkPolicy = jest.fn();
 jest.mock('app/templates/OnboardingNetwork', () => ({
   OnboardingNetwork: ({
-    children
+    children,
+    requireInviteOnly,
+    showWhilePreparing
   }: {
     children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => React.ReactNode;
-  }) => children(mockInviteOnly, mockUnlockInviteOnly)
+    requireInviteOnly?: boolean;
+    showWhilePreparing: boolean;
+  }) => {
+    mockNetworkPolicy({ requireInviteOnly, showWhilePreparing });
+    return children(mockInviteOnly, mockUnlockInviteOnly);
+  }
 }));
 const setOnboardingRegistrationActive = jest.fn((active: boolean) => {
   jest
@@ -331,10 +343,11 @@ jest.mock('lib/shared/types', () => ({
 // The network notice only shows on a test network; null stands for mainnet.
 let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 let mockDeveloperChoice = false;
+const mockHasDeveloperNetworkChoice = jest.fn(() => mockDeveloperChoice);
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getTestNetworkNameKey: () => mockTestNetworkKey,
-  hasDeveloperNetworkChoice: () => mockDeveloperChoice
+  hasDeveloperNetworkChoice: () => mockHasDeveloperNetworkChoice()
 }));
 
 // The code a switch to mainnet carried to the code step; the code step itself reads it.
@@ -555,6 +568,39 @@ afterEach(() => {
 // ===========================================================================
 // Render + mount effects
 // ===========================================================================
+
+describe('Welcome network policy', () => {
+  it('delegates launch policy and keeps Welcome visible only without a route hash', async () => {
+    await renderWelcome();
+    expect(mockHasDeveloperNetworkChoice).not.toHaveBeenCalled();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+
+    await dispatch({ id: 'choose-protection' });
+    await setHash('#network-notice');
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: false });
+  });
+
+  it('keeps the configured launch policy in E2E builds', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+  });
+
+  it('keeps an explicit developer network choice', async () => {
+    mockDeveloperChoice = true;
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+  });
+
+  it('recovery skips the test-network notice while the host requires mainnet', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+  });
+});
 
 describe('Welcome — mount & hardware-security check', () => {
   it('renders the onboarding flow on the Welcome step by default', async () => {
@@ -2515,6 +2561,32 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'confirmation' });
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
     expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianUrlUnreachable');
+  });
+
+  // The refusal text is already localized and says what to do; a network-sounding word in it must not route it to the
+  // operator notice.
+  it.each([
+    [
+      GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
+      'Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again.'
+    ],
+    [GUARDIAN_RECOVERY_UNVERIFIED, 'Your accounts could not be restored: the account check timed out.']
+  ])('keeps the %s recovery refusal message instead of the operator notice', async (code, message) => {
+    mockRegisterWallet.mockRejectedValue(Object.assign(new Error(message), { code }));
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe(message);
   });
 
   it('maps an RPC timeout to the guardianUrlUnreachable notice', async () => {

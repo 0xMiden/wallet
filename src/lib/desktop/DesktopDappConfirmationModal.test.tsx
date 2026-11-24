@@ -76,6 +76,8 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/animation', () => ({
+  installSheetKeyframes: () => {},
+  sheetMotionVars: {},
   useSprings: () => ({ overlay: {}, modal: {}, sheetPresent: {}, reduceMotion: false })
 }));
 

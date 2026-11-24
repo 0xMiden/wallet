@@ -7,21 +7,22 @@ import {
   tokenBalance,
   triggerSwapAutoConsume
 } from '../../helpers/swap';
+import { openSwapDocument } from '../../helpers/swap-document';
 
 /**
  * Scenario 3.2 — full fill, maker B → taker A (the reverse direction of 3.1).
  *
- * Proves the maker/taker flow is symmetric: B is the maker (offers 10 SWPB for
+ * Proves the maker/taker flow is symmetric: B is the maker (offers 9.00450226 SWPB for
  * 9 SWPA) and A is the taker (fills the full 9 SWPA). Same complete-settlement
  * assertions as 3.1 with the roles swapped.
  */
 test.describe('swap: full fill B→A', () => {
   test.describe.configure({ mode: 'serial' });
 
-  const OFFER_BASE = '1000000000'; // 10 SWPB (B offers)
+  const OFFER_BASE = '900450226'; // ceil(9 * 1e8 / (price 1 * 0.9995))
   const REQUEST_BASE = '900000000'; // 9 SWPA (B requests)
 
-  test('B offers 10 SWPB for 9 SWPA, A fills fully; both sides settle', async ({
+  test('B offers 9.00450226 SWPB for 9 SWPA, A fills fully; both sides settle', async ({
     walletA,
     walletB,
     midenCli,
@@ -39,12 +40,23 @@ test.describe('swap: full fill B→A', () => {
       timeline
     );
 
-    const orderId = await createSwapOrder(walletB, {
-      offerSymbol: 'SWPB',
-      requestSymbol: 'SWPA',
-      payAmount: '10',
-      receiveAmount: '9'
-    });
+    // The compact Swap flow still supports exact receive editing; Command instead
+    // types the matching pay and verifies its readonly receive quote before signing.
+    await openSwapDocument(walletB.page, walletB.extensionId, 'sidepanel', [pair.offer, pair.request]);
+    const compactReceive = walletB.page.getByTestId('swap-flow').getByTestId('swap-receive-side');
+    await expect(compactReceive.getByTestId('send-amount-input')).toBeVisible({ timeout: 30_000 });
+    await walletB.page.getByTestId('send-token-selector').first().click();
+    await walletB.page.getByTestId('swap-token-SWPB').click();
+    await walletB.page.getByTestId('send-token-selector').nth(1).click();
+    await walletB.page.getByTestId('swap-token-SWPA').click();
+    await compactReceive.getByTestId('send-amount-input').fill('9');
+    await expect(walletB.page.getByTestId('swap-pay-side').getByTestId('send-amount-input')).toHaveValue('9.00450226');
+
+    const orderId = await createSwapOrder(
+      walletB,
+      { offerSymbol: 'SWPB', requestSymbol: 'SWPA', payAmount: '9.00450226', receiveAmount: '9' },
+      pair
+    );
     expect(orderId, 'maker order id').not.toBe('');
 
     const fill = await fillSwapOrder({

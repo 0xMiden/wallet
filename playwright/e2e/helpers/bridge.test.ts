@@ -27,7 +27,6 @@ import {
   ARC_CHAIN_ID,
   ARC_PAYOUT,
   BASE_SEPOLIA_PAYOUT,
-  BURN_UNITS,
   ETHEREUM_SEPOLIA_PAYOUT,
   USDCX_DECIMALS
 } from './usdcx-constants';
@@ -122,6 +121,33 @@ describe('bridgedSendRowOf', () => {
         }
       }
     });
+  });
+
+  it("parses a row's recorded payout", () => {
+    const payout = {
+      transactionHash: '0x9c7d4b0f6a1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbc',
+      blockNumber: '66531958',
+      value: '9983600'
+    };
+    const paid = (recorded: Record<string, string>) =>
+      bridgedSendRowOf({
+        ...projected,
+        extraInputs: { ...projected.extraInputs, usdcxBurn: { ...projected.extraInputs.usdcxBurn, payout: recorded } }
+      }).extraInputs?.usdcxBurn?.payout;
+    expect(paid(payout)).toEqual(payout);
+    // A payout missing a field is not half-typed.
+    expect(paid({ transactionHash: payout.transactionHash, value: payout.value })).toBeUndefined();
+  });
+
+  it("parses the block a row's payout scan reached", () => {
+    const scanned = bridgedSendRowOf({
+      ...projected,
+      extraInputs: {
+        ...projected.extraInputs,
+        usdcxBurn: { ...projected.extraInputs.usdcxBurn, payoutScannedBlock: '66531900' }
+      }
+    });
+    expect(scanned.extraInputs?.usdcxBurn?.payoutScannedBlock).toBe('66531900');
   });
 
   it('drops a usdcxBurn that lacks its note id, domain or phase rather than half-typing it', () => {
@@ -300,39 +326,21 @@ describe('readNativeDisplaySymbol', () => {
 });
 
 describe('usdcxPayoutRowsText', () => {
-  it("reads both payout rows from the destination's own fee allowance in the wallet", () => {
-    // The harness's own burn uses the wallet's minimum floor.
-    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, formatUnits(BURN_UNITS, USDCX_DECIMALS))).toEqual({
-      fee: 'Up to 0.1 USDC',
-      net: 'At least 4.9 USDC'
-    });
-    expect(usdcxPayoutRowsText(sepolia.id, '10')).toEqual({ fee: 'Up to 1.5 USDC', net: 'At least 8.5 USDC' });
+  const VARIES = { fee: 'Deducted from the payout. Varies with network fees.' };
+
+  it("reads only the fee row, which promises no bound, on every destination's own burn", () => {
+    for (const chain of [ARC_PAYOUT, BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT]) {
+      expect(usdcxPayoutRowsText(chain.chainId, formatUnits(chain.burnUnits, USDCX_DECIMALS))).toEqual(VARIES);
+    }
+    expect(usdcxPayoutRowsText(sepolia.id, '10')).toEqual(VARIES);
   });
 
-  it('refuses an amount the allowance takes whole, naming both, and takes the least amount above it', () => {
+  it('refuses an amount the allowance takes whole, which the wallet refuses, and takes the least amount above it', () => {
     expect(() => usdcxPayoutRowsText(ARC_CHAIN_ID, '0.1')).toThrow(
       '0.1 USDCx does not exceed the 0.1 USDC payout fee allowance on Arc Testnet'
     );
-    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '0.100001').net).toBe('At least 0.000001 USDC');
-  });
-
-  // The payout rows carry no chain, so the L2 burns show Arc's text for the same live burn amount.
-  it("quotes the same rows on Base Sepolia and Arbitrum Sepolia for each one's own burn, whose allowance is Arc's", () => {
-    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT]) {
-      expect(usdcxPayoutRowsText(chain.chainId, formatUnits(chain.burnUnits, USDCX_DECIMALS))).toEqual({
-        fee: 'Up to 0.1 USDC',
-        net: 'At least 4.9 USDC'
-      });
-    }
-  });
-
-  it("quotes Ethereum's 1.5 USDC allowance for the live burn and refuses a 1 USDCx burn", () => {
-    const sepolia = ETHEREUM_SEPOLIA_PAYOUT.chainId;
-    expect(usdcxPayoutRowsText(sepolia, formatUnits(ETHEREUM_SEPOLIA_PAYOUT.burnUnits, USDCX_DECIMALS))).toEqual({
-      fee: 'Up to 1.5 USDC',
-      net: 'At least 3.5 USDC'
-    });
-    expect(() => usdcxPayoutRowsText(sepolia, '1')).toThrow(
+    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '0.100001')).toEqual(VARIES);
+    expect(() => usdcxPayoutRowsText(ETHEREUM_SEPOLIA_PAYOUT.chainId, '1')).toThrow(
       '1 USDCx does not exceed the 1.5 USDC payout fee allowance on Sepolia'
     );
   });
@@ -392,7 +400,7 @@ describe('bridgeOutUsdcx', () => {
 describe('expectArcPreselected', () => {
   const SHEET_ROWS = '[role="dialog"][data-state="open"] [data-testid^="send-network-"]';
   // NetworkField: the four destinations are rows of a sheet the summary row opens, and exist only while it is open.
-  const pageWithSheet = (pressed: string) => {
+  const pageWithSheet = (pressed: string, extraRow?: string) => {
     const actions: string[] = [];
     let open = false;
     const page = {
@@ -406,15 +414,27 @@ describe('expectArcPreselected', () => {
         }
       }),
       locator: (selector: string) => ({
-        evaluateAll: async () =>
-          open && selector === SHEET_ROWS
-            ? [
-                'send-network-arc-testnet',
-                'send-network-sepolia',
-                'send-network-base-sepolia',
-                'send-network-arbitrum-sepolia'
-              ].map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }))
-            : [],
+        evaluateAll: async (read: (elements: Array<Pick<Element, 'getAttribute'>>) => unknown) =>
+          read(
+            open && selector === SHEET_ROWS
+              ? [
+                  'send-network-picker',
+                  'send-network-options',
+                  'send-network-arc-testnet',
+                  'send-network-sepolia',
+                  'send-network-base-sepolia',
+                  'send-network-arbitrum-sepolia',
+                  ...(extraRow ? [extraRow] : [])
+                ].map(testId => ({
+                  getAttribute: name =>
+                    name === 'data-testid'
+                      ? testId
+                      : ['send-network-picker', 'send-network-options', extraRow].includes(testId)
+                        ? null
+                        : String(testId === pressed)
+                }))
+              : []
+          ),
         getByRole: (role: string, { name }: { name: string }) => ({
           click: async () => {
             actions.push(`click ${role} ${name} in ${selector}`);
@@ -436,6 +456,12 @@ describe('expectArcPreselected', () => {
       `click button ${enText('close')} in [role="dialog"][data-state="open"]`,
       'hidden send-network-arc-testnet'
     ]);
+  });
+
+  it('rejects an unexpected destination even if it has no pressed state', async () => {
+    await expect(
+      expectArcPreselected(pageWithSheet('send-network-arc-testnet', 'send-network-miden').page, 300)
+    ).rejects.toThrow('send-network-miden');
   });
 
   it('says it checks the destination set and the default, not USDCx mode', async () => {

@@ -1,4 +1,5 @@
 export const REOWN_NATIVE_FAILURE_PREFIX = 'REOWN_NATIVE_REQUEST_FAILURE:';
+export const REOWN_IOS_FAILURE_PREFIX = 'REOWN_IOS_REQUEST_FAILURE:';
 
 function closedValues<const Values extends readonly string[]>(...values: Values): Readonly<Values> {
   return Object.freeze(values);
@@ -7,13 +8,29 @@ function closedValues<const Values extends readonly string[]>(...values: Values)
 export const REOWN_NATIVE_ORIGINS = closedValues(
   'argument_validation',
   'unconfigured',
+  'request_construction_error',
+  'request_call_error',
   'publish_error',
   'wallet_error',
   'request_expired',
   'session_deleted',
   'other'
 );
-export const REOWN_WALLET_RESPONSE_CODES = closedValues('user_rejected', 'invalid_params', 'internal_error', 'other');
+export const REOWN_WALLET_RESPONSE_CODES = closedValues(
+  'user_rejected',
+  'invalid_params',
+  'internal_error',
+  'provider_unauthorized',
+  'method_unsupported',
+  'provider_disconnected',
+  'chain_disconnected',
+  'chain_switch_failed',
+  'request_invalid',
+  'rpc_unavailable',
+  'transaction_rejected',
+  'rpc_limited',
+  'other'
+);
 export const REOWN_REQUEST_AGES = closedValues('under_30s', '30_to_120s', '120_to_300s', 'over_300s', 'unknown');
 export const REOWN_PUBLICATIONS = closedValues('confirmed', 'unobserved');
 export const REOWN_BACKGROUND_ANSWERS = closedValues('yes', 'no');
@@ -34,6 +51,65 @@ export type ReownNativeFailure = Readonly<
     | { nativeOrigin: Exclude<ReownNativeOrigin, 'wallet_error'>; walletResponseCode?: never }
   )
 >;
+
+// A call origin fails a call before the relay publishes its request, so it is always unobserved. A published
+// origin ends a request that the plugin tracks. The plugin sends the plain origin when the relay send of the call
+// returned first (confirmed), and the origin with the suffix below when it did not (unobserved), as Android does.
+// The iOS plugin reports only the origin, so the age stays unknown. All of them carry no wallet response.
+const IOS_CALL_ORIGINS = [
+  'unconfigured',
+  'argument_validation',
+  'request_construction_error',
+  'request_call_error'
+] as const;
+const IOS_PUBLISHED_ORIGINS = ['request_expired', 'session_deleted'] as const;
+const IOS_UNPUBLISHED_SUFFIX = '_unpublished';
+const ANDROID_WIRE_ORIGINS: ReadonlySet<ReownNativeOrigin> = new Set([
+  'argument_validation',
+  'unconfigured',
+  'publish_error',
+  'wallet_error',
+  'request_expired',
+  'session_deleted',
+  'other'
+]);
+
+/** True for a failure in the shape the iOS plugin reports: one of its origins, with the observations its code decodes to. */
+export function isReownIOSFailure(failure: ReownNativeFailure): boolean {
+  if (
+    failure.requestAge !== 'unknown' ||
+    failure.backgrounded !== undefined ||
+    failure.walletResponseCode !== undefined
+  ) {
+    return false;
+  }
+  switch (failure.published) {
+    case 'unobserved':
+      return (
+        IOS_CALL_ORIGINS.some(origin => origin === failure.nativeOrigin) ||
+        IOS_PUBLISHED_ORIGINS.some(origin => origin === failure.nativeOrigin)
+      );
+    case 'confirmed':
+      return IOS_PUBLISHED_ORIGINS.some(origin => origin === failure.nativeOrigin);
+  }
+}
+
+export function decodeReownIOSFailureCode(code: unknown): ReownNativeFailure | undefined {
+  if (typeof code !== 'string') return undefined;
+  const callOrigin = IOS_CALL_ORIGINS.find(origin => code === REOWN_IOS_FAILURE_PREFIX + origin);
+  if (callOrigin !== undefined) return { nativeOrigin: callOrigin, requestAge: 'unknown', published: 'unobserved' };
+  const publishedOrigin = IOS_PUBLISHED_ORIGINS.find(origin => code === REOWN_IOS_FAILURE_PREFIX + origin);
+  if (publishedOrigin !== undefined) {
+    return { nativeOrigin: publishedOrigin, requestAge: 'unknown', published: 'confirmed' };
+  }
+  const unpublishedOrigin = IOS_PUBLISHED_ORIGINS.find(
+    origin => code === REOWN_IOS_FAILURE_PREFIX + origin + IOS_UNPUBLISHED_SUFFIX
+  );
+  if (unpublishedOrigin !== undefined) {
+    return { nativeOrigin: unpublishedOrigin, requestAge: 'unknown', published: 'unobserved' };
+  }
+  return undefined;
+}
 
 // Keyed by identity, so a frozen rejection can be marked and no field of the rejection ever carries the mark.
 const NATIVE_FAILURES = new WeakMap<object, ReownNativeFailure>();
@@ -78,7 +154,8 @@ export function decodeReownNativeFailureCode(code: unknown): ReownNativeFailure 
   if (typeof code !== 'string' || !code.startsWith(REOWN_NATIVE_FAILURE_PREFIX)) return undefined;
   try {
     const value: unknown = JSON.parse(code.slice(REOWN_NATIVE_FAILURE_PREFIX.length));
-    return validateReownNativeFailure(value);
+    const failure = validateReownNativeFailure(value);
+    return failure !== undefined && ANDROID_WIRE_ORIGINS.has(failure.nativeOrigin) ? failure : undefined;
   } catch {
     return undefined;
   }

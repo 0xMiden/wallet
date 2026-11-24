@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -78,6 +79,7 @@ jest.mock('./components', () => {
   const R = require('react');
   return {
     __esModule: true,
+    useEarnAssetFaucetId: () => undefined,
     MetricCard: ({
       label,
       value,
@@ -308,6 +310,16 @@ const metricValue = (label: string) => {
 };
 
 describe('EarnVaultDetail', () => {
+  it('names the exact selected vault in the Command body after the duplicate page header is hidden', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <EarnVaultDetail vaultId="v-audited" />
+      </FlowPresentationProvider>
+    );
+    expect(screen.getByRole('heading', { level: 2, name: 'Aave' })).toBeVisible();
+    expect(screen.getByText('USDC on Ethereum')).toBeVisible();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockEarnDeposit = { state: 'available' };
@@ -601,6 +613,7 @@ describe('EarnVaultDetail after a failed load', () => {
     mockLoadState = { isLoading: true };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();

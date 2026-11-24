@@ -1,4 +1,7 @@
-import { FALLBACK_BOTTOM_GUTTER, FALLBACK_CAPSULE_HEIGHT, resolveTargetRect } from './peek-target-rect';
+import { CARD_HEIGHT, CARD_WIDTH } from './DappPeekCard';
+import { FALLBACK_BOTTOM_GUTTER, FALLBACK_CAPSULE_HEIGHT, frontCardRect, resolveTargetRect } from './peek-target-rect';
+
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 describe('resolveTargetRect', () => {
   const mountBanner = (height: number) => {
@@ -60,5 +63,17 @@ describe('resolveTargetRect', () => {
 
   it('ignores rects with no size and falls back', () => {
     expect(resolveTargetRect(unmeasured, unmeasured).y).toBe(FALLBACK_CAPSULE_HEIGHT);
+  });
+});
+
+describe('frontCardRect', () => {
+  it("frontCardRect anchors the card at the tray's bottom-right", () => {
+    expect(frontCardRect(new DOMRect(214, 590, 164, CARD_HEIGHT))).toEqual({
+      x: 378 - CARD_WIDTH,
+      y: 590,
+      width: CARD_WIDTH,
+      height: CARD_HEIGHT,
+      cornerRadius: 16
+    });
   });
 });

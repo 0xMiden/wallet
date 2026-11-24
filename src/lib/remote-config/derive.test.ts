@@ -1,5 +1,4 @@
-import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
-import { createPublicClient, getAddress, http, keccak256, toBytes } from 'viem';
+import { getAddress, keccak256, toBytes } from 'viem';
 
 import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import {
@@ -24,16 +23,15 @@ import {
   type DerivedBridgeConfig,
   type DerivedChainConfig,
   type DeriveDeps,
-  deriveBridgeConfig,
-  type EvmReads,
-  NotAFaucetError,
-  NotDeployedError,
-  readMidenFaucetMetadata
+  EPOCH_NATIVE_TOKEN,
+  type EvmReads
 } from './derive';
 import { parseStoredDerived } from './derived-snapshot';
 import type { BridgeConfig } from './schema';
 import { parseSwapPairs } from './swap-pairs';
 import type { EarnMarket } from './values';
+let { deriveBridgeConfig, readMidenFaucetMetadata, NotDeployedError, NotAFaucetError } =
+  jest.requireActual<typeof import('./derive')>('./derive');
 
 const mockGetAccountDetails = jest.fn();
 const mockFromAccountStorage = jest.fn();
@@ -130,7 +128,8 @@ const EPOCH_CATALOG = {
   }
 };
 
-// The three health routes as they answered on 2026-10-03.
+// The allocator /health captured on 2026-10-03: status and allocator addresses, and none of the arbiter, Compact
+// or integer fields epoch-intents-sdk 2.0.1 requires.
 const ALLOCATOR_HEALTH = {
   status: 'healthy',
   allocatorAddresses: {
@@ -141,8 +140,41 @@ const ALLOCATOR_HEALTH = {
   timestamp: '2026-10-03T13:09:55.545Z',
   supportedChains: []
 };
+const ALLOCATOR_ADDRESS = '0xa46827635A7d329608085401a3b2Bf14a8a2bDF9';
+const ARBITER_ADDRESS = '0x2F5eA866716A04e91a55099620F2e1B423eC7011';
+const COMPACT_ADDRESS = '0x00000000000000171ede64904551eeDF3C6C9788';
+const MIDEN_CHAIN = '999999999';
+const serviceAddresses = (address: string): Record<string, string> => ({
+  '11155111': address,
+  [MIDEN_CHAIN]: address
+});
+// The service configuration `resolveServiceConfiguration` admits. The numbers are the ones the SDK compiled in
+// before 2.0 and that the E2E allocator fake still serves.
+const SDK_ALLOCATOR_HEALTH = {
+  status: 'healthy',
+  allocatorAddresses: serviceAddresses(ALLOCATOR_ADDRESS),
+  arbiterAddresses: serviceAddresses(ARBITER_ADDRESS),
+  compactAddresses: serviceAddresses(COMPACT_ADDRESS),
+  compactLockResetPeriod: 4,
+  compactLockScope: 0,
+  compactExpirySeconds: 600,
+  compactExpiryBufferSeconds: 60,
+  midenRecallBufferBlocks: 1000,
+  midenVirtualChainId: 999999999,
+  midenTestnetVirtualChainId: 999999999,
+  midenMainnetVirtualChainId: 123456789,
+  signingAddress: ARBITER_ADDRESS,
+  timestamp: '2026-10-03T13:09:55.545Z',
+  supportedChains: []
+};
+const ALLOCATOR_HEALTH_URL = 'https://testnet-dev.epochprotocol.xyz/health';
+const ALLOCATOR_RECIPIENT_URL = 'https://testnet-dev.epochprotocol.xyz/miden-recipient';
+const ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
+// The indexer and the positions catalogue as they answered on 2026-10-03. The allocator body is the SDK 2.0.1
+// service configuration, not the status-and-addresses answer from that day.
 const HEALTH: Record<string, unknown> = {
-  'https://testnet-dev.epochprotocol.xyz/health': ALLOCATOR_HEALTH,
+  [ALLOCATOR_HEALTH_URL]: SDK_ALLOCATOR_HEALTH,
+  [ALLOCATOR_RECIPIENT_URL]: { midenP2IDRecipientAccountId: ALLOCATOR_ACCOUNT, midenMinReclaimBlocks: 1000 },
   [SEPOLIA_CATALOG_URL]: EPOCH_CATALOG,
   'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz': { status: 'SERVING' }
 };
@@ -180,6 +212,8 @@ function deps(overrides: Partial<DeriveDeps> = {}): Partial<DeriveDeps> {
     readMidenFaucet: jest.fn(readFixtureFaucet),
     evm: () => reads,
     fetch: healthFetch(),
+    tokenFaucetsBySymbol: jest.fn(async () => new Map<string, string>()),
+    midenAccountHex: jest.fn(async (accountId: string) => accountId.toLowerCase()),
     ...overrides
   };
 }
@@ -209,7 +243,21 @@ const HEALTHY_SEPOLIA: DerivedChainConfig = {
     // TESTNET lists no deposit token.
     depositTokens: { state: 'skipped' }
   },
-  epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } }
+  // The route's USDC names the testnet output, so it settles into that faucet, read at its own scale.
+  epoch: {
+    tokens: {
+      USDC: {
+        state: 'ok',
+        value: {
+          symbol: 'USDC',
+          decimals: 18,
+          midenFaucetId: '0x537c15a622074e91188aa894456c52',
+          midenSymbol: 'USDC',
+          midenDecimals: 6
+        }
+      }
+    }
+  }
 };
 const HEALTHY: DerivedBridgeConfig = {
   network: 'testnet',
@@ -228,6 +276,7 @@ const HEALTHY: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
+    allocatorAccount: { state: 'ok', value: { accountId: ALLOCATOR_ACCOUNT } },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     vaults: { state: 'ok', value: [DUMMY_VAULT_INFO] }
   },
@@ -237,7 +286,9 @@ const HEALTHY: DerivedBridgeConfig = {
 
 const SKIPPED = { state: 'skipped' };
 
-beforeEach(() => {
+beforeEach(async () => {
+  jest.resetModules();
+  ({ deriveBridgeConfig, readMidenFaucetMetadata, NotDeployedError, NotAFaucetError } = await import('./derive'));
   jest.clearAllMocks();
   mockGetAccountDetails.mockReset();
   mockFromAccountStorage.mockReset();
@@ -258,6 +309,7 @@ describe('deriveBridgeConfig', () => {
     expect(io.readMidenFaucet).toHaveBeenCalledWith('0x537c15a622074e91188aa894456c52', RPC);
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       'https://testnet-dev.epochprotocol.xyz/health',
+      ALLOCATOR_RECIPIENT_URL,
       'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz',
       // The catalogue waits for the route's USDC read, which gives the token of its positions fallback.
       SEPOLIA_POOLS_URL,
@@ -277,7 +329,13 @@ describe('deriveBridgeConfig', () => {
       ...HEALTHY,
       chains: {},
       agglayer: { indexer: SKIPPED },
-      epoch: { market: SKIPPED, allocator: SKIPPED, midenUsdcFaucet: SKIPPED, vaults: SKIPPED }
+      epoch: {
+        market: SKIPPED,
+        allocator: SKIPPED,
+        allocatorAccount: SKIPPED,
+        midenUsdcFaucet: SKIPPED,
+        vaults: SKIPPED
+      }
     });
     expect(io.readBridgeRegistry).not.toHaveBeenCalled();
     expect(io.fetch).not.toHaveBeenCalled();
@@ -285,7 +343,7 @@ describe('deriveBridgeConfig', () => {
 
   it('skips the EVM probes for a chain the wallet has no RPC for', async () => {
     const reads = (await deriveBridgeConfig(TESTNET, deps({ evm: () => null }))).chains[SEPOLIA];
-    expect([reads?.agglayer.l1BridgeCode, reads?.agglayer.evmNetworkId, reads?.epoch.evmUsdc]).toEqual([
+    expect([reads?.agglayer.l1BridgeCode, reads?.agglayer.evmNetworkId, reads?.epoch.tokens.USDC]).toEqual([
       SKIPPED,
       SKIPPED,
       SKIPPED
@@ -308,7 +366,7 @@ describe('deriveBridgeConfig', () => {
       l1BridgeCode: { state: 'absent' },
       evmNetworkId: { state: 'absent' }
     });
-    expect(derived.chains[SEPOLIA]?.epoch.evmUsdc).toEqual({ state: 'absent' });
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.USDC).toEqual({ state: 'absent' });
     expect(derived.epoch).toMatchObject({ midenUsdcFaucet: { state: 'absent' } });
     expect(reads.networkId).not.toHaveBeenCalled();
     expect(reads.erc20).not.toHaveBeenCalled();
@@ -363,8 +421,8 @@ describe('deriveBridgeConfig', () => {
     });
     const derived = await deriveBridgeConfig(TESTNET, deps({ fetch: swapped }));
     expect([derived.epoch.allocator.state, derived.agglayer.indexer.state]).toEqual(['error', 'error']);
-    // The allocator's own fields without status 'healthy' do not make it healthy.
-    const degradedAllocator = { ...ALLOCATOR_HEALTH, status: 'degraded' };
+    // A complete SDK body whose status is not exactly 'healthy' is still not admitted.
+    const degradedAllocator = { ...SDK_ALLOCATOR_HEALTH, status: 'degraded' };
     const degraded = await deriveBridgeConfig(
       TESTNET,
       deps({ fetch: healthFetch({ ...HEALTH, 'https://testnet-dev.epochprotocol.xyz/health': degradedAllocator }) })
@@ -372,6 +430,179 @@ describe('deriveBridgeConfig', () => {
     expect(degraded.epoch.allocator.state).toBe('error');
     const down = await deriveBridgeConfig(TESTNET, deps({ fetch: healthFetch({}) }));
     expect(down.epoch.allocator).toEqual({ state: 'error', message: 'Remote JSON request failed with HTTP 503' });
+  });
+
+  const deriveAllocator = (body: unknown, config: BridgeConfig = TESTNET) =>
+    deriveBridgeConfig(config, deps({ fetch: healthFetch({ ...HEALTH, [ALLOCATOR_HEALTH_URL]: body }) }));
+
+  const deriveAllocatorAccount = (body: unknown, io: Partial<DeriveDeps> = {}) =>
+    deriveBridgeConfig(TESTNET, deps({ fetch: healthFetch({ ...HEALTH, [ALLOCATOR_RECIPIENT_URL]: body }), ...io }));
+
+  it("reads the allocator's Miden account in its lowercase hex form", async () => {
+    const midenAccountHex = jest.fn(async () => ALLOCATOR_ACCOUNT);
+    const derived = await deriveAllocatorAccount(
+      { midenP2IDRecipientAccountId: 'mtst1allocator', midenMinReclaimBlocks: 1000 },
+      { midenAccountHex }
+    );
+    expect(midenAccountHex).toHaveBeenCalledWith('mtst1allocator');
+    expect(derived.epoch.allocatorAccount).toEqual({ state: 'ok', value: { accountId: ALLOCATOR_ACCOUNT } });
+  });
+
+  it.each([
+    ['no account', { midenMinReclaimBlocks: 1000 }],
+    ['an empty account', { midenP2IDRecipientAccountId: '  ' }],
+    ['an account that is not a string', { midenP2IDRecipientAccountId: 7 }],
+    ['an account that is not a Miden account id', { midenP2IDRecipientAccountId: '0x1234' }]
+  ])('reads an allocator account answer with %s as a failed read', async (_name, body) => {
+    const derived = await deriveAllocatorAccount(body);
+    expect(derived.epoch.allocatorAccount.state).toBe('error');
+    // The health probe is separate, so a Fast deposit, which needs no collateral note, is not affected.
+    expect(derived.epoch.allocator).toEqual({ state: 'ok', value: true });
+  });
+
+  it('reads an allocator account route that is down as a failed read', async () => {
+    const { [ALLOCATOR_RECIPIENT_URL]: _route, ...withoutRoute } = HEALTH;
+    const derived = await deriveBridgeConfig(TESTNET, deps({ fetch: healthFetch(withoutRoute) }));
+    expect(derived.epoch.allocatorAccount).toEqual({
+      state: 'error',
+      message: 'Remote JSON request failed with HTTP 503'
+    });
+  });
+
+  it.each([
+    ['status only', { status: 'healthy' }],
+    ['legacy allocator configuration', ALLOCATOR_HEALTH],
+    ['compactExpirySeconds of 0', { ...SDK_ALLOCATOR_HEALTH, compactExpirySeconds: 0 }],
+    [
+      'compactExpirySeconds past the safe integer bound',
+      { ...SDK_ALLOCATOR_HEALTH, compactExpirySeconds: Number.MAX_SAFE_INTEGER + 1 }
+    ],
+    ['compactExpiryBufferSeconds of 0', { ...SDK_ALLOCATOR_HEALTH, compactExpiryBufferSeconds: 0 }],
+    ['compactLockResetPeriod of -1', { ...SDK_ALLOCATOR_HEALTH, compactLockResetPeriod: -1 }],
+    ['compactLockResetPeriod of 8', { ...SDK_ALLOCATOR_HEALTH, compactLockResetPeriod: 8 }],
+    ['compactLockScope of 2', { ...SDK_ALLOCATOR_HEALTH, compactLockScope: 2 }],
+    ['midenRecallBufferBlocks of -1', { ...SDK_ALLOCATOR_HEALTH, midenRecallBufferBlocks: -1 }],
+    ['midenVirtualChainId of 0', { ...SDK_ALLOCATOR_HEALTH, midenVirtualChainId: 0 }],
+    ['midenTestnetVirtualChainId of 0', { ...SDK_ALLOCATOR_HEALTH, midenTestnetVirtualChainId: 0 }],
+    ['midenMainnetVirtualChainId of 0', { ...SDK_ALLOCATOR_HEALTH, midenMainnetVirtualChainId: 0 }],
+    ['a fractional compactExpirySeconds', { ...SDK_ALLOCATOR_HEALTH, compactExpirySeconds: 1.5 }],
+    ['a string compactLockResetPeriod', { ...SDK_ALLOCATOR_HEALTH, compactLockResetPeriod: '4' }],
+    ['a missing compactExpiryBufferSeconds', { ...SDK_ALLOCATOR_HEALTH, compactExpiryBufferSeconds: undefined }],
+    [
+      'a configured-chain address of 0xa110c',
+      {
+        ...SDK_ALLOCATOR_HEALTH,
+        allocatorAddresses: { ...SDK_ALLOCATOR_HEALTH.allocatorAddresses, '11155111': '0xa110c' }
+      }
+    ],
+    [
+      'a Miden-chain Compact address of 0xa110c',
+      {
+        ...SDK_ALLOCATOR_HEALTH,
+        compactAddresses: { ...SDK_ALLOCATOR_HEALTH.compactAddresses, [MIDEN_CHAIN]: '0xa110c' }
+      }
+    ],
+    [
+      'no arbiter address for Sepolia',
+      { ...SDK_ALLOCATOR_HEALTH, arbiterAddresses: { [MIDEN_CHAIN]: ARBITER_ADDRESS } }
+    ]
+  ])('rejects a healthy allocator with %s instead of SDK 2 configuration', async (_name, body) => {
+    expect((await deriveAllocator(body)).epoch.allocator.state).toBe('error');
+  });
+
+  it.each([
+    ['compactLockResetPeriod is 0', { compactLockResetPeriod: 0 }],
+    ['compactLockResetPeriod is 7', { compactLockResetPeriod: 7 }],
+    ['compactLockScope is 1', { compactLockScope: 1 }],
+    ['compactExpirySeconds is 1', { compactExpirySeconds: 1 }],
+    ['compactExpirySeconds is the safe integer bound', { compactExpirySeconds: Number.MAX_SAFE_INTEGER }],
+    ['compactExpiryBufferSeconds is the safe integer bound', { compactExpiryBufferSeconds: Number.MAX_SAFE_INTEGER }],
+    ['midenRecallBufferBlocks is 0', { midenRecallBufferBlocks: 0 }],
+    [
+      'midenRecallBufferBlocks is past the safe integer bound',
+      { midenRecallBufferBlocks: Number.MAX_SAFE_INTEGER + 1 }
+    ],
+    [
+      'the virtual chain ids are 1',
+      { midenVirtualChainId: 1, midenTestnetVirtualChainId: 1, midenMainnetVirtualChainId: 1 }
+    ]
+  ])('admits an allocator whose %s', async (_name, fields) => {
+    expect((await deriveAllocator({ ...SDK_ALLOCATOR_HEALTH, ...fields })).epoch.allocator).toEqual({
+      state: 'ok',
+      value: true
+    });
+  });
+
+  it('admits lowercase addresses that getAddress accepts', async () => {
+    const lowercase = '0xa46827635a7d329608085401a3b2bf14a8a2bdf9';
+    const derived = await deriveAllocator({
+      ...SDK_ALLOCATOR_HEALTH,
+      allocatorAddresses: serviceAddresses(lowercase),
+      arbiterAddresses: serviceAddresses('0x2f5ea866716a04e91a55099620f2e1b423ec7011'),
+      compactAddresses: serviceAddresses('0x00000000000000171ede64904551eedf3c6c9788')
+    });
+    expect(derived.epoch.allocator).toEqual({ state: 'ok', value: true });
+  });
+
+  it('ignores an invalid address on a chain that does not name Epoch USDC', async () => {
+    const config: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: { ...TESTNET.supportedEvmChains, extra: { chainId: 84532, bridges: {} } }
+    };
+    const derived = await deriveAllocator(
+      {
+        ...SDK_ALLOCATOR_HEALTH,
+        allocatorAddresses: { ...SDK_ALLOCATOR_HEALTH.allocatorAddresses, '84532': '0xa110c' }
+      },
+      config
+    );
+    expect(derived.epoch.allocator).toEqual({ state: 'ok', value: true });
+  });
+
+  it('rejects an Epoch USDC chain the health body does not configure', async () => {
+    const config: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: {
+        ...TESTNET.supportedEvmChains,
+        base: {
+          chainId: BASE_CHAIN_ID,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { USDC: { contractAddress: BASE_USDC, outputs: ['usdc-testnet-output'] } }
+            }
+          }
+        }
+      }
+    };
+    expect((await deriveAllocator(SDK_ALLOCATOR_HEALTH, config)).epoch.allocator.state).toBe('error');
+    const configured = {
+      ...SDK_ALLOCATOR_HEALTH,
+      allocatorAddresses: { ...SDK_ALLOCATOR_HEALTH.allocatorAddresses, [BASE_CHAIN_ID]: ALLOCATOR_ADDRESS },
+      arbiterAddresses: { ...SDK_ALLOCATOR_HEALTH.arbiterAddresses, [BASE_CHAIN_ID]: ARBITER_ADDRESS },
+      compactAddresses: { ...SDK_ALLOCATOR_HEALTH.compactAddresses, [BASE_CHAIN_ID]: COMPACT_ADDRESS }
+    };
+    expect((await deriveAllocator(configured, config)).epoch.allocator).toEqual({ state: 'ok', value: true });
+  });
+
+  it('requires the Miden destination chain even when the document names no Epoch route', async () => {
+    const sepoliaOnly = {
+      ...SDK_ALLOCATOR_HEALTH,
+      allocatorAddresses: { '11155111': ALLOCATOR_ADDRESS },
+      arbiterAddresses: { '11155111': ARBITER_ADDRESS },
+      compactAddresses: { '11155111': COMPACT_ADDRESS }
+    };
+    expect((await deriveAllocator(sepoliaOnly)).epoch.allocator.state).toBe('error');
+    const midenOnly = {
+      ...SDK_ALLOCATOR_HEALTH,
+      allocatorAddresses: { [MIDEN_CHAIN]: ALLOCATOR_ADDRESS },
+      arbiterAddresses: { [MIDEN_CHAIN]: ARBITER_ADDRESS },
+      compactAddresses: { [MIDEN_CHAIN]: COMPACT_ADDRESS }
+    };
+    const noRoute: BridgeConfig = { ...TESTNET, supportedEvmChains: {} };
+    expect((await deriveAllocator(midenOnly, noRoute)).epoch.allocator).toEqual({ state: 'ok', value: true });
+    expect((await deriveAllocator(midenOnly)).epoch.allocator.state).toBe('error');
   });
 
   it('starts every probe before any of them answers', async () => {
@@ -383,11 +614,143 @@ describe('deriveBridgeConfig', () => {
     });
     const pending = deriveBridgeConfig(TESTNET, io);
     await new Promise(resolve => setTimeout(resolve, 0));
-    // The two health routes, `/pools` and, after the testnet host refuses `/pools`, the positions fallback.
-    expect(io.fetch).toHaveBeenCalledTimes(4);
+    // The two health routes, the allocator's account, `/pools` and, after the testnet host refuses `/pools`, the
+    // positions fallback.
+    expect(io.fetch).toHaveBeenCalledTimes(5);
     expect(io.readMidenFaucet).toHaveBeenCalledTimes(1);
     releaseRegistry({ rollupId: 86, tokens: [ETH] });
     await expect(pending).resolves.toEqual(HEALTHY);
+  });
+});
+
+describe('the Epoch token faucets', () => {
+  const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+  const USDT = '0x7169d38820dfd117c3fa1f22a697dba58d90ba06';
+  // Sepolia's Epoch route with a WETH that names its Miden symbol and a USDT that relies on its key.
+  const withTokens: BridgeConfig = {
+    ...TESTNET,
+    supportedEvmChains: {
+      sepolia: {
+        chainId: SEPOLIA,
+        bridges: {
+          epoch: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            tokens: {
+              USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', outputs: ['usdc-testnet-output'] },
+              WETH: { contractAddress: WETH, midenSymbol: 'ETH', outputs: [] },
+              USDT: { contractAddress: USDT, outputs: [] }
+            }
+          }
+        }
+      }
+    }
+  };
+  const faucetsOf = async (config: BridgeConfig, overrides: Partial<DeriveDeps>) => {
+    const derived = await deriveBridgeConfig(config, deps(overrides));
+    return Object.fromEntries(
+      Object.entries(derived.chains[SEPOLIA]?.epoch.tokens ?? {}).map(([symbol, read]) => [
+        symbol,
+        read.state === 'ok' ? read.value.midenFaucetId : read.state
+      ])
+    );
+  };
+
+  it("takes each token's faucet from the token-list by its Miden symbol, else its key, as hex", async () => {
+    const tokenFaucetsBySymbol = jest.fn(
+      async () =>
+        new Map([
+          ['ETH', 'mtst1eth'],
+          ['USDT', 'mtst1usdt'],
+          ['WETH', 'mtst1wrong']
+        ])
+    );
+    // A bech32 id becomes a stand-in hex; a hex id is already hex, as in the real conversion.
+    const midenAccountHex = jest.fn(async (accountId: string) =>
+      accountId.startsWith('0x') ? accountId : `0x${accountId.slice(5).padEnd(30, '0')}`
+    );
+    await expect(faucetsOf(withTokens, { tokenFaucetsBySymbol, midenAccountHex })).resolves.toEqual({
+      // The document's output wins over the token-list.
+      USDC: '0x537c15a622074e91188aa894456c52',
+      WETH: '0xeth000000000000000000000000000',
+      USDT: '0xusdt00000000000000000000000000'
+    });
+    // One list read per derivation, whatever the number of tokens.
+    expect(tokenFaucetsBySymbol).toHaveBeenCalledTimes(1);
+    expect(tokenFaucetsBySymbol).toHaveBeenCalledWith('testnet');
+  });
+
+  it('leaves a token the token-list does not name, or cannot be read for, without a faucet and keeps its read', async () => {
+    await expect(
+      faucetsOf(withTokens, { tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', 'mtst1eth']])) })
+    ).resolves.toEqual({ USDC: '0x537c15a622074e91188aa894456c52', WETH: 'mtst1eth', USDT: undefined });
+    await expect(
+      faucetsOf(withTokens, { tokenFaucetsBySymbol: jest.fn(async () => Promise.reject(new Error('no list'))) })
+    ).resolves.toEqual({ USDC: '0x537c15a622074e91188aa894456c52', WETH: undefined, USDT: undefined });
+    await expect(
+      faucetsOf(withTokens, {
+        tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', 'not an id']])),
+        midenAccountHex: jest.fn(async () => Promise.reject(new Error('not an account id')))
+      })
+    ).resolves.toEqual({ USDC: undefined, WETH: undefined, USDT: undefined });
+  });
+
+  it('reads the native coin at the zero address with no contract read, at its key and 18 decimals', async () => {
+    const reads = sepoliaReads({ hasCode: jest.fn(async () => false) });
+    const withNative: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: {
+        sepolia: {
+          chainId: SEPOLIA,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { ETH: { contractAddress: EPOCH_NATIVE_TOKEN, outputs: [] } }
+            }
+          }
+        }
+      }
+    };
+    const readMidenFaucet = jest.fn(async (faucetId: string) =>
+      faucetId === '0xeth' ? { symbol: 'ETH', decimals: 8 } : readFixtureFaucet(faucetId)
+    );
+    const derived = await deriveBridgeConfig(
+      withNative,
+      deps({
+        evm: () => reads,
+        readMidenFaucet,
+        tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', '0xeth']]))
+      })
+    );
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.ETH).toEqual({
+      state: 'ok',
+      value: { symbol: 'ETH', decimals: 18, midenFaucetId: '0xeth', midenSymbol: 'ETH', midenDecimals: 8 }
+    });
+    expect(reads.hasCode).not.toHaveBeenCalledWith(EPOCH_NATIVE_TOKEN);
+    expect(reads.erc20).not.toHaveBeenCalled();
+  });
+
+  it("keeps a token's faucet without its scale when the faucet's metadata cannot be read", async () => {
+    const readMidenFaucet = jest.fn(async (faucetId: string) => {
+      if (faucetId === '0xeth000000000000000000000000000') throw new Error('not a faucet');
+      return readFixtureFaucet(faucetId);
+    });
+    const midenAccountHex = jest.fn(async (accountId: string) =>
+      accountId.startsWith('0x') ? accountId : `0x${accountId.slice(5).padEnd(30, '0')}`
+    );
+    const derived = await deriveBridgeConfig(
+      withTokens,
+      deps({
+        readMidenFaucet,
+        midenAccountHex,
+        tokenFaucetsBySymbol: jest.fn(async () => new Map([['ETH', 'mtst1eth']]))
+      })
+    );
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.WETH).toEqual({
+      state: 'ok',
+      value: { symbol: 'USDC', decimals: 18, midenFaucetId: '0xeth000000000000000000000000000' }
+    });
   });
 });
 
@@ -648,7 +1011,7 @@ describe('the Earn market', () => {
     });
   });
 
-  it('takes the market only on a chain with an Epoch route, whatever the service lists first', async () => {
+  it('takes the market only on a chain a listed vault names, whatever the service lists first', async () => {
     const fetch = servingPositions([
       item(84532, [usdcPosition(BASE_USDC, `DUMMY_LENDING:84532:${BASE_USDC.toLowerCase()}`)]),
       item(11155111)
@@ -661,7 +1024,7 @@ describe('the Earn market', () => {
   it.each([
     ['a lender the document does not list', [item(11155111, [], 'EULER_V2')]],
     ['the protocol name in place of its lender key', [item(11155111, [], 'dummy-lending')]],
-    ['a lender only on a chain no Epoch route names', [item(84532)]],
+    ['a lender only on a chain no listed vault names', [item(84532)]],
     ['no item', []]
   ])('reads a catalog with %s as no market', async (_label, items) => {
     const fetch = servingPositions(items);
@@ -686,7 +1049,7 @@ describe('the Earn market', () => {
     });
   });
 
-  it('skips the market, with no request, while the document lists no vault on an Epoch route', async () => {
+  it('skips the market, with no request, while the document lists no vault', async () => {
     const fetch = servingPositions([item(11155111)]);
     const { earn: _earn, ...unlisted } = TESTNET;
     expect((await deriveBridgeConfig(unlisted, deps({ fetch }))).epoch.market).toEqual({ state: 'skipped' });
@@ -815,10 +1178,28 @@ describe('the Earn market from /pools', () => {
     expect(fetch.mock.calls.some(([requested]) => requested.includes('/positions?'))).toBe(false);
   });
 
-  it('skips the market when no chain has an Epoch USDC route', async () => {
-    const noRoute: BridgeConfig = { ...TESTNET, supportedEvmChains: { base: { chainId: BASE_CHAIN_ID, bridges: {} } } };
+  it('reads the listed vaults of a chain with no Epoch USDC route', async () => {
+    const noRoute: BridgeConfig = { ...onBase, supportedEvmChains: { base: { chainId: BASE_CHAIN_ID, bridges: {} } } };
     const fetch = servingPools(() => answer(poolsPage([AAVE_V3_USDC])));
     const { epoch } = await deriveBridgeConfig(noRoute, deps({ fetch }));
+    expect(epoch.market).toMatchObject({
+      state: 'ok',
+      value: { marketUid: `AAVE_V3:8453:${BASE_USDC.toLowerCase()}` }
+    });
+    expect(epoch.vaults.state === 'ok' && epoch.vaults.value.map(vault => vault.listing.id)).toEqual([
+      'aave-v3-base-usdc'
+    ]);
+    expect(fetch.mock.calls.filter(([requested]) => requested.startsWith(BASE_POOLS_PREFIX))).toHaveLength(1);
+  });
+
+  it('skips the market, with no request, while the document names no positions host', async () => {
+    const { positionsUrl: _positionsUrl, ...epochWithNoHost } = onBase['bridge-providers'].epoch;
+    const noHost: BridgeConfig = {
+      ...onBase,
+      'bridge-providers': { ...onBase['bridge-providers'], epoch: epochWithNoHost }
+    };
+    const fetch = servingPools(() => answer(poolsPage([AAVE_V3_USDC])));
+    const { epoch } = await deriveBridgeConfig(noHost, deps({ fetch }));
     expect([epoch.market, epoch.vaults]).toEqual([{ state: 'skipped' }, { state: 'skipped' }]);
     expect(fetch.mock.calls.some(([requested]) => requested.startsWith(BASE_POOLS_PREFIX))).toBe(false);
   });
@@ -934,6 +1315,28 @@ describe('the Earn vault catalogue over several routes', () => {
     ]);
   });
 
+  it('reads only listed vaults on supported chains when another chain would fail', async () => {
+    const fetch = healthFetch();
+    const config: BridgeConfig = { ...TESTNET, earn: { vaults: [AAVE_V3_LISTING, DUMMY_VAULT] } };
+
+    const { epoch } = await deriveBridgeConfig(config, deps({ fetch }));
+
+    expect(epoch.vaults).toEqual({ state: 'ok', value: [DUMMY_VAULT_INFO] });
+    expect(epoch.market).toEqual(HEALTHY.epoch.market);
+    expect(fetch.mock.calls.filter(([url]) => url.startsWith(BASE_POOLS_PREFIX))).toEqual([]);
+    expect(fetch.mock.calls.filter(([url]) => new URL(url).searchParams.get('chains') === '8453')).toEqual([]);
+  });
+
+  it('skips both Earn probes when every listed vault is on a chain this build skips', async () => {
+    const fetch = healthFetch();
+    const config: BridgeConfig = { ...TESTNET, earn: { vaults: [AAVE_V3_LISTING] } };
+
+    const { epoch } = await deriveBridgeConfig(config, deps({ fetch }));
+
+    expect([epoch.vaults, epoch.market]).toEqual([{ state: 'skipped' }, { state: 'skipped' }]);
+    expect(fetch.mock.calls.filter(([url]) => ['/pools', '/positions'].includes(new URL(url).pathname))).toEqual([]);
+  });
+
   it.each([
     ['fails', { evm: () => sepoliaReads({ erc20: jest.fn(async () => Promise.reject(new Error('offline'))) }) }],
     ['has no RPC', { evm: () => null }]
@@ -943,6 +1346,62 @@ describe('the Earn vault catalogue over several routes', () => {
       state: 'ok',
       value: [{ ...DUMMY_VAULT_INFO, underlying: { ...DUMMY_VAULT_INFO.underlying, decimals: 6 } }]
     });
+  });
+
+  it("reads a listed market in a token that is not the route's USDC, with that token's own ERC-20 read", async () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    const wethVault = listingFor(
+      { marketUid: `DUMMY_LENDING:11155111:${WETH}` },
+      'dummy-lending-sepolia-weth',
+      'WETH',
+      {
+        protocol: 'dummy-lending'
+      }
+    );
+    const withWeth: BridgeConfig = { ...TESTNET, earn: { vaults: [DUMMY_VAULT, wethVault] } };
+    const erc20 = jest.fn(async (token: string) =>
+      token.toLowerCase() === WETH ? { symbol: 'WETH', decimals: 18 } : { symbol: 'USDC', decimals: 18 }
+    );
+    const { epoch } = await deriveBridgeConfig(withWeth, deps({ evm: () => sepoliaReads({ erc20 }) }));
+    expect(epoch.vaults).toEqual({
+      state: 'ok',
+      value: [
+        DUMMY_VAULT_INFO,
+        {
+          ...DUMMY_VAULT_INFO,
+          marketUid: `DUMMY_LENDING:11155111:${WETH}`,
+          underlying: { address: getAddress(WETH), symbol: 'WETH', decimals: 18 },
+          listing: wethVault
+        }
+      ]
+    });
+    // The route's USDC read serves the USDC market; the WETH market gets one read of its own.
+    expect(erc20.mock.calls.map(([token]) => token.toLowerCase())).toEqual([
+      '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      WETH
+    ]);
+  });
+
+  it('drops a listed WETH vault from the positions fallback when its ERC-20 read fails', async () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    const wethVault = listingFor(
+      { marketUid: `DUMMY_LENDING:11155111:${WETH}` },
+      'dummy-lending-sepolia-weth',
+      'WETH',
+      { protocol: 'dummy-lending' }
+    );
+    const withWeth: BridgeConfig = { ...TESTNET, earn: { vaults: [wethVault, DUMMY_VAULT] } };
+    const erc20 = jest.fn(async (token: string) => {
+      if (token.toLowerCase() === WETH) throw new Error('offline');
+      return { symbol: 'USDC', decimals: 18 };
+    });
+    const fetch = healthFetch();
+
+    const { epoch } = await deriveBridgeConfig(withWeth, deps({ fetch, evm: () => sepoliaReads({ erc20 }) }));
+
+    expect(epoch.vaults).toEqual({ state: 'ok', value: [DUMMY_VAULT_INFO] });
+    expect(epoch.market).toEqual(HEALTHY.epoch.market);
+    expect(fetch).toHaveBeenCalledWith(SEPOLIA_CATALOG_URL, expect.any(Object));
   });
 });
 
@@ -967,7 +1426,7 @@ describe('deriveBridgeConfig default I/O', () => {
       symbol: 'USDC',
       decimals: 6
     });
-    expect(Endpoint).toHaveBeenCalledWith(RPC);
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').Endpoint).toHaveBeenCalledWith(RPC);
     expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
     await expect(readMidenFaucetMetadata('not-a-faucet', RPC)).rejects.toThrow('Invalid Miden faucet metadata request');
   });
@@ -978,7 +1437,9 @@ describe('deriveBridgeConfig default I/O', () => {
     mockFromAccountStorage.mockReturnValue({ symbol: () => ({ toString: () => 'USDC' }), decimals: () => 6 });
     const derived = await deriveBridgeConfig(faucetOnly);
     expect(derived.epoch.midenUsdcFaucet).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 6 } });
-    expect(Endpoint).toHaveBeenCalledWith('https://rpc.effective.example');
+    expect(jest.requireMock('@miden-sdk/miden-sdk/lazy').Endpoint).toHaveBeenCalledWith(
+      'https://rpc.effective.example'
+    );
     expect(mockGetAccountDetails).toHaveBeenCalledWith({ id: '0x537c15a622074e91188aa894456c52' });
     expect(mockFromAccountStorage).toHaveBeenCalledWith(storage);
     expect(derived.derivedAt).toEqual(expect.any(Number));
@@ -1044,13 +1505,19 @@ describe('deriveBridgeConfig default I/O', () => {
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     };
     const derived = await deriveBridgeConfig(evmOnly);
-    expect(http).toHaveBeenCalledWith(getChain(11155111)?.rpcUrl, { timeout: 10_000, retryCount: 1 });
-    expect(createPublicClient).toHaveBeenCalledTimes(1);
+    expect(jest.requireMock('viem').http).toHaveBeenCalledWith(getChain(11155111)?.rpcUrl, {
+      timeout: 10_000,
+      retryCount: 1
+    });
+    expect(jest.requireMock('viem').createPublicClient).toHaveBeenCalledTimes(1);
     expect(derived.chains[SEPOLIA]?.agglayer).toMatchObject({
       l1BridgeCode: { state: 'ok', value: true },
       evmNetworkId: { state: 'ok', value: 0 }
     });
-    expect(derived.chains[SEPOLIA]?.epoch.evmUsdc).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 18 } });
+    expect(derived.chains[SEPOLIA]?.epoch.tokens.USDC).toEqual({
+      state: 'ok',
+      value: { symbol: 'USDC', decimals: 18 }
+    });
   });
 
   it('reads empty code as no contract', async () => {
@@ -1061,7 +1528,10 @@ describe('deriveBridgeConfig default I/O', () => {
     mockPublicClient.getCode.mockResolvedValueOnce(undefined).mockResolvedValueOnce('0x');
     const derived = await deriveBridgeConfig(evmOnly);
     const reads = derived.chains[SEPOLIA];
-    expect([reads?.agglayer.l1BridgeCode, reads?.epoch.evmUsdc]).toEqual([{ state: 'absent' }, { state: 'absent' }]);
+    expect([reads?.agglayer.l1BridgeCode, reads?.epoch.tokens.USDC]).toEqual([
+      { state: 'absent' },
+      { state: 'absent' }
+    ]);
     expect(mockPublicClient.readContract).not.toHaveBeenCalled();
   });
 
@@ -1072,12 +1542,12 @@ describe('deriveBridgeConfig default I/O', () => {
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     });
     expect(derived.chains[999999999]?.agglayer.l1BridgeCode).toEqual(SKIPPED);
-    expect(createPublicClient).not.toHaveBeenCalled();
+    expect(jest.requireMock('viem').createPublicClient).not.toHaveBeenCalled();
   });
 
   it('fetches the health routes with the global fetch', async () => {
     const original = globalThis.fetch;
-    const fetchSpy = jest.fn(async () => answer({ status: 'healthy' }));
+    const fetchSpy = jest.fn(async () => answer(SDK_ALLOCATOR_HEALTH));
     Object.defineProperty(globalThis, 'fetch', { value: fetchSpy, configurable: true, writable: true });
     try {
       const allocatorOnly: BridgeConfig = {

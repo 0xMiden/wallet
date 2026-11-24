@@ -159,3 +159,27 @@ it('does not regress an in-flight consumption on an older pending response', asy
   await pollUsdcxBurn(stored, async () => ({ status: 'Pending', attemptCount: 0 }));
   expect(stored.extraInputs.usdcxBurn.phase).toBe('consuming');
 });
+
+describe('confirmedAt', () => {
+  it('stamps confirmedAt when the burn first reads confirmed', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    try {
+      await pollUsdcxBurn(stored, async () => ({ status: 'NullifierCommitted', attemptCount: 1 }));
+    } finally {
+      now.mockRestore();
+    }
+    expect(stored.extraInputs.usdcxBurn).toMatchObject({ phase: 'confirmed', confirmedAt: 1_800_000_000_000 });
+  });
+
+  it('keeps an existing confirmedAt', async () => {
+    stored = row('consuming');
+    stored.extraInputs.usdcxBurn.confirmedAt = 1_700_000_000_000;
+    await pollUsdcxBurn(stored, async () => ({ status: 'NullifierCommitted', attemptCount: 1 }));
+    expect(stored.extraInputs.usdcxBurn).toMatchObject({ phase: 'confirmed', confirmedAt: 1_700_000_000_000 });
+  });
+
+  it('does not stamp a burn that is still pending', async () => {
+    await pollUsdcxBurn(stored, async () => ({ status: 'Pending', attemptCount: 0 }));
+    expect(stored.extraInputs.usdcxBurn.confirmedAt).toBeUndefined();
+  });
+});

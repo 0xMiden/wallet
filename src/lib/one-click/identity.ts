@@ -1,131 +1,104 @@
-import { isRecord } from 'lib/update/guards';
+import type {
+  NearIntentsAddressKind,
+  NearIntentsChainConfig,
+  NearIntentsConfig,
+  NearIntentsMidenAssetConfig,
+  NearIntentsTokenConfig,
+  OneClickAsset
+} from './types';
 
-import type { OneClickAsset, OneClickEvmAssetConfig } from './types';
-
-export const ONE_CLICK_EVM_CHAIN_IDS: Readonly<Record<string, number>> = Object.freeze(
-  Object.assign(Object.create(null) as Record<string, number>, {
-    eth: 1,
-    base: 8453,
-    arb: 42161,
-    op: 10,
-    arc: 5042
-  })
-);
-
-const NATIVE_EVM_ASSETS: Readonly<
-  Record<string, { blockchain: string; chainId: number; decimals: 18; symbol: 'ETH' }>
-> = {
-  'nep141:eth.omft.near': { blockchain: 'eth', chainId: 1, decimals: 18, symbol: 'ETH' },
-  'nep141:arb.omft.near': { blockchain: 'arb', chainId: 42161, decimals: 18, symbol: 'ETH' },
-  'nep141:base.omft.near': { blockchain: 'base', chainId: 8453, decimals: 18, symbol: 'ETH' },
-  'nep245:v2_1.omni.hot.tg:10_11111111111111111111': {
-    blockchain: 'op',
-    chainId: 10,
-    decimals: 18,
-    symbol: 'ETH'
-  }
-};
-
-const isSafeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
-
-function hasControlCharacter(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
-  }
-  return false;
+/** One configured origin token with the chain that names it. */
+export interface NearIntentsOriginMatch {
+  chain: NearIntentsChainConfig;
+  token: NearIntentsTokenConfig;
 }
 
-export function parseOneClickEvmAssets(
-  value: unknown,
-  midenAssetIds: ReadonlySet<string> = new Set()
-): OneClickEvmAssetConfig[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 64) throw new Error('Invalid 1Click EVM asset configuration');
-  const assetIds = new Set<string>();
-  const contracts = new Set<string>();
-  const assets = value.map(entry => {
-    if (
-      !isRecord(entry) ||
-      typeof entry.assetId !== 'string' ||
-      !entry.assetId.trim() ||
-      entry.assetId.length > 256 ||
-      hasControlCharacter(entry.assetId) ||
-      typeof entry.blockchain !== 'string' ||
-      !Object.prototype.hasOwnProperty.call(ONE_CLICK_EVM_CHAIN_IDS, entry.blockchain) ||
-      !isSafeInteger(entry.chainId) ||
-      entry.chainId !== ONE_CLICK_EVM_CHAIN_IDS[entry.blockchain] ||
-      typeof entry.contractAddress !== 'string' ||
-      !/^0x[0-9a-fA-F]{40}$/.test(entry.contractAddress) ||
-      !isSafeInteger(entry.decimals) ||
-      entry.decimals < 0 ||
-      entry.decimals > 38 ||
-      typeof entry.symbol !== 'string' ||
-      !entry.symbol.trim() ||
-      entry.symbol.length > 32 ||
-      hasControlCharacter(entry.symbol)
-    ) {
-      throw new Error('Invalid 1Click EVM asset configuration');
-    }
-    const contractAddress = entry.contractAddress.toLowerCase();
-    const contractKey = `${entry.chainId}:${contractAddress}`;
-    if (
-      assetIds.has(entry.assetId) ||
-      midenAssetIds.has(entry.assetId) ||
-      contracts.has(contractKey) ||
-      Object.prototype.hasOwnProperty.call(NATIVE_EVM_ASSETS, entry.assetId)
-    ) {
-      throw new Error('Invalid 1Click EVM asset configuration');
-    }
-    assetIds.add(entry.assetId);
-    contracts.add(contractKey);
-    return {
-      assetId: entry.assetId,
-      blockchain: entry.blockchain,
-      chainId: entry.chainId,
-      contractAddress,
-      decimals: entry.decimals,
-      symbol: entry.symbol
-    };
-  });
-  return assets;
+/** A configured pair: one origin token and one Miden token that the origin token lists in `miden`. */
+export interface NearIntentsRoute extends NearIntentsOriginMatch {
+  midenAsset: NearIntentsMidenAssetConfig;
 }
 
-export function assertOneClickAssetIdentity(
-  asset: OneClickAsset,
-  evmAssets: readonly OneClickEvmAssetConfig[] = []
-): void {
-  const native = NATIVE_EVM_ASSETS[asset.assetId];
-  if (native) {
-    if (
-      asset.blockchain !== native.blockchain ||
-      asset.chainId !== native.chainId ||
-      asset.decimals !== native.decimals ||
-      asset.symbol !== native.symbol ||
-      (asset.contractAddress !== undefined && asset.contractAddress !== 'native')
-    ) {
-      throw new Error('1Click asset does not match its trusted identity');
-    }
-    return;
-  }
-  const configured = evmAssets.find(candidate => candidate.assetId === asset.assetId);
-  if (configured) {
-    if (
-      asset.blockchain !== configured.blockchain ||
-      asset.chainId !== configured.chainId ||
-      asset.decimals !== configured.decimals ||
-      asset.symbol !== configured.symbol ||
-      asset.contractAddress?.toLowerCase() !== configured.contractAddress
-    ) {
-      throw new Error('1Click asset does not match its trusted identity');
-    }
-    return;
-  }
-  if (Object.prototype.hasOwnProperty.call(ONE_CLICK_EVM_CHAIN_IDS, asset.blockchain)) {
-    throw new Error('1Click EVM asset has no trusted identity');
+/**
+ * Compare two contract addresses with the rule of the chain. An EVM address is the same in upper and lower case.
+ * The other address formats are case-sensitive, so they must be equal.
+ */
+export function sameNearIntentsContractAddress(kind: NearIntentsAddressKind, left: string, right: string): boolean {
+  switch (kind) {
+    case 'evm':
+      return left.toLowerCase() === right.toLowerCase();
+    case 'solana':
+    case 'bitcoin':
+    case 'near':
+      return left === right;
   }
 }
 
-export function isOneClickNativeAssetId(assetId: string): boolean {
-  return Object.prototype.hasOwnProperty.call(NATIVE_EVM_ASSETS, assetId);
+/** Write a configured contract address in the form that the wallet keeps: lower case for an EVM address. */
+export function normalizedNearIntentsContractAddress(kind: NearIntentsAddressKind, value: string): string {
+  return kind === 'evm' ? value.toLowerCase() : value;
+}
+
+function chainsOf(config: NearIntentsConfig): readonly NearIntentsChainConfig[] {
+  // A tracking row written before NEAR Intents moved to the Receive page keeps an older config with no `chains`.
+  return Array.isArray(config.chains) ? config.chains : [];
+}
+
+/**
+ * Find the configured origin token that `asset` is. The asset id, the chain, the decimals and, when the config
+ * gives one, the contract address must agree.
+ */
+export function findNearIntentsOriginToken(
+  config: NearIntentsConfig,
+  asset: OneClickAsset
+): NearIntentsOriginMatch | undefined {
+  for (const chain of chainsOf(config)) {
+    if (chain.id !== asset.blockchain) continue;
+    const token = chain.tokens.find(candidate => candidate.assetId === asset.assetId);
+    if (!token) continue;
+    if (token.decimals !== asset.decimals) return undefined;
+    if (token.contractAddress !== undefined) {
+      if (
+        typeof asset.contractAddress !== 'string' ||
+        !sameNearIntentsContractAddress(chain.addressKind, token.contractAddress, asset.contractAddress)
+      )
+        return undefined;
+    }
+    return { chain, token };
+  }
+  return undefined;
+}
+
+/** Find the configured Miden token that `asset` is. The asset id and the decimals must agree, and the faucet when given. */
+export function findNearIntentsMidenAsset(
+  config: NearIntentsConfig,
+  asset: OneClickAsset
+): NearIntentsMidenAssetConfig | undefined {
+  if (asset.blockchain !== 'miden') return undefined;
+  const configured = config.midenAssets.find(candidate => candidate.assetId === asset.assetId);
+  if (!configured || configured.decimals !== asset.decimals) return undefined;
+  if (asset.faucetId !== undefined && asset.faucetId.toLowerCase() !== configured.faucetId.toLowerCase())
+    return undefined;
+  return configured;
+}
+
+/**
+ * Make sure that the two assets of a quote are trusted and are a configured pair. Into Miden, the destination must
+ * be one of the `miden` outputs of the origin token. The older Miden-to-chain start path uses the same pair in the
+ * other direction.
+ */
+export function assertNearIntentsRoute(
+  config: NearIntentsConfig,
+  originAsset: OneClickAsset,
+  destinationAsset: OneClickAsset
+): NearIntentsRoute {
+  const intoMiden = destinationAsset.blockchain === 'miden';
+  const chainAsset = intoMiden ? originAsset : destinationAsset;
+  const midenAsset = intoMiden ? destinationAsset : originAsset;
+  if (chainAsset.blockchain === 'miden' || midenAsset.blockchain !== 'miden')
+    throw new Error('1Click quote is not for a configured NEAR Intents pair');
+  const origin = findNearIntentsOriginToken(config, chainAsset);
+  const miden = findNearIntentsMidenAsset(config, midenAsset);
+  if (!origin || !miden) throw new Error('1Click asset does not match its trusted identity');
+  if (!origin.token.miden.includes(miden.id)) throw new Error('1Click quote is not for a configured NEAR Intents pair');
+  return { ...origin, midenAsset: miden };
 }

@@ -27,6 +27,7 @@ import {
   getFallbackColor,
   getFallbackLetter
 } from 'lib/dapp-browser';
+import { prepareMorph } from 'lib/dapp-browser/morph-boost';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
@@ -54,8 +55,9 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
   const handleCardTap = useCallback(
     (session: DappSession) => {
       hapticLight();
-      void restore(session.id);
+      // Closed first: a restore while the switcher still blocks the host cannot morph natively.
       onClose();
+      window.requestAnimationFrame(() => void restore(session.id));
     },
     [restore, onClose]
   );
@@ -197,6 +199,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
       <button
         type="button"
         className="absolute inset-0 cursor-pointer"
+        onPointerDown={() => void prepareMorph(session.id)}
         onClick={() => onTap(session)}
         aria-label={t('dappSwitcherCardActivate', { name: displayName })}
         data-testid="dapp-switcher-card"

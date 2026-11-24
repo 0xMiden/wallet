@@ -1,5 +1,7 @@
 import UIKit
+import WebKit
 import Capacitor
+import InappbrowserPlugin
 import NativeProverPlugin
 
 class AppViewController: CAPBridgeViewController {
@@ -11,6 +13,12 @@ class AppViewController: CAPBridgeViewController {
         return descriptor
     }
 
+    override open func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
+        let configuration = super.webViewConfiguration(for: instanceConfiguration)
+        WebKitFeature.disablePreferNear60FPS(in: configuration.preferences)
+        return configuration
+    }
+
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(LocalBiometricPlugin())
         bridge?.registerPluginInstance(BarcodeScannerPlugin())
@@ -18,8 +26,12 @@ class AppViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(ReownPlugin())
         bridge?.registerPluginInstance(MidenNativeProverPlugin())
         bridge?.registerPluginInstance(ScreenshotGuardPlugin())
+        bridge?.registerPluginInstance(SecretClipboardPlugin())
+        bridge?.registerPluginInstance(GuardianProbeHttpPlugin())
         bridge?.registerPluginInstance(HighRefreshRatePlugin())
         bridge?.registerPluginInstance(UpdateAvailabilityPlugin())
         bridge?.registerPluginInstance(BreadConnectOpenerPlugin())
+        bridge?.registerPluginInstance(WalletPaymentsPlugin())
+        bridge?.registerPluginInstance(BackgroundExecutionPlugin())
     }
 }

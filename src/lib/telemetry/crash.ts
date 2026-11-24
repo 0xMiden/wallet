@@ -209,7 +209,16 @@ function closedReportValue(event: unknown, original: unknown): Record<string, un
 }
 
 function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, diagnostics: DiagnosticSnapshot): void {
-  event.extra = { walletDiagnostics: { ...diagnostics } };
+  const { authObservation, authArgPresence, authLayout, accountAuthCode, ...other } = diagnostics;
+  event.extra = {
+    walletDiagnostics: {
+      ...other,
+      ...(authObservation === undefined ? {} : { executionObservation: authObservation }),
+      ...(authArgPresence === undefined ? {} : { executionArguments: authArgPresence }),
+      ...(authLayout === undefined ? {} : { executionLayout: authLayout }),
+      ...(accountAuthCode === undefined ? {} : { accountCodeFamily: accountAuthCode })
+    }
+  };
   const tags = isRecord(event.tags) ? { ...event.tags } : {};
   delete tags.reown_native_origin;
   delete tags.reown_wallet_response_code;
@@ -222,6 +231,7 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
     network: diagnostics.network,
     ...(diagnostics.storageOwner === undefined ? {} : { storage_owner: diagnostics.storageOwner }),
     ...(diagnostics.storageOperation === undefined ? {} : { storage_operation: diagnostics.storageOperation }),
+    ...(diagnostics.clientRole === undefined ? {} : { sdk_client_role: diagnostics.clientRole }),
     ...(diagnostics.service === undefined ? {} : { service: diagnostics.service }),
     ...(diagnostics.userErrorId === undefined ? {} : { 'user_error.id': diagnostics.userErrorId }),
     ...(diagnostics.userErrorSurface === undefined ? {} : { 'user_error.surface': diagnostics.userErrorSurface }),

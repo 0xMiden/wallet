@@ -167,6 +167,11 @@ jest.mock('lib/prices', () => ({
   quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
   fetchKlineData: (...args: unknown[]) => mockFetchKlineData(...args)
 }));
+// A basket's chart loads each token's candles with their length, straight from the feed.
+const mockFetchKlineSeries = jest.fn();
+jest.mock('lib/prices/feed', () => ({
+  fetchKlineSeries: (...args: unknown[]) => mockFetchKlineSeries(...args)
+}));
 
 // The figures under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
@@ -216,25 +221,17 @@ jest.mock('components/PageHeader', () => ({
 
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({
-    symbol,
     faucetId,
     size,
     className,
     badge
   }: {
-    symbol: string;
-    faucetId?: string;
+    faucetId: string | undefined;
     size?: string;
     className?: string;
     badge?: React.ReactNode;
   }) => (
-    <span
-      data-testid="token-logo"
-      data-symbol={symbol}
-      data-faucet-id={faucetId}
-      data-size={size}
-      className={className}
-    >
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} className={className}>
       {badge}
     </span>
   )
@@ -413,12 +410,17 @@ function configure(o: Overrides = {}) {
   mockWalletNetwork = o.network;
   // The default token is ETH, so `priceInfo` is ETH's quote; `tokenPrices` replaces the whole feed.
   mockTokenPrices = o.tokenPrices ?? {
-    ETH: { percentageChange24h: 0, ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }) }
+    ETH: {
+      percentageChange24h: 0,
+      ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }),
+      kind: 'market' as const
+    }
   };
   mockGetExplorerAccountUrl.mockReturnValue(
     o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
   );
   mockFetchKlineData.mockResolvedValue([]);
+  mockFetchKlineSeries.mockResolvedValue({ points: [], stepMs: 300_000 });
   const data = o.klineLoading
     ? undefined
     : o.klineData === undefined
@@ -475,7 +477,7 @@ describe('TokenDetail', () => {
   it('values IETH and charts it at ETH, the symbol the feed quotes it under', () => {
     configure({
       balances: [{ tokenId: TEST_TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
-      tokenPrices: { ETH: { price: 3000, change24h: 45, percentageChange24h: 1.5 } }
+      tokenPrices: { ETH: { price: 3000, change24h: 45, percentageChange24h: 1.5, kind: 'market' as const } }
     });
     render(<TokenDetail tokenId={TEST_TOKEN_IETH.faucetId} />);
 
@@ -508,9 +510,99 @@ describe('TokenDetail', () => {
     expect(mockFetchKlineData).not.toHaveBeenCalled();
   });
 
+  it('values a basket token at its net asset value without a move or a market chart', () => {
+    renderPage({
+      tokenPrices: {
+        ETH: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'basket' as const }
+      }
+    });
+
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$25.00')).toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price-change')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-composition')).not.toBeInTheDocument();
+    expect(mockFetchKlineData).not.toHaveBeenCalled();
+  });
+
+  it('charts a basket from its tokens and shows the composition read from its vault', () => {
+    renderPage({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          observedAt: Date.now(),
+          kind: 'basket' as const,
+          composition: [
+            { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.6 },
+            { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.4 }
+          ]
+        },
+        BTC: { price: 60000, change24h: 0, percentageChange24h: 1, kind: 'market' as const },
+        SOL: { price: 90, change24h: 0, percentageChange24h: 1, kind: 'market' as const }
+      }
+    });
+
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$25.00')).toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-price')).toBeInTheDocument();
+    // Every token up 1% moves the basket 1%.
+    expect(screen.getByTestId('token-detail-price-change')).toHaveTextContent('tokenDetailChange24h_+1.0');
+    expect(mockFetchKlineSeries).toHaveBeenCalledWith('BTC', '1D');
+    expect(mockFetchKlineSeries).toHaveBeenCalledWith('SOL', '1D');
+
+    const composition = screen.getByTestId('token-detail-composition');
+    expect(within(composition).getByText('basketComposition')).toBeInTheDocument();
+    const items = within(composition).getAllByTestId('token-detail-composition-item');
+    expect(items.map(item => item.textContent)).toEqual(['WBTC60.0%', 'SOL40.0%']);
+    const segments = within(composition).getAllByTestId('token-detail-composition-segment');
+    expect(segments.map(segment => segment.style.width)).toEqual(['60%', '40%']);
+  });
+
+  it('keys the basket chart on its exact weights, so a change below a rounding step refetches the line', () => {
+    renderPage({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          kind: 'basket' as const,
+          composition: [
+            { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.600004 },
+            { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.399996 }
+          ]
+        },
+        BTC: { price: 60000, change24h: 0, percentageChange24h: 1, kind: 'market' as const },
+        SOL: { price: 90, change24h: 0, percentageChange24h: 1, kind: 'market' as const }
+      }
+    });
+
+    const keys = mockUseRetryableSWR.mock.calls.map(([key]) => (key as unknown[])[1]);
+    expect(keys).toContain('basket:BTC:0.600004,SOL:0.399996:2');
+  });
+
+  it('charts a basket without a move while one of its tokens has no market quote', () => {
+    renderPage({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          kind: 'basket' as const,
+          composition: [{ faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 1 }]
+        }
+      }
+    });
+
+    expect(screen.getByTestId('token-detail-price')).toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price-change')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-composition')).toBeInTheDocument();
+  });
+
   it('shows no fiat line and no price section for a token the feed does not quote', () => {
     // Prices have loaded, and ETH is not among them.
-    renderPage({ tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } } });
+    renderPage({
+      tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
+    });
 
     const hero = screen.getByTestId('token-detail-hero');
     expect(within(hero).getByText('12.50')).toBeInTheDocument();
@@ -553,7 +645,7 @@ describe('TokenDetail', () => {
       renderPage(
         {
           balances: [{ tokenId: 'mtst1fixture', balance: 12.5, metadata: { symbol: 'TST' } }],
-          tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } }
+          tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
         },
         'mtst1fixture'
       );
@@ -574,7 +666,6 @@ describe('TokenDetail', () => {
 
     const hero = screen.getByTestId('token-detail-hero');
     const logo = within(hero).getByTestId('token-logo');
-    expect(logo).toHaveAttribute('data-symbol', 'ETH');
     expect(logo).toHaveAttribute('data-faucet-id', TOKEN_ID);
     // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
     expect(logo).toHaveAttribute('data-size', '2xl');
@@ -700,7 +791,8 @@ describe('TokenDetail', () => {
       renderPage({ balances: null, metadata: {} }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('unknown');
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'unknown');
+      // The logo is keyed by the faucet alone, so an unresolved symbol still asks for this faucet's logo.
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', PLAIN_ID);
     });
 
     it('handles a matched token whose balance is nullish', () => {
@@ -724,6 +816,28 @@ describe('TokenDetail', () => {
 
     afterEach(() => {
       Reflect.deleteProperty(window, 'matchMedia');
+    });
+
+    it('shows an em dash, not $0.00, when the quote is ready and the balance read has not landed', () => {
+      const metadata = { symbol: 'ETH', name: 'Ether', decimals: 18 };
+      configure({ metadata: { [TOKEN_ID]: metadata } });
+      const unread = {
+        data: [{ tokenId: TOKEN_ID, balance: 0, metadata }],
+        isLoading: true,
+        isValidating: true,
+        mutate: jest.fn()
+      };
+      mockUseAllBalances.mockReturnValue(unread);
+      const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
+
+      const hero = screen.getByTestId('token-detail-hero');
+      expect(hero).not.toHaveTextContent('$0.00');
+      expect(hero).toHaveTextContent('\u2014');
+      expect(within(hero).queryByText('0.00')).not.toBeInTheDocument();
+
+      mockUseAllBalances.mockReturnValue({ ...unread, isLoading: false, isValidating: false });
+      rerender(<TokenDetail tokenId={TOKEN_ID} />);
+      expect(within(hero).getByText('$0.00')).toBeInTheDocument();
     });
 
     it('shows the placeholder while balances load, then lands on the first balance and its fiat value', () => {
@@ -771,7 +885,7 @@ describe('TokenDetail', () => {
     it('omits the fiat line rather than pricing a quantity it does not have', () => {
       renderPage({
         balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
-        tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } }
+        tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
       });
 
       // The market price elsewhere on the page is a price PER token and does not
@@ -820,7 +934,7 @@ describe('TokenDetail', () => {
       renderPage(
         {
           balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
-          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0 } }
+          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
         },
         MIDEN_USDC_FAUCET
       );
@@ -847,7 +961,9 @@ describe('TokenDetail', () => {
     it('shows the percent change, not the USD change, for a large-price token', () => {
       // A realistic BTC quote: down $335.30 in USD, which is -0.405% of the price 24h ago. The pill
       // once read the USD figure as a percent and showed "-335.3%".
-      renderPage({ priceInfo: { price: 82365.071, change24h: -335.3, percentageChange24h: -0.40541 } });
+      renderPage({
+        priceInfo: { price: 82365.071, change24h: -335.3, percentageChange24h: -0.40541 }
+      });
 
       const pill = screen.getByTestId('token-detail-price-change');
       expect(pill).toHaveTextContent('tokenDetailChange24h_-0.4');
@@ -863,7 +979,9 @@ describe('TokenDetail', () => {
       [0, 'text-ink', '0.0']
     ])('tones a %p change as a status pill (%s)', (percentageChange24h, inkClass, label) => {
       // A USD change far from the percent, so a pill that read `change24h` would fail.
-      renderPage({ priceInfo: { price: 2000, change24h: percentageChange24h * 100, percentageChange24h } });
+      renderPage({
+        priceInfo: { price: 2000, change24h: percentageChange24h * 100, percentageChange24h }
+      });
 
       const pill = screen.getByTestId('token-detail-price-change');
       expect(pill).toHaveTextContent(`tokenDetailChange24h_${label}`);
@@ -890,19 +1008,14 @@ describe('TokenDetail', () => {
       );
     });
 
-    it('renders the flat-line fallback when kline data is empty (padding fallback branch)', () => {
-      renderPage({ klineData: [] });
+    it.each([
+      ['empty', []],
+      ['null', null]
+    ])('shows unavailable history instead of a fabricated flat line when kline data is %s', (_state, klineData) => {
+      renderPage({ klineData });
 
-      // FLAT_LINE_DATA (all values 1) => maxVal === minVal => padding falls back
-      // to maxVal * 0.01. The YAxis domain reflects that.
-      const domain = JSON.parse(screen.getByTestId('yaxis').getAttribute('data-domain') as string);
-      expect(domain).toEqual([1 - 0.01, 1 + 0.01]);
-    });
-
-    it('renders the flat-line fallback when kline data is nullish (short-circuit branch)', () => {
-      renderPage({ klineData: null });
-
-      expect(screen.getByTestId('line-chart')).toBeInTheDocument();
+      expect(screen.getByTestId('token-detail-chart-unavailable')).toHaveTextContent('unavailable');
+      expect(screen.queryByTestId('line-chart')).not.toBeInTheDocument();
     });
 
     it('computes a padded y-domain from real kline data', () => {
@@ -1002,6 +1115,41 @@ describe('TokenDetail', () => {
   });
 
   describe('token info card', () => {
+    it('shows a distinct metadata name while keeping the symbol as the page title', () => {
+      const name = 'Synthetic Testnet Asset Name 32';
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { name, symbol: 'IETH', decimals: 8 } }]
+      });
+
+      expect(screen.getByTestId('nav-title')).toHaveTextContent('IETH');
+      expect(within(screen.getByTestId('token-detail-name')).getByText(name)).toBeInTheDocument();
+    });
+
+    it('omits a duplicate token name when it is the symbol', () => {
+      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { name: 'IETH', symbol: 'IETH' } }] });
+
+      expect(screen.queryByTestId('token-detail-name')).not.toBeInTheDocument();
+    });
+
+    it('reveals the full faucet id through an accessible disclosure', () => {
+      renderPage();
+
+      const toggle = screen.getByTestId('token-detail-contract-toggle');
+      expect(toggle).toHaveAttribute('type', 'button');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      toggle.focus();
+      expect(toggle).toHaveFocus();
+      fireEvent.click(toggle);
+
+      const fullId = screen.getByTestId('token-detail-full-faucet-id');
+      expect(fullId.textContent).toBe(TOKEN_ID);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(document.getElementById(toggle.getAttribute('aria-controls') ?? '')).toContainElement(fullId);
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('token-detail-full-faucet-id')).not.toBeInTheDocument();
+    });
+
     it('renders the faucet id under the name the transaction page uses, trimmed and copyable', () => {
       renderPage({ network: MIDEN_NETWORK_NAME.DEVNET });
 
@@ -1018,13 +1166,14 @@ describe('TokenDetail', () => {
       // One name for one thing: "Faucet ID", as the transaction detail page says it.
       expect(within(contract).getByText('faucetId')).toBeInTheDocument();
 
-      // A bare copy control in the row's value style, named by its action (its visible label is a
-      // value), showing the id cut to its first 8 and last 4 characters.
+      const toggle = within(contract).getByRole('button', { expanded: false });
+      expect(toggle).toHaveTextContent(`${TOKEN_ID.slice(0, 8)}…${TOKEN_ID.slice(-4)}`);
+      expect(toggle).not.toHaveTextContent(TOKEN_ID);
+      fireEvent.click(toggle);
+      expect(within(contract).getByTestId('token-detail-full-faucet-id')).toHaveTextContent(TOKEN_ID);
       const copy = within(contract).getByRole('button', { name: 'copyToClipboard' });
       expect(copy).toHaveAttribute('data-testid', 'token-detail-copy-contract');
       expect(copy).toHaveClass('text-ink');
-      expect(copy).toHaveTextContent(`${TOKEN_ID.slice(0, 8)}…${TOKEN_ID.slice(-4)}`);
-      expect(copy).not.toHaveTextContent(TOKEN_ID);
 
       expect(within(info).getByText('fungible')).toBeInTheDocument();
       expect(within(info).getByText('devnet')).toBeInTheDocument();
@@ -1042,6 +1191,7 @@ describe('TokenDetail', () => {
       mockClipboardWrite.mockResolvedValue(undefined);
       renderPage();
 
+      fireEvent.click(screen.getByTestId('token-detail-contract-toggle'));
       const copy = screen.getByTestId('token-detail-copy-contract');
 
       await act(async () => {
@@ -1645,7 +1795,7 @@ describe('TokenDetail', () => {
 });
 
 describe('TokenDetail testnet bridge USDC label', () => {
-  it('titles the bridge faucet by the testnet label and keeps its USDC logo', () => {
+  it("titles the bridge faucet by the testnet label and keeps its own faucet's logo", () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     renderPage(
       {
@@ -1656,7 +1806,7 @@ describe('TokenDetail testnet bridge USDC label', () => {
     );
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('Test Epoch USDC');
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', MIDEN_USDC_FAUCET);
   });
 
   it('retitles the bridge faucet by the label once the bridge config publishes, with no new props', () => {

@@ -136,8 +136,8 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     var breadAuth: BreadAuthController?
     private var breadNavigation: WKNavigation?
 
-    override open var prefersStatusBarHidden: Bool { breadPresentation?.immersive ?? super.prefersStatusBarHidden }
-    override open var prefersHomeIndicatorAutoHidden: Bool { breadPresentation?.immersive ?? super.prefersHomeIndicatorAutoHidden }
+    override open var prefersStatusBarHidden: Bool { breadPresentation?.hidesSystemUI ?? super.prefersStatusBarHidden }
+    override open var prefersHomeIndicatorAutoHidden: Bool { breadPresentation?.hidesSystemUI ?? super.prefersHomeIndicatorAutoHidden }
 
     open var hasDynamicTitle = false
     open var source: WKWebSource?
@@ -588,6 +588,11 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
             return
         }
         if message.name == "messageHandler" {
+            // Miden patch: only the main frame of the page can speak to the wallet bridge.
+            guard message.frameInfo.isMainFrame else { return }
+            // Miden patch: each message carries the origin of the frame that sent it.
+            // The wallet compares this origin with the origin of the session.
+            let frameOrigin = Self.originString(message.frameInfo.securityOrigin)
             if let messageBody = message.body as? [String: Any] {
                 iabDebug("Received message from JavaScript:", messageBody)
                 // Miden patch (PR-4 chunk 7): include the instance id so the
@@ -595,10 +600,17 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                 // the matching session.
                 var withId = messageBody
                 withId["id"] = self.instanceId
+                withId["frameOrigin"] = frameOrigin
+                withId["mainFrame"] = true
                 self.capBrowserPlugin?.notifyListeners("messageFromWebview", data: withId)
             } else {
                 iabDebug("Received non-dictionary message from JavaScript:", message.body)
-                self.capBrowserPlugin?.notifyListeners("messageFromWebview", data: ["id": self.instanceId, "rawMessage": String(describing: message.body)])
+                self.capBrowserPlugin?.notifyListeners("messageFromWebview", data: [
+                    "id": self.instanceId,
+                    "rawMessage": String(describing: message.body),
+                    "frameOrigin": frameOrigin,
+                    "mainFrame": true
+                ])
             }
         } else if message.name == "preShowScriptSuccess" {
             guard let semaphore = preShowSemaphore else {
@@ -630,6 +642,19 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                 printController.present(animated: true, completionHandler: nil)
             }
         }
+    }
+
+    // Miden patch: write a security origin in the form of the JavaScript `location.origin`.
+    // WKSecurityOrigin gives port 0 for the default port of the scheme. An origin that is
+    // not http or https, or that has no host, is "null".
+    static func originString(_ origin: WKSecurityOrigin) -> String {
+        let scheme = origin.protocol.lowercased()
+        let host = origin.host.lowercased()
+        guard scheme == "https" || scheme == "http", !host.isEmpty else { return "null" }
+        let defaultPort = scheme == "https" ? 443 : 80
+        let authority = host.contains(":") ? "[\(host)]" : host
+        guard origin.port != 0, origin.port != defaultPort else { return "\(scheme)://\(authority)" }
+        return "\(scheme)://\(authority):\(origin.port)"
     }
 
     func injectJavaScriptInterface() {
@@ -726,6 +751,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
 
         // Enable JavaScript to run automatically (needed for preShowScript and Firebase polyfill)
         webConfiguration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        WebKitFeature.disablePreferNear60FPS(in: webConfiguration.preferences)
 
         // Enhanced configuration for Google Pay support (only when enabled)
         if enableGooglePaySupport {
@@ -2174,6 +2200,9 @@ extension WKWebViewController: WKNavigationDelegate {
         applyCustomDimensions()
     }
 
+    static var snapshotEncodeHook: ((Bool) -> Void)?
+    static let snapshotQueue = DispatchQueue(label: "bread.snapshot", qos: .userInitiated)
+
     /// Miden patch: take a JPEG snapshot of the current webview content.
     /// `scale` < 1 downsamples for memory; `quality` is JPEG compression 0..1.
     open func takeSnapshotData(scale: CGFloat, quality: CGFloat, completion: @escaping (String?) -> Void) {
@@ -2181,17 +2210,47 @@ extension WKWebViewController: WKNavigationDelegate {
             completion(nil)
             return
         }
-        let config = WKSnapshotConfiguration()
-        if scale > 0, scale < 1 {
-            // snapshotWidth is in points; native takeSnapshot scales the result.
-            config.snapshotWidth = NSNumber(value: Double(webView.bounds.width * scale))
-        }
-        webView.takeSnapshot(with: config) { image, _ in
-            guard let image = image, let data = image.jpegData(compressionQuality: max(0.1, min(1.0, quality))) else {
-                completion(nil)
-                return
+        let width = webView.bounds.width * (scale > 0 && scale < 1 ? scale : 1)
+        let live = {
+            let config = WKSnapshotConfiguration()
+            if scale > 0, scale < 1 {
+                // snapshotWidth is in points; native takeSnapshot scales the result.
+                config.snapshotWidth = NSNumber(value: Double(width))
             }
-            completion("data:image/jpeg;base64,\(data.base64EncodedString())")
+            webView.takeSnapshot(with: config) { image, _ in
+                guard let image else { completion(nil); return }
+                WKWebViewController.encodeSnapshot(image, width: width, quality: quality, completion: completion)
+            }
+        }
+        // A collapse already captured this frame at full resolution; the JPEG work stays off the main thread.
+        let fromProxy = breadPresentation?.snapshotFromProxy { image in
+            if let image {
+                WKWebViewController.encodeSnapshot(image, width: width, quality: quality, completion: completion)
+            } else {
+                live()
+            }
+        } ?? false
+        if !fromProxy { live() }
+    }
+
+    static func encodeSnapshot(_ image: UIImage, width: CGFloat, quality: CGFloat, completion: @escaping (String?) -> Void) {
+        snapshotQueue.async {
+            WKWebViewController.snapshotEncodeHook?(Thread.isMainThread)
+            let height = image.size.width > 0 ? image.size.height * width / image.size.width : 0
+            let size = CGSize(width: width, height: height)
+            var scaled = image
+            if size != image.size, width > 0, height > 0 {
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = image.scale
+                format.opaque = true
+                scaled = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: size))
+                }
+            }
+            let url = scaled.jpegData(compressionQuality: max(0.1, min(1.0, quality))).map {
+                "data:image/jpeg;base64,\($0.base64EncodedString())"
+            }
+            DispatchQueue.main.async { completion(url) }
         }
     }
 }

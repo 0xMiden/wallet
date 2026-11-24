@@ -19,15 +19,14 @@ import {
   getEpochAllocatorUrl,
   getEpochPositionsUrl,
   getEvmChainId,
-  findEpochUsdcAddress,
-  findEvmUsdc,
-  getEvmUsdc,
-  getEvmUsdcAddress,
   getMidenUsdc,
   selectEarnMarket,
   selectEarnVault,
   selectEarnVaultCatalog,
   selectEarnVaultLogoUrl,
+  selectEpochAllocator,
+  selectEpochAllocatorAccount,
+  selectEpochDepositTokens,
   selectEarnVaults,
   selectBridgeInMaxBalanceUsd,
   selectEvmUsdc,
@@ -45,6 +44,8 @@ import {
 } from './values';
 
 jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
+
+const ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
 
 const CONFIG: BridgeConfig = {
   network: 'testnet',
@@ -116,7 +117,7 @@ const SEPOLIA_READS: DerivedChainConfig = {
     l1BridgeCode: { state: 'ok', value: true },
     depositTokens: { state: 'skipped' }
   },
-  epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } }
+  epoch: { tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } } }
 };
 const DERIVED: DerivedBridgeConfig = {
   network: 'testnet',
@@ -135,6 +136,7 @@ const DERIVED: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
+    allocatorAccount: { state: 'ok', value: { accountId: ALLOCATOR_ACCOUNT } },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     vaults: { state: 'ok', value: [TEST_EARN_VAULT_INFO] }
   }
@@ -162,10 +164,15 @@ const withDerived = (patch: {
   agglayer?: Partial<DerivedChainConfig['agglayer']>;
   epoch?: Partial<DerivedBridgeConfig['epoch'] & DerivedChainConfig['epoch']>;
 }) => {
-  const { evmUsdc = SEPOLIA_READS.epoch.evmUsdc, ...providers } = patch.epoch ?? {};
+  const { tokens, ...providers } = patch.epoch ?? {};
   return snapshot(CONFIG, {
     ...DERIVED,
-    chains: { 11155111: { agglayer: { ...SEPOLIA_READS.agglayer, ...patch.agglayer }, epoch: { evmUsdc } } },
+    chains: {
+      11155111: {
+        agglayer: { ...SEPOLIA_READS.agglayer, ...patch.agglayer },
+        epoch: { tokens: { ...SEPOLIA_READS.epoch.tokens, ...tokens } }
+      }
+    },
     epoch: { ...DERIVED.epoch, ...providers }
   });
 };
@@ -179,6 +186,41 @@ beforeEach(() => {
 });
 afterAll(() => {
   process.env.MIDEN_E2E_TEST = savedE2e;
+});
+
+describe('selectEpochAllocatorAccount', () => {
+  it('gives the account that the derivation read from that allocator', () => {
+    expect(selectEpochAllocatorAccount(snapshot())).toBe(ALLOCATOR_ACCOUNT);
+  });
+
+  it('gives no account while the read failed or no derivation is there', () => {
+    expect(selectEpochAllocatorAccount(withDerived({ epoch: { allocatorAccount: ERROR } }))).toBeNull();
+    expect(selectEpochAllocatorAccount(EMPTY)).toBeNull();
+  });
+});
+
+describe('selectEpochAllocator', () => {
+  const ALLOCATOR_URL = 'https://testnet-dev.epochprotocol.xyz';
+
+  it('pairs the document allocator URL with the account the derivation read', () => {
+    expect(selectEpochAllocator(snapshot())).toEqual({ allocatorUrl: ALLOCATOR_URL, accountId: ALLOCATOR_ACCOUNT });
+  });
+
+  it('pairs that URL with no account while the account read failed', () => {
+    expect(selectEpochAllocator(withDerived({ epoch: { allocatorAccount: ERROR } }))).toEqual({
+      allocatorUrl: ALLOCATOR_URL,
+      accountId: null
+    });
+  });
+
+  it('gives no pair while the snapshot names no allocator URL', () => {
+    expect(selectEpochAllocator(EMPTY)).toBeNull();
+  });
+
+  it('reads the snapshot it is given when the realm snapshot is a different one', () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(selectEpochAllocator(snapshot())).toEqual({ allocatorUrl: ALLOCATOR_URL, accountId: ALLOCATOR_ACCOUNT });
+  });
 });
 
 describe('selectors', () => {
@@ -232,7 +274,7 @@ describe('selectors', () => {
   });
 
   it('select nothing whose read did not succeed, but still name the configured faucet', () => {
-    const failed = withDerived({ epoch: { midenUsdcFaucet: ERROR, evmUsdc: { state: 'absent' } } });
+    const failed = withDerived({ epoch: { midenUsdcFaucet: ERROR, tokens: { USDC: { state: 'absent' } } } });
     expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: ERROR } }))).toBeNull();
     expect(selectEarnVaultCatalog(withDerived({ epoch: { vaults: { state: 'skipped' } } }))).toBeNull();
     expect(selectMidenUsdc(failed)).toBeNull();
@@ -240,6 +282,26 @@ describe('selectors', () => {
     expect(selectEvmUsdc(failed)).toBeNull();
     expect(selectNativeEthFaucet(withDerived({ agglayer: { tokens: ERROR } }))).toBeNull();
     expect(selectNativeEthToken(withDerived({ agglayer: { tokens: ERROR } }))).toBeNull();
+  });
+
+  it('offers a Fast deposit only of a token whose Miden faucet and its scale were read, while the route takes one', () => {
+    const read = { symbol: 'USDC', decimals: 18, midenFaucetId: '0x537c15a622074e91188aa894456c52' };
+    const scaled = withDerived({
+      epoch: { tokens: { USDC: { state: 'ok', value: { ...read, midenSymbol: 'USDC', midenDecimals: 6 } } } }
+    });
+    expect(selectEpochDepositTokens(scaled, 11155111)).toEqual([
+      expect.objectContaining({ key: 'USDC', midenFaucetId: read.midenFaucetId, midenSymbol: 'USDC', midenDecimals: 6 })
+    ]);
+    // The send side needs only the faucet id, so a token whose faucet could not be read is still a send's output.
+    const unscaled = withDerived({ epoch: { tokens: { USDC: { state: 'ok', value: read } } } });
+    expect(selectEpochDepositTokens(unscaled, 11155111)).toEqual([]);
+    expect(selectEpochDepositTokens(scaled, 1)).toEqual([]);
+
+    const closed: BridgeConfigSnapshot = JSON.parse(JSON.stringify(scaled));
+    const route = closed.config?.supportedEvmChains.sepolia?.bridges.epoch;
+    if (!route) throw new Error('The test route is missing');
+    route.depositEnabled = false;
+    expect(selectEpochDepositTokens(closed, 11155111)).toEqual([]);
   });
 
   it('finds no native-ETH faucet in a registry that lists none', () => {
@@ -323,16 +385,6 @@ describe('selectors', () => {
   });
 });
 
-describe('findEpochUsdcAddress', () => {
-  it('names the document contract of the chain, with no token read, and null elsewhere', () => {
-    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot(CONFIG, null));
-    expect(findEpochUsdcAddress(11155111)?.toLowerCase()).toBe('0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69');
-    expect(findEpochUsdcAddress(84532)).toBeNull();
-    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
-    expect(findEpochUsdcAddress(11155111)).toBeNull();
-  });
-});
-
 describe('the Earn vaults', () => {
   const [vault] = CONFIG.earn?.vaults ?? [];
 
@@ -395,9 +447,6 @@ describe('getters', () => {
     [getEpochPositionsUrl, 'https://positions-testnet-dev.epochprotocol.xyz'],
     [getEvmChainId, 11155111],
     [getMidenUsdc, selectMidenUsdc(snapshot())],
-    [getEvmUsdc, selectEvmUsdc(snapshot())],
-    [getEvmUsdcAddress, '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69'],
-    [findEvmUsdc, selectEvmUsdc(snapshot())],
     [getEarnMarket, selectEarnMarket(snapshot())],
     [getAgglayerMidenBridge, '0x3b66e20b5088f25133b69216484652'],
     [getAgglayerIndexerUrl, 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'],
@@ -418,8 +467,6 @@ describe('getters', () => {
     getEpochPositionsUrl,
     getEvmChainId,
     getMidenUsdc,
-    getEvmUsdc,
-    getEvmUsdcAddress,
     getEarnMarket,
     getAgglayerMidenBridge,
     getAgglayerIndexerUrl,
@@ -431,52 +478,6 @@ describe('getters', () => {
   ])('%p throws while there is no accepted document', get => {
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(() => get()).toThrow(BridgeConfigUnavailableError);
-  });
-
-  it('name the EVM USDC from the document alone while its read has not succeeded', () => {
-    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ epoch: { evmUsdc: ERROR } }));
-    expect(getEvmUsdcAddress()).toBe('0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69');
-    expect(findEvmUsdc()).toBeNull();
-    expect(() => getEvmUsdc()).toThrow(BridgeConfigUnavailableError);
-    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
-    expect(findEvmUsdc()).toBeNull();
-  });
-
-  it("find each Epoch chain's own USDC, and the first listed one when no chain is given", () => {
-    const sepolia = CONFIG.supportedEvmChains.sepolia;
-    const epoch = sepolia?.bridges.epoch;
-    if (!sepolia || !epoch) throw new Error('The test chain is missing');
-    const BASE_USDC = '0x036cbd53842c5426634e7929541ec2318f3dcf7e';
-    const baseFirst = snapshot(
-      {
-        ...CONFIG,
-        supportedEvmChains: {
-          'base-sepolia': {
-            chainId: 84532,
-            bridges: {
-              epoch: { ...epoch, tokens: { USDC: { contractAddress: BASE_USDC, outputs: ['usdc-testnet-output'] } } }
-            }
-          },
-          sepolia
-        }
-      },
-      {
-        ...DERIVED,
-        chains: {
-          84532: { ...SEPOLIA_READS, epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } },
-          11155111: SEPOLIA_READS
-        }
-      }
-    );
-    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(baseFirst);
-    expect(findEvmUsdc(11155111)).toEqual({
-      address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
-      symbol: 'USDC',
-      decimals: 18,
-      chainId: 11155111
-    });
-    expect(findEvmUsdc()).toMatchObject({ chainId: 84532, decimals: 6 });
-    expect(findEvmUsdc(1)).toBeNull();
   });
 
   it('requires a complete recovery snapshot before a new bridge-out and only the rollup for a deposit', () => {
@@ -520,7 +521,7 @@ describe('getters', () => {
         l1BridgeCode: { state: 'ok', value: true },
         depositTokens: { state: 'skipped' }
       },
-      epoch: { evmUsdc: { state: 'skipped' } }
+      epoch: { tokens: {} }
     };
     const twoChains = snapshot(
       {

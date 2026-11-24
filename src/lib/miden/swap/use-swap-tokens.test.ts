@@ -10,7 +10,9 @@ import { swapAvailability, useSwapPickerTokens } from './use-swap-tokens';
 jest.mock('./tokens', () => ({
   getDefaultSwapPair: jest.fn(),
   getSwapPartners: jest.fn(() => []),
-  getSwapTokens: jest.fn(() => [])
+  getSwapTokens: jest.fn(() => []),
+  getSwapTokensVersion: () => 0,
+  subscribeSwapTokens: () => () => undefined
 }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: jest.fn() }));
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn(() => Promise.resolve()) }));
@@ -91,8 +93,14 @@ describe('swapAvailability', () => {
     const snapshot = testSnapshotWithSwapPairs({ tokens: [], pairs: [] });
     expect(snapshot.config?.geo).toBeUndefined();
     expect(swapAvailability(snapshot)).toEqual({ state: 'available' });
-    expect(swapAvailability({ ...snapshot, geo: { state: 'loading' } })).toEqual({ state: 'loading' });
-    expect(swapAvailability({ ...snapshot, geo: { state: 'failed' } })).toMatchObject({ reason: 'service-down' });
+    expect(swapAvailability({ ...snapshot, geo: { state: 'loading' } })).toEqual({
+      state: 'unavailable',
+      reason: 'pending',
+      detail: 'startup feature eligibility is pending'
+    });
+    expect(swapAvailability({ ...snapshot, geo: { state: 'failed' } })).toMatchObject({
+      reason: 'service-down'
+    });
     expect(
       swapAvailability({
         ...snapshot,

@@ -1,6 +1,8 @@
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import { isHash, type Address, type Hash, type Hex } from 'viem';
 
+import { formatAmountDisplay, type AmountRounding } from '../../../src/lib/i18n/amount-display';
+
 import {
   arcHost,
   readArcUsdc,
@@ -20,7 +22,14 @@ import {
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
 } from './balance-truth';
-import { bridgeOutUsdcx, enText, readBridgedSendRows, readNativeDisplaySymbol, type BridgedSendRow } from './bridge';
+import {
+  bridgeOutUsdcx,
+  detailRowValue,
+  enText,
+  readBridgedSendRows,
+  readNativeDisplaySymbol,
+  type BridgedSendRow
+} from './bridge';
 import {
   describeTransactionRow,
   openHistoryDetails,
@@ -35,7 +44,6 @@ import {
   BURN_UNITS,
   GRANT_UNITS,
   HARNESS_ARC_KEY_FILE,
-  minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS,
   redactProjectId,
   USDCX_BURN_TAG,
@@ -53,6 +61,7 @@ import {
   nullifier,
   type BurnEvidence
 } from './usdcx-miden';
+import { recordPayoutFee } from './usdcx-payout-summary';
 import {
   anyOf,
   boundedTerm,
@@ -351,8 +360,6 @@ export interface BurnLeg {
   sponsorship: bigint;
   vault: bigint;
   oracle: BurnEvidence;
-  /** The payout chain's block of the balance the wallet saved before the burn. */
-  arcFromBlock: bigint;
   phases: PhaseTimeline;
 }
 
@@ -406,7 +413,7 @@ async function burnStuckReport(last: BridgedSendRow | undefined, rpcUrl: string,
 }
 
 /** The fee and sponsorship a burn's own outputs carry; they must name the row's burn note and fee exactly. */
-async function decodeBurnTerms(
+export async function decodeBurnTerms(
   resultBytes: string,
   row: BridgedSendRow,
   burnNoteId: Hash,
@@ -415,6 +422,7 @@ async function decodeBurnTerms(
   liveSponsorship: bigint
 ): Promise<{ fee: bigint; sponsorship: bigint }> {
   const outputs = await burnOutputs({ resultBytesBase64: resultBytes, burnNoteId, faucetBech32: ids.nativeBare });
+  const totalFee = outputs.fee.amount + outputs.sponsorship.amount;
   const mismatches = [
     outputs.burn.noteId.toLowerCase() === burnNoteId.toLowerCase()
       ? null
@@ -423,9 +431,9 @@ async function decodeBurnTerms(
     outputs.sponsorship.amount === liveSponsorship
       ? null
       : `sponsorship ${outputs.sponsorship.amount}, live fee_schedule ${liveSponsorship}`,
-    row.feeAmount === outputs.fee.amount.toString()
+    row.feeAmount === totalFee.toString()
       ? null
-      : `fee note ${outputs.fee.amount}, row feeAmount ${row.feeAmount ?? 'unset'}`,
+      : `verification ${outputs.fee.amount} + sponsorship ${outputs.sponsorship.amount} = ${totalFee}, row feeAmount ${row.feeAmount ?? 'unset'}`,
     row.feeFaucetId === ids.native ? null : `fee paid in ${row.feeFaucetId ?? 'nothing'}, not ${ids.native}`
   ].filter((text): text is string => text !== null);
   if (mismatches.length > 0) throw new Error(`burn ${row.id} outputs disagree: ${mismatches.join('; ')}`);
@@ -567,7 +575,6 @@ export async function confirmBurn(
     sponsorship,
     vault,
     oracle,
-    arcFromBlock: BigInt(before?.blockNumber ?? '0'),
     phases
   };
 }
@@ -635,6 +642,8 @@ export async function payoutLeg(
     budget: { keySnapshot: number; payout: number };
     evidence: RunEvidence;
     secrets: string[];
+    /** The fee table `recordPayoutFee` appends to; its default when absent. */
+    feeSummary?: string;
   }
 ): Promise<PayoutLeg> {
   const { arc, evidence } = opts;
@@ -656,7 +665,7 @@ export async function payoutLeg(
 
   const waitForPayout = async (burn: ConsumedBurn, depositor: Hex): Promise<GatewayPayout> => {
     const consumeTsMs = burn.oracle.consumeTimestampSec * 1_000;
-    // The burn the node consumed sets the payout floor and Circle's fee allowance.
+    // Circle's fee is measured against the burn the node consumed.
     const burnUnits = burn.oracle.amount;
     const payout = await step(
       'payout',
@@ -671,8 +680,7 @@ export async function payoutLeg(
             balanceBefore: snapshot.balance,
             consumeTsMs,
             deadlineMs: consumeTsMs + PAYOUT_TIMEOUT_MS,
-            depositor,
-            minimumValue: minimumUsdcxPayout(chain.chainId, burnUnits)
+            depositor
           },
           reads
         ),
@@ -684,6 +692,16 @@ export async function payoutLeg(
     });
     evidence.hashes.payout = payout.transactionHash;
     evidence.fees.push({ name: 'circle payout fee', amount: payout.fee, kind: 'exact' });
+    recordPayoutFee(
+      {
+        suite: evidence.suite,
+        chain: chain.label,
+        burnUnits,
+        value: payout.value,
+        transactionHash: payout.transactionHash
+      },
+      opts.feeSummary
+    );
     evidence.latenciesMs.consumeToPayout = payout.latencyMs;
     return payout;
   };
@@ -700,6 +718,7 @@ export async function harnessPayoutLeg(
     budget: { keySnapshot: number; payout: number };
     evidence: RunEvidence;
     secrets: string[];
+    feeSummary?: string;
   }
 ): Promise<PayoutLeg> {
   const { env, ...rest } = opts;
@@ -714,17 +733,15 @@ export async function harnessPayoutLeg(
 }
 
 /**
- * Spec 5 step 8b (Q6, a hard gate): the wallet's own destination check confirms the payout Circle made, at exactly the
- * balance the payout gate proved and no earlier than its log. The caller puts the wallet on Home, where the check runs,
- * and keeps its own details-page checks; this returns when the confirmation was first read.
+ * Spec 5 step 8b (Q6, a hard gate): the wallet's own destination check records the mint the payout gate proved, the
+ * same transaction, block and value. The caller puts the wallet on Home, where the check runs, and keeps its own
+ * details-page checks; this returns when the record was first read.
  */
 export async function waitForWalletPayoutConfirmation(opts: {
   /** The wallet's bridged-send rows, read the platform's way. */
   readRows: () => Promise<BridgedSendRow[]>;
   rowId: string;
-  /** The payout chain's block of the balance the wallet saved before the burn. */
-  arcFromBlock: bigint;
-  payout: Pick<GatewayPayout, 'value' | 'balance' | 'logBlock'>;
+  payout: Pick<GatewayPayout, 'transactionHash' | 'logBlock' | 'value'>;
   key: Pick<ArcKey, 'address'>;
   /** The payout chain's reads; their `payoutChain` (Arc when absent) names the wallet's own RPC there. */
   arc: ArcReadDeps;
@@ -737,7 +754,7 @@ export async function waitForWalletPayoutConfirmation(opts: {
   const row = await pollUntil(
     'the wallet confirming the payout',
     async () => (await opts.readRows()).find(candidate => candidate.id === opts.rowId),
-    found => found?.extraInputs?.usdcxBurn?.destinationBalanceConfirmed !== undefined,
+    found => found?.extraInputs?.usdcxBurn?.payout !== undefined,
     {
       timeoutMs: WALLET_CONFIRM_TIMEOUT_MS,
       intervalMs: 3_000,
@@ -759,36 +776,55 @@ export async function waitForWalletPayoutConfirmation(opts: {
     }
   );
   const confirmedAt = clock.now();
-  const confirmed = row?.extraInputs?.usdcxBurn?.destinationBalanceConfirmed;
-  const confirmedBlock = BigInt(confirmed?.blockNumber ?? '0');
+  const recorded = row?.extraInputs?.usdcxBurn?.payout;
   expect(
     {
-      balance: confirmed?.balance,
-      afterSnapshot: confirmedBlock > opts.arcFromBlock,
-      atOrAfterPayout: confirmedBlock >= payout.logBlock
+      transactionHash: recorded?.transactionHash.toLowerCase(),
+      blockNumber: recorded?.blockNumber,
+      value: recorded?.value
     },
-    `confirmation at ${chain.label} block ${confirmedBlock}, snapshot ${opts.arcFromBlock}, ` +
-      `payout log ${payout.logBlock}, ` +
-      `${payout.balance - payout.value} on the key before the burn`
-  ).toEqual({ balance: payout.balance.toString(), afterSnapshot: true, atOrAfterPayout: true });
-  opts.evidence.ids.walletConfirmedBalance = String(confirmed?.balance);
+    `the wallet recorded mint ${recorded?.transactionHash} in ${chain.label} block ${recorded?.blockNumber} of ` +
+      `${recorded?.value}; Circle paid this burn with mint ${payout.transactionHash} in block ${payout.logBlock} of ` +
+      `${payout.value}`
+  ).toEqual({
+    transactionHash: payout.transactionHash.toLowerCase(),
+    blockNumber: String(payout.logBlock),
+    value: String(payout.value)
+  });
+  opts.evidence.ids.walletPayoutValue = String(recorded?.value);
   return confirmedAt;
 }
 
-/** Spec 5 step 7: the burn's details read Burn confirmed (or Confirmed once paid), name the chain and link the key. */
+/**
+ * Spec 5 step 7: the burn's details read Burn confirmed (or Confirmed once paid), name the chain and link the key.
+ * Given the payout the harness proved, they read Confirmed, and the Received and Circle fee rows read that mint's value
+ * and the rest of the burn.
+ */
 export async function assertBurnDetails(
   wallet: GuardianAwareWalletPage,
   rowId: string,
   destination: Address,
-  chain: PayoutChain = ARC_PAYOUT
+  chain: PayoutChain = ARC_PAYOUT,
+  paid?: Pick<GatewayPayout, 'value' | 'fee'>
 ): Promise<void> {
   await openHistoryDetails(wallet, rowId);
   const page = wallet.page;
   await expect(page.getByTestId('history-status-pill')).toHaveText(
-    anyOf([enText('usdcxBurnConfirmed'), enText('confirmed')])
+    paid ? enText('confirmed') : anyOf([enText('usdcxBurnConfirmed'), enText('confirmed')])
   );
   await expect(page.locator(`a[href="${chain.explorer}/address/${destination}" i]`)).toBeVisible();
   await expect(page.getByText(chain.networkName, { exact: true }).first()).toBeVisible();
+  if (!paid) return;
+  // BridgeClaimSection's own formatting of both amounts.
+  const usdc = (units: bigint, rounding: AmountRounding) =>
+    enText('usdcxPayoutAmount', { amount: formatAmountDisplay(units, { decimals: USDCX_DECIMALS, rounding }) });
+  await expect(detailRowValue(page, enText('usdcxPayoutReceived')), 'the amount Circle paid').toHaveText(
+    usdc(paid.value, 'down')
+  );
+  // BridgeClaimSection draws no fee row for a burn Circle kept nothing of.
+  await expect(detailRowValue(page, enText('usdcxCircleFee')), 'the rest of the burn, which Circle kept').toHaveText(
+    paid.fee > 0n ? [usdc(paid.fee, 'up')] : []
+  );
 }
 
 /** The details pill of `rowId` as it reads once rendered. */
@@ -837,15 +873,13 @@ export async function walletConfirmsPayout(
   const confirmedAt = await waitForWalletPayoutConfirmation({
     readRows: () => readBridgedSendRows(wallet.page),
     rowId: burn.row.id,
-    arcFromBlock: burn.arcFromBlock,
     payout,
     key,
     arc: reads,
     where,
     evidence
   });
-  await openHistoryDetails(wallet, burn.row.id);
-  await expect(wallet.page.getByTestId('history-status-pill')).toHaveText(enText('confirmed'));
+  await assertBurnDetails(wallet, burn.row.id, key.address, chain, payout);
   // The lookup covers 2000 blocks, about 8.6 min on Arbitrum and 6.7 h on Sepolia's 12 s blocks, in one request on the
   // wallet's own RPC: an accepted limit, so a missing link is only recorded.
   const linkHash = await receivingTxHash(wallet.page, RECEIVING_TX_LINK_MS, chain);

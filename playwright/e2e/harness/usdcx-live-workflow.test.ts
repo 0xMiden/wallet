@@ -31,7 +31,7 @@ describe('E2E USDCx Bridge-IN (live) workflow', () => {
     const steps = stepsOf(job);
     const guard = steps.indexOf(`- name: ${name}`);
     expect(guard).toBeGreaterThan(-1);
-    expect(guard).toBeLessThan(steps.indexOf('- uses: actions/checkout@v4'));
+    expect(guard).toBeLessThan(steps.indexOf('- uses: actions/checkout@'));
     const body = steps.slice(guard, steps.indexOf('\n      - ', guard + 1));
     expect(body).toMatch(/if \[ -z "\$USDCX_LIVE_EVM_PRIVATE_KEY" \]; then[\s\S]*::error[\s\S]*exit 1/);
   });
@@ -89,6 +89,21 @@ describe('E2E USDCx Bridge-IN (live) workflow', () => {
     );
     expect(stepsOf(EXECUTOR_JOB)).toContain(`\n          USDCX_LIVE_SOURCE: \${{ matrix.source }}\n`);
   });
+
+  it.each([ARC_JOB, EXECUTOR_JOB])(
+    "adds the return burn's payout fee to the summary of %s, whatever the run did",
+    job => {
+      expect(stepsOf(job)).toContain(
+        '\n      - name: Add the payout fees to the job summary\n' +
+          '        if: always()\n' +
+          '        continue-on-error: true\n' +
+          '        run: |\n' +
+          '          if [ -f test-results/usdcx-payout-fees.md ]; then\n' +
+          '            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"\n' +
+          '          fi\n'
+      );
+    }
+  );
 
   // Both specs match the config's usdcx-live-* glob, and a retry sends a second real deposit.
   it("runs each spec in its own jobs, with no retries, and keeps each source chain's artifact", () => {

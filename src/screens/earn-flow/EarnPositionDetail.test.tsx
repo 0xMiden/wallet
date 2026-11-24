@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_PLACEHOLDER } from './earn-mapping';
@@ -105,6 +106,7 @@ jest.mock('./components', () => {
   const R = require('react');
   return {
     __esModule: true,
+    useEarnAssetFaucetId: () => undefined,
     EarnSummaryPanel: ({
       summary,
       titleId,
@@ -585,6 +587,24 @@ describe('EarnPositionDetail after a failed load', () => {
     mockStale = false;
   });
 
+  it('forwards the selected failure evidence from position detail to the real Notice', () => {
+    jest.useFakeTimers();
+    try {
+      jest.mocked(reportUserVisibleError).mockClear();
+      const evidence = {
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: 'position_decode',
+        earnPositionsLoadOutcome: 'complete_failure'
+      };
+      mockLoadState = Object.assign({ isLoading: false, error: 'private failure' }, { errorDiagnostics: evidence });
+      renderDetail('no-such-position');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('says a per-owner positions failure too, which is not a request failure', () => {
     mockLoadState = { isLoading: false, error: 'owner unavailable' };
     renderDetail('no-such-position');
@@ -615,6 +635,7 @@ describe('EarnPositionDetail after a failed load', () => {
     mockLoadState = { isLoading: true };
     renderDetail('no-such-position');
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
@@ -665,3 +686,5 @@ describe('EarnPositionDetail with no position to name', () => {
     expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
   });
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));

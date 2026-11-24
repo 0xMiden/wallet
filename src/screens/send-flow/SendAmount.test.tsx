@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import {
   publishMockBridgeSnapshot,
@@ -44,8 +44,8 @@ afterEach(() => {
   mockUseRealAmountInput = false;
 });
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
-    <span data-faucet-id={faucetId}>{symbol}-logo</span>
+  TokenLogo: ({ faucetId }: { faucetId: string | undefined }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} />
   )
 }));
 jest.mock('app/icons/logos/eth.svg', () => ({ ReactComponent: () => <svg /> }));
@@ -141,8 +141,7 @@ describe('SendAmount', () => {
 
     const selector = screen.getByTestId('send-token-selector');
     expect(selector).toHaveTextContent('Test Epoch USDC');
-    expect(selector).toHaveTextContent('USDC-logo');
-    expect(screen.getByText('USDC-logo')).toHaveAttribute('data-faucet-id', TEST_MIDEN_USDC_FAUCET);
+    expect(within(selector).getByTestId('token-logo')).toHaveAttribute('data-faucet-id', TEST_MIDEN_USDC_FAUCET);
   });
 
   it('names the bridge faucet by its label once the bridge config publishes, with no new props', () => {
@@ -182,19 +181,34 @@ describe('SendAmount', () => {
     expect(props.onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  it('fills Max with the spendable balance rounded down', () => {
+  it('keeps every spendable base unit in Max while the balance display rounds down', () => {
     const props = renderAmount();
 
     expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 12.3456');
     fireEvent.click(screen.getByTestId('send-amount-max'));
-    expect(props.onAmountChange).toHaveBeenCalledWith('12.3456');
+    expect(props.onAmountChange).toHaveBeenCalledWith('12.345678');
+  });
+
+  it('fills Max with a small balance in full, not cut to its first two significant digits (#2157)', () => {
+    const props = renderAmount({ token: { ...TOKEN, decimals: 8, balance: 0.00123456 } });
+
+    fireEvent.click(screen.getByTestId('send-amount-max'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('0.00123456');
+  });
+
+  it('fills a percentage shortcut from the spendable balance', () => {
+    const onAmountChange = jest.fn();
+    renderAmount({ onAmountChange });
+
+    fireEvent.click(screen.getByTestId('send-amount-25'));
+    expect(onAmountChange).toHaveBeenCalledWith('3.086419');
   });
 
   it('fills Max below a stored balance that may have been rounded up past 2^52 base units', () => {
     const props = renderAmount({ token: { ...TOKEN, decimals: 12, balance: 10000.3 } });
 
     fireEvent.click(screen.getByTestId('send-amount-max'));
-    expect(props.onAmountChange).toHaveBeenCalledWith('10000.2999');
+    expect(props.onAmountChange).toHaveBeenCalledWith('10000.29999999999');
   });
 
   it('keeps Max visible but inert while the caller disables it', () => {
@@ -419,6 +433,18 @@ describe('SendAmount user-visible errors', () => {
       onConfirm: jest.fn()
     };
   }
+
+  it('forwards the visible burn failure evidence through the real denominated amount field', async () => {
+    const evidence = { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' };
+    const props = Object.assign(renderProps(), {
+      amount: '1',
+      error: 'usdcxBurnFeeUnavailable',
+      errorDiagnostics: evidence
+    });
+    render(<SendAmount {...props} />);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxBurnFeeUnavailable', 'field', evidence);
+  });
 
   it('reports the fee shortfall notice without marking the amount invalid', async () => {
     renderAmount({ error: 'insufficientFeeAsset' });

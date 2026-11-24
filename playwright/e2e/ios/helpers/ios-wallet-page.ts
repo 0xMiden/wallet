@@ -119,7 +119,7 @@ function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: 
   return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
 }
 
-// The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.
+// The review slides over the retained Send layer, whose route step holds the same payout row and burn notice.
 const SEND_REVIEW = '[data-page-layer="/send/review"]';
 // Mobile mounts the app as a full page, so the in-progress route is the -full variant.
 const GENERATING_ROUTE = /#\/generating-transaction(?:-full)?\/([^/?#]+)/;
@@ -138,7 +138,7 @@ function usdcxReviewJs(networkLabel: string, networkFeeLabel: string): string {
       `return (x.textContent || '').trim() === label && x.nextElementSibling && x.nextElementSibling.tagName === 'DIV'; }); ` +
       `return s ? (s.nextElementSibling.textContent || '').trim() : null; } ` +
       `return { network: row(${JSON.stringify(networkLabel)}), networkFee: row(${JSON.stringify(networkFeeLabel)}), ` +
-      `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+      `fee: val('usdcx-payout-fee'), notice: text('usdcx-burn-notice') };`
   );
 }
 
@@ -162,7 +162,6 @@ interface UsdcxReviewView {
   network: string | null;
   networkFee: string | null;
   fee: string | null;
-  net: string | null;
   notice: string | null;
 }
 
@@ -503,9 +502,13 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Exact spendable base units of `faucetId` in the current account, as the store last fetched them. Read it through
-   * `homeVaultBaseUnits`: the balance poll runs only on Home.
+   * `homeVaultBaseUnits`: the balance poll runs only on Home. `faucetId` is the store's bech32 key, so a CLI hex id goes
+   * through `hexToBech32Faucet` first.
    */
   async readVaultBaseUnits(faucetId: string): Promise<bigint> {
+    if (faucetId.startsWith('0x')) {
+      throw new Error(`readVaultBaseUnits: ${faucetId} keys no store row; convert it with hexToBech32Faucet`);
+    }
     const view = await ridingOut(() => this.cdp.eval<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS));
     if (!view) throw new Error('readVaultBaseUnits: the store has no current account');
     let total = 0n;
@@ -538,13 +541,33 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
+  // ── App switching ───────────────────────────────────────────────────────
+
+  /** Leaves the app the way an app switch does. Its WebView notes going hidden, which `returnToForeground` reports. */
+  async leaveForeground(): Promise<void> {
+    await ridingOut(() =>
+      this.cdp.eval(
+        `window.__E2E_WENT_HIDDEN__ = false; ` +
+          `document.addEventListener('visibilitychange', function () { ` +
+          `if (document.hidden) window.__E2E_WENT_HIDDEN__ = true; }); return null;`
+      )
+    );
+    await this.sim.background(this.udid);
+  }
+
+  /** Returns to the running app and answers whether its document went hidden meanwhile. */
+  async returnToForeground(): Promise<boolean> {
+    await this.sim.foreground(this.udid, this.bundleId);
+    return ridingOut(() => this.cdp.eval<boolean>('return window.__E2E_WENT_HIDDEN__ === true;'));
+  }
+
   // ── USDCx burn through the Send UI (the live USDCx spec) ────────────────
 
   /**
    * Burns the native USDCx to an address on `opts.payout` (Arc Testnet by default) through the real Send UI and returns
    * once the wallet is on the generating page. Every read is scoped (SEND_FLOW, the network sheet, SEND_REVIEW). Checks
    * on the way: exactly the four USDCx destinations in the network sheet, the closed field naming the payout chain, the
-   * route card, the payout rows and the notice on the route and the review, and the review's network and fee rows; a
+   * route card, the payout fee row and the notice on the route and the review, and the review's network and fee rows; a
    * refusal is named from `review-error`, never left to a timeout. Nothing is submitted once `signal` has aborted (R26).
    */
   async burnUsdcxViaSendFlow(opts: UsdcxBurnViaSendOptions): Promise<UsdcxBurnSubmission> {
@@ -596,14 +619,13 @@ export class IosWalletPage implements WalletPage {
     await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-amount-confirm"]`, 45_000);
 
     await this.pollEval<UsdcxRouteView | null>(
-      'the USDCx route card, payout rows and burn notice',
+      'the USDCx route card, payout fee row and burn notice',
       USDCX_ROUTE_JS,
       view =>
         view !== null &&
         view.pressed === 'true' &&
         view.cardText.includes(routeFees) &&
         view.fee === payout.fee &&
-        view.net === payout.net &&
         view.notice === notice,
       30_000
     );
@@ -629,13 +651,12 @@ export class IosWalletPage implements WalletPage {
     }
     await this.pollEval<UsdcxReviewView | null>(
       'the burn review rows',
-      usdcxReviewJs(enText('network'), enText('networkFee')),
+      usdcxReviewJs(enText('network'), enText('networkFeeMax')),
       view =>
         view !== null &&
         view.network === chain.networkName &&
-        view.networkFee === sponsorshipFee &&
+        view.networkFee?.endsWith(sponsorshipFee) === true &&
         view.fee === payout.fee &&
-        view.net === payout.net &&
         view.notice === notice,
       15_000
     );

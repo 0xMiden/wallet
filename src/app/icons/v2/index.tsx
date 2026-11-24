@@ -10,6 +10,7 @@ import { ReactComponent as AddCircle } from './add-circle.svg';
 import { ReactComponent as Add } from './add.svg';
 import { ReactComponent as AddressBook } from './address-book.svg';
 import { ReactComponent as Apps } from './apps.svg';
+import { ReactComponent as Arcade } from './arcade.svg';
 import { ReactComponent as ArrowDown } from './arrow-down.svg';
 import { ReactComponent as ArrowLeft } from './arrow-left.svg';
 import { ReactComponent as ArrowRightDownFill } from './arrow-right-down-fill.svg';
@@ -26,6 +27,7 @@ import { ReactComponent as BadgeRecovery } from './badge-recovery.svg';
 import { ReactComponent as BadgeSend } from './badge-send.svg';
 import { ReactComponent as BadgeSwap } from './badge-swap.svg';
 import { ReactComponent as Bin } from './bin.svg';
+import { ReactComponent as Bolt } from './bolt.svg';
 import { ReactComponent as BridgeIn } from './bridge-in.svg';
 import { ReactComponent as BridgeOut } from './bridge-out.svg';
 import { ReactComponent as Calendar } from './calendar.svg';
@@ -55,10 +57,14 @@ import { ReactComponent as CrossChain } from './cross-chain.svg';
 import { ReactComponent as Download } from './download.svg';
 import { ReactComponent as Earn } from './earn.svg';
 import { ReactComponent as Edit } from './edit.svg';
+import { ReactComponent as Exclamation } from './exclamation.svg';
 import { ReactComponent as Explore } from './explore.svg';
 import { ReactComponent as EyeOff } from './eye-off.svg';
 import { ReactComponent as Eye } from './eye.svg';
 import { ReactComponent as FaceId } from './face-id.svg';
+import { ReactComponent as FactAlert } from './fact-alert.svg';
+import { ReactComponent as FactCheck } from './fact-check.svg';
+import { ReactComponent as FactCross } from './fact-cross.svg';
 import { ReactComponent as Failed } from './failed.svg';
 import { ReactComponent as Faucet } from './faucet.svg';
 import { ReactComponent as FileCopy } from './file-copy.svg';
@@ -80,11 +86,13 @@ import { ReactComponent as Information } from './information.svg';
 import { ReactComponent as Key } from './key.svg';
 import { ReactComponent as List } from './list.svg';
 import { ReactComponent as Loader } from './loader.svg';
+import { ReactComponent as LockFilled } from './lock-filled.svg';
 import { ReactComponent as Lock } from './lock.svg';
 import { ReactComponent as MidenLogoWhite } from './miden-logo-white.svg';
 import { ReactComponent as MidenLogo } from './miden-logo.svg';
 import { ReactComponent as More } from './more.svg';
 import { ReactComponent as PendingNotes } from './pending-notes.svg';
+import { ReactComponent as PhoneRestore } from './phone-restore.svg';
 import { ReactComponent as ProfileApps } from './profile-apps.svg';
 import { ReactComponent as ProfileBadge } from './profile-badge.svg';
 import { ReactComponent as QrScan } from './qr-scan.svg';
@@ -99,8 +107,10 @@ import { ReactComponent as SettingsNew } from './settings-new.svg';
 import { ReactComponent as Settings } from './settings.svg';
 import { ReactComponent as Share } from './share.svg';
 import { ReactComponent as ShieldCheck } from './shield-check.svg';
+import { ReactComponent as SignInKey } from './sign-in-key.svg';
 import { ReactComponent as SuccessDevnet } from './success-devnet.svg';
 import { ReactComponent as Success } from './success.svg';
+import { ReactComponent as SwitchArrows } from './switch-arrows.svg';
 import { ReactComponent as Switch } from './switch.svg';
 import { ReactComponent as Time } from './time.svg';
 import { ReactComponent as Tokens } from './tokens.svg';
@@ -128,6 +138,7 @@ export enum IconName {
   Add = 'add',
   AddressBook = 'address-book',
   Apps = 'apps',
+  Arcade = 'arcade',
   ArrowDown = 'arrow-down',
   ArrowLeft = 'arrow-left',
   ArrowRightDownFill = 'arrow-right-down-fill',
@@ -164,6 +175,10 @@ export enum IconName {
   CopyNew = 'copy-new',
   BridgeIn = 'bridge-in',
   BridgeOut = 'bridge-out',
+  Exclamation = 'exclamation',
+  FactAlert = 'fact-alert',
+  FactCheck = 'fact-check',
+  FactCross = 'fact-cross',
   CrossChain = 'cross-chain',
   Download = 'download',
   Earn = 'earn',
@@ -190,14 +205,18 @@ export enum IconName {
   InformationFill = 'information-fill',
   Information = 'information',
   Key = 'key',
+  SignInKey = 'sign-in-key',
   LeoLogo = 'leo-logo',
   List = 'list',
   Loader = 'loader',
+  Bolt = 'bolt',
   Lock = 'lock',
+  LockFilled = 'lock-filled',
   ShieldCheck = 'shield-check',
   More = 'more',
   PendingNotes = 'pending-notes',
   QrScan = 'qr-scan',
+  PhoneRestore = 'phone-restore',
   Refresh = 'refresh',
   Rocket = 'rocket',
   ScanFrame = 'scan-frame',
@@ -208,6 +227,7 @@ export enum IconName {
   SettingsNew = 'settings-new',
   Share = 'share',
   Switch = 'switch',
+  SwitchArrows = 'switch-arrows',
   Time = 'time',
   User = 'user',
   Users = 'users',
@@ -258,6 +278,8 @@ const IconSwitch = (props: IconProps) => {
       return <AddressBook {...props} />;
     case IconName.Apps:
       return <Apps {...props} />;
+    case IconName.Arcade:
+      return <Arcade {...props} />;
     case IconName.ArrowDown:
       return <ArrowDown {...props} />;
     case IconName.ArrowLeft:
@@ -330,6 +352,16 @@ const IconSwitch = (props: IconProps) => {
       return <BridgeIn {...props} />;
     case IconName.BridgeOut:
       return <BridgeOut {...props} />;
+    case IconName.SignInKey:
+      return <SignInKey {...props} />;
+    case IconName.Exclamation:
+      return <Exclamation {...props} />;
+    case IconName.FactAlert:
+      return <FactAlert {...props} />;
+    case IconName.FactCheck:
+      return <FactCheck {...props} />;
+    case IconName.FactCross:
+      return <FactCross {...props} />;
     case IconName.CrossChain:
       return <CrossChain {...props} />;
     case IconName.Download:
@@ -390,14 +422,20 @@ const IconSwitch = (props: IconProps) => {
       return <List {...props} />;
     case IconName.Loader:
       return <Loader {...props} />;
+    case IconName.Bolt:
+      return <Bolt {...props} />;
     case IconName.Lock:
       return <Lock {...props} />;
+    case IconName.LockFilled:
+      return <LockFilled {...props} />;
     case IconName.ShieldCheck:
       return <ShieldCheck {...props} />;
     case IconName.More:
       return <More {...props} />;
     case IconName.QrScan:
       return <QrScan {...props} />;
+    case IconName.PhoneRestore:
+      return <PhoneRestore {...props} />;
     case IconName.Refresh:
       return <Refresh {...props} />;
     case IconName.Rocket:
@@ -418,6 +456,8 @@ const IconSwitch = (props: IconProps) => {
       return <Share {...props} />;
     case IconName.Switch:
       return <Switch {...props} />;
+    case IconName.SwitchArrows:
+      return <SwitchArrows {...props} />;
     case IconName.Time:
       return <Time {...props} />;
     case IconName.User:

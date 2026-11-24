@@ -16,6 +16,7 @@ import {
   useBridgeTracker
 } from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import {
   initiateConsumeTransactionFromId,
   pinAgglayerDeposit,
@@ -30,8 +31,10 @@ import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { USDCX_DECIMALS } from 'lib/usdcx/constant';
+import { isUsdcxPayoutConfirmed, isUsdcxPayoutDelayed } from 'lib/usdcx/destination-status';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
-import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
+import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate } from 'lib/woozie';
 
@@ -40,13 +43,16 @@ import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
 import { ExternalLinkValue } from './TransactionStatus';
 import { bridgeBadgeStatusOf, BridgeStatus } from './transactionUtils';
+import { epochReturnNote, EpochReturnState } from './useEpochReturnState';
 
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
 const EPOCH_STATUS_LABEL: Record<BridgeStatus, string> = {
   pending: 'bridgeInProgress',
   confirmed: 'confirmed',
-  failed: 'bridgeFailed'
+  failed: 'bridgeFailed',
+  // Only a NEAR Intents deposit expires; an Epoch row never reads it.
+  expired: 'statusExpired'
 };
 
 const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {
@@ -60,7 +66,10 @@ const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {
 
 interface BridgeClaimSectionProps {
   entry: IHistoryEntry;
+  epochReturn?: EpochReturnState;
   destinationTxHash?: string;
+  /** The row's sent amount in base units, which the payout's Circle fee is measured against. */
+  sentAmount?: bigint;
   /**
    * Whether the row came from a restored backup, read straight off the
    * transaction rather than off `entry`.
@@ -83,16 +92,24 @@ interface BridgeClaimSectionProps {
  * connected address matching the bridge destination. Epoch (Fast) auto-settles,
  * so it shows "no manual claim required" instead.
  */
-export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restoredFromBackup, destinationTxHash }) => {
+export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({
+  entry,
+  restoredFromBackup,
+  destinationTxHash,
+  sentAmount,
+  epochReturn
+}) => {
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
   const account = useAccount();
+  const reclaimAccountSelected = !!entry.address && account.publicKey === entry.address;
 
   const isAgglayer = entry.bridgeProvider === 'agglayer';
   const isEpoch = entry.bridgeProvider === 'epoch';
   const isUsdcx = entry.bridgeProvider === 'usdcx';
   const destination = entry.bridgeDestinationAddress ?? '';
+  const payout = isUsdcx && isUsdcxPayoutConfirmed(entry.usdcxBurn) ? entry.usdcxBurn?.payout : undefined;
   const destinationChain = getChain(
     entry.bridgeAgglayerRoute?.chainId ?? entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID
   );
@@ -123,6 +140,10 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   // An unconfirmed failed row may still have landed; its exit hash binds the lookup to its own deposit.
   const mayStillClaim = !transactionFailed || (entry.isUnconfirmed === true && !!exitTxHash);
 
+  const reclaimNote = epochReturnNote(entry, restoredFromBackup);
+  const reclaimHeight = reclaimNote?.height;
+  const reclaimNoteId = reclaimNote?.noteId;
+
   // A failed Epoch (Fast) bridge-out offers "Reclaim funds" once the reclaim height
   // passes, and only while its note may exist: the allocator rejected the intent after
   // the note committed, or the outcome is unknown. A definite failure never sent its
@@ -130,13 +151,6 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   // a committed one only when the pipeline claimed its submit, so an unconfirmed or
   // route-failed row demoted before its claim offers nothing. A Completed row whose
   // fill failed is reclaimable too: its note committed and stayed Completed.
-  const noteMayExist = entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed';
-  const reclaimHeight = entry.bridgeReclaimHeight;
-  const reclaimNoteId =
-    entry.outputNoteIds?.[0] ??
-    (entry.bridgeSubmitClaimed === true && (entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed')
-      ? entry.bridgeReclaimNoteId
-      : undefined);
   // On the extension the page submits the intent, not the realm running the note pipeline, so a page closed after the
   // note committed leaves a Completed row whose intent never went out (a recorded intent always sets its status).
   const intentNeverRecorded =
@@ -150,22 +164,21 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   // `transactionFailed` is exactly the state import forces every unfinished
   // restored row into, so without the flag check a dump naming any note id gets
   // a "Reclaim funds" button that queues a real consume through the signer.
-  const canShowReclaim =
-    isEpoch &&
-    !restoredFromBackup &&
-    reclaimHeight != null &&
-    !!reclaimNoteId &&
-    ((transactionFailed && noteMayExist) || intentNeverRecorded || fillFailed);
+  const canShowReclaim = !!reclaimNote && (transactionFailed || intentNeverRecorded || fillFailed);
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
   useUserVisibleError(
     isAgglayer && mayStillClaim && status !== 'claimed' && exitTxHash && error ? errorId : null,
     'inline'
   );
-  useUserVisibleError(
-    canShowReclaim && (reclaimReached || transactionFailed || fillFailed) && reclaimError ? reclaimErrorId : null,
-    'inline'
-  );
+  // Node evidence decides the reclaim block only once it has a status; until then the reclaim height does.
+  const nodeReturnStatus = epochReturn?.status;
+  const showReclaimBlock =
+    canShowReclaim &&
+    (nodeReturnStatus
+      ? nodeReturnStatus === 'readyToClaim' || nodeReturnStatus === 'awaitingReturn'
+      : reclaimReached || transactionFailed || fillFailed);
+  useUserVisibleError(showReclaimBlock && reclaimError ? reclaimErrorId : null, 'inline');
 
   // Poll the bridge indexer for THIS row's own exit deposit. Stateless and
   // indexer-driven, so it surfaces deposits from a previous session too. The
@@ -310,13 +323,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         console.error('[bridge-claim] claim failed', err);
         setStatus('failed');
         await updateBridgeClaimStatus(entry.txId, 'failed');
-        let id: UserErrorId = 'evmChainNotApproved';
-        const message = nativeSigningErrorMessage(err, t, e => {
-          id = 'raw_bridge_claim_failed';
-          return e instanceof Error ? e.message : 'Claim failed';
-        });
-        setError(message);
-        setErrorId(id);
+        setError(nativeSigningErrorMessage(err, t, e => (e instanceof Error ? e.message : 'Claim failed')));
+        setErrorId(nativeSigningErrorId(err) ?? 'raw_bridge_claim_failed');
       }
     } finally {
       setClaimInFlight(false);
@@ -325,7 +333,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {
-    if (!canShowReclaim) return;
+    if (!canShowReclaim || nodeReturnStatus) return;
     let cancelled = false;
     getCurrentMidenBlock()
       .then(block => {
@@ -335,10 +343,10 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     return () => {
       cancelled = true;
     };
-  }, [canShowReclaim]);
+  }, [canShowReclaim, nodeReturnStatus]);
 
   const handleReclaim = useCallback(async () => {
-    if (!reclaimNoteId) return;
+    if (!reclaimNoteId || !reclaimAccountSelected) return;
     hapticMedium();
     setReclaimError(null);
     setReclaimErrorId(null);
@@ -349,7 +357,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       // earlier failed reclaim puts the note behind auto-consume's exponential
       // backoff, so the tap queues nothing and navigates to the old failed receipt.
       const txId = await initiateConsumeTransactionFromId(
-        account.publicKey,
+        entry.address,
         reclaimNoteId,
         isDelegateProofEnabled(),
         true,
@@ -369,7 +377,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       }
       setReclaiming(false);
     }
-  }, [reclaimNoteId, account.publicKey, t]);
+  }, [reclaimNoteId, reclaimAccountSelected, entry.address, t]);
 
   return (
     <div className="mt-6 mb-4">
@@ -393,7 +401,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           {/* Not confirmed only while the panel has no evidence of its own: once the tracker finds a
               deposit, a claim runs, or the Epoch fill poll reports, that state wins instead (#1250).
               A USDCx burn reads its own phase badge. */}
-          {isUsdcx ? (
+          {nodeReturnStatus ? (
+            <StatusBadge status={nodeReturnStatus} live />
+          ) : isUsdcx ? (
             <StatusBadge status={bridgeBadgeStatusOf(entry)} live />
           ) : transactionFailed && !entry.isUnconfirmed ? (
             t('bridgeFailed')
@@ -411,8 +421,25 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         </DetailRow>
         {isUsdcx && entry.usdcxBurn && (
           <>
-            {entry.usdcxBurn.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed && (
+            {isUsdcxPayoutConfirmed(entry.usdcxBurn) && (
               <DetailRow label={t('usdcxBurnTitle')}>{t('usdcxBurnConfirmed')}</DetailRow>
+            )}
+            {payout && (
+              <DetailRow label={t('usdcxPayoutReceived')}>
+                {t('usdcxPayoutAmount', {
+                  amount: formatAmountDisplay(BigInt(payout.value), { decimals: USDCX_DECIMALS, rounding: 'down' })
+                })}
+              </DetailRow>
+            )}
+            {payout && sentAmount !== undefined && sentAmount > BigInt(payout.value) && (
+              <DetailRow label={t('usdcxCircleFee')}>
+                {t('usdcxPayoutAmount', {
+                  amount: formatAmountDisplay(sentAmount - BigInt(payout.value), {
+                    decimals: USDCX_DECIMALS,
+                    rounding: 'up'
+                  })
+                })}
+              </DetailRow>
             )}
             <DetailRow label={t('usdcxBurnNoteId')}>
               <HashChip hash={entry.usdcxBurn.noteId} trimHash />
@@ -447,6 +474,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         )}
       </DetailSection>
       {isUsdcx && <p className="mt-3 px-4 text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>}
+      {isUsdcx &&
+        !transactionFailed &&
+        !entry.isUnconfirmed &&
+        isUsdcxPayoutDelayed(entry.usdcxBurn, entry.bridgeSettledAt, Date.now(), restoredFromBackup) && (
+          <p className="mt-3 px-4 text-caption text-muted">{t('usdcxPayoutDelayedNotice')}</p>
+        )}
 
       {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
       {isAgglayer &&
@@ -476,36 +509,37 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           <div className="mt-3 text-xs text-[#1A9C52]">{t('claimAssetSubmitted')}</div>
         ))}
 
-      {/* Failed Epoch (Fast) bridge, a Completed one whose fill failed, or one whose
-          intent never went out: reclaim the recallable P2IDE note once its reclaim
-          window opens (funds return to the sender's Miden account). A Failed row or a
-          fill-failed Completed row counts down to it - both are definitive. Only a
-          Completed row whose intent was never recorded waits for the height with
-          nothing shown. */}
-      {canShowReclaim && (reclaimReached || transactionFailed || fillFailed) && (
+      {nodeReturnStatus && epochReturn?.messageKey && (
+        <p className="mt-3 text-sm text-muted" role="status">
+          {t(epochReturn.messageKey, { block: reclaimHeight })}
+        </p>
+      )}
+      {showReclaimBlock && (
         <div className="mt-3 flex flex-col gap-2">
           {reclaimError && (
             <p className="text-red-500 text-xs" role="alert">
               {reclaimError}
             </p>
           )}
-          {reclaimReached ? (
+          {(nodeReturnStatus ? nodeReturnStatus === 'readyToClaim' : reclaimReached) ? (
             <>
-              {maxNetworkFee && (
+              {reclaimAccountSelected && maxNetworkFee && (
                 // Reclaiming consumes the recallable note -- a real transaction with a
                 // real fee, submitted on this tap with no review step in between.
                 <div className="text-center text-xs text-ink">
                   {t('networkFeeMax')} · {maxNetworkFee}
                 </div>
               )}
-              <Button size="sm" onClick={handleReclaim} disabled={reclaiming}>
+              <Button size="sm" onClick={handleReclaim} disabled={reclaiming || !reclaimAccountSelected}>
                 {reclaiming ? t('reclaiming') : t('reclaimFunds')}
               </Button>
             </>
           ) : (
-            <p className="text-xs text-ink/60">
-              {t('reclaimableAfterBlock')} {reclaimHeight}
-            </p>
+            !nodeReturnStatus && (
+              <p className="text-xs text-ink/60">
+                {t('reclaimableAfterBlock')} {reclaimHeight}
+              </p>
+            )
           )}
         </div>
       )}

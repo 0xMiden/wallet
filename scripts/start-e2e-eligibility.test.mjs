@@ -39,3 +39,39 @@ test('invalid or injected network names cannot reach the fixture command', () =>
   assert.throws(() => fixtureEnvironment({ E2E_NETWORK: 'constructor' }));
   assert.throws(() => fixtureEnvironment({ E2E_NETWORK: 'testnet\nOTHER=value' }));
 });
+
+test('mock and smoothness jobs explicitly request a prelaunch testnet policy', () => {
+  const plan = fixtureEnvironment({ E2E_FIXTURE_PRELAUNCH_TESTNET: 'true' });
+  assert.deepEqual(plan.args, ['--port', '8551', '--networks', 'testnet', '--prelaunch-testnet']);
+});
+
+test('prelaunch fixture mode cannot be selected for Mainnet or another network', () => {
+  for (const network of ['mainnet', 'devnet', 'localhost']) {
+    assert.throws(() => fixtureEnvironment({ E2E_NETWORK: network, E2E_FIXTURE_PRELAUNCH_TESTNET: 'true' }));
+  }
+  assert.throws(() => fixtureEnvironment({ E2E_FIXTURE_PRELAUNCH_TESTNET: 'yes' }));
+});
+
+test('prelaunch mode rejects direct loopback policy sources that the app would read without the fixture transform', () => {
+  assert.throws(() =>
+    fixtureEnvironment({
+      E2E_FIXTURE_PRELAUNCH_TESTNET: 'true',
+      MIDEN_REMOTE_CONFIG_URL: 'http://127.0.0.1:8550/'
+    })
+  );
+});
+
+test('an explicit mock launch transition serves both the starting and destination policy', () => {
+  assert.deepEqual(fixtureEnvironment({ E2E_FIXTURE_NETWORKS: 'testnet,mainnet' }).args, [
+    '--port',
+    '8551',
+    '--networks',
+    'testnet,mainnet'
+  ]);
+});
+
+test('explicit fixture networks remain closed, unique and include the starting network', () => {
+  for (const networks of ['mainnet', 'testnet,testnet', 'testnet,constructor', 'testnet\nOTHER=value']) {
+    assert.throws(() => fixtureEnvironment({ E2E_FIXTURE_NETWORKS: networks }));
+  }
+});

@@ -2,10 +2,13 @@ import arbitrumone from 'app/icons/logos/networks/arbitrum-one.svg?url';
 import arc from 'app/icons/logos/networks/arc.svg?url';
 import avalanche from 'app/icons/logos/networks/avalanche.svg?url';
 import base from 'app/icons/logos/networks/base.svg?url';
+import bitcoin from 'app/icons/logos/networks/bitcoin.svg?url';
 import hyperevm from 'app/icons/logos/networks/hyper-evm.svg?url';
 import monad from 'app/icons/logos/networks/monad.svg?url';
+import near from 'app/icons/logos/networks/near.svg?url';
 import optimism from 'app/icons/logos/networks/optimism.svg?url';
 import polygon from 'app/icons/logos/networks/polygon.svg?url';
+import robinhood from 'app/icons/logos/networks/robinhood.svg?url';
 import solana from 'app/icons/logos/networks/solana.svg?url';
 
 export function networkLogo(network: string | undefined): string | undefined {
@@ -28,6 +31,8 @@ export function networkLogo(network: string | undefined): string | undefined {
     case 'polygon':
     case 'polygon-amoy':
       return polygon;
+    case 'robinhood':
+      return robinhood;
     case 'solana':
     case 'solana-devnet':
       return solana;
@@ -37,6 +42,10 @@ export function networkLogo(network: string | undefined): string | undefined {
     case 'hyperevm':
     case 'hyperevm-testnet':
       return hyperevm;
+    case 'bitcoin':
+      return bitcoin;
+    case 'near':
+      return near;
     default:
       return undefined;
   }

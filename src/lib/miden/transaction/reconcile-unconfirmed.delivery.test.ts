@@ -1,16 +1,25 @@
 // Real Dexie and the real sweep: the landed write and the sweep's selection meet only in the stored row (#1473).
-import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, type TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { __resetSyncFuseStateForTests } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { NoteTypeEnum } from 'lib/miden/types';
 
+import { failInterruptedTransactions } from './cancel';
 import { completeSendTransaction } from './complete';
+import { TRANSACTION_INTERRUPTED_ON_STARTUP } from './constants';
+import { noteDeliveryWriteCount, recordSubmitCrossing, setTransactionStage } from './helper';
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import { NodeReads } from './reconcile-reads';
-import { judgeAndWrite } from './reconcile-unconfirmed';
+import {
+  judgeAndWrite,
+  landedDeliveryTargetValues,
+  landedExecuteDeliveryValues,
+  recordLandedDeliveryTarget
+} from './reconcile-unconfirmed';
 import { ISubmitEvidence, ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
+import { readSubmitEvidence } from '../sdk/submit-evidence';
 
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
@@ -199,9 +208,13 @@ const landWhileTheRelayWaits = async (row: ITransaction, noteId: string) => {
     reached.resolve();
     await relay.promise;
   });
-  await landWhileWaiting(completeSendTransaction(sendOf(row), sentNote(noteId)), reached.promise, () =>
-    relay.resolve()
+  // The row landed under the completion, so its terminal write is refused and leaves the tail, whose landed arm leaves
+  // a row another writer finalized as it is.
+  const completion = completeSendTransaction(sendOf(row), sentNote(noteId)).then(
+    () => Promise.reject(new Error('the terminal write on the landed row was not refused')),
+    (error: unknown) => expect(String(error)).toMatch(/finalized/)
   );
+  await landWhileWaiting(completion, reached.promise, () => relay.resolve());
 };
 
 beforeEach(async () => {
@@ -456,8 +469,8 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
     expect(await pushesAfterTheFirstWait()).toEqual([]);
   });
 
-  // Its evidence lists public and private notes alike, and its recipient field can hold a consumed note's sender.
-  it('an execute gets no note from its evidence, so the sweep pushes none of its notes', async () => {
+  // Its stamp lists public and private notes alike and did not read which are private, so it proves none owed.
+  it('an execute whose stamp read no private list gets no note from its evidence, so the sweep pushes none of its notes', async () => {
     await Repo.transactions.put(
       keptSend({ type: 'execute', displayIcon: 'DEFAULT', submitEvidence: [entry({ ...KEPT, fromExecute: true })] })
     );
@@ -598,6 +611,397 @@ describe('a send landed from its submit evidence owes the sweep its note (#1473)
       noteDelivery: 'relayed',
       displayMessage: 'Sent',
       relayAckedNoteIds: [NOTE]
+    });
+  });
+});
+
+// An applied execute's tail can record nothing before its row is failed from outside: its realm dies after the apply,
+// or its landed write spends its budget and the reaper fails it. The landing that later proves the attempt owes the
+// private notes that attempt's own stamp read, to the row's recipient.
+describe('an execute landed from its submit evidence owes the private notes its landing stamp read', () => {
+  /** The executed transaction attempt a1's leaf read just before its submit: notes `outputs`, the private ones as such. */
+  const executed = (outputs: string[], privateNotes: string[]) => ({
+    executedTransaction: () => ({
+      id: () => ({ toHex: () => hex(2) }),
+      initialAccountHeader: () => ({
+        to_commitment: () => ({ toHex: () => INITIAL }),
+        nonce: () => ({ asInt: () => 5n })
+      }),
+      finalAccountHeader: () => ({ to_commitment: () => ({ toHex: () => FINAL }), nonce: () => ({ asInt: () => 6n }) }),
+      userOutputNotes: () =>
+        outputs.map(noteId => ({
+          id: () => ({ toString: () => noteId }),
+          metadata: () => ({ noteType: () => (privateNotes.includes(noteId) ? NoteType.Private : NoteType.Public) })
+        }))
+    })
+  });
+  const proof = {
+    nullifiers: () => [],
+    refBlockNumber: () => 100,
+    refBlockCommitment: () => ({ toHex: () => HEADER }),
+    expirationBlockNumber: () => 700
+  };
+  /** A dApp execute to the recipient, as a leaf running attempt a1 holds it. */
+  const runningExecute = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+    id: 'tx-1',
+    type: 'execute',
+    accountId: 'mtst1acct_s',
+    secondaryAccountId: RECIPIENT,
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: NOW - 120,
+    processingStartedAt: NOW - 110,
+    attemptId: 'a1',
+    stage: 'proving',
+    displayIcon: 'DEFAULT',
+    ...overrides
+  });
+  /** What the leaf records at its submit crossing, through the stamp it writes. */
+  const stampCrossing = async (outputs: string[], privateNotes: string[]) => {
+    await recordSubmitCrossing(
+      'tx-1',
+      readSubmitEvidence(executed(outputs, privateNotes), proof, () => true),
+      {
+        attemptId: 'a1',
+        fromExecute: true
+      }
+    );
+    await setTransactionStage('tx-1', 'submitting');
+  };
+  /** Attempt a1's stamp of a private execute, which ended outside its pipeline. */
+  const executeStamp = (overrides: Partial<ISubmitEvidence> = {}) =>
+    entry({
+      fromExecute: true,
+      outputNoteIds: [OTHER_NOTE, NOTE],
+      privateOutputNoteIds: [NOTE],
+      endedBy: 'out-of-band',
+      endedAt: NOW - 100,
+      ...overrides
+    });
+  /** The row once the reaper failed it, holding only that stamp. */
+  const failedExecute = (overrides: Partial<ITransaction> = {}): ITransaction =>
+    runningExecute({
+      status: ITransactionStatus.Failed,
+      error: 'Transaction took too long to process and was cancelled',
+      displayMessage: 'Failed',
+      displayIcon: 'FAILED',
+      completedAt: NOW - 100,
+      submitEvidence: [executeStamp()],
+      ...overrides
+    });
+
+  // The realm died before the completion's pending record, so only the stamp names the notes; the next realm's startup
+  // sweep fails the row and records nothing it owes.
+  it("an execute whose realm died after its apply owes its stamp's private notes once the startup sweep failed it and it lands", async () => {
+    await Repo.transactions.put(runningExecute());
+    await stampCrossing([OTHER_NOTE, NOTE], [NOTE]);
+
+    await failInterruptedTransactions();
+    const failed = await read();
+    expect(failed).toMatchObject({ status: ITransactionStatus.Failed, error: TRANSACTION_INTERRUPTED_ON_STARTUP });
+    expect(failed?.relayNoteIds).toBeUndefined();
+    expect(failed?.noteDelivery).toBeUndefined();
+    const writes = noteDeliveryWriteCount();
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      transactionId: hex(2),
+      relayNoteIds: [NOTE],
+      relayRecipientId: RECIPIENT,
+      noteDelivery: 'undelivered',
+      displayMessage: 'Executed - a private note could not be delivered',
+      completedAt: failed?.completedAt
+    });
+    expect(row?.error).toBeUndefined();
+    expect(row?.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+    expect(await read()).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: [NOTE] });
+  });
+
+  // Read from the row as the write found it: the landed fields label an execute with a recipient as undelivered.
+  it('an execute whose landing stamp proves only public notes lands under the clean label and owes nothing', async () => {
+    await Repo.transactions.put(
+      failedExecute({ submitEvidence: [executeStamp({ outputNoteIds: [NOTE], privateOutputNoteIds: [] })] })
+    );
+    const writes = noteDeliveryWriteCount();
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Executed' });
+    expect(row?.noteDelivery).toBeUndefined();
+    expect(row?.relayNoteIds).toBeUndefined();
+    expect(row?.relayRecipientId).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+    expect(await pushesAfterTheFirstWait()).toEqual([]);
+  });
+
+  // A tail or a cancelled pipeline that recorded which notes it owes is the record the sweep reads.
+  it('an execute whose row already records the notes it owes keeps them, and the sweep pushes only those', async () => {
+    await Repo.transactions.put(
+      failedExecute({ relayNoteIds: [SIBLING_NOTE], relayRecipientId: RECIPIENT, noteDelivery: 'undelivered' })
+    );
+    const writes = noteDeliveryWriteCount();
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [SIBLING_NOTE],
+      noteDelivery: 'undelivered'
+    });
+    expect(noteDeliveryWriteCount()).toBe(writes);
+    expect(await pushesAfterTheFirstWait()).toEqual([[SIBLING_NOTE, RECIPIENT]]);
+  });
+
+  // The landing binds attempt a1, whose note is on chain; a later attempt's stamp names another private note.
+  it("an execute owes only the landing attempt's private notes, not a later attempt's", async () => {
+    await Repo.transactions.put(
+      failedExecute({
+        attemptId: 'a2',
+        submitEvidence: [
+          executeStamp({ outputNoteIds: [NOTE] }),
+          executeStamp({
+            attemptId: 'a2',
+            capturedAt: NOW - 30,
+            transactionId: hex(3),
+            outputNoteIds: [SIBLING_NOTE],
+            privateOutputNoteIds: [SIBLING_NOTE],
+            endedAt: NOW - 20
+          })
+        ]
+      })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({ transactionId: hex(2), relayNoteIds: [NOTE], relayRecipientId: RECIPIENT });
+    expect(await pushesAfterTheFirstWait()).toEqual([[NOTE, RECIPIENT]]);
+  });
+
+  // A dApp script that creates the private note SIBLING_NOTE only while a state condition holds: one attempt ran while
+  // it failed and stamped NOTE alone, the other created both. NOTE lands in both windows, so the landing binds no id.
+  const stampsOfNote = (a1: Partial<ISubmitEvidence>, a2: Partial<ISubmitEvidence>) =>
+    failedExecute({
+      attemptId: 'a2',
+      submitEvidence: [
+        executeStamp(a1),
+        executeStamp({ capturedAt: NOW - 30, transactionId: hex(3), endedAt: NOW - 20, ...a2, attemptId: 'a2' })
+      ]
+    });
+  const NOTE_ALONE: Partial<ISubmitEvidence> = { outputNoteIds: [NOTE], privateOutputNoteIds: [] };
+  const WITH_SIBLING: Partial<ISubmitEvidence> = {
+    outputNoteIds: [NOTE, SIBLING_NOTE],
+    privateOutputNoteIds: [SIBLING_NOTE]
+  };
+
+  it.each<[string, Partial<ISubmitEvidence>, Partial<ISubmitEvidence>]>([
+    ['the earlier', NOTE_ALONE, WITH_SIBLING],
+    ['the later', WITH_SIBLING, NOTE_ALONE]
+  ])(
+    'two attempts that may have created the landing note with different private notes install neither, %s naming it alone',
+    async (_t, a1, a2) => {
+      await Repo.transactions.put(stampsOfNote(a1, a2));
+      const writes = noteDeliveryWriteCount();
+
+      expect((await land(noteOnChain)).kind).toBe('landed');
+      const row = await read();
+      expect(row).toMatchObject({
+        status: ITransactionStatus.Completed,
+        noteDelivery: 'undelivered',
+        displayMessage: 'Executed - the private note could not be delivered'
+      });
+      expect(row?.transactionId).toBeUndefined();
+      expect(row?.relayNoteIds).toBeUndefined();
+      expect(row?.relayRecipientId).toBeUndefined();
+      expect(noteDeliveryWriteCount()).toBe(writes);
+      expect(await pushesAfterTheFirstWait()).toEqual([]);
+    }
+  );
+
+  // Only the attempt that can have created the landing note speaks for it: one retired before its submit, or whose
+  // window closed before the note's block, cannot void the other's list.
+  it.each<[string, Partial<ISubmitEvidence>]>([
+    ['was retired before its submit', { preSubmitEnd: true }],
+    ['expired before the note', { expirationBlock: 130 }]
+  ])("owes the other attempt's private notes when the one naming the landing note alone %s", async (_t, ended) => {
+    await Repo.transactions.put(stampsOfNote({ ...NOTE_ALONE, ...ended }, WITH_SIBLING));
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [SIBLING_NOTE],
+      relayRecipientId: RECIPIENT,
+      noteDelivery: 'undelivered'
+    });
+    expect(await pushesAfterTheFirstWait()).toEqual([[SIBLING_NOTE, RECIPIENT]]);
+  });
+
+  it('two attempts that may have created the landing note and both prove only public notes land clean', async () => {
+    await Repo.transactions.put(
+      stampsOfNote(NOTE_ALONE, { outputNoteIds: [NOTE, OTHER_NOTE], privateOutputNoteIds: [] })
+    );
+
+    expect((await land(noteOnChain)).kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Executed' });
+    expect(row?.noteDelivery).toBeUndefined();
+    expect(row?.relayNoteIds).toBeUndefined();
+    expect(await pushesAfterTheFirstWait()).toEqual([]);
+  });
+});
+
+// The landed Completed write assigns values instead of mutating the stored row, so it records a target through these.
+describe('landedDeliveryTargetValues records what recordLandedDeliveryTarget records', () => {
+  const recordedBoth = (row: ITransaction, landing: { boundTransactionId: string }) => {
+    jest.spyOn(Date, 'now').mockReturnValue((NOW + 5) * 1000);
+    const before = { ...row };
+    const recorded = { ...row };
+    const target = recordLandedDeliveryTarget(recorded, landing);
+    const values = landedDeliveryTargetValues(row, landing);
+    expect(row).toEqual(before);
+    return { target, values, recorded };
+  };
+
+  it.each<[string, Partial<ITransaction>]>([
+    [
+      'a target that replaces the root, with every delivery mark set',
+      {
+        noteDelivery: 'confirmed',
+        displayMessage: 'Sent',
+        relayAttempts: MAX_RELAY_ATTEMPTS,
+        nextRelayAt: NOW + 30 * 60,
+        relayRetriesStopped: true,
+        relayVerifyPushes: 2,
+        relayOutageDeferred: true,
+        relayAckedNoteIds: [OTHER_NOTE],
+        relayDeadNoteIds: [OTHER_NOTE]
+      }
+    ],
+    ['a target on an empty root', { outputNoteIds: undefined, relayAttempts: 2, nextRelayAt: NOW + 60 }]
+  ])('%s', (_name, overrides) => {
+    const row = retriedSend(overrides);
+    const { target, values, recorded } = recordedBoth(row, { boundTransactionId: hex(3) });
+
+    expect(target).toEqual([NOTE]);
+    expect({ ...row, ...values }).toEqual(recorded);
+  });
+
+  it('no target, no values', () => {
+    const { target, values } = recordedBoth(retriedSend(), { boundTransactionId: hex(9) });
+
+    expect(target).toBeUndefined();
+    expect(values).toBeUndefined();
+  });
+});
+
+// An applied execute's landing owes the private notes its own stamp read off the executed transaction. A named
+// recipient is who they are relayed to; a missing or empty one still records them undelivered and names nobody.
+// Nothing else on the row, and nothing when the tail recorded its own.
+describe('landedExecuteDeliveryValues', () => {
+  /** `count` distinct note ids, none of them a fixture's. */
+  const distinctNotes = (count: number) => Array.from({ length: count }, (_, i) => hex(0xd0000 + i));
+  const stamp = (overrides: Partial<ISubmitEvidence> = {}) =>
+    entry({
+      fromExecute: true,
+      outputNoteIds: [OTHER_NOTE, NOTE],
+      privateOutputNoteIds: [NOTE],
+      ...overrides
+    });
+  const landedExecute = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+    id: 'execute-row',
+    type: 'execute',
+    accountId: 'acct-sender',
+    secondaryAccountId: RECIPIENT,
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: NOW - 120,
+    displayIcon: 'DEFAULT',
+    // What the approval's dry run created and what the saved request declares, neither of which the landing owes.
+    approvedEffects: {
+      shape: 'executed',
+      outgoing: [],
+      incoming: [],
+      outgoingNfts: [],
+      incomingNfts: [],
+      unlistedAssets: 0,
+      recipients: [],
+      inputNotesConsumed: 0,
+      outputNotesCreated: 2,
+      storageChanged: false,
+      approvedOutputNoteIds: [SIBLING_NOTE]
+    },
+    approvedOutputNoteIds: [SIBLING_NOTE],
+    ...overrides
+  });
+
+  it("owes exactly the stamp's private notes to the row's recipient, beside the root", () => {
+    expect(landedExecuteDeliveryValues(landedExecute(), stamp())).toEqual({
+      relayNoteIds: [NOTE],
+      relayRecipientId: RECIPIENT,
+      displayMessage: 'Executed - a private note could not be delivered',
+      noteDelivery: 'undelivered',
+      relayAttempts: undefined,
+      nextRelayAt: undefined,
+      relayRetriesStopped: undefined
+    });
+  });
+
+  it.each<[string, Partial<ITransaction>, Partial<ISubmitEvidence>]>([
+    ['a stamp an execute did not make', {}, { fromExecute: undefined }],
+    ['a stored row that is no longer an execute', { type: 'send' }, {}],
+    ['a stamp with no transaction', {}, { transactionId: undefined }],
+    ['a row whose tail recorded what it owes', { relayNoteIds: [OTHER_NOTE], relayRecipientId: RECIPIENT }, {}],
+    ['a row whose tail recorded that it owes nothing', { relayNoteIds: [] }, {}],
+    ['a stamp that did not read the types of its notes', {}, { privateOutputNoteIds: undefined }],
+    ['a private list that is not part of the stamp notes', {}, { privateOutputNoteIds: [SIBLING_NOTE] }],
+    ['a private list that repeats a note', {}, { privateOutputNoteIds: [NOTE, NOTE] }],
+    ['a private list with a malformed id', {}, { privateOutputNoteIds: [NOTE, 'note'] }],
+    ['an empty list on a row that recorded a delivery', { noteDelivery: 'pending' }, { privateOutputNoteIds: [] }],
+    // Its owed note first, so a reader that kept the first 1024 would owe it.
+    ['a stamp naming more notes than a transaction can create', {}, { outputNoteIds: [NOTE, ...distinctNotes(1024)] }]
+  ])('owes nothing for %s', (_name, rowOverrides, stampOverrides) => {
+    expect(landedExecuteDeliveryValues(landedExecute(rowOverrides), stamp(stampOverrides))).toBeUndefined();
+  });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['a row that names no recipient', { secondaryAccountId: undefined }],
+    ['a row whose recipient is empty', { secondaryAccountId: '' }]
+  ])('%s records the private note undelivered and names no relay recipient', (_name, rowOverrides) => {
+    expect(landedExecuteDeliveryValues(landedExecute(rowOverrides), stamp())).toEqual({
+      relayNoteIds: [NOTE],
+      relayRecipientId: undefined,
+      displayMessage: 'Executed - a private note could not be delivered',
+      noteDelivery: 'undelivered',
+      relayAttempts: undefined,
+      nextRelayAt: undefined,
+      relayRetriesStopped: undefined
+    });
+  });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['names no recipient', { secondaryAccountId: undefined }],
+    ['names an empty recipient', { secondaryAccountId: '' }]
+  ])('an empty private list on a row that %s still reads Executed', (_name, rowOverrides) => {
+    expect(landedExecuteDeliveryValues(landedExecute(rowOverrides), stamp({ privateOutputNoteIds: [] }))).toEqual({
+      displayMessage: 'Executed',
+      noteDelivery: undefined
+    });
+  });
+
+  // A transaction can create up to 1024 notes, so a stamp naming 300 read them all.
+  it("owes the stamp's private note out of 300 distinct notes", () => {
+    const outputNoteIds = distinctNotes(300);
+    outputNoteIds[150] = NOTE;
+    expect(landedExecuteDeliveryValues(landedExecute(), stamp({ outputNoteIds }))).toMatchObject({
+      relayNoteIds: [NOTE],
+      relayRecipientId: RECIPIENT,
+      noteDelivery: 'undelivered'
+    });
+  });
+
+  it('reads Executed and owes nothing when the stamp proves no private note', () => {
+    expect(landedExecuteDeliveryValues(landedExecute(), stamp({ privateOutputNoteIds: [] }))).toEqual({
+      displayMessage: 'Executed',
+      noteDelivery: undefined
     });
   });
 });

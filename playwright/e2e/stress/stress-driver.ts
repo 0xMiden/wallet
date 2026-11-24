@@ -61,6 +61,8 @@ export interface StressOpRecord {
   secondaryStatus?: 'ok' | 'fail';
   secondaryErr?: string;
   secondarySendMs?: number;
+  rowId?: string;
+  secondaryRowId?: string;
 }
 
 export interface StressResult {
@@ -111,6 +113,34 @@ async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise
     return await Promise.race([p, timeout]);
   } finally {
     if (timer) clearTimeout(timer);
+  }
+}
+
+// A timeout only bounds the driver; the Playwright promise can still act on its page.
+export const SEND_UI_SETTLEMENT_TIMEOUT_MS = 120_000;
+export class StressSendUiStillActiveError extends Error {}
+
+async function sendWithTimeout(
+  wallet: ChromeWalletPageApi,
+  params: Parameters<ChromeWalletPageApi['sendTokens']>[0],
+  timeoutMs: number,
+  label: string,
+  onRow: (id: string) => void
+): Promise<void> {
+  const submission = wallet.sendTokens(params, onRow);
+  try {
+    await withTimeout(submission, timeoutMs, label);
+  } catch (error) {
+    const settled = submission.then(
+      () => undefined,
+      () => undefined
+    );
+    try {
+      await withTimeout(settled, SEND_UI_SETTLEMENT_TIMEOUT_MS, `${label} UI settlement`);
+    } catch {
+      throw new StressSendUiStillActiveError(`${label}: send helper is still active`, { cause: error });
+    }
+    throw error;
   }
 }
 
@@ -243,6 +273,8 @@ export async function runStressDriver(
       };
     }
 
+    let rowId: string | undefined;
+    let secondaryRowId: string | undefined;
     try {
       if (concurrent) {
         // Both wallets fire a send at (roughly) the same time — stress the
@@ -254,27 +286,40 @@ export async function runStressDriver(
         secondaryIsPrivate = rng() < opts.privateRatio;
         const secondaryStart = Date.now();
         const [primary, secondary] = await Promise.allSettled([
-          withTimeout(
-            sender.sendTokens({
+          sendWithTimeout(
+            sender,
+            {
               recipientAddress: receiverAddress,
               amount: String(amount),
               isPrivate,
               tokenId: faucetId
-            }),
+            },
             opts.perTurnSendTimeoutMs,
-            `op#${idx} concurrent primary (${senderLabel}->${receiverLabel})`
+            `op#${idx} concurrent primary (${senderLabel}->${receiverLabel})`,
+            id => {
+              rowId = id;
+            }
           ),
-          withTimeout(
-            receiver.sendTokens({
+          sendWithTimeout(
+            receiver,
+            {
               recipientAddress: addrs[senderLabel],
               amount: String(secondaryAmount),
               isPrivate: secondaryIsPrivate,
               tokenId: faucetId
-            }),
+            },
             opts.perTurnSendTimeoutMs,
-            `op#${idx} concurrent secondary (${receiverLabel}->${senderLabel})`
+            `op#${idx} concurrent secondary (${receiverLabel}->${senderLabel})`,
+            id => {
+              secondaryRowId = id;
+            }
           )
         ]);
+        for (const outcome of [primary, secondary]) {
+          if (outcome.status === 'rejected' && outcome.reason instanceof StressSendUiStillActiveError) {
+            throw outcome.reason;
+          }
+        }
         secondarySendMs = Date.now() - secondaryStart;
         if (secondary.status === 'rejected') {
           secondaryStatus = 'fail';
@@ -301,19 +346,24 @@ export async function runStressDriver(
         }
         if (primary.status === 'rejected') throw primary.reason;
       } else {
-        await withTimeout(
-          sender.sendTokens({
+        await sendWithTimeout(
+          sender,
+          {
             recipientAddress: receiverAddress,
             amount: String(amount),
             isPrivate,
             tokenId: faucetId
-          }),
+          },
           opts.perTurnSendTimeoutMs,
-          `op#${idx} sendTokens (${senderLabel}->${receiverLabel})`
+          `op#${idx} sendTokens (${senderLabel}->${receiverLabel})`,
+          id => {
+            rowId = id;
+          }
         );
       }
       completed++;
     } catch (e) {
+      if (e instanceof StressSendUiStillActiveError) throw e;
       status = 'fail';
       err = e instanceof Error ? e.message : String(e);
       failed += 1;
@@ -338,7 +388,9 @@ export async function runStressDriver(
       secondaryIsPrivate,
       secondaryStatus,
       secondaryErr,
-      secondarySendMs
+      secondarySendMs,
+      rowId,
+      secondaryRowId
     });
 
     // Slow ops aren't failures — log them as warn so they're visible in the

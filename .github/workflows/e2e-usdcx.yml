@@ -47,18 +47,18 @@ jobs:
     # web-sdk PR from source, and its CLI cold, on this runner (30 more).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 240 || 210 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       # cargo builds the pinned miden-client CLI the wallet fixtures use.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Cache miden-client-cli
         # Key follows package.json so an SDK/CLI-pin bump invalidates naturally.
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
@@ -112,11 +112,13 @@ jobs:
 
       # The Arc suites in turn, narrowest first, and each only once the one before passed: a red suite can leave a
       # payout or a deposit still landing on the key, inside the next suite's payout window. Each Playwright run empties
-      # test-results/, so each suite's results upload before the next suite starts. An upload may fail without failing
-      # the job: the Arc suites after it run only when every step before them passed, and its failure is never the
-      # wallet's.
+      # test-results/, so each suite's results upload, and a burning suite's payout fees reach the job summary, before
+      # the next suite starts. An upload or a summary may fail without failing the job: the Arc suites after it run only
+      # when every step before them passed, and its failure is never the wallet's.
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Run usdcx-in
         id: usdcx_in
@@ -124,7 +126,7 @@ jobs:
       - name: Upload usdcx-in results
         if: always() && steps.usdcx_in.outcome != 'skipped'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: usdcx-in-e2e-${{ github.run_id }}
           path: test-results/
@@ -137,12 +139,20 @@ jobs:
       - name: Upload usdcx-burn results
         if: always() && steps.usdcx_burn.outcome != 'skipped'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: usdcx-burn-e2e-${{ github.run_id }}
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Add usdcx-burn payout fees to the job summary
+        if: always() && steps.usdcx_burn.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Run usdcx (round trip)
         id: usdcx_round_trip
@@ -150,12 +160,20 @@ jobs:
       - name: Upload usdcx results
         if: always() && steps.usdcx_round_trip.outcome != 'skipped'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: usdcx-round-trip-e2e-${{ github.run_id }}
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Add usdcx payout fees to the job summary
+        if: always() && steps.usdcx_round_trip.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # After the Arc job, red or green: its suites leave nothing pending on Base Sepolia, Arbitrum Sepolia or Ethereum
   # Sepolia, so a red one cannot break a proof here. Never in a cancelled run. This job's own setup guards the key: a
@@ -172,18 +190,18 @@ jobs:
     # USDCx job.
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 355 || 325 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       # cargo builds the pinned miden-client CLI the wallet fixtures use.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Cache miden-client-cli
         # Key follows package.json so an SDK/CLI-pin bump invalidates naturally.
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
@@ -240,6 +258,8 @@ jobs:
       # ends, so running them in this order is enough.
       - name: Start wallet eligibility fixture
         uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
 
       - name: Run usdcx-in-l2
         id: usdcx_in_l2
@@ -247,7 +267,7 @@ jobs:
       - name: Upload usdcx-in-l2 results
         if: always() && steps.usdcx_in_l2.outcome != 'skipped'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: usdcx-in-l2-e2e-${{ github.run_id }}
           path: test-results/
@@ -264,9 +284,17 @@ jobs:
       - name: Upload usdcx-burn-l2 results
         if: always() && steps.usdcx_burn_l2.outcome != 'skipped'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: usdcx-burn-l2-e2e-${{ github.run_id }}
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Add usdcx-burn-l2 payout fees to the job summary
+        if: always() && steps.usdcx_burn_l2.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          if [ -f test-results/usdcx-payout-fees.md ]; then
+            cat test-results/usdcx-payout-fees.md >> "$GITHUB_STEP_SUMMARY"
+          fi

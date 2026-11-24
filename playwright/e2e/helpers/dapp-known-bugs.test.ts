@@ -22,20 +22,6 @@ const soft = (cellId: string, evidence: FailureEvidence, text = 'preview-verifie
   text,
   evidence
 });
-// Phase-1 extension placements stay intact when mobile evidence extends an entry.
-const ON_EXTENSION = [
-  { axis: 'offchain', surface: 'extension' },
-  { axis: 'guardian', surface: 'extension' }
-];
-
-const ON_MOBILE = [
-  { axis: 'offchain', surface: 'ios' },
-  { axis: 'guardian', surface: 'ios' },
-  { axis: 'offchain', surface: 'android' },
-  { axis: 'guardian', surface: 'android' }
-];
-const ON_ALL = [...ON_EXTENSION, ...ON_MOBILE];
-
 describe('known-bug registry', () => {
   it('has unique ids, a tracking issue or pull request and at least one cell each', () => {
     expect(new Set(KNOWN_BUGS.map(entry => entry.id)).size).toBe(KNOWN_BUGS.length);
@@ -45,43 +31,14 @@ describe('known-bug registry', () => {
     }
   });
 
-  it('K1 matches a provider that moved while the adapter kept the old address', () => {
-    expect(bug('K1').cells).toEqual({
-      S7: ON_EXTENSION,
-      M1: ON_ALL,
-      'WP7-switch': ON_EXTENSION,
-      'WP7-revoke': ON_EXTENSION
-    });
-    expect(bug('K1').signature(hard('M1', { providerAddress: 'b', adapterAddress: 'a', previousAddress: 'a' }))).toBe(
-      true
-    );
-    expect(bug('K1').signature(hard('M1', { providerAddress: 'b', adapterAddress: 'b', previousAddress: 'a' }))).toBe(
-      false
-    );
-  });
-
-  it('K1 matches a React context left on the old account after a switch or a revoke, and nothing else', () => {
-    expect(bug('K1').cells).toEqual(
-      expect.objectContaining({ 'WP7-switch': ON_EXTENSION, 'WP7-revoke': ON_EXTENSION })
-    );
-    const stayed = { previousAddress: 'a', reactAddress: 'a', reactConnected: true };
-    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, providerAddress: 'b' }))).toBe(true);
-    expect(bug('K1').signature(hard('WP7-revoke', { ...stayed, providerAddress: null }))).toBe(true);
-    // The context followed, or the provider never moved: not K1.
-    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, reactAddress: 'b', providerAddress: 'b' }))).toBe(false);
-    expect(
-      bug('K1').signature(
-        hard('WP7-revoke', { previousAddress: 'a', providerAddress: null, reactAddress: null, reactConnected: false })
-      )
-    ).toBe(false);
-    expect(bug('K1').signature(hard('WP7-revoke', { ...stayed, reactConnected: false, providerAddress: null }))).toBe(
-      false
-    );
-    expect(bug('K1').signature(hard('WP7-switch', { ...stayed, providerAddress: 'a' }))).toBe(false);
-    // The adapter's fact alone does not explain a React cell.
-    expect(
-      bug('K1').signature(hard('WP7-switch', { previousAddress: 'a', providerAddress: 'b', adapterAddress: 'a' }))
-    ).toBe(false);
+  it.each(['S7', 'M1', 'WP7-switch', 'WP7-revoke', 'WP9'])('requires the SDK 0.18 fixed cell %s to pass', cell => {
+    const registry = registryOf(KNOWN_BUGS);
+    expect(registry.bugsFor(cell, 'extension', 'offchain')).toEqual([]);
+    expect(registry.bugsFor(cell, 'extension', 'guardian')).toEqual([]);
+    expect(registry.bugsFor(cell, 'ios', 'offchain')).toEqual([]);
+    expect(registry.bugsFor(cell, 'ios', 'guardian')).toEqual([]);
+    expect(registry.bugsFor(cell, 'android', 'offchain')).toEqual([]);
+    expect(registry.bugsFor(cell, 'android', 'guardian')).toEqual([]);
   });
 
   it('judges W6 on the fixed consume of carried noteBytes, with K2 (#1413) gone', () => {
@@ -101,16 +58,6 @@ describe('known-bug registry', () => {
 
   it('judges N4 without an import-id lookup exception (#1536)', () => {
     expect(KNOWN_BUGS.filter(entry => entry.cells.N4 !== undefined).map(entry => entry.id)).toEqual([]);
-  });
-
-  it('K12 matches a WalletContext export that holds no state while useWallet() sees the connect', () => {
-    expect(bug('K12').tracking).toContain('0xMiden/web-sdk#484');
-    expect(bug('K12').cells).toEqual({ WP9: ON_EXTENSION });
-    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: null }))).toBe(true);
-    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: true }))).toBe(false);
-    expect(bug('K12').signature(hard('WP9', { reactConnected: true, reactExportedConnected: false }))).toBe(false);
-    expect(bug('K12').signature(hard('WP9', { reactConnected: false, reactExportedConnected: null }))).toBe(false);
-    expect(bug('K12').signature(soft('WP9', { reactConnected: true, reactExportedConnected: null }))).toBe(false);
   });
 
   it('K13 matches the signer setup error MF3 settled on, and no other', () => {
@@ -154,8 +101,7 @@ describe('known-bug registry', () => {
     expect(registry.bugsFor('M1', 'extension', 'offchain')).toEqual([]);
   });
 
-  // Spec 3.8: an entry reaches iOS or Android only with the run that showed its signature there (any K1
-  // extension names its own).
+  // A mobile exception needs the run that demonstrated its signature on that surface.
   const unproven = (bugs: readonly KnownBug[]): string[] =>
     bugs
       .filter(entry => Object.values(entry.cells).some(placements => placements.some(at => at.surface !== 'extension')))
@@ -173,13 +119,5 @@ describe('known-bug registry', () => {
     expect(unproven([mobile])).toEqual(['KM']);
     expect(unproven([{ ...mobile, mobileEvidenceRun: '18700000001' }])).toEqual([]);
     expect(unproven(KNOWN_BUGS)).toEqual([]);
-    expect(
-      KNOWN_BUGS.filter(entry => entry.mobileEvidenceRun !== undefined).map(entry => [
-        entry.id,
-        entry.mobileEvidenceRun
-      ])
-    ).toEqual([
-      ['K1', '39090853726']
-    ]);
   });
 });

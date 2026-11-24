@@ -1,17 +1,35 @@
 import React from 'react';
 
+import { userEvent } from '@storybook/test';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
+import {
+  CommandFlowBackProvider,
+  FlowPresentationProvider,
+  useCommandFlowBack
+} from 'components/flow/FlowPresentation';
+import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { withdrawalAmount } from 'lib/epoch/withdraw-amount';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { goBack, navigate } from 'lib/woozie';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnWithdrawReview from './EarnWithdrawReview';
 import type { EarnPosition } from './types';
+
+const commandFallbackBack = jest.fn();
+const EarnCommandReview = () => {
+  const back = useCommandFlowBack()?.activeBack;
+  return (
+    <WorkbenchLayout title="Earn" onBack={back ?? commandFallbackBack}>
+      <EarnWithdrawReview positionId={position.id} />
+    </WorkbenchLayout>
+  );
+};
 
 const mockAccount: { publicKey: string; evmAddress?: string } = {
   publicKey: 'miden-account',
@@ -41,6 +59,11 @@ jest.mock('lib/epoch/earn-withdraw-quote', () => ({
   assertWithdrawalReviewCurrent: jest.fn()
 }));
 
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, args?: { amount?: string }) => (key === 'earnWithdrawApproxAmount' ? `≈ ${args?.amount}` : key)
@@ -66,6 +89,7 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
 
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => commandFallbackBack }));
 jest.mock('lib/woozie', () => ({
   useLocation: () => ({ search: mockSearch }),
   goBack: jest.fn(),
@@ -96,19 +120,42 @@ jest.mock('components/Button', () => ({
   Button: ({
     title,
     onClick,
+    type,
+    form,
     disabled,
     accent,
+    iconLeft,
+    'aria-busy': busy,
     'data-testid': testId
   }: {
     title?: string;
     onClick?: () => void;
+    type?: 'button' | 'submit';
+    form?: string;
     disabled?: boolean;
     accent?: string;
+    iconLeft?: React.ReactNode;
+    'aria-busy'?: boolean;
     'data-testid'?: string;
   }) => {
-    if (testId === 'earn-withdraw-review-confirm') mockConfirmClick = onClick;
+    if (testId === 'earn-withdraw-review-confirm')
+      mockConfirmClick =
+        onClick ??
+        (() => {
+          const reviewForm = document.getElementById('earn-withdraw-review-form');
+          if (reviewForm instanceof HTMLFormElement) fireEvent.submit(reviewForm);
+        });
     return (
-      <button type="button" data-accent={accent} onClick={onClick} disabled={disabled}>
+      <button
+        aria-busy={busy}
+        type={type ?? 'button'}
+        form={form}
+        data-testid={testId}
+        data-accent={accent}
+        onClick={onClick}
+        disabled={disabled}
+      >
+        {iconLeft}
         {title}
       </button>
     );
@@ -117,7 +164,9 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo">{symbol}</span>
+  TokenLogo: ({ faucetId }: { faucetId: string | undefined }) => (
+    <span data-testid="token-logo" data-faucet={faucetId} />
+  )
 }));
 
 const position: EarnPosition = {
@@ -203,9 +252,112 @@ describe('EarnWithdrawReview', () => {
     expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
   });
 
+  it('submits the original withdrawal review form once on keyboard Enter in the pinned Command footer', async () => {
+    mockSearch = '?amount=1';
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            <EarnWithdrawReview positionId={position.id} />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    await confirmEnabled();
+    expect(screen.getByRole('heading', { level: 2, name: 'Aave' })).toBeVisible();
+    const confirm = within(screen.getByTestId('command-footer')).getByTestId('earn-withdraw-review-confirm');
+    const form = document.getElementById('earn-withdraw-review-form');
+    expect(confirm).toBeEnabled();
+    expect(confirm).toHaveAttribute('type', 'submit');
+    expect(confirm).toHaveAttribute('form', 'earn-withdraw-review-form');
+    expect(form).toBeInstanceOf(HTMLFormElement);
+    expect(screen.getAllByTestId('earn-withdraw-review-confirm')).toHaveLength(1);
+    expect(screen.getByTestId('earn-withdraw-review-page').querySelector('[data-slot="footer"]')).toBeNull();
+    if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn withdraw review form');
+    confirm.focus();
+    expect(confirm).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not submit a stale position from the disabled Command review footer or form', async () => {
+    mockSearch = '?amount=1';
+    mockPositions = [{ ...position, stale: true }];
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            <EarnWithdrawReview positionId={position.id} />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const confirm = within(screen.getByTestId('command-footer')).getByTestId('earn-withdraw-review-confirm');
+    expect(confirm).toBeDisabled();
+    confirm.focus();
+    expect(confirm).not.toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    fireEvent.click(confirm);
+    const form = document.getElementById('earn-withdraw-review-form');
+    if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn withdraw review form');
+    fireEvent.submit(form);
+    expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
+  });
+
+  it('clears the actual review Back and footer on Command step exit without submitting on minimize', async () => {
+    mockSearch = '?amount=1';
+    const view = (review: boolean) => (
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            {review ? <EarnWithdrawReview positionId={position.id} /> : <div data-testid="next-step" />}
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const { rerender } = render(view(true));
+    await confirmEnabled();
+    expect(screen.getByTestId('command-footer')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(goBack).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'minimize' }));
+    expect(navigate).toHaveBeenCalledWith('/');
+    expect(gaslessEarnWithdrawalToMiden).not.toHaveBeenCalled();
+    rerender(view(false));
+    expect(screen.queryByTestId('command-footer')).toBeNull();
+    expect(screen.getByTestId('next-step')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(commandFallbackBack).toHaveBeenCalledTimes(1);
+    expect(goBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the visible workbench Back for the actual withdrawal review, not a fallback', async () => {
+    mockSearch = '?amount=1';
+    mockPositions = [position];
+    commandFallbackBack.mockClear();
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <EarnCommandReview />
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    await confirmEnabled();
+    expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(goBack).toHaveBeenCalledTimes(1);
+    expect(commandFallbackBack).not.toHaveBeenCalled();
+  });
+
   it('renders the selected position and the full-withdraw route details', async () => {
     render(<EarnWithdrawReview positionId="position-1" />);
+    const confirm = screen.getByRole('button', { name: 'withdraw' });
+    expect(confirm).toBeDisabled();
+    expect(confirm).toHaveAttribute('aria-busy', 'true');
+    expect(confirm.querySelector('svg circle')).not.toBeNull();
     await confirmEnabled();
+    expect(confirm).toHaveAttribute('aria-busy', 'false');
+    expect(confirm.querySelector('svg circle')).toBeNull();
 
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
     // The protocol is the title; the asset and its network are the muted line under it.
@@ -215,13 +367,13 @@ describe('EarnWithdrawReview', () => {
     // is hidden and the banner says it once.
     const banner = screen.getByRole('banner');
     expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
-    expect(within(banner).getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(within(banner).getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
     // The hero's figure is the quoted payout, carrying the native token as its compact unit, as on the deposit review.
     const hero = screen.getByRole('region', { name: 'youReceive' });
     expect(hero).toHaveTextContent('≈ 41.82USDCX');
     expect(within(hero).getByText('USDCX', { selector: '.text-title-page' })).toBeInTheDocument();
-    expect(within(hero).getByTestId('token-logo')).toHaveTextContent('USDCX');
+    // The unit's logo is the quoted destination faucet's, the token the payout arrives as.
+    expect(within(hero).getByTestId('token-logo')).toHaveAttribute('data-faucet', 'faucet');
     expect(screen.getByText('earnWithdrawAll')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /details/ }));
     expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
@@ -284,6 +436,7 @@ describe('EarnWithdrawReview', () => {
       protocol: 'dummy-lending',
       chainId: 11155111,
       underlyingAddress: position.underlyingAddress,
+      underlyingSymbol: position.asset,
       amount: '42.25',
       review: expect.objectContaining({ amount: '42.25', amountAtomic: '42250000', minimumAtomic: '41405000' }),
       underlyingDecimals: 6,
@@ -343,6 +496,21 @@ describe('EarnWithdrawReview', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'earnWithdrawRefreshQuote' }));
     await confirmEnabled();
+  });
+
+  it('keeps the quote when the balance check could not reach Epoch, so Withdraw can retry (#2116)', async () => {
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockRejectedValueOnce(new Error('earnPositionsUnavailable'));
+    render(<EarnWithdrawReview positionId="position-1" />);
+    await confirmEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+
+    expect(await screen.findByTestId('earn-withdraw-review-error')).toHaveTextContent('earnPositionsUnavailable');
+    expect(screen.queryByText('earnWithdrawRefresh')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'earnWithdrawRefreshQuote' })).not.toBeInTheDocument();
+    await confirmEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
+    await waitFor(() => expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(2));
   });
 
   it('reports user-visible error: surfaces SDK errors and restores the CTA once the amount is quoted again', async () => {
@@ -434,6 +602,20 @@ describe('EarnWithdrawReview after a failed load', () => {
   });
   afterEach(() => {
     mockLoadState = { isLoading: false };
+  });
+
+  it('forwards the selected failure evidence from withdrawal review to the real Notice', () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    const evidence = {
+      kind: 'earn_positions_load',
+      earnPositionsLoadStage: 'owner_lookup',
+      earnPositionsLoadOutcome: 'complete_failure'
+    };
+    mockLoadState = Object.assign({ isLoading: false, error: 'private failure' }, { errorDiagnostics: evidence });
+    render(<EarnWithdrawReview positionId="unknown" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
   });
 
   it('says a per-owner positions failure too, which is not a request failure', () => {

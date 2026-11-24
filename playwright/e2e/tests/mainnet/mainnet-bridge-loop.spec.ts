@@ -1,115 +1,94 @@
-import { createPublicClient, http, type Hex } from 'viem';
+import { createPublicClient, http, isHash, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import type { AgglayerDeposit } from '../../../../src/lib/agglayer/status';
 import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/recipient';
 import { expect, test, type GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import { ERC20_ABI } from '../../helpers/arc-usdcx';
+import { fromBaseUnits, vaultBalance } from '../../helpers/balance-truth';
+import { readBridgedSendRows } from '../../helpers/bridge';
+import { depositXReserve } from '../../helpers/mainnet-bridge-evm';
 import {
-  fromBaseUnits,
-  vaultBalance,
-  vaultBalanceByFaucetId,
-  walletDiscoveredBaseFee,
-  walletDiscoveredNativeFaucetId
-} from '../../helpers/balance-truth';
-import { bridgeOutSlow } from '../../helpers/bridge';
-import { bridgeEthToMiden, claimAgglayerOnEthereum, depositXReserve } from '../../helpers/mainnet-bridge-evm';
-import {
-  agglayerShortfall,
   bridgeLoops,
-  landedVaultSample,
   LOOP_USDC,
   midenFeeReserve,
-  UNLANDED_VAULT_SAMPLE,
+  usdcxLoopsOrFail,
   usdcxShortfall,
   type UsdcxLoop
 } from '../../helpers/mainnet-bridge-plan';
-import { burnUsdcxToAddress, tokenIdBySymbol } from '../../helpers/mainnet-bridge-send';
 import {
-  AGGLAYER_LOOP_WEI,
-  CEDAR_ROLLUP_ID,
+  loadMainnetDocument,
+  mainnetEvmKey,
+  midenFeeProblem,
+  openPlainAccount
+} from '../../helpers/mainnet-bridge-run';
+import { burnUsdcxToAddress, tokenIdBySymbol } from '../../helpers/mainnet-bridge-send';
+import { nightlyAmount, nightlyDuration, observeNightly, observedStage } from '../../reporting/nightly-observation';
+import {
   executorSource,
   mainnetChain,
   mainnetRpc,
   xreserveSource,
   type MainnetUsdcxDocument
 } from '../../helpers/mainnet-bridge-sources';
+import { readMainnetGatewaySource, verifyMainnetPayout } from '../../helpers/mainnet-usdcx-payout';
 import { quoteL2Deposit, readL2KeyFunds, submitL2Deposit } from '../../helpers/usdcx-l2-deposit';
-import { accountHex } from '../../helpers/usdcx-miden';
+import { recordPayoutFee } from '../../helpers/usdcx-payout-summary';
 
-const CONFIG_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/mainnet.json';
-const AGGLAYER_BRIDGE = '0x2a3dd3eb832af982ec71669e178424b10dca2ede';
-const INDEXER = 'https://bridge-cedar-miden.eu-north-3.gateway.fm/api';
-
+// The AggLayer route runs in its own job (mainnet-agglayer-loop.spec.ts): its exit takes longer than this whole test.
 test.use({ injectFeeFaucet: false });
 test.describe.configure({ mode: 'serial', timeout: 1_200_000 });
 test.skip(process.env.E2E_NETWORK !== 'mainnet', 'mainnet bridge loops');
 test.skip(!process.env.E2E_MAINNET_EVM_KEY, 'E2E_MAINNET_EVM_KEY is unset');
 
-function key(): Hex {
-  const raw = (process.env.E2E_MAINNET_EVM_KEY ?? '').trim();
-  return (raw.startsWith('0x') ? raw : `0x${raw}`) as Hex;
+// One deadline for every burn's payout, counted from the last burn.
+const PAYOUT_WAIT_MS = 1_800_000;
+// Left of the test's timeout after the wait, so the proofs, the fee log and the named failure always run.
+const VERIFY_MARGIN_MS = 300_000;
+const PAYOUT_POLL_MS = 10_000;
+const PAYOUT_SUMMARY = 'test-results/mainnet-usdcx-payouts.md';
+
+/** A loop's burn: the wallet row that records it and the USDC Circle pays it in. */
+function observeUsdcx(loop: UsdcxLoop) {
+  const routes = new Map<
+    number,
+    ['usdcx-ethereum' | 'usdcx-base' | 'usdcx-arbitrum' | 'usdcx-arc', 'Ethereum' | 'Base' | 'Arbitrum' | 'Arc']
+  >([
+    [1, ['usdcx-ethereum', 'Ethereum']],
+    [8453, ['usdcx-base', 'Base']],
+    [42161, ['usdcx-arbitrum', 'Arbitrum']],
+    [5042, ['usdcx-arc', 'Arc']]
+  ]);
+  const route = routes.get(loop.chainId);
+  if (!route) return () => {};
+  return observeNightly(test.info(), {
+    key: route[0],
+    kind: 'bridge',
+    surface: 'wallet_ui_and_helper',
+    provider: loop.route === 'xreserve' ? 'Circle xReserve' : 'Circle USDCx',
+    sourceNetwork: 'Miden',
+    destinationNetwork: route[1]
+  });
 }
 
-test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
-  test.setTimeout(2_400_000);
-  const seed = process.env.E2E_MAINNET_PLAIN_SEED;
-  if (!seed) throw new Error('E2E_MAINNET_PLAIN_SEED is unset');
-  const signer = key();
-  const evm = privateKeyToAccount(signer);
-  const doc = (await (await fetch(CONFIG_URL)).json()) as MainnetUsdcxDocument;
-  const loops = bridgeLoops(Object.values(doc.supportedEvmChains));
-  const imported = await walletA.importOnChainWallet(seed.trim().split(/\s+/));
-  const accountId = await accountHex(imported.address);
-  const problems: string[] = [];
-  await walletA.triggerSync(true);
-  // Same as the round trip: consume the plain account's notes before reading the vault. The
-  // Guardian account is consumed in the round trip, which this job runs first.
-  await walletA.claimAllNotes(600_000);
-  const baseFee = await walletDiscoveredBaseFee(walletA.page);
-  const nativeId = await walletDiscoveredNativeFaucetId(walletA.page);
-  if (baseFee === null || baseFee < 1 || !nativeId) {
-    problems.push('the Miden account has not discovered its fee');
-  } else {
-    // Four USDCx burns, plus four claims and the AggLayer claim and return.
-    // Same in-flight balance read as the round trip: one refresh can still see the pre-claim vault.
-    // A non-land resolves the sentinel so this poll continues.
-    const need = midenFeeReserve(BigInt(baseFee), 4n, 6n);
-    let held = 0n;
-    let funded = false;
-    try {
-      await expect
-        .poll(
-          async () => {
-            const sample = await landedVaultSample(
-              () => walletA.refreshBalances(),
-              () => vaultBalanceByFaucetId(walletA.page, nativeId)
-            );
-            if (sample !== UNLANDED_VAULT_SAMPLE) held = sample;
-            return sample;
-          },
-          { timeout: 60_000 }
-        )
-        .toBeGreaterThanOrEqual(need);
-      funded = true;
-    } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      if (held >= need || (!text.includes('Timeout') && !text.includes('toBeGreaterThanOrEqual'))) throw error;
-    }
-    if (!funded) {
-      problems.push(
-        `${imported.address} holds ${held} native base units, short of ${need} for two nights of bridge fees`
-      );
-    }
-  }
+interface MainnetBurn {
+  loop: UsdcxLoop;
+  rowId: string;
+  usdc: `0x${string}`;
+}
 
+test('loops the minimum on every mainnet USDCx route', async ({ walletA }) => {
+  const started = Date.now();
+  test.setTimeout(4_800_000);
+  const signer = mainnetEvmKey();
+  const evm = privateKeyToAccount(signer);
+  const doc = await loadMainnetDocument();
+  const loops = usdcxLoopsOrFail(bridgeLoops(Object.values(doc.supportedEvmChains)));
+  const { address, accountId } = await openPlainAccount(walletA);
+  const problems: string[] = [];
+  // Four USDCx burns, plus the four claims of what they minted.
+  const fee = await midenFeeProblem(walletA, address, baseFee => midenFeeReserve(baseFee, 4n, 4n));
+  if (fee) problems.push(fee);
   for (const loop of loops) {
-    if (loop.kind === 'agglayer') {
-      const funds = await readEth(evm.address);
-      const problem = agglayerShortfall({ address: evm.address, wei: funds.wei, maxFeePerGas: funds.maxFeePerGas });
-      if (problem) problems.push(problem);
-      continue;
-    }
     const problem = await usdcxProblem(doc, loop, evm.address, accountId);
     if (problem) problems.push(problem);
   }
@@ -117,17 +96,129 @@ test('loops the minimum on every mainnet bridge route', async ({ walletA }) => {
     throw new Error(`refusing to bridge:\n${problems.join('\n')}`);
   }
 
+  const burns: MainnetBurn[] = [];
   for (const loop of loops) {
-    if (loop.kind === 'usdcx') await runUsdcx(doc, loop, signer, accountId, evm.address, walletA);
-    else await runAgglayer(signer, imported.address, evm.address, walletA);
+    const observe = observeUsdcx(loop);
+    const burn = await observedStage(
+      observe,
+      { key: 'execution', origin: 'wallet_assertion', errorCode: 'bridge_failed' },
+      () => runUsdcx(doc, loop, signer, accountId, evm.address, walletA)
+    );
+    observe({ outcome: 'executed', offered: nightlyAmount({ symbol: 'USDCx', decimals: 6 }, LOOP_USDC) });
+    burns.push(burn);
   }
+  const latest = started + test.info().timeout - VERIFY_MARGIN_MS;
+  await proveMainnetPayouts(doc, burns, evm.address, walletA, Math.min(Date.now() + PAYOUT_WAIT_MS, latest));
 });
 
-async function readEth(address: `0x${string}`): Promise<{ wei: bigint; maxFeePerGas: bigint }> {
-  const chain = mainnetChain(1);
-  const client = createPublicClient({ chain, transport: http(mainnetRpc(1)) });
-  const fees = await client.estimateFeesPerGas();
-  return { wei: await client.getBalance({ address }), maxFeePerGas: fees.maxFeePerGas };
+/**
+ * Waits until `deadline` for the wallet to record every burn's payout mint, then proves each on chain and logs Circle's
+ * fee. The fees of the paid burns are logged before a burn left unpaid or unproven fails the test; when the gateway
+ * source cannot be read, each paid burn's fee is logged as the wallet reported it, marked unverified.
+ */
+async function proveMainnetPayouts(
+  doc: MainnetUsdcxDocument,
+  burns: readonly MainnetBurn[],
+  recipient: `0x${string}`,
+  wallet: GuardianAwareWalletPage,
+  deadline: number
+): Promise<void> {
+  const read = async () => {
+    const rows = await readBridgedSendRows(wallet.page);
+    return burns.map(burn => ({ burn, usdcxBurn: rows.find(row => row.id === burn.rowId)?.extraInputs?.usdcxBurn }));
+  };
+  const timing = nightlyDuration();
+  const observedDeadline = new Date(deadline).toISOString();
+  const waitedMinutes = Math.max(0, Math.round((deadline - Date.now()) / 60_000));
+  let found = await read();
+  while (found.some(({ usdcxBurn }) => !usdcxBurn?.payout) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, Math.min(PAYOUT_POLL_MS, Math.max(0, deadline - Date.now()))));
+    found = await read();
+  }
+  const failures: string[] = [];
+  const gateway = await readMainnetGatewaySource(doc).catch((error: unknown) => {
+    failures.push(`the gateway source read failed, so no payout was verified: ${errorMessage(error)}`);
+    return undefined;
+  });
+  for (const { burn, usdcxBurn } of found) {
+    const chain = mainnetChain(burn.loop.chainId).name;
+    const observe = observeUsdcx(burn.loop);
+    const failedPayout = () =>
+      observe(undefined, {
+        key: 'bridge_finality',
+        origin: 'wallet_assertion',
+        status: 'failed',
+        errorCode: 'bridge_failed',
+        deadlineAt: observedDeadline,
+        ...timing()
+      });
+    const payout = usdcxBurn?.payout;
+    if (!usdcxBurn || !payout) {
+      failedPayout();
+      failures.push(
+        `${chain}: burn ${usdcxBurn?.noteId ?? `row ${burn.rowId} with no note id`} unpaid after ` +
+          `${waitedMinutes} minutes, phase ${usdcxBurn?.phase ?? 'none'}, ` +
+          `last error ${usdcxBurn?.lastError ?? 'none'}, ` +
+          `the wallet's payout scan reached block ${usdcxBurn?.payoutScannedBlock ?? 'none'}`
+      );
+      continue;
+    }
+    if (!isHash(payout.transactionHash)) {
+      failedPayout();
+      failures.push(`${chain}: burn ${usdcxBurn.noteId} recorded mint ${payout.transactionHash}, not a hash`);
+      continue;
+    }
+    if (!/^\d+$/.test(payout.value)) {
+      failedPayout();
+      failures.push(`${chain}: burn ${usdcxBurn.noteId} recorded value ${payout.value}, not base units`);
+      continue;
+    }
+    const entry = { chain, burnUnits: LOOP_USDC, transactionHash: payout.transactionHash };
+    if (!gateway) {
+      failedPayout();
+      recordPayoutFee(
+        { ...entry, suite: 'mainnet-bridge-loop (unverified)', value: BigInt(payout.value) },
+        PAYOUT_SUMMARY
+      );
+      continue;
+    }
+    try {
+      const { value } = await verifyMainnetPayout({
+        chainId: burn.loop.chainId,
+        transactionHash: payout.transactionHash,
+        recipient,
+        usdc: burn.usdc,
+        burnNoteId: usdcxBurn.noteId,
+        burnUnits: LOOP_USDC,
+        walletValue: BigInt(payout.value),
+        gatewayMinter: gateway.gatewayMinter,
+        depositor: gateway.depositor
+      });
+      recordPayoutFee({ ...entry, suite: 'mainnet-bridge-loop', value }, PAYOUT_SUMMARY);
+      observe(
+        {
+          outcome: 'bridge_completion_asserted',
+          received: nightlyAmount({ symbol: 'USDC', decimals: 6 }, value),
+          fee: nightlyAmount({ symbol: 'USDC', decimals: 6 }, LOOP_USDC - value)
+        },
+        {
+          key: 'bridge_finality',
+          origin: 'wallet_assertion',
+          status: 'passed',
+          deadlineAt: observedDeadline,
+          ...timing()
+        }
+      );
+    } catch (error) {
+      failedPayout();
+      failures.push(`${chain}: ${errorMessage(error)}`);
+    }
+  }
+  if (failures.length > 0) throw new Error(`mainnet USDCx payouts not proven:\n${failures.join('\n')}`);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function usdcxProblem(
@@ -182,9 +273,11 @@ async function runUsdcx(
   accountId: string,
   evmAddress: `0x${string}`,
   wallet: GuardianAwareWalletPage
-): Promise<void> {
+): Promise<MainnetBurn> {
+  let usdc: `0x${string}`;
   if (loop.route === 'xreserve') {
     const source = xreserveSource(doc, loop);
+    usdc = source.usdc;
     await depositXReserve({
       key: signer,
       chain: source.chain,
@@ -196,9 +289,11 @@ async function runUsdcx(
       accountHex: accountId
     });
   } else {
+    const l2 = executorSource(doc, loop);
+    usdc = l2.payout.usdc;
     await submitL2Deposit({
       privateKey: signer,
-      l2: executorSource(doc, loop),
+      l2,
       units: LOOP_USDC,
       recipientHex: accountId,
       arc: { endpoints: [mainnetRpc(5042)] }
@@ -211,6 +306,7 @@ async function runUsdcx(
     .toBeGreaterThanOrEqual(LOOP_USDC);
   const tokenId = await tokenIdBySymbol(wallet.page, 'USDCx');
   if (!tokenId) throw new Error(`${loop.name} minted no USDCx row to burn`);
+  const before = new Set((await readBridgedSendRows(wallet.page)).map(row => row.id));
   await burnUsdcxToAddress(wallet, {
     tokenId,
     amount: fromBaseUnits(LOOP_USDC, 6),
@@ -218,71 +314,11 @@ async function runUsdcx(
     networkId: loop.name === 'arc' ? 'arc' : loop.name,
     networkName: mainnetChain(loop.chainId).name
   });
-}
-
-async function runAgglayer(
-  signer: Hex,
-  midenAddress: string,
-  evmAddress: `0x${string}`,
-  wallet: GuardianAwareWalletPage
-): Promise<void> {
-  const chain = mainnetChain(1);
-  const ethBefore = await vaultBalance(wallet.page, 'ETH');
-  await bridgeEthToMiden({
-    key: signer,
-    chain,
-    rpcUrl: mainnetRpc(1),
-    bridge: AGGLAYER_BRIDGE,
-    rollupId: CEDAR_ROLLUP_ID,
-    midenAddress,
-    wei: AGGLAYER_LOOP_WEI
-  });
-  // The deposit lands on Miden after the L1 bridge's finality, minutes after the L1 receipt, so sync and claim until
-  // the balance rises above what the account held before this night's deposit.
-  await expect
-    .poll(
-      async () => {
-        await wallet.triggerSync(true);
-        await wallet.claimAllNotes();
-        return vaultBalance(wallet.page, 'ETH');
-      },
-      { timeout: 1_500_000, intervals: [30_000] }
-    )
-    .toBeGreaterThan(ethBefore);
-  await bridgeOutSlow(wallet, {
-    destAddress: evmAddress,
-    tokenSymbol: 'ETH',
-    amount: '0.000001',
-    network: { id: 'ethereum', name: chain.name }
-  });
-  const deposit = await waitForMidenExit(evmAddress);
-  await claimAgglayerOnEthereum({
-    key: signer,
-    chain,
-    rpcUrl: mainnetRpc(1),
-    bridge: AGGLAYER_BRIDGE,
-    indexerUrl: INDEXER,
-    deposit
-  });
-}
-
-async function waitForMidenExit(address: string) {
-  const deadline = Date.now() + 1_200_000;
-  while (Date.now() < deadline) {
-    const response = await fetch(`${INDEXER}/bridges/${address}?limit=10&offset=0`);
-    if (response.ok) {
-      const body = (await response.json()) as {
-        deposits?: Array<AgglayerDeposit & { global_index?: string | number }>;
-      };
-      const found = (body.deposits ?? []).find(
-        deposit =>
-          deposit.network_id === CEDAR_ROLLUP_ID &&
-          (deposit.ready_for_claim || deposit.ready_to_claim) &&
-          !deposit.claim_tx_hash
-      );
-      if (found) return found;
-    }
-    await new Promise(resolve => setTimeout(resolve, 8_000));
-  }
-  throw new Error(`no AggLayer exit to ${address} was ready to claim`);
+  const fresh = (await readBridgedSendRows(wallet.page)).filter(
+    row => row.extraInputs?.provider === 'usdcx' && !before.has(row.id)
+  );
+  const [row] = fresh;
+  if (fresh.length !== 1 || !row)
+    throw new Error(`${loop.name}: the burn left ${fresh.length} new USDCx rows, not one`);
+  return { loop, rowId: row.id, usdc };
 }

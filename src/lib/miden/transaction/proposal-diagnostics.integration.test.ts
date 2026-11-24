@@ -1,4 +1,4 @@
-import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianCache, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { clearGuardianAccountLocks, getGuardianCandidate } from 'lib/miden/guardian/serialize';
@@ -20,10 +20,15 @@ const order: string[] = [];
 const mockState: {
   requestSerialize?: Error;
   clientBuild?: Error;
+  proposalRequest?: Error;
+  customAdvice?: Error;
+  customBuild?: Error;
+  signLock?: Error;
   resultRead?: Error;
   resultSerialize?: Error;
   noInputNotes?: boolean;
   noAssets?: boolean;
+  applyFailure?: Error;
 } = {};
 const noteId = `0x${'ab'.repeat(32)}`;
 const transactionId = `0x${'bc'.repeat(32)}`;
@@ -48,9 +53,24 @@ const mockReclaimProposal = jest.fn(async (..._args: unknown[]) => ({
   nonce: 8,
   metadata: { proposalType: 'custom' }
 }));
-const mockAbandon = jest.fn(async (..._args: unknown[]) => {});
+// The custom proposal id check derives this commitment locally; it is the id the reclaim proposal mock returns.
+const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
+  serialize: () => Uint8Array.of(9),
+  toCommitment: () => ({ toHex: () => 'private-reclaim-proposal-id', free: () => {} }),
+  free: () => {}
+}));
+// Every way a candidate abandon can go out: the service's nonce-only request and the SDK's own.
+const mockAbandon = jest.fn(async (..._args: unknown[]): Promise<{ commitment?: string }> => ({}));
+const mockPrepareCustom = jest.fn(async (..._args: unknown[]) => {
+  if (mockState.customAdvice) throw mockState.customAdvice;
+  return {};
+});
 const mockSignProposal = jest.fn(async (..._args: unknown[]) => ({ metadata: { proposalType: 'consume' } }));
-const mockSubmit = jest.fn(async () => ({ apply: async () => {} }));
+const mockSubmit = jest.fn(async () => ({
+  apply: async () => {
+    if (mockState.applyFailure) throw mockState.applyFailure;
+  }
+}));
 const executedNote = {
   id: () => accountRef(noteId),
   metadata: () => ({ sender: () => accountRef('private-sender'), noteType: () => NoteType.Public }),
@@ -93,24 +113,42 @@ const mockExecute = jest.fn(async (..._args: unknown[]) => ({
 const mockLoad = jest.fn(async (..._args: unknown[]) => ({
   accountId,
   createConsumeNotesProposal: (...args: unknown[]) => mockConsumeProposal(...args),
-  createCustomProposal: (...args: unknown[]) => mockReclaimProposal(...args),
+  createProposal: (...args: unknown[]) => mockReclaimProposal(...args),
+  getEffectiveThreshold: () => 1,
   signProposal: (...args: unknown[]) => mockSignProposal(...args),
+  prepareCustomExecution: (...args: unknown[]) => mockPrepareCustom(...args),
   abandonCandidate: (...args: unknown[]) => mockAbandon(...args),
-  createTransactionProposalRequest: async () => ({
-    serialize: () => {
-      if (mockState.requestSerialize) throw mockState.requestSerialize;
-      return new Uint8Array([7, 8]);
-    }
-  }),
+  createTransactionProposalRequest: async () => {
+    if (mockState.proposalRequest) throw mockState.proposalRequest;
+    return {
+      authArg: () => undefined,
+      serialize: () => {
+        if (mockState.requestSerialize) throw mockState.requestSerialize;
+        return new Uint8Array([7, 8]);
+      }
+    };
+  },
   syncState: async () => {}
 }));
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
-  TransactionProver: { newLocalProver: () => ({}) }
+  TransactionProver: { newLocalProver: () => ({}) },
+  TransactionRequest: {
+    // The custom request build fails at the advice step: the proposal id check also reads these bytes, before signing.
+    deserialize: () => ({
+      extendAdviceMap: () => {
+        if (mockState.customBuild) throw mockState.customBuild;
+        return { authArg: () => undefined, serialize: () => oldBytes };
+      },
+      free: () => {}
+    })
+  }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   ...jest.requireActual('@openzeppelin/miden-multisig-client'),
+  executeForSummaryAtTip: (...args: unknown[]) => mockExecuteForSummary(...args),
+  summaryBoundBlockNum: () => 100,
   MultisigClient: class {
     load(...args: unknown[]) {
       return mockLoad(...args);
@@ -123,6 +161,9 @@ jest.mock('../guardian/account', () => ({
   resolveGuardianEndpoint: () => 'https://guardian.invalid'
 }));
 jest.mock('../guardian/signer', () => ({ WalletSigner: class {} }));
+jest.mock('../guardian/legacy-abandon', () => ({
+  abandonCandidateByNonce: (...args: unknown[]) => mockAbandon(...args)
+}));
 jest.mock('../guardian/native-http', () => ({
   ...jest.requireActual('../guardian/native-http'),
   registerGuardianOrigin: () => {}
@@ -142,11 +183,19 @@ jest.mock('../sdk/miden-client', () => ({
       getAccount: (...args: unknown[]) => mockAccountRead(...args),
       client: {
         syncChain: async () => {},
+        accounts: { get: async () => ({ nonce: () => ({ asInt: () => 40n }) }) },
         transactions: { executeRequest: (...args: unknown[]) => mockExecute(...args) }
       }
     };
   },
-  withWasmClientLock: async <T>(body: (held: object) => Promise<T>) => body(hold),
+  withWasmClientLock: async <T>(body: (held: object) => Promise<T>) => {
+    if (mockState.signLock) {
+      const error = mockState.signLock;
+      delete mockState.signLock;
+      throw error;
+    }
+    return body(hold);
+  },
   withWasmLockWatchdogPaused: async <T>(body: () => Promise<T>) => body(),
   getCurrentWasmLockHold: () => hold,
   assertWasmHoldCurrent: () => {}
@@ -166,6 +215,11 @@ jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
   syncAndRecordFeeFaucet: async (_client: unknown, sync: () => Promise<void>) => sync()
 }));
 jest.mock('../sync-lock', () => ({ syncUnderBoundedLock: async () => {} }));
+// These proposals carry no summary; both signing-time effect checks have their own tests (#2147).
+jest.mock('./proposal-effect-guard', () => ({
+  assertProposalEffectApproved: async () => {},
+  isEffectChecked: () => false
+}));
 jest.mock('../back/offscreen-prover', () => ({
   ...jest.requireActual('../back/offscreen-prover'),
   isOffscreenAvailable: () => true
@@ -175,7 +229,7 @@ jest.mock('../back/background-notification', () => ({
   notifyBackgroundTransactionFailed: async () => {},
   notifyBackgroundTransactionNotConfirmed: async () => {}
 }));
-jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: () => {}, reportProve: () => {} }));
+jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn(), reportProve: jest.fn() }));
 jest.mock('lib/telemetry/transaction-failure', () => ({
   __esModule: true,
   ...jest.requireActual('lib/telemetry/transaction-failure')
@@ -186,8 +240,8 @@ jest.mock('lib/settings/helpers', () => ({
 }));
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isMobile: () => false,
-  isExtension: () => true
+  isMobile: jest.fn(() => false),
+  isExtension: jest.fn(() => true)
 }));
 
 const account: WalletAccount = {
@@ -304,11 +358,11 @@ function objectAt(value: unknown, key: string): Record<string, unknown> {
 const consumeAtProposal =
   'Transaction failed: tx_receive; stage signing; signing step creating_proposal; realm unknown; ' +
   'proving preference local; platform extension; queued by unrecorded; last deferral none; ' +
-  'claim fee admission unrecorded; point pipeline; unknown; thrown error. authentication';
+  'claim fee admission unrecorded; submit crossing unavailable; point pipeline; unknown; thrown error. authentication';
 async function failureEvent(step: string, guard?: string, message = consumeAtProposal): Promise<void> {
   await failureEventWith({ proposalStep: step, proposalGuard: guard }, message);
 }
-async function failureEventWith(expected: Record<string, string | undefined>, message: string): Promise<void> {
+async function failureEventWith(expected: Record<string, string | undefined>, message: string): Promise<unknown> {
   await flush();
   expect(requests).toHaveLength(1);
   const request = requests[0];
@@ -351,6 +405,7 @@ async function failureEventWith(expected: Record<string, string | undefined>, me
   ]) {
     expect(wholeRequest).not.toContain(value);
   }
+  return event;
 }
 async function run(
   selected = account,
@@ -409,7 +464,11 @@ it('reports the real consume proposal boundary once without changing terminal be
   expectTerminal(await run());
   expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
   await failureEvent('proposal_create');
-  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'proposal_create' });
+  expect(snapshotCrashDiagnostics(error)).toEqual({
+    proposalStep: 'proposal_create',
+    proposalCreateApi: 'consume_notes',
+    proposalCreateFamily: 'unmatched'
+  });
 });
 
 it('sends the signer facts with a Guardian authentication refusal and no key, signature or identifier', async () => {
@@ -665,7 +724,6 @@ it('reports a failed cold service load for a claim that funds the everyday key r
 });
 
 const consumeAtSending = 'Transaction failed: tx_receive; stage sending; ';
-const consumeAfterSync = 'Transaction failed: tx_receive; stage confirming; confirming step guardian_synced; ';
 
 it('reports the guardian sync guard as a refusal at service selection before any proposal', async () => {
   const stored = await run({ ...account, guardianSyncStatus: 'resolving' });
@@ -684,7 +742,12 @@ it('reports a failed pipeline client build after the co-sign as the client build
   expect(mockExecute).not.toHaveBeenCalled();
   expect(mockSubmit).not.toHaveBeenCalled();
   await failureEventWith({ proposalStep: 'client_build', proposalGuard: undefined }, consumeAtSending);
-  expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: 'client_build' });
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    proposalStep: 'client_build',
+    executionRoute: 'guardian_signed_request',
+    authObservation: 'not_reached',
+    authArgPresence: 'unavailable'
+  });
 });
 
 describe('with the offscreen pipeline', () => {
@@ -720,34 +783,50 @@ describe('with the offscreen pipeline', () => {
   });
 });
 
+const consumeLandedAfterSync = 'Transaction landed: tx_receive; stage confirming; confirming step guardian_synced; ';
+
+// The claim's submit resolved, so a failure while recording its result leaves it landed, not failed (PR #2183). It is
+// still reported, once, as a landed outcome at warning level, naming the step that failed.
 describe('a claim that fails while recording its result after the guardian sync', () => {
-  function expectSubmittedOnce(stored: ITransaction | undefined): void {
-    expect(stored?.status).not.toBe(ITransactionStatus.Completed);
+  async function expectLandedOnce(
+    stored: ITransaction | undefined,
+    expected: Record<string, string | undefined>
+  ): Promise<void> {
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
     expect(mockSubmit).toHaveBeenCalledTimes(1);
+    expect(await failureEventWith(expected, consumeLandedAfterSync)).toMatchObject({ level: 'warning' });
   }
 
   it.each([
     ['result_read', () => (mockState.resultRead = privateFailure())],
     ['result_serialize', () => (mockState.resultSerialize = privateFailure())]
-  ])('reports a failed %s as the finishing step', async (step, arm) => {
+  ])('records the claim landed after a failed %s and reports it as the finishing step', async (step, arm) => {
     const error = arm();
-    expectSubmittedOnce(await run());
-    await failureEventWith({ completionStep: step, completionGuard: undefined }, consumeAfterSync);
+    await expectLandedOnce(await run(), { completionStep: step, completionGuard: undefined });
     expect(snapshotCrashDiagnostics(error)).toMatchObject({ completionStep: step });
   });
 
   it.each([
     ['no_input_notes', () => (mockState.noInputNotes = true)],
     ['no_fungible_assets', () => (mockState.noAssets = true)]
-  ])('reports the %s check as a refusal while reading the result', async (guard, arm) => {
+  ])('records the claim landed after the %s check refuses its result and reports the refusal', async (guard, arm) => {
     arm();
     const stored = await run();
-    expect(stored?.status).not.toBe(ITransactionStatus.Completed);
-    expect(mockSubmit).toHaveBeenCalledTimes(1);
-    await failureEventWith({ completionStep: 'result_read', completionGuard: guard }, consumeAfterSync);
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
+    await expectLandedOnce(stored, { completionStep: 'result_read', completionGuard: guard });
   });
 
-  it('reports a failed read of its own record as the row read', async () => {
+  // The leaf's own landed shape is unchanged: a Completed claim whose apply failed sends no report.
+  it('records a claim whose apply failed after its submit as landed and reports nothing, as before', async () => {
+    mockState.applyFailure = privateFailure();
+    const stored = await run();
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(requests).toHaveLength(0);
+  });
+
+  it('records the claim landed after a failed read of its own record and reports the row read', async () => {
     const error = privateFailure();
     let synced = false;
     let thrown = false;
@@ -765,16 +844,15 @@ describe('a claim that fails while recording its result after the guardian sync'
     Repo.transactions.hook('updating', markSynced);
     Repo.transactions.hook('reading', rejectRead);
     try {
-      expectSubmittedOnce(await run());
+      await expectLandedOnce(await run(), { completionStep: 'row_read', completionGuard: undefined });
       expect(thrown).toBe(true);
-      await failureEventWith({ completionStep: 'row_read', completionGuard: undefined }, consumeAfterSync);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(markSynced);
       Repo.transactions.hook('reading').unsubscribe(rejectRead);
     }
   });
 
-  it('reports a failed completed-status write as the status write', async () => {
+  it('records the claim landed after its completed-status write fails once and reports the status write', async () => {
     const error = privateFailure();
     let thrown = false;
     const rejectComplete = (changes: unknown) => {
@@ -790,11 +868,260 @@ describe('a claim that fails while recording its result after the guardian sync'
     };
     Repo.transactions.hook('updating', rejectComplete);
     try {
-      expectSubmittedOnce(await run());
+      await expectLandedOnce(await run(), { completionStep: 'status_write', completionGuard: undefined });
       expect(thrown).toBe(true);
-      await failureEventWith({ completionStep: 'status_write', completionGuard: undefined }, consumeAfterSync);
     } finally {
       Repo.transactions.hook('updating').unsubscribe(rejectComplete);
     }
   });
+});
+
+it.each(['proposal_sign', 'custom_advice', 'custom_request_build', 'proposal_request'])(
+  'post-create %s reaches actual cancellation and the sanitized wire with the original error',
+  async step => {
+    const error = privateFailure();
+    const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+    if (step === 'proposal_sign') mockSignProposal.mockRejectedValueOnce(error);
+    if (step === 'proposal_request') mockState.proposalRequest = error;
+    const custom = step === 'custom_advice' || step === 'custom_request_build';
+    if (custom) mockSignProposal.mockResolvedValueOnce({ metadata: { proposalType: 'custom' } });
+    if (step === 'custom_advice') mockState.customAdvice = error;
+    if (step === 'custom_request_build') mockState.customBuild = error;
+    const stored = await run(account, custom);
+    expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+    expectHookRejection(report, error);
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    await failureEventWith({ proposalStep: step }, 'signing step signing_proposal');
+    expect(snapshotCrashDiagnostics(error)).toEqual({ proposalStep: step });
+  }
+);
+
+it('observes the actual inline Guardian request through cancellation and the real sanitized wire', async () => {
+  const original = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockExecute.mockRejectedValueOnce(original);
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'executing' });
+  expectHookRejection(report, original);
+  expect(mockExecute).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith(
+    {
+      executionRoute: 'guardian_signed_request',
+      executionObservation: 'observed',
+      executionArguments: 'absent',
+      executionLayout: 'absent',
+      commitmentMatch: 'unavailable',
+      accountCodeFamily: 'unavailable'
+    },
+    'authentication preparation unavailable; layout absent; commitment match unavailable; account code unavailable'
+  );
+});
+
+it('retains a typed post-create Guardian refusal through actual cancellation without sending its text', async () => {
+  const original = Object.assign(privateFailure(), { name: 'GuardianHttpError', status: 400, code: 'invalid_input' });
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockSignProposal.mockRejectedValueOnce(original);
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+  expectHookRejection(report, original);
+  expect(mockExecute).not.toHaveBeenCalled();
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ proposalStep: 'proposal_sign' }, 'guardian_http_400; guardian code invalid_input');
+});
+
+it('post-create sign_lock reaches actual cancellation and the real sanitized wire', async () => {
+  const original = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockConsumeProposal.mockImplementationOnce(async () => {
+    mockState.signLock = original;
+    return { id: 'private-proposal-id', nonce: 7, metadata: { proposalType: 'consume' } };
+  });
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'signing-proposal' });
+  expectHookRejection(report, original);
+  expect(mockSignProposal).not.toHaveBeenCalled();
+  expect(mockExecute).not.toHaveBeenCalled();
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ proposalStep: 'sign_lock' }, 'signing step signing_proposal');
+  expect(snapshotCrashDiagnostics(original)).toEqual({ proposalStep: 'sign_lock' });
+});
+
+it.each(['extension', 'mobile'])(
+  'carries only the observed consume family through final serialization for %s',
+  async platform => {
+    const { isMobile, isExtension } = jest.requireMock('lib/platform');
+    isMobile.mockReturnValue(platform === 'mobile');
+    isExtension.mockReturnValue(platform === 'extension');
+    const error = Object.assign(privateFailure(), {
+      name: 'ConsumeNoteNotAuthenticatedError',
+      code: 'consume_notes_note_not_authenticated'
+    });
+    mockConsumeProposal.mockRejectedValueOnce(error);
+    expectTerminal(await run());
+    expect(mockConsumeProposal).toHaveBeenCalledTimes(1);
+    await failureEventWith(
+      {
+        proposalStep: 'proposal_create',
+        proposalCreateApi: 'consume_notes',
+        proposalCreateFamily: 'consume_note_not_verified'
+      },
+      'stage signing'
+    );
+    expect(snapshotCrashDiagnostics(new Error('wrapper', { cause: error }))).not.toHaveProperty('proposalCreateFamily');
+    isMobile.mockReturnValue(false);
+    isExtension.mockReturnValue(true);
+  }
+);
+
+it.each(['local_prover_build', 'prove_local', 'proof_evidence'] as const)(
+  'observes only the escaping inline %s boundary',
+  async step => {
+    const error = privateFailure();
+    const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+    const prove = jest.fn(async () => {
+      throw error;
+    });
+    if (step === 'local_prover_build')
+      jest.spyOn(TransactionProver, 'newLocalProver').mockImplementationOnce(() => {
+        throw error;
+      });
+    else if (step === 'prove_local') mockExecute.mockResolvedValueOnce({ result, prove });
+    else
+      mockExecute.mockResolvedValueOnce({
+        get result(): typeof result {
+          throw error;
+        },
+        prove: async () => ({
+          proof: {
+            nullifiers: () => [],
+            refBlockNumber: () => 100,
+            refBlockCommitment: () => accountRef('private'),
+            expirationBlockNumber: () => 120
+          },
+          submit: () => mockSubmit()
+        })
+      });
+    expect(await run()).toMatchObject({ status: ITransactionStatus.Failed, stage: 'proving' });
+    expectHookRejection(report, error);
+    expect(snapshotCrashDiagnostics(error)).toHaveProperty('guardianProvingSubstep', step);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockSubmit).not.toHaveBeenCalled();
+    await failureEventWith({ guardianProvingSubstep: step }, 'stage');
+  }
+);
+
+it('does not promote a swallowed proof accessor failure to terminal proving evidence', async () => {
+  const getter = jest.fn(() => {
+    throw privateFailure();
+  });
+  mockExecute.mockResolvedValueOnce({
+    result,
+    prove: async () => ({
+      proof: {
+        nullifiers: getter,
+        refBlockNumber: () => 100,
+        refBlockCommitment: () => accountRef('private'),
+        expirationBlockNumber: () => 120
+      },
+      submit: () => mockSubmit()
+    })
+  });
+  const stored = await run();
+  expect(stored?.status).toBe(ITransactionStatus.Completed);
+  expect(getter).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).toHaveBeenCalledTimes(1);
+  expect(requests).toHaveLength(0);
+});
+
+it('leaves a telemetry throw unobserved even when it reuses an earlier prove error', async () => {
+  const error = privateFailure();
+  const { annotateGuardianProving } = await import('lib/telemetry/guardian-proving-diagnostics');
+  annotateGuardianProving(error, { guardianProvingSubstep: 'prove_local' });
+  const telemetry = jest.requireMock('lib/telemetry/report-operation');
+  telemetry.reportProve.mockImplementationOnce(() => {
+    throw error;
+  });
+  expect(await run()).toMatchObject({ status: ITransactionStatus.Failed, stage: 'proving' });
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('guardianProvingSubstep');
+  expect(mockSubmit).not.toHaveBeenCalled();
+});
+
+it('observes a fallback constructor rejection without changing delegated calls', async () => {
+  const error = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  const prove = jest.fn(async () => {
+    throw new Error('remote rejection');
+  });
+  mockExecute.mockResolvedValueOnce({ result, prove });
+  jest.spyOn(TransactionProver, 'newLocalProver').mockImplementationOnce(() => {
+    throw error;
+  });
+  const transaction = { ...row(), delegateTransaction: true };
+  await Repo.transactions.put(transaction);
+  await generateTransaction(transaction, async () => new Uint8Array(), false, provider(account));
+  expect(report).not.toHaveBeenCalled();
+  expect(prove).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).not.toHaveBeenCalled();
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('guardianProvingSubstep', 'fallback_prover_build');
+  expect((await Repo.transactions.get(transaction.id))?.status).toBe(ITransactionStatus.Queued);
+});
+
+it('reports the reliable submitting precondition rejection as its own boundary', async () => {
+  const error = privateFailure();
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  const rejectCrossing = (changes: unknown) => {
+    if (
+      typeof changes === 'object' &&
+      changes !== null &&
+      Object.keys(changes).some(key => key === 'submitEvidence' || key.startsWith('submitEvidence.'))
+    )
+      throw error;
+  };
+  Repo.transactions.hook('updating', rejectCrossing);
+  try {
+    await run();
+    expect(mockSubmit).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(snapshotCrashDiagnostics(report.mock.calls[0]?.[0].error)).toHaveProperty(
+      'guardianProvingSubstep',
+      'submitting_stage_write'
+    );
+    await failureEventWith({ guardianProvingSubstep: 'submitting_stage_write' }, 'stage');
+  } finally {
+    Repo.transactions.hook('updating').unsubscribe(rejectCrossing);
+  }
+});
+
+it('sends the next actual consume family after the same root previously failed signing', async () => {
+  const error = new Error('failed to get account: ' + accountId);
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockSignProposal.mockRejectedValueOnce(error);
+  await run();
+  await flush();
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('proposalStep', 'proposal_sign');
+  requests.length = 0;
+  report.mockClear();
+  mockConsumeProposal.mockRejectedValueOnce(error);
+  const stored = await run();
+  expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'creating-proposal' });
+  expectHookRejection(report, error);
+  expect(mockConsumeProposal).toHaveBeenCalledTimes(2);
+  expect(mockSignProposal).toHaveBeenCalledTimes(1);
+  await failureEventWith(
+    { proposalStep: 'proposal_create', proposalCreateApi: 'consume_notes', proposalCreateFamily: 'sdk_account_read' },
+    'stage signing'
+  );
+});
+
+it('preserves an undefined execute rejection without manufacturing a proving error', async () => {
+  const report = jest.spyOn(transactionFailure, 'reportTransactionFailure');
+  mockExecute.mockRejectedValueOnce(undefined);
+  await run();
+  expect(report).toHaveBeenCalledTimes(1);
+  expect(report.mock.calls[0]?.[0].error).toBeUndefined();
+  expect(mockExecute).toHaveBeenCalledTimes(1);
+  expect(mockSubmit).not.toHaveBeenCalled();
+  await failureEventWith({ guardianProvingSubstep: undefined }, 'stage');
 });

@@ -62,6 +62,8 @@ export interface UsdcxExecutorSource extends UsdcxSourceChainBase {
   route: 'cctp-executor';
   /** `TokenMessengerWithFees`, for a burn with a signed quote that Circle forwards and executes. */
   tokenMessengerWithFees: Address;
+  /** Underlying CCTP messenger; older cached routes may omit it, but new owned sources require it. */
+  tokenMessenger?: Address;
   /** Circle's Iris API for this network family, which attests the CCTP leg. */
   irisApi: string;
   target: UsdcxExecutorTarget;
@@ -77,14 +79,14 @@ export interface UsdcxDestination {
   domain: number;
   /** The USDC the recipient's balance is read from, in six-decimal units. */
   usdc: Address;
-  /** The most Circle is expected to deduct from a payout on this chain, in six-decimal USDC units. */
+  /** The most Circle is expected to deduct from a payout on this chain, in six-decimal USDC units. Only the Send flow's refusal guard. */
   payoutFeeAllowance: bigint;
 }
 
 /**
  * Circle deducts its payout fee from the burned amount. Observed on the sandbox: at most about 0.04 USDC
- * for a direct payout, and a flat fee of about 1 USDC on Ethereum. No Circle API reports the fee of one
- * burn, so arrival is judged against these ceilings.
+ * for a direct payout, and a flat fee of about 1 USDC on Ethereum. They are only the Send flow's refusal guard
+ * (`usdcxPayoutFeeShortfall`); a withdrawal is confirmed on its payout mint, whatever the fee.
  */
 const USDCX_PAYOUT_FEE_ALLOWANCE = 100_000n;
 const USDCX_ETHEREUM_PAYOUT_FEE_ALLOWANCE = 1_500_000n;
@@ -140,6 +142,9 @@ function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefin
         ...base,
         route: 'cctp-executor',
         tokenMessengerWithFees: getAddress(route.deposit.tokenMessengerWithFees),
+        ...(route.deposit.tokenMessenger === undefined
+          ? {}
+          : { tokenMessenger: getAddress(route.deposit.tokenMessenger) }),
         irisApi: provider.irisUrl,
         target: {
           midenDomain: provider.midenDomain,
@@ -190,9 +195,9 @@ export function usdcxDestinations(): ReadonlyMap<number, UsdcxDestination> {
 }
 
 /**
- * The least USDC a burn of `amount` is expected to pay out on `chainId`: the amount minus the chain's fee allowance.
- * It is not positive when the allowance takes the whole amount. Any unrelated credit meets such a floor, so the wallet
- * refuses that burn (`usdcxPayoutFeeShortfall`) and never confirms an older one by balance.
+ * The amount minus the chain's fee allowance. It is not positive when the allowance takes the whole amount, so the
+ * wallet refuses that burn (`usdcxPayoutFeeShortfall`). This is the Send flow's refusal guard, not a confirmation
+ * floor; only the legacy history link search still reads it.
  */
 export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
   return amount - (usdcxDestinations().get(chainId)?.payoutFeeAllowance ?? 0n);

@@ -1,0 +1,869 @@
+{
+  "schemaVersion": 1,
+  "version": 6,
+  "testnet": [
+    {
+      "provider": "epoch",
+      "evm": {
+        "name": "Epoch test USDC",
+        "network": "sepolia",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 18,
+        "address": "0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69"
+      },
+      "miden": {
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0x537c15a622074e91188aa894456c52"
+      },
+      "routes": {
+        "receive": "epoch-usdc-to-miden",
+        "send": "epoch-usdc-to-sepolia"
+      },
+      "disabled": true
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "name": "Epoch test USDC",
+        "network": "sepolia",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 18,
+        "address": "0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69"
+      },
+      "miden": {
+        "name": "Epoch test USDC",
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0x5b043dcb48d5721106f7a1ceb2b804"
+      },
+      "routes": {
+        "receive": "epoch-test-usdc-to-miden",
+        "send": "epoch-test-usdc-to-sepolia"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "name": "Epoch test DAI",
+        "network": "sepolia",
+        "kind": "erc20",
+        "symbol": "DAI",
+        "logo": "/asset-logos/dai.svg",
+        "decimals": 18,
+        "address": "0xc30f1Ce05d1434d484E9A47283aA925fc8A8699a"
+      },
+      "miden": {
+        "name": "Epoch test DAI",
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "DAI",
+        "logo": "/asset-logos/dai.svg",
+        "decimals": 6,
+        "faucetId": "0xd41499b8f142ad9119fd9da357a3b2"
+      },
+      "routes": {
+        "receive": "epoch-dai-to-miden",
+        "send": "epoch-dai-to-sepolia"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "name": "Epoch test USDT",
+        "network": "sepolia",
+        "kind": "erc20",
+        "symbol": "USDT",
+        "logo": "/asset-logos/usdt.svg",
+        "decimals": 18,
+        "address": "0xc04d2869665Be874881133943523723Be5782720"
+      },
+      "miden": {
+        "name": "Epoch test USDT",
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDT",
+        "logo": "/asset-logos/usdt.svg",
+        "decimals": 6,
+        "faucetId": "0x0ead4362a745e7d1790d75ea779611"
+      },
+      "routes": {
+        "receive": "epoch-usdt-to-miden",
+        "send": "epoch-usdt-to-sepolia"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "name": "Epoch test WBTC",
+        "network": "sepolia",
+        "kind": "erc20",
+        "symbol": "WBTC",
+        "logo": "/asset-logos/wbtc.svg",
+        "decimals": 18,
+        "address": "0x9b2a2754a9182fD65360E23afCDf3BeFF51796E9"
+      },
+      "miden": {
+        "name": "Epoch test WBTC",
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "WBTC",
+        "logo": "/asset-logos/wbtc.svg",
+        "decimals": 6,
+        "faucetId": "0x1b22d80328f58c5171f67a85f170a3"
+      },
+      "routes": {
+        "receive": "epoch-wbtc-to-miden",
+        "send": "epoch-wbtc-to-sepolia"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "name": "Epoch test USDC",
+        "network": "sepolia",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 18,
+        "address": "0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69"
+      },
+      "miden": {
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0x4cbdcaffe75f0a317482224dae6436"
+      },
+      "routes": {
+        "send": "epoch-usdcx-to-sepolia"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "sepolia",
+        "kind": "native",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "decimals": 18
+      },
+      "miden": {
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "decimals": 8,
+        "faucetId": "0x7c6d1dc7fb7045913d524bbef017f5"
+      },
+      "routes": {
+        "receive": "agglayer-eth-to-miden",
+        "send": "agglayer-eth-to-sepolia"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "sepolia",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "name": "Epoch test USDC",
+        "decimals": 18,
+        "address": "0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69"
+      },
+      "miden": {
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "name": "Agglayer test USDC",
+        "decimals": 8,
+        "faucetId": "0xb41aed8db850a3d140fc2079216c60"
+      },
+      "routes": {
+        "receive": "testnet:agglayer:sepolia:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69:receive",
+        "send": "testnet:agglayer:sepolia:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69:send"
+      }
+    },
+    {
+      "provider": "xreserve",
+      "evm": {
+        "name": "Circle USDC",
+        "network": "arc-testnet",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "address": "0x3600000000000000000000000000000000000000"
+      },
+      "miden": {
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0x4cbdcaffe75f0a317482224dae6436"
+      },
+      "routes": {
+        "send": "xreserve-usdc-to-arc",
+        "receive": "xreserve-usdc-to-miden"
+      }
+    },
+    {
+      "provider": "xreserve",
+      "evm": {
+        "name": "Circle USDC",
+        "network": "sepolia",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "address": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+      },
+      "miden": {
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0x4cbdcaffe75f0a317482224dae6436"
+      },
+      "routes": {
+        "send": "xreserve-usdc-to-sepolia",
+        "receive": "xreserve-sepolia-usdc-to-miden"
+      }
+    },
+    {
+      "provider": "xreserve",
+      "evm": {
+        "name": "Circle USDC",
+        "network": "base-sepolia",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+      },
+      "miden": {
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0x4cbdcaffe75f0a317482224dae6436"
+      },
+      "routes": {
+        "send": "xreserve-usdc-to-base",
+        "receive": "xreserve-base-usdc-to-miden"
+      }
+    },
+    {
+      "provider": "xreserve",
+      "evm": {
+        "name": "Circle USDC",
+        "network": "arbitrum-sepolia",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "address": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+      },
+      "miden": {
+        "network": "miden-testnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0x4cbdcaffe75f0a317482224dae6436"
+      },
+      "routes": {
+        "send": "xreserve-usdc-to-arbitrum",
+        "receive": "xreserve-arbitrum-usdc-to-miden"
+      }
+    }
+  ],
+  "mainnet": [
+    {
+      "provider": "xreserve",
+      "evm": {
+        "network": "arc",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "name": "Circle USDC",
+        "decimals": 6,
+        "address": "0x3600000000000000000000000000000000000000"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0xe69e6ca6e39df1b10c1e5399399feb"
+      },
+      "routes": {
+        "receive": "mainnet:xreserve:arc:receive",
+        "send": "mainnet:xreserve:arc:send"
+      }
+    },
+    {
+      "provider": "xreserve",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "name": "Circle USDC",
+        "decimals": 6,
+        "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0xe69e6ca6e39df1b10c1e5399399feb"
+      },
+      "routes": {
+        "receive": "mainnet:xreserve:ethereum:receive",
+        "send": "mainnet:xreserve:ethereum:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "native",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "decimals": 18
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "faucetId": "0x419f8f4bff72959132aa7cea15a4c1",
+        "decimals": 8
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:receive",
+        "send": "mainnet:agglayer:ethereum:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "WBTC",
+        "logo": "/asset-logos/wbtc.svg",
+        "name": "Wrapped BTC",
+        "decimals": 8,
+        "address": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "WBTC",
+        "logo": "/asset-logos/wbtc.svg",
+        "name": "Wrapped BTC",
+        "decimals": 8,
+        "faucetId": "0x3084d3c389ececd15fda9770d18c8a"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0x2260fac5e5542a773aa44fbcfedf7c193bc2c599:receive",
+        "send": "mainnet:agglayer:ethereum:0x2260fac5e5542a773aa44fbcfedf7c193bc2c599:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "WSOL",
+        "logo": "/asset-logos/sol.svg",
+        "name": "Wrapped SOL",
+        "decimals": 9,
+        "address": "0xd31a59c85ae9d8edefec411d448f90841571b89c"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "WSOL",
+        "logo": "/asset-logos/sol.svg",
+        "name": "Wrapped SOL",
+        "decimals": 8,
+        "faucetId": "0xf4f3dd3678997811522164320be4be"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0xd31a59c85ae9d8edefec411d448f90841571b89c:receive",
+        "send": "mainnet:agglayer:ethereum:0xd31a59c85ae9d8edefec411d448f90841571b89c:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "NEAR",
+        "logo": "/asset-logos/near.svg",
+        "name": "NEAR Protocol",
+        "decimals": 24,
+        "address": "0x85f17cf997934a597031b2e18a9ab6ebd4b9f6a4"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "NEAR",
+        "logo": "/asset-logos/near.svg",
+        "name": "NEAR Protocol",
+        "decimals": 8,
+        "faucetId": "0x5fcca2d015cf44d15da1a641d4d06a"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0x85f17cf997934a597031b2e18a9ab6ebd4b9f6a4:receive",
+        "send": "mainnet:agglayer:ethereum:0x85f17cf997934a597031b2e18a9ab6ebd4b9f6a4:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "PAXG",
+        "logo": "/asset-logos/paxg.svg",
+        "name": "Pax Gold",
+        "decimals": 18,
+        "address": "0x45804880de22913dafe09f4980848ece6ecbaf78"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "PAXG",
+        "logo": "/asset-logos/paxg.svg",
+        "name": "Pax Gold",
+        "decimals": 8,
+        "faucetId": "0x24b95ee2aa5c2ad1679a0316163375"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0x45804880de22913dafe09f4980848ece6ecbaf78:receive",
+        "send": "mainnet:agglayer:ethereum:0x45804880de22913dafe09f4980848ece6ecbaf78:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "USDT",
+        "logo": "/asset-logos/usdt.svg",
+        "name": "Tether USD",
+        "decimals": 6,
+        "address": "0xdac17f958d2ee523a2206206994597c13d831ec7"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDT",
+        "logo": "/asset-logos/usdt.svg",
+        "name": "Tether USD",
+        "decimals": 6,
+        "faucetId": "0x5cb79d29507d3ad17bb6dc60279e89"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0xdac17f958d2ee523a2206206994597c13d831ec7:receive",
+        "send": "mainnet:agglayer:ethereum:0xdac17f958d2ee523a2206206994597c13d831ec7:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "WBNB",
+        "logo": "/asset-logos/wbnb.svg",
+        "name": "Wrapped BNB",
+        "decimals": 18,
+        "address": "0x418d75f65a02b3d53b2418fb8e1fe493759c7605"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "WBNB",
+        "logo": "/asset-logos/wbnb.svg",
+        "name": "Wrapped BNB",
+        "decimals": 8,
+        "faucetId": "0x79e82d69d99d9f116f43cb5c063c04"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0x418d75f65a02b3d53b2418fb8e1fe493759c7605:receive",
+        "send": "mainnet:agglayer:ethereum:0x418d75f65a02b3d53b2418fb8e1fe493759c7605:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "PYUSD",
+        "logo": "/asset-logos/pyusd.svg",
+        "name": "PayPal USD",
+        "decimals": 6,
+        "address": "0x6c3ea9036406852006290770bedfcaba0e23a0e8"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "PYUSD",
+        "logo": "/asset-logos/pyusd.svg",
+        "name": "PayPal USD",
+        "decimals": 6,
+        "faucetId": "0xeb4266c94493b091380b25349fddd3"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0x6c3ea9036406852006290770bedfcaba0e23a0e8:receive",
+        "send": "mainnet:agglayer:ethereum:0x6c3ea9036406852006290770bedfcaba0e23a0e8:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "POL",
+        "logo": "/asset-logos/polygon.svg",
+        "name": "Polygon Ecosystem Token",
+        "decimals": 18,
+        "address": "0x455e53cbb86018ac2b8092fdcd39d8444affc3f6"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "POL",
+        "logo": "/asset-logos/polygon.svg",
+        "name": "Polygon Ecosystem Token",
+        "decimals": 8,
+        "faucetId": "0xa5b56b51edbda2514c711385dc6f31"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0x455e53cbb86018ac2b8092fdcd39d8444affc3f6:receive",
+        "send": "mainnet:agglayer:ethereum:0x455e53cbb86018ac2b8092fdcd39d8444affc3f6:send"
+      }
+    },
+    {
+      "provider": "agglayer",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "USDG",
+        "logo": "/asset-logos/usdg.svg",
+        "name": "Global Dollar",
+        "decimals": 6,
+        "address": "0xe343167631d89b6ffc58b88d6b7fb0228795491d"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDG",
+        "logo": "/asset-logos/usdg.svg",
+        "name": "Global Dollar",
+        "decimals": 6,
+        "faucetId": "0xfc340a73c8fb25d1412f3fa1fd6d3a"
+      },
+      "routes": {
+        "receive": "mainnet:agglayer:ethereum:0xe343167631d89b6ffc58b88d6b7fb0228795491d:receive",
+        "send": "mainnet:agglayer:ethereum:0xe343167631d89b6ffc58b88d6b7fb0228795491d:send"
+      }
+    },
+    {
+      "provider": "xreserve",
+      "evm": {
+        "network": "base",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "name": "Circle USDC",
+        "decimals": 6,
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0xe69e6ca6e39df1b10c1e5399399feb"
+      },
+      "routes": {
+        "receive": "mainnet:xreserve:base:receive",
+        "send": "mainnet:xreserve:base:send"
+      }
+    },
+    {
+      "provider": "xreserve",
+      "evm": {
+        "network": "arbitrum",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "name": "Circle USDC",
+        "decimals": 6,
+        "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0xe69e6ca6e39df1b10c1e5399399feb"
+      },
+      "routes": {
+        "receive": "mainnet:xreserve:arbitrum:receive",
+        "send": "mainnet:xreserve:arbitrum:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "ethereum",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0xe69e6ca6e39df1b10c1e5399399feb"
+      },
+      "routes": {
+        "receive": "mainnet:epoch:ethereum:receive",
+        "send": "mainnet:epoch:ethereum:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "base",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0xe69e6ca6e39df1b10c1e5399399feb"
+      },
+      "routes": {
+        "receive": "mainnet:epoch:base:receive",
+        "send": "mainnet:epoch:base:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "arbitrum",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0xe69e6ca6e39df1b10c1e5399399feb"
+      },
+      "routes": {
+        "receive": "mainnet:epoch:arbitrum:receive",
+        "send": "mainnet:epoch:arbitrum:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "polygon",
+        "kind": "erc20",
+        "symbol": "USDC",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "address": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDCx",
+        "logo": "/asset-logos/usdc.svg",
+        "decimals": 6,
+        "faucetId": "0xe69e6ca6e39df1b10c1e5399399feb"
+      },
+      "routes": {
+        "receive": "mainnet:epoch:polygon:receive",
+        "send": "mainnet:epoch:polygon:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "ethereum",
+        "kind": "native",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "decimals": 18
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "faucetId": "0x419f8f4bff72959132aa7cea15a4c1",
+        "decimals": 8
+      },
+      "routes": {
+        "receive": "mainnet:epoch:ethereum:eth:receive",
+        "send": "mainnet:epoch:ethereum:eth:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "arbitrum",
+        "kind": "native",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "decimals": 18
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "faucetId": "0x419f8f4bff72959132aa7cea15a4c1",
+        "decimals": 8
+      },
+      "routes": {
+        "receive": "mainnet:epoch:arbitrum:eth:receive",
+        "send": "mainnet:epoch:arbitrum:eth:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "base",
+        "kind": "native",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "decimals": 18
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "faucetId": "0x419f8f4bff72959132aa7cea15a4c1",
+        "decimals": 8
+      },
+      "routes": {
+        "receive": "mainnet:epoch:base:eth:receive",
+        "send": "mainnet:epoch:base:eth:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "robinhood",
+        "kind": "native",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "decimals": 18
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "ETH",
+        "logo": "/asset-logos/ethereum.svg",
+        "faucetId": "0x419f8f4bff72959132aa7cea15a4c1",
+        "decimals": 8
+      },
+      "routes": {
+        "receive": "mainnet:epoch:robinhood:eth:receive",
+        "send": "mainnet:epoch:robinhood:eth:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "polygon",
+        "kind": "native",
+        "symbol": "POL",
+        "logo": "/asset-logos/polygon.svg",
+        "decimals": 18
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "POL",
+        "logo": "/asset-logos/polygon.svg",
+        "name": "Polygon Ecosystem Token",
+        "decimals": 8,
+        "faucetId": "0xa5b56b51edbda2514c711385dc6f31"
+      },
+      "routes": {
+        "receive": "mainnet:epoch:polygon:pol:receive",
+        "send": "mainnet:epoch:polygon:pol:send"
+      }
+    },
+    {
+      "provider": "epoch",
+      "evm": {
+        "network": "robinhood",
+        "kind": "erc20",
+        "symbol": "USDG",
+        "logo": "/asset-logos/usdg.svg",
+        "decimals": 6,
+        "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+      },
+      "miden": {
+        "network": "miden-mainnet",
+        "kind": "miden",
+        "symbol": "USDG",
+        "logo": "/asset-logos/usdg.svg",
+        "name": "Global Dollar",
+        "decimals": 6,
+        "faucetId": "0xfc340a73c8fb25d1412f3fa1fd6d3a"
+      },
+      "routes": {
+        "receive": "mainnet:epoch:robinhood:usdg:receive",
+        "send": "mainnet:epoch:robinhood:usdg:send"
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
+import { isUsdcxPayoutConfirmed } from 'lib/usdcx/destination-status';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
@@ -47,7 +48,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
   const burnTitle = (() => {
     switch (burnPhase) {
       case 'confirmed':
-        return bridgedInputs.usdcxBurn?.destinationBalanceConfirmed ? 'confirmed' : 'usdcxBurnConfirmed';
+        return isUsdcxPayoutConfirmed(bridgedInputs.usdcxBurn) ? 'confirmed' : 'usdcxBurnConfirmed';
       case 'discarded':
         return 'usdcxBurnDiscarded';
       case 'consuming':

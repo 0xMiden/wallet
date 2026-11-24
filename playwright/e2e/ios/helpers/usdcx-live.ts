@@ -106,24 +106,28 @@ async function hostedGuardian(url: string): Promise<GuardianIdentity> {
  * `debits` all it took besides its fee.
  */
 export async function settleLedger(
-  wallet: IosWalletPage,
+  wallet: Pick<IosWalletPage, 'homeVaultBaseUnits' | 'navigateHome' | 'readVaultBaseUnits'>,
   native: IosNativeAsset,
   term: {
     name: string;
     before: bigint;
     credit: bigint;
     debits: bigint;
+    recordedSponsorship?: bigint;
     row: { id: string; feeAmount?: string; resultReleasedAt?: number };
   }
 ): Promise<{ vault: bigint; fee: FeeTerm }> {
   const feePath = consumeFeePath(term.row);
   if (feePath.kind === 'result') {
-    const expected = term.before + term.credit - term.debits - feePath.fee;
+    // Burn sponsorship is already in debits and in the recorded total.
+    const fee = feePath.fee - (term.recordedSponsorship ?? 0n);
+    if (fee < 0n) throw new Error(`transaction ${term.row.id} recorded less than its sponsorship`);
+    const expected = term.before + term.credit - term.debits - fee;
     const terms = ledgerLine([
       ['before', term.before],
       ['credit', term.credit],
       ['debits', term.debits],
-      [term.name, feePath.fee]
+      [term.name, fee]
     ]);
     const vault = await wallet.homeVaultBaseUnits(
       native.tokenId,
@@ -131,7 +135,7 @@ export async function settleLedger(
       VAULT_MS,
       `${expected} (${terms})`
     );
-    return { vault, fee: { name: term.name, amount: feePath.fee, kind: 'exact' } };
+    return { vault, fee: { name: term.name, amount: fee, kind: 'exact' } };
   }
   await wallet.navigateHome();
   const vault = await readSettledChange(() => wallet.readVaultBaseUnits(native.tokenId), term.before, {
@@ -385,11 +389,7 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
         before: snapshot.balance.toString()
       });
       evidence.notes.push(`burn stages ${JSON.stringify(stages)}`);
-      return {
-        row,
-        burnNoteId,
-        payoutFromBlock: BigInt(usdcxBurn?.destinationBalanceBefore?.blockNumber ?? '0')
-      };
+      return { row, burnNoteId };
     },
     onGuardian
   );
@@ -439,12 +439,12 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
         const read = ledgerLine([
           ['N', outputs.burn.amount],
           ['s', outputs.sponsorship.amount],
-          ['f1', outputs.fee.amount]
+          ['total fee', outputs.fee.amount + outputs.sponsorship.amount]
         ]);
         const want = ledgerLine([
           ['N', burnUnits],
           ['s', oracle.sponsorshipUnits],
-          ['f1', BigInt(burned.row.feeAmount ?? '-1')]
+          ['total fee', BigInt(burned.row.feeAmount ?? '-1')]
         ]);
         if (read !== want) throw new Error(`the burn's outputs by role read ${read}, expected ${want}`);
       }
@@ -456,6 +456,7 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
         before: grantedVault,
         credit: 0n,
         debits: burnUnits + oracle.sponsorshipUnits,
+        recordedSponsorship: oracle.sponsorshipUnits,
         row: burned.row
       });
       evidence.fees.push(settled.fee, { name: 's', amount: oracle.sponsorshipUnits, kind: 'exact' });
@@ -484,7 +485,6 @@ export async function burnBackToDepositKey(ctx: BurnHalf): Promise<void> {
     const at = await waitForWalletPayoutConfirmation({
       readRows: () => wallet.readBridgedSendRows(),
       rowId: burned.row.id,
-      arcFromBlock: burned.payoutFromBlock,
       payout,
       key,
       arc: ctx.payoutReads ?? ctx.arc,

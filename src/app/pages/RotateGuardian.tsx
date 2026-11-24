@@ -16,7 +16,7 @@ const RotateGuardian: FC = () => {
   const [error, setError] = useState<string | null>(null);
   // Both entry points into the picker are Settings pages (Guardian Settings and
   // Keys), so a cold load belongs back in Settings rather than at the wallet home.
-  const handleBack = useBackWithFallback('/settings');
+  const handleBack = useBackWithFallback('/me');
 
   // Hardware/swipe back has to agree with the chevron: PageLayout's toolbar is
   // hidden here, and it was the only back-handler registration, so the mobile

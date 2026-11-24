@@ -1,6 +1,10 @@
-import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+import {
+  GUARDIAN_ACCOUNT_NOT_FOUND,
+  GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
+  GUARDIAN_RECOVERY_UNVERIFIED
+} from 'lib/miden/sdk/guardian-recovery-errors';
 
-import { errorToMessage, isGuardianNotFound } from './error-message';
+import { errorToMessage, isGuardianNotFound, isGuardianRecoveryRefusal } from './error-message';
 
 describe('errorToMessage', () => {
   it.each([
@@ -42,5 +46,21 @@ describe('isGuardianNotFound', () => {
     ['undefined', undefined]
   ])('is false for %s', (_label, error) => {
     expect(isGuardianNotFound(error)).toBe(false);
+  });
+});
+
+describe('isGuardianRecoveryRefusal', () => {
+  it.each([GUARDIAN_RECOVERY_UNVERIFIED, GUARDIAN_RECOVERY_NETWORK_UNREACHABLE])('is true for the %s code', code => {
+    expect(isGuardianRecoveryRefusal({ code, message: 'Check your connection and try again.' })).toBe(true);
+  });
+
+  it.each([
+    ['the not-found code', { code: GUARDIAN_ACCOUNT_NOT_FOUND }],
+    ['an Error with no code', new Error('Could not reach the network. Check your connection.')],
+    ['a string', GUARDIAN_RECOVERY_UNVERIFIED],
+    ['null', null],
+    ['undefined', undefined]
+  ])('is false for %s', (_label, error) => {
+    expect(isGuardianRecoveryRefusal(error)).toBe(false);
   });
 });

@@ -18,6 +18,19 @@ export class ClaimFeeRefusedError extends Error {
   }
 }
 
+/**
+ * An unattended claim was not queued: the notes that remain after dedup and backoff are worth less than the claim
+ * floor (#2192). It extends {@link ClaimFeeRefusedError} because the auto-consumers handle the two refusals the same
+ * way: the notes stay pending, and there is no per-note fallback and no processing request.
+ */
+export class ClaimBelowFloorError extends ClaimFeeRefusedError {
+  constructor() {
+    super();
+    this.message = 'Claim not queued: the remaining notes are worth less than the claim floor';
+    this.name = 'ClaimBelowFloorError';
+  }
+}
+
 export interface ClaimFeeContext {
   vaultFeeAsset: bigint | null;
   nativeAssetId: string | null;

@@ -4,7 +4,10 @@ import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/m
 
 import { findUsdcxDestinationTransaction } from './destination-transaction';
 
-/** Search only while a confirmed withdrawal's details are open. */
+/**
+ * A hint for rows the old balance rule confirmed, searched only while their details are open. A row with a recorded
+ * payout names its own mint and is never searched.
+ */
 export function useUsdcxDestinationTransaction(tx: ITransaction | undefined): string | undefined {
   const extra: IBridgedSendExtraInputs | undefined = tx?.type === 'bridged-send' ? tx.extraInputs : undefined;
   const burn = extra?.provider === 'usdcx' ? extra.usdcxBurn : undefined;
@@ -15,7 +18,11 @@ export function useUsdcxDestinationTransaction(tx: ITransaction | undefined): st
   const chainId = extra?.destinationNetwork;
   const recipient = extra?.destinationAddress;
   const amount = tx?.amount;
-  const enabled = tx?.status === ITransactionStatus.Completed && !tx.restoredFromBackup && burn?.phase === 'confirmed';
+  const enabled =
+    tx?.status === ITransactionStatus.Completed &&
+    !tx.restoredFromBackup &&
+    burn?.phase === 'confirmed' &&
+    !burn.payout;
   const key = [tx?.id, burn?.noteId, chainId, recipient, amount, beforeBlock, confirmedBlock].join(':');
   const [result, setResult] = useState<{ key: string; hash: string }>();
 

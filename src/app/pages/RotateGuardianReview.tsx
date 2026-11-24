@@ -3,9 +3,8 @@ import React, { FC, FormEvent, useCallback, useEffect, useMemo, useRef, useState
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
+import { guardianEndpointDisplayName, useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
-import { ReactComponent as GuardianRotationIllustration } from 'app/icons/guardian-rotation-illustration.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button } from 'components/Button';
@@ -14,6 +13,8 @@ import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { ListGroup } from 'components/ui/ListGroup';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
@@ -396,66 +397,82 @@ const RotateGuardianReview: FC = () => {
           network it commits on. Outside SubPageLayout's body, which is the scroll region. */}
       <NetworkModeBanner />
       {/* Continue and its error are pinned in the footer, outside the scroll region (#463): the
-          illustration and the hero cost ~220px of the 600px popup, which pushed a CTA inside the
+          hero cost ~220px of the 600px popup, which pushed a CTA inside the
           scroller below the fold. */}
-      <SubPageLayout
-        title={t('reviewRotation')}
-        onBack={handleBack}
-        footerLayout="stack"
-        footer={
-          <>
-            {/* Both protector reads failed or the probe missed its deadline: no credential step can be chosen,
-                so Continue stays disabled (`hasHardwareProtector` is null) and Retry probes again. */}
-            {probeFailed && <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />}
-            {/* `role="alert"` because nothing else moves when a switch fails: focus stays on
-                Continue and the reason appears above it. `max-h` + scroll so a long backend error
-                cannot grow the footer and push Continue off-screen. */}
-            {error && (
-              <Notice
-                errorId={errorId}
-                tone="negative"
-                role="alert"
-                className="max-h-24 overflow-y-auto select-text wrap-break-word"
-              >
-                {error}
-              </Notice>
-            )}
-            <Button
-              className="max-w-none"
-              data-testid="rotate-guardian-confirm"
-              title={t('continue')}
-              onClick={handleContinue}
-              disabled={submitting || hasHardwareProtector === null || !currentAccount || !newEndpoint}
-              isLoading={submitting}
-            />
-          </>
-        }
-      >
-        <div className="flex flex-col items-center">
-          <GuardianRotationIllustration className="mb-4 h-28 w-auto" aria-hidden="true" />
+      {/* Every line is Nunito, as on the picker before it: body styles that read the sans face take the heading face. */}
+      <div className="contents face-heading">
+        <SubPageLayout
+          title={t('reviewRotation')}
+          onBack={handleBack}
+          footerLayout="stack"
+          footer={
+            <>
+              {/* Both protector reads failed or the probe missed its deadline: no credential step can be chosen,
+                  so Continue stays disabled (`hasHardwareProtector` is null) and Retry probes again. */}
+              {probeFailed && <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />}
+              {/* `role="alert"` because nothing else moves when a switch fails: focus stays on
+                  Continue and the reason appears above it. `max-h` + scroll so a long backend error
+                  cannot grow the footer and push Continue off-screen. */}
+              {error && (
+                <Notice
+                  errorId={errorId}
+                  tone="negative"
+                  role="alert"
+                  className="max-h-24 overflow-y-auto select-text wrap-break-word"
+                >
+                  {error}
+                </Notice>
+              )}
+              <Button
+                className="max-w-none"
+                data-testid="rotate-guardian-confirm"
+                title={t('continue')}
+                onClick={handleContinue}
+                disabled={submitting || hasHardwareProtector === null || !currentAccount || !newEndpoint}
+                isLoading={submitting}
+              />
+            </>
+          }
+        >
+          {/* What the switch does, in two sentences: the page's explainer line, first under the header as on
+              the picker before it. */}
+          <p className="px-1 text-explainer-heading text-muted">
+            {t('guardianRotationExplainer', {
+              newGuardian: guardianEndpointDisplayName(newEndpoint, t('unknown')),
+              oldGuardian: guardianEndpointDisplayName(currentEndpoint, t('unknown'))
+            })}
+          </p>
+
           <GuardianTransitionHero
             previousEndpoint={currentEndpoint}
             newEndpoint={newEndpoint}
             previousLabel={t('currentGuardianLabel')}
             newLabel={t('newGuardianLabel')}
           />
-        </div>
 
-        <SubPageSection title={t('details')} titleAs="h2">
-          <DetailCard>
-            <DetailRow label={t('walletKeyHot')}>{hotKeyLabel}</DetailRow>
-            <DetailRow label={t('recoveryPhraseCold')}>{t('required')}</DetailRow>
-          </DetailCard>
-        </SubPageSection>
+          <SubPageSection title={t('approveWith')} titleAs="h2" titleSize="md">
+            <DetailCard surface="outline">
+              <DetailRow label={t('walletKeyHot')}>{hotKeyLabel}</DetailRow>
+              <DetailRow label={t('recoveryPhraseCold')}>{t('required')}</DetailRow>
+            </DetailCard>
+          </SubPageSection>
 
-        <Notice
-          tone="warning"
-          title={t('oldGuardianCantBlockTitle')}
-          icon={<Icon name={IconName.WarningFill} size="sm" fill="currentColor" />}
-        >
-          {t('oldGuardianCantBlockBody')}
-        </Notice>
-      </SubPageLayout>
+          {/* Reassurance, not an alarm: a fact row with a sage shield, as the switch's success screen states
+              its facts, on a soft `fill` card rather than a warning box. */}
+          <ListGroup>
+            <FactRow
+              titleAs="h3"
+              leading={
+                <IconCircle className="bg-positive-tint text-positive-tint-ink">
+                  <Icon name={IconName.ShieldCheck} size="xs" fill="currentColor" />
+                </IconCircle>
+              }
+              title={t('oldGuardianCantBlockTitle')}
+              description={t('oldGuardianCantBlockBody')}
+            />
+          </ListGroup>
+        </SubPageLayout>
+      </div>
     </PageLayout>
   );
 };

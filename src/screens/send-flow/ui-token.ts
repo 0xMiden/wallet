@@ -3,7 +3,6 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
-import { isNominalQuote } from 'lib/prices/binance';
 
 import { UIToken } from './types';
 
@@ -22,7 +21,7 @@ export function uiTokenFromBalance(
     decimals: row.metadata.decimals,
     balance: row.balance,
     fiatPrice: expired ? 0 : (quote?.price ?? 0),
-    ...(isNominalQuote(quote) && { fiatPriceIsNominal: true }),
+    ...(quote?.kind === 'nominal' && { fiatPriceIsNominal: true }),
     ...(expiresAt !== undefined && { fiatPriceExpiresAt: expiresAt }),
     scaleIsKnown: hasKnownScale(row.metadata)
   };

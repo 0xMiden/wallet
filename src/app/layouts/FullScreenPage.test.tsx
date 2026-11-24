@@ -77,6 +77,7 @@ it('slides a page in on the page preset: from its initial x, on its transition',
   expect(mockMotion.props?.initial).toEqual({ ...presets.page.initial, opacity: 1 });
   expect(mockMotion.props?.animate).toEqual({ ...presets.page.animate, opacity: 1 });
   expect(mockMotion.props?.transition).toBe(presets.page.transition);
+  expect(mockMotion.props?.animate).toMatchObject({ transitionEnd: { transform: 'none' } });
 });
 
 it('fades a page in on the fade preset', async () => {

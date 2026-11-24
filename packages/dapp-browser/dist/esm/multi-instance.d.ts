@@ -3,13 +3,22 @@
  * implementation and the Miden Wallet PR-4 plan for the design rationale.
  */
 
-import type { OpenWebViewOptions } from './definitions';
+import type { MorphCard, MorphResult, MorphTarget, MorphVelocity, OpenWebViewOptions } from './definitions';
 
 export interface Rect {
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+export interface MorphRequest {
+  to: MorphTarget;
+  card: MorphCard | null;
+  morphId: string;
+  velocity?: MorphVelocity;
+  /** Sent only with to: 'expanded'. */
+  policyRevision?: number;
 }
 
 export declare class DappWebViewInstance {
@@ -21,6 +30,12 @@ export declare class DappWebViewInstance {
   setRect(rect: Rect): Promise<void>;
   /** Toggle this instance's visibility. The WebView's JS context survives. */
   setVisible(visible: boolean, policyRevision?: number): Promise<void>;
+  /**
+   * Run the native expand or collapse of this instance (#1817). A managed instance sends its lifetime
+   * and the next visibility sequence, the one sequence it shares with setVisible. A closed or closing
+   * wrapper resolves accepted: false without a native call.
+   */
+  morph(request: MorphRequest): Promise<MorphResult>;
   /** Take a JPEG snapshot of the current page as a base64 data URL. */
   snapshot(scale?: number, quality?: number): Promise<{ data: string }>;
   /** Inject JS into this instance's webview. */
@@ -43,6 +58,8 @@ export interface DappWebViewManager {
   get(id: string): DappWebViewInstance | undefined;
   /** Snapshot of all live JS-side instances. */
   list(): DappWebViewInstance[];
+  /** Publish the landing card a native-initiated collapse lands on (#1817); null when none is visible. */
+  setMorphTarget(card: MorphCard | null): Promise<void>;
   /** Re-sync the JS-side cache from the native registry. */
   sync(): Promise<void>;
   /** Close every live instance. */

@@ -30,6 +30,26 @@ interface FakeRpc {
 
 let fakeRpc: FakeRpc;
 let noteImport: jest.Mock;
+let historyOutputs: ReturnType<typeof historyOutput>[];
+let historyOwner: string;
+const historyFree = jest.fn();
+
+function historyNote(id = 'sent', script = 'p2ide', sender = 'acct') {
+  return {
+    id: () => noteIdHandle(id),
+    serialize: () => new Uint8Array([7]),
+    metadata: () => ({ sender: () => sender }),
+    recipient: () => ({ script: () => ({ root: () => ({ toHex: () => script }) }) })
+  };
+}
+
+function historyOutput(note = historyNote(), full = true, noteType = NOTE_TYPE_PUBLIC) {
+  return {
+    id: () => note.id(),
+    intoFull: () => (full ? note : undefined),
+    metadata: () => ({ noteType: () => noteType })
+  };
+}
 /** Ids each `getNotesById` call asked for, as strings read before the call moved them. */
 let requestedIdBatches: string[][];
 
@@ -99,6 +119,14 @@ async function loadClient(): Promise<RecoveryClientInterface> {
       }
     })),
     Endpoint: jest.fn(url => ({ url })),
+    TransactionSummary: {
+      deserialize: () => ({
+        accountDelta: () => ({ id: () => historyOwner }),
+        outputNotes: () => ({ notes: () => historyOutputs }),
+        free: historyFree
+      })
+    },
+    NoteScript: { p2ide: () => ({ root: () => ({ toHex: () => 'p2ide' }) }) },
     // The shared wasm mock stands NoteType up as strings; the real enum is
     // numeric and the accounting compares against it.
     NoteType: { Private: NOTE_TYPE_PRIVATE, Public: NOTE_TYPE_PUBLIC },
@@ -126,6 +154,9 @@ async function loadClient(): Promise<RecoveryClientInterface> {
     getEffectiveProverUrl: () => undefined,
     getEffectiveNoteTransportUrl: () => undefined,
     getEffectiveFeeFaucetId: () => '0xfee'
+  }));
+  jest.doMock('lib/miden/activity/fee-notes', () => ({
+    splitExecutedOutputNotes: () => ({ userNotes: historyOutputs })
   }));
   jest.doMock('./helpers', () => ({
     ...jest.requireActual('./helpers'),
@@ -167,6 +198,9 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     noteImport = jest.fn(async () => 'imported');
     requestedIdBatches = [];
+    historyOutputs = [];
+    historyOwner = 'acct';
+    historyFree.mockClear();
     fakeRpc = {
       syncNotes: jest.fn(async () => ({ notes: () => [] })),
       getNotesById: jest.fn(async () => []),
@@ -177,6 +211,71 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
   afterEach(() => {
     jest.resetModules();
     jest.restoreAllMocks();
+  });
+
+  describe('importGuardianHistoryP2ideNotes', () => {
+    it('imports full public and private P2IDE notes and skips other scripts and senders', async () => {
+      historyOutputs = [
+        historyOutput(),
+        historyOutput(historyNote('private'), true, NOTE_TYPE_PRIVATE),
+        historyOutput(historyNote('ordinary', 'p2id')),
+        historyOutput(historyNote('foreign', 'p2ide', 'other')),
+        historyOutput(historyNote('partial-private'), false, NOTE_TYPE_PRIVATE)
+      ];
+      const client = await loadClient();
+      for (const output of historyOutputs) {
+        await client.importGuardianHistoryP2ideNotes('summary', 'acct', output.id().toString(), NO_HOLD);
+      }
+      expect(noteImport).toHaveBeenCalledTimes(2);
+      expect(historyFree).toHaveBeenCalledTimes(historyOutputs.length);
+    });
+
+    it('fetches a partial public output by id and imports it only when it is P2IDE', async () => {
+      historyOutputs = [historyOutput(historyNote('sent'), false)];
+      fakeRpc.getNotesById.mockResolvedValue([{ noteId: 'sent', asInputNote: () => ({ note: () => historyNote() }) }]);
+      const client = await loadClient();
+      await client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD);
+      expect(noteImport).toHaveBeenCalledTimes(1);
+      expect(requestedIdBatches[0]).toEqual(['sent']);
+    });
+
+    it('skips a public output whose body has another script', async () => {
+      historyOutputs = [historyOutput(historyNote('sent'), false)];
+      fakeRpc.getNotesById.mockResolvedValue([
+        { noteId: 'sent', asInputNote: () => ({ note: () => historyNote('sent', 'p2id') }) }
+      ]);
+      const client = await loadClient();
+      await client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD);
+      expect(noteImport).not.toHaveBeenCalled();
+    });
+
+    it('fails when the public body is missing so recovery can retry', async () => {
+      historyOutputs = [historyOutput(historyNote(), false)];
+      const client = await loadClient();
+      await expect(client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD)).rejects.toThrow(
+        'missing'
+      );
+      expect(noteImport).not.toHaveBeenCalled();
+    });
+
+    it('rejects a summary from another account before importing notes', async () => {
+      historyOwner = 'other';
+      historyOutputs = [historyOutput()];
+      const client = await loadClient();
+      await expect(client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD)).rejects.toThrow(
+        'account'
+      );
+      expect(noteImport).not.toHaveBeenCalled();
+    });
+
+    it('reports an import failure so the history page is not checkpointed', async () => {
+      historyOutputs = [historyOutput()];
+      noteImport.mockRejectedValue(new Error('storage failure'));
+      const client = await loadClient();
+      await expect(client.importGuardianHistoryP2ideNotes('summary', 'acct', 'sent', NO_HOLD)).rejects.toThrow(
+        'Could not import'
+      );
+    });
   });
 
   describe('recoverPublicNotesRange', () => {

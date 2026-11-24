@@ -16,6 +16,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -31,6 +32,8 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.PixelCopy;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -51,6 +54,10 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.Toolbar;
+import android.window.BackEvent;
+import android.window.OnBackAnimationCallback;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.FileProvider;
@@ -58,7 +65,9 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
@@ -73,6 +82,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -83,6 +93,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.json.JSONException;
@@ -108,19 +119,33 @@ public class WebViewDialog extends Dialog {
     private WebView _webView;
     private BreadPresentationController presentation;
     private BreadAuthController auth;
+    private Object presentationBackDispatcher;
+    private Object presentationBackCallback;
+    private enum BackAction { PAGE, MINIMIZE, DISMISS, NONE }
+    private BackAction backAction = BackAction.NONE;
     private boolean permanentlyClosed;
+    // Miden patch: the name of the WebMessageListener object for the wallet bridge.
+    static final String BRIDGE_LISTENER_NAME = "__midenWalletBridge";
+    // Miden patch: true when the WebMessageListener carries the wallet bridge.
+    // Then AndroidInterface.postMessage does not forward messages.
+    private volatile boolean bridgeListenerInstalled;
     private ManagedHostClose managedClose;
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
     ManagedHostClose managedClose() { return managedClose; }
+    boolean unseenWarmPresentation() { return presentation != null && presentation.unseenWarm(); }
+    boolean retireUnseenWarmPresentation() { return presentation != null && presentation.retireUnseenWarm(); }
     void disableClosingPage() {
+        if (presentation != null) presentation.stopMotion();
         if (_webView != null) {
             _webView.setEnabled(false);
             _webView.onPause();
         }
     }
     void configureManagedClose(String id, JSObject options, java.util.function.Consumer<JSObject> notify) {
-        if (options != null && !options.getString("token", "").isEmpty())
+        if (options != null && !options.getString("token", "").isEmpty()) {
+            if (managedClose != null && presentation != null) presentation.state.revokeInputAuthority();
             managedClose = new ManagedHostClose(id, this, capacitorWebView, options, notify, this::finishDismiss);
+        }
     }
     void requestClose(Runnable completion) {
         if (managedClose != null) managedClose.request(completion);
@@ -139,14 +164,148 @@ public class WebViewDialog extends Dialog {
 
     boolean hasPresentation() { return presentation != null; }
     public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
+    void prepareMorph(long durationMs) {
+        if (presentation != null) presentation.prepareMorph(durationMs);
+    }
     public void setClosedListener(Runnable listener) { closedListener = listener; }
     public void presentationForeground(boolean foreground) {
         if (managedClose != null) managedClose.foreground(foreground);
         if (!managedClosing() && presentation != null) presentation.foreground(foreground);
     }
-    void presentationMinimizeRequested(long revision, long sequence) {
+    void presentationMinimizeRequested(long revision, long sequence, String morphId) {
         if (permanentlyClosed || managedClosing()) return;
-        _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token);
+        _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token, morphId);
+    }
+
+    @SuppressLint("NewApi")
+    private void registerPresentationBackCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || managedClose == null || presentation == null) return;
+        OnBackInvokedDispatcher dispatcher = getOnBackInvokedDispatcher();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            presentationBackCallback = new OnBackAnimationCallback() {
+                @Override public void onBackStarted(BackEvent event) {
+                    presentation.beginBackGesture();
+                    backAction = currentBackAction();
+                    if (backAction == BackAction.MINIMIZE) presentation.beginBackPreview();
+                }
+
+                @Override public void onBackProgressed(BackEvent event) {
+                    if (presentation != null) presentation.progressBackPreview(event.getProgress());
+                }
+
+                @Override public void onBackCancelled() {
+                    if (presentation != null) presentation.cancelBackGesture();
+                    backAction = BackAction.NONE;
+                }
+
+                @Override public void onBackInvoked() {
+                    finishPredictiveBack();
+                }
+            };
+        } else {
+            presentationBackCallback = (OnBackInvokedCallback) this::invokeBackWithoutPreview;
+        }
+        presentationBackDispatcher = dispatcher;
+        dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+            (OnBackInvokedCallback) presentationBackCallback);
+    }
+
+    private boolean pageHandlesBack() {
+        return _webView != null && _webView.canGoBack()
+            && (TextUtils.equals(_options.getToolbarType(), "navigation") || _options.getActiveNativeNavigationForWebview());
+    }
+
+    private boolean shouldMinimizeOnBack() {
+        if (permanentlyClosed || managedClosing() || managedClose == null || presentation == null
+            || _options.getDisableGoBackOnNativeApplication() || !presentation.canMinimizeFromBack()) return false;
+        return !pageHandlesBack();
+    }
+
+    private BackAction currentBackAction() {
+        if (permanentlyClosed || managedClosing()) return BackAction.NONE;
+        if (pageHandlesBack()) return BackAction.PAGE;
+        if (shouldMinimizeOnBack()) return BackAction.MINIMIZE;
+        if (!_options.getDisableGoBackOnNativeApplication()) return BackAction.DISMISS;
+        return BackAction.NONE;
+    }
+
+    private void performBackAction(BackAction action, boolean preview) {
+        if (action == BackAction.PAGE) {
+            if (_webView != null) _webView.goBack();
+        } else if (action == BackAction.MINIMIZE) {
+            if (presentation == null) return;
+            if (preview) presentation.commitBackPreview();
+            else presentation.minimizeFromBackWithoutPreview();
+        } else if (action == BackAction.DISMISS) {
+            dismiss();
+        }
+    }
+
+    private void finishPredictiveBack() {
+        boolean gestureStarted = presentation != null && presentation.finishBackGesture();
+        boolean preview = presentation != null && presentation.backPreviewActive();
+        BackAction action = gestureStarted ? backAction : currentBackAction();
+        backAction = BackAction.NONE;
+        if (permanentlyClosed || managedClosing()) {
+            if (preview && presentation != null) presentation.cancelBackPreview();
+            return;
+        }
+        if (gestureStarted && !presentation.backGestureIsCurrent()) {
+            presentation.discardBackPreview();
+            return;
+        }
+        // Preview teardown on resize does not revoke the accepted minimize intent.
+        performBackAction(action, preview || gestureStarted);
+    }
+
+    private void invokeBackWithoutPreview() {
+        if (permanentlyClosed || managedClosing()) return;
+        performBackAction(currentBackAction(), false);
+    }
+
+    @SuppressLint("NewApi")
+    private void unregisterPresentationBackCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            && presentationBackDispatcher != null && presentationBackCallback != null) {
+            ((OnBackInvokedDispatcher) presentationBackDispatcher).unregisterOnBackInvokedCallback(
+                (OnBackInvokedCallback) presentationBackCallback);
+        }
+        presentationBackDispatcher = null;
+        presentationBackCallback = null;
+        backAction = BackAction.NONE;
+        if (presentation != null) presentation.cancelBackGesture();
+    }
+
+    boolean presentationMorph(String to, JSObject card, JSObject velocity, String morphId, Integer revision, Integer sequence) {
+        if (permanentlyClosed || managedClosing() || presentation == null) return false;
+        BreadMorphCard host = hostCard(card);
+        float density = getContext().getResources().getDisplayMetrics().density;
+        float vx = velocity == null ? 0 : (float) velocity.optDouble("x", 0) * density;
+        float vy = velocity == null ? 0 : (float) velocity.optDouble("y", 0) * density;
+        if (!Float.isFinite(vx) || !Float.isFinite(vy)) vx = vy = 0;
+        return presentation.morph(to, host == null ? null : hostCardToWindow(host), vx, vy, morphId, revision, sequence);
+    }
+
+    static BreadMorphCard hostCard(JSObject card) {
+        if (card == null) return null;
+        double x = card.optDouble("x", Double.NaN), y = card.optDouble("y", Double.NaN);
+        double width = card.optDouble("width", Double.NaN), height = card.optDouble("height", Double.NaN);
+        double radius = card.optDouble("cornerRadius", 0);
+        if (!Double.isFinite(x) || !Double.isFinite(y) || !(width > 0) || !(height > 0) || !Double.isFinite(width)
+            || !Double.isFinite(height)) return null;
+        return new BreadMorphCard(new android.graphics.RectF((float) x, (float) y, (float) (x + width), (float) (y + height)),
+            (float) (Double.isFinite(radius) ? Math.max(0, radius) : 0));
+    }
+
+    BreadMorphCard hostCardToWindow(BreadMorphCard host) {
+        WindowManager.LayoutParams params = getWindow().getAttributes();
+        return BreadMorphGeometry.hostToWindow(host.rect.left, host.rect.top, host.rect.width(), host.rect.height(),
+            host.cornerRadius, getContext().getResources().getDisplayMetrics().density, statusBarHeightPx(), params.x, params.y);
+    }
+
+    private int statusBarHeightPx() {
+        int resourceId = getContext().getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return resourceId > 0 ? getContext().getResources().getDimensionPixelSize(resourceId) : 0;
     }
     void presentationChanged(boolean fullscreen, boolean resolved, long revision) {
         _options.getCallbacks().presentationChanged(fullscreen, resolved, revision,
@@ -164,6 +323,21 @@ public class WebViewDialog extends Dialog {
         else super.hide();
     }
     void applyBrowserDimensions() { applyDimensions(); }
+    BreadSnapshotter snapshotter = BreadSnapshotter.PIXEL_COPY;
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    void morphEvent(BreadMorphEvent event) {
+        if (permanentlyClosed || managedClosing()) return;
+        _options.getCallbacks().presentationMorph(event);
+    }
+
+    @Override public boolean isShowing() {
+        if (!permanentlyClosed && unseenWarmPresentation()) {
+            Window window = getWindow();
+            View decor = window == null ? null : window.getDecorView();
+            if (decor != null && decor.getParent() != null && decor.getVisibility() == View.INVISIBLE) return true;
+        }
+        return super.isShowing();
+    }
 
     @Override public void show() {
         if (permanentlyClosed || managedClosing()) return;
@@ -174,6 +348,18 @@ public class WebViewDialog extends Dialog {
         if (managedClosing()) return;
         if (presentation != null) presentation.visibility(false);
         super.hide();
+    }
+
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        int route = presentation == null ? BreadPresentationController.TOUCH_PASS : presentation.routeTouch(event);
+        if (route == BreadPresentationController.TOUCH_PASS) return super.dispatchTouchEvent(event);
+        if (route == BreadPresentationController.TOUCH_CANCEL) {
+            MotionEvent cancel = MotionEvent.obtain(event);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            super.dispatchTouchEvent(cancel);
+            cancel.recycle();
+        }
+        return true;
     }
 
     private Toolbar _toolbar;
@@ -216,6 +402,45 @@ public class WebViewDialog extends Dialog {
         this.capacitorWebView = capacitorWebView;
     }
 
+    // Miden patch: add the origin of the sender frame and the main-frame flag to a
+    // bridge message. The wallet compares this origin with the origin of the session.
+    // A message that is not a JSON object goes in "rawMessage".
+    static String bridgeMessage(String message, String origin) {
+        try {
+            JSONObject body;
+            try {
+                body = new JSONObject(message);
+            } catch (JSONException e) {
+                body = new JSONObject().put("rawMessage", message);
+            }
+            return body.put("frameOrigin", origin).put("mainFrame", true).toString();
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
+    // The JavaScript interface cannot identify its caller's frame; envelope fields are untrusted.
+    static String fallbackBridgeMessage(String envelope) {
+        try {
+            JSONObject parsed = new JSONObject(envelope);
+            Object top = parsed.opt("top");
+            Object origin = parsed.opt("origin");
+            Object message = parsed.opt("message");
+            if (!Boolean.TRUE.equals(top) || !(origin instanceof String) || !(message instanceof String)) return null;
+            String body = (String) message;
+            try {
+                JSONObject forwarded = new JSONObject(body);
+                forwarded.remove("frameOrigin");
+                forwarded.remove("mainFrame");
+                return forwarded.toString();
+            } catch (JSONException e) {
+                return body;
+            }
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
     // Add this class to provide safer JavaScript interface
     private class JavaScriptInterface {
 
@@ -234,7 +459,11 @@ public class WebViewDialog extends Dialog {
                     return;
                 }
 
-                _options.getCallbacks().javascriptCallback(message);
+                // The legacy interface forwards page events without frame identity.
+                if (bridgeListenerInstalled) return;
+                String forwarded = fallbackBridgeMessage(message);
+                if (forwarded == null) return;
+                _options.getCallbacks().javascriptCallback(forwarded);
             } catch (Exception e) {
                 Log.e("InAppBrowser", "Error in postMessage: " + e.getMessage());
             }
@@ -428,6 +657,26 @@ public class WebViewDialog extends Dialog {
         applyInsets();
 
         _webView.addJavascriptInterface(new JavaScriptInterface(), "AndroidInterface");
+        // Miden patch: the wallet bridge uses a WebMessageListener when the WebView has it.
+        // The listener gives the origin of the sender frame and the main-frame flag. The
+        // origin rule is "*" because the rules apply only to documents that load after this
+        // call, and the session can go to other origins. The wallet compares the origin.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(
+                _webView,
+                BRIDGE_LISTENER_NAME,
+                Collections.singleton("*"),
+                (view, message, sourceOrigin, isMainFrame, reply) -> {
+                    if (!isMainFrame || message.getType() != WebMessageCompat.TYPE_STRING) return;
+                    if (managedClosing() || permanentlyClosed) return;
+                    String data = message.getData();
+                    if (data == null || data.isEmpty() || _options == null || _options.getCallbacks() == null) return;
+                    String forwarded = bridgeMessage(data, sourceOrigin.toString());
+                    if (forwarded != null) _options.getCallbacks().javascriptCallback(forwarded);
+                }
+            );
+            bridgeListenerInstalled = true;
+        }
         _webView.addJavascriptInterface(new PreShowScriptInterface(), "PreShowScriptInterface");
         _webView.addJavascriptInterface(new PrintInterface(this._context, _webView), "PrintInterface");
         _webView.getSettings().setJavaScriptEnabled(true);
@@ -937,6 +1186,7 @@ public class WebViewDialog extends Dialog {
             auth.install();
             presentation = new BreadPresentationController(this, _webView, _options.getBreadPresentation(), _options.isInitiallyVisible());
             presentation.install();
+            registerPresentationBackCallback();
         }
         _webView.loadUrl(this._options.getUrl(), requestHeaders);
         _webView.requestFocus();
@@ -1188,7 +1438,16 @@ public class WebViewDialog extends Dialog {
                         postMessage: function(message) {
                           try {
                             var msg = typeof message === 'string' ? message : JSON.stringify(message);
-                            window.AndroidInterface.postMessage(msg);
+                            // Use the native listener when available; fallback envelope fields are untrusted.
+                            if (window.__midenWalletBridge) {
+                              window.__midenWalletBridge.postMessage(msg);
+                              return;
+                            }
+                            window.AndroidInterface.postMessage(JSON.stringify({
+                              origin: window.location.origin,
+                              top: window === window.top,
+                              message: msg
+                            }));
                           } catch(e) {
                             console.error('Error in mobileApp.postMessage:', e);
                           }
@@ -2814,15 +3073,7 @@ public class WebViewDialog extends Dialog {
 
     @Override
     public void onBackPressed() {
-        if (
-            _webView != null &&
-            _webView.canGoBack() &&
-            (TextUtils.equals(_options.getToolbarType(), "navigation") || _options.getActiveNativeNavigationForWebview())
-        ) {
-            _webView.goBack();
-        } else if (!_options.getDisableGoBackOnNativeApplication()) {
-            dismiss();
-        }
+        invokeBackWithoutPreview();
     }
 
     @Override
@@ -2905,6 +3156,7 @@ public class WebViewDialog extends Dialog {
         if (permanentlyClosed) return;
         permanentlyClosed = true;
         String closedUrl = getUrl();
+        unregisterPresentationBackCallback();
         if (auth != null) auth.close();
         if (presentation != null) presentation.close();
         if (closedListener != null) closedListener.run();
@@ -2945,6 +3197,10 @@ public class WebViewDialog extends Dialog {
 
                 // Remove JavaScript interfaces before destroying
                 _webView.removeJavascriptInterface("AndroidInterface");
+                if (bridgeListenerInstalled) {
+                    bridgeListenerInstalled = false;
+                    WebViewCompat.removeWebMessageListener(_webView, BRIDGE_LISTENER_NAME);
+                }
                 _webView.removeJavascriptInterface("PreShowScriptInterface");
                 _webView.removeJavascriptInterface("PrintInterface");
 
@@ -3201,13 +3457,7 @@ public class WebViewDialog extends Dialog {
         // have to add the status bar inset ourselves or the
         // Dialog ends up ~24dp too high, overlapping the bottom
         // of the React CapsuleBar.
-        int statusBarHeightPx = 0;
-        int resourceId = getContext()
-            .getResources()
-            .getIdentifier("status_bar_height", "dimen", "android");
-        if (resourceId > 0) {
-            statusBarHeightPx = getContext().getResources().getDimensionPixelSize(resourceId);
-        }
+        int statusBarHeightPx = statusBarHeightPx();
 
         // Miden patch: the Dialog frame is set to match the slot
         // rect passed by the wallet — same y/width/height, just
@@ -3321,30 +3571,80 @@ public class WebViewDialog extends Dialog {
      * base64 data URL. Used by the embedded dApp browser to show frozen
      * previews on minimized bubbles and card-switcher cards.
      *
-     * Must be called on the UI thread (the plugin wrapper enforces this).
+     * The page is read with PixelCopy and encoded off the UI thread; during a
+     * native morph the capture taken when the motion started is used, because
+     * the window shows a scaled page. Must be called on the UI thread; done runs there.
      */
-    public String takeSnapshotData(float scale, float quality) {
-        if (_webView == null || _webView.getWidth() == 0 || _webView.getHeight() == 0) {
-            return null;
-        }
-        try {
-            float clampedScale = Math.max(0.05f, Math.min(1.0f, scale));
-            int width = Math.max(1, (int) (_webView.getWidth() * clampedScale));
-            int height = Math.max(1, (int) (_webView.getHeight() * clampedScale));
-            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
-            android.graphics.Canvas canvas = new android.graphics.Canvas(bmp);
-            canvas.scale(clampedScale, clampedScale);
-            _webView.draw(canvas);
+    public void takeSnapshotData(float scale, float quality, Consumer<String> done) {
+        // The controller keeps its capture as the proxy; a standalone capture exists for this request only.
+        if (presentation != null) presentation.snapshot(source -> encodeSnapshot(source, scale, quality, false, done));
+        else captureWebView(source -> encodeSnapshot(source, scale, quality, true, done));
+    }
 
-            int qualityPct = Math.max(10, Math.min(100, (int) (quality * 100)));
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, qualityPct, baos);
-            bmp.recycle();
-            String b64 = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP);
-            return "data:image/jpeg;base64," + b64;
-        } catch (Exception e) {
-            Log.e("InAppBrowser", "takeSnapshotData failed: " + e.getMessage());
-            return null;
+    void captureWebView(Consumer<Bitmap> done) {
+        Window window = getWindow();
+        if (_webView == null || window == null || _webView.getWidth() == 0 || _webView.getHeight() == 0) {
+            done.accept(null);
+            return;
         }
+        int[] at = new int[2];
+        _webView.getLocationInWindow(at);
+        Bitmap bitmap = Bitmap.createBitmap(_webView.getWidth(), _webView.getHeight(), Bitmap.Config.ARGB_8888);
+        Rect rect = new Rect(at[0], at[1], at[0] + bitmap.getWidth(), at[1] + bitmap.getHeight());
+        try {
+            snapshotter.capture(window, rect, bitmap, result -> {
+                if (result == PixelCopy.SUCCESS) {
+                    done.accept(bitmap);
+                    return;
+                }
+                bitmap.recycle();
+                done.accept(null);
+            });
+        } catch (RuntimeException e) {
+            Log.e("InAppBrowser", "snapshot capture failed: " + e.getMessage());
+            bitmap.recycle();
+            done.accept(null);
+        }
+    }
+
+    void hardwareCopy(Bitmap source, Consumer<Bitmap> done) {
+        snapshotter.encode(() -> {
+            Bitmap copy = null;
+            try {
+                copy = source.copy(Bitmap.Config.HARDWARE, false);
+            } catch (RuntimeException e) {
+                Log.w("InAppBrowser", "hardware snapshot copy failed: " + e.getMessage());
+            }
+            Bitmap result = copy;
+            if (result != null) mainHandler.post(() -> done.accept(result));
+        });
+    }
+
+    private void encodeSnapshot(Bitmap source, float scale, float quality, boolean release, Consumer<String> done) {
+        if (source == null) {
+            done.accept(null);
+            return;
+        }
+        float clampedScale = Math.max(0.05f, Math.min(1.0f, scale));
+        int width = Math.max(1, (int) (source.getWidth() * clampedScale));
+        int height = Math.max(1, (int) (source.getHeight() * clampedScale));
+        int qualityPct = Math.max(10, Math.min(100, (int) (quality * 100)));
+        snapshotter.encode(() -> {
+            String data = null;
+            Bitmap scaled = null;
+            try {
+                scaled = Bitmap.createScaledBitmap(source, width, height, true);
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                scaled.compress(Bitmap.CompressFormat.JPEG, qualityPct, bytes);
+                data = "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP);
+            } catch (RuntimeException e) {
+                Log.e("InAppBrowser", "snapshot encode failed: " + e.getMessage());
+            } finally {
+                if (scaled != null && scaled != source) scaled.recycle();
+                if (release) source.recycle();
+            }
+            String result = data;
+            mainHandler.post(() -> done.accept(result));
+        });
     }
 }

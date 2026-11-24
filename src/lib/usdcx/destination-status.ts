@@ -4,7 +4,8 @@ import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn }
 import * as Repo from 'lib/miden/repo';
 import { getChain } from 'lib/walletconnect/config';
 
-import { usdcxDestinations, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
+import { usdcxDestinations, ERC20_BALANCE_OF_ABI } from './constant';
+import { readGatewayPayoutSource, scanUsdcxPayout, USDCX_PAYOUT_RESCAN_BLOCKS } from './payout-proof';
 
 export interface UsdcxBalanceSnapshot {
   balance: string;
@@ -89,15 +90,56 @@ export async function readUsdcxDestinationSnapshot(
   return attempt(SNAPSHOT_BACKOFF_MS);
 }
 
+/** Paid when the payout mint is recorded; rows the old balance rule confirmed stay paid. */
+export function isUsdcxPayoutConfirmed(burn: IUsdcxBurn | undefined): boolean {
+  return burn?.phase === 'confirmed' && (!!burn.payout || !!burn.destinationBalanceConfirmed);
+}
+
+/** How long a confirmed burn may stay unpaid before the row says so. */
+export const USDCX_PAYOUT_DELAYED_MS = 7_200_000;
+
+/**
+ * Confirmed, unpaid and past the delay. The clock starts when the burn first read confirmed; a row confirmed before
+ * that was recorded counts from `settledAtMs`, the row's own settle time. A row the old balance rule confirmed is paid.
+ * Only a row the scan can settle is ever late: a restored row is never polled and one without a saved snapshot has no
+ * block to scan from, so both stay at Burn confirmed.
+ */
+export function isUsdcxPayoutDelayed(
+  burn: IUsdcxBurn | undefined,
+  settledAtMs: number | undefined,
+  now = Date.now(),
+  restoredFromBackup = false
+): boolean {
+  if (restoredFromBackup || burn?.phase !== 'confirmed' || !burn.destinationBalanceBefore) return false;
+  if (isUsdcxPayoutConfirmed(burn)) return false;
+  const since = burn.confirmedAt ?? settledAtMs;
+  return since !== undefined && now - since >= USDCX_PAYOUT_DELAYED_MS;
+}
+
 export function isUsdcxDestinationPending(burn: IUsdcxBurn): boolean {
-  return burn.phase === 'confirmed' && !!burn.destinationBalanceBefore && !burn.destinationBalanceConfirmed;
+  return (
+    burn.phase === 'confirmed' && !!burn.destinationBalanceBefore && !burn.payout && !burn.destinationBalanceConfirmed
+  );
+}
+
+export interface UsdcxPayoutDeps {
+  readSource?: typeof readGatewayPayoutSource;
+  scan?: typeof scanUsdcxPayout;
 }
 
 /**
- * A balance increase is an estimate of arrival; it does not identify a bridge transfer. Every network with a
- * USDCx row is polled; the destination's USDC and RPC come from the document for that row's chain.
+ * Records the mint that paid a confirmed burn. A balance increase proves nothing about this burn, so the scan looks
+ * for the GatewayMinter mint whose transaction carries the burn's note id. Every network with a USDCx row is polled;
+ * the destination's USDC and RPC come from the document for that row's chain. A failure before any chunk completes
+ * (the source read, the block number) leaves the row and its cursor unchanged; a chunk failing mid-scan resumes after
+ * the last chunk read in full. The cursor is saved 128 blocks below the last block read, never below where it was, so
+ * every check reads those blocks again. `more` is true when the chunk cap stopped the scan below the head, so the
+ * caller can check the row again without waiting out its back-off.
  */
-export async function pollUsdcxDestination(tx: ITransaction, readBalance = readUsdcxDestinationBalance): Promise<void> {
+export async function pollUsdcxDestination(
+  tx: ITransaction,
+  { readSource = readGatewayPayoutSource, scan = scanUsdcxPayout }: UsdcxPayoutDeps = {}
+): Promise<{ more: boolean }> {
   const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
   const burn = extra?.usdcxBurn;
   const before = burn?.destinationBalanceBefore;
@@ -112,25 +154,29 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
     !tx.amount ||
     tx.amount <= 0n
   ) {
-    return;
+    return { more: false };
   }
+  const usdc = burn.destinationUsdc ?? usdcxDestinations().get(extra.destinationNetwork)?.usdc;
+  if (!usdc) return { more: false };
 
-  // Circle deducts its fee from the payout, so the balance rises by less than the sent amount. A burn the fee
-  // allowance takes whole has no floor an unrelated credit could not meet, so it stays at Burn confirmed.
-  const minimum =
-    burn.payoutFeeAllowance === undefined
-      ? minimumUsdcxPayout(extra.destinationNetwork, tx.amount)
-      : tx.amount - BigInt(burn.payoutFeeAllowance);
-  if (minimum <= 0n) return;
-
-  const observed = await readBalance(
-    extra.destinationNetwork,
-    extra.destinationAddress,
-    DESTINATION_READ_TIMEOUT_MS,
-    burn.destinationUsdc
-  );
-  if (BigInt(observed.blockNumber) <= BigInt(before.blockNumber)) return;
-  if (BigInt(observed.balance) < BigInt(before.balance) + minimum) return;
+  const cursor = burn.payoutScannedBlock;
+  const floor = BigInt(cursor ?? before.blockNumber);
+  const { payout, scannedTo, head } = await scan({
+    chainId: extra.destinationNetwork,
+    recipient: extra.destinationAddress,
+    usdc,
+    burnNoteId: burn.noteId,
+    amount: tx.amount,
+    fromBlock: floor + 1n,
+    source: await readSource()
+  });
+  const more = scannedTo !== undefined && head !== undefined && scannedTo < head;
+  if (!payout && scannedTo === undefined) return { more };
+  const resumeAfter =
+    scannedTo !== undefined && scannedTo - USDCX_PAYOUT_RESCAN_BLOCKS > floor
+      ? scannedTo - USDCX_PAYOUT_RESCAN_BLOCKS
+      : floor;
+  if (!payout && resumeAfter === floor) return { more };
 
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const current: IBridgedSendExtraInputs | undefined = row.extraInputs;
@@ -150,9 +196,12 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
     ) {
       return;
     }
+    // A cursor another surface already moved is left alone, so two realms cannot walk it backwards.
+    if (!payout && previous.payoutScannedBlock !== cursor) return;
     row.extraInputs = {
       ...current,
-      usdcxBurn: { ...previous, destinationBalanceConfirmed: observed }
+      usdcxBurn: payout ? { ...previous, payout } : { ...previous, payoutScannedBlock: resumeAfter.toString() }
     };
   });
+  return { more };
 }

@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { FlowPresentationProvider, type FlowPresentation } from 'components/flow/FlowPresentation';
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
@@ -20,13 +21,6 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-// The formatter keeps its DECIMALS argument visible. The parent's suite stubs it
-// as `String(amount)`, which silently accepts a row rendered at the wrong scale -
-// the whole reason this file exists.
-jest.mock('lib/shared/format', () => ({
-  formatAmount: jest.fn((amount: bigint | number | string, decimals?: number) => `${amount}@${decimals ?? 'default'}`)
-}));
-
 const mockGetExplorerTxUrl = jest.fn();
 const mockGetExplorerAccountUrl = jest.fn();
 
@@ -36,6 +30,8 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 jest.mock('lib/animation', () => ({
+  installSheetKeyframes: () => {},
+  sheetMotionVars: {},
   springs: { standard: {} },
   useMotion: () => ({})
 }));
@@ -154,7 +150,10 @@ const consume = (over: Partial<SwapSettlementTransaction> = {}): SwapSettlementT
   ...over
 });
 
-const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {}) =>
+const renderDetail = (
+  over: Partial<React.ComponentProps<typeof SwapDetail>> = {},
+  presentation: FlowPresentation = 'compact'
+) =>
   render(
     <SwapDetail
       entry={entry}
@@ -175,7 +174,8 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       cancelOrderError={null}
       onCancelOrder={mockCancelOrder}
       {...over}
-    />
+    />,
+    { wrapper: ({ children }) => <FlowPresentationProvider value={presentation}>{children}</FlowPresentationProvider> }
   );
 
 beforeEach(() => {
@@ -188,6 +188,14 @@ const rowByLabel = (label: string) =>
   Array.from(document.querySelectorAll('[data-testid="detail-row"]')).find(
     el => el.getAttribute('data-label') === label
   );
+
+it('delegates Command receipt scrolling to the workbench but retains the compact scroll area', () => {
+  const compact = renderDetail();
+  expect(screen.getByTestId('swap-order-card').querySelector('.overflow-y-auto')).not.toBeNull();
+  compact.unmount();
+  renderDetail({}, 'command');
+  expect(screen.getByTestId('swap-order-card').querySelector('.overflow-y-auto')).toBeNull();
+});
 
 describe('SwapDetail faucet ids', () => {
   it('names both faucets, each under its own side of the order', () => {
@@ -239,7 +247,7 @@ describe('SwapDetail token info', () => {
   });
 
   it.each([
-    ['requested', { requestedFaucetId: TEST_TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }, '1000@8Test iETH'],
+    ['requested', { requestedFaucetId: TEST_TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }, '0.00001Test iETH'],
     ['offered', { entry: { ...entry, faucetId: TEST_TOKEN_IETH.faucetId, token: 'Test iETH' } }, '500Test iETH']
   ])("keeps the %s side's amount, name and (i) in one unit the hero wraps between (#477)", (_side, over, unitText) => {
     renderDetail(over);
@@ -262,8 +270,8 @@ describe('SwapDetail amounts', () => {
     // in the requested token, so all three must carry ITS decimals. Falling back
     // to the wallet's default scale misstates funds by orders of magnitude, and
     // a formatter stub that drops the argument cannot see the difference.
-    expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400@8_1000@8_ ETH');
-    expect(screen.getByText('swapReceivedAmount_685@8_ ETH')).toBeInTheDocument();
+    expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0.000004_0.00001_ ETH');
+    expect(screen.getByText('swapReceivedAmount_0.0000068_ ETH')).toBeInTheDocument();
   });
 
   it('withholds a row amount it cannot attribute to the requested token', () => {
@@ -608,7 +616,7 @@ describe('SwapDetail cancelling a live order', () => {
       reclaimedTransactions: [{ id: 'return', noteIds: ['original-output'], completedAt: 1_700_000_100 }]
     });
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
-    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_0@');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_0_');
     expect(screen.getByTestId('swap-reclaimed-notes')).toHaveTextContent('swapReturnedAt_');
     expect(screen.getByTestId('swap-reclaimed-notes')).not.toHaveTextContent('swapConsumedAt_');
     expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
@@ -816,6 +824,7 @@ const LiveStuckPayback = ({
       isRetryingPayback={actions.isRetryingPayback}
       paybackRetryError={actions.paybackRetryError}
       paybackRetryErrorId={actions.paybackRetryErrorId}
+      paybackRetryErrorDiagnostics={actions.paybackRetryErrorDiagnostics}
       onRetryPayback={actions.onRetryPayback}
     />
   );
@@ -901,6 +910,34 @@ describe('SwapDetail stuck payout claim (#1644)', () => {
     expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-1', {});
     expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/payback-claim-1');
+  });
+
+  it('reports the payout retry reason on the visible notice', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    try {
+      const { annotatePendingRetry } = jest.requireActual<typeof import('lib/telemetry/ui-producer-diagnostics')>(
+        'lib/telemetry/ui-producer-diagnostics'
+      );
+      const failure = new Error('private payout retry failure');
+      annotatePendingRetry(failure, 'guardian_hold');
+      mockRequeueFailedTransaction.mockRejectedValueOnce(failure);
+      render(<LiveStuckPayback />);
+      fireEvent.click(screen.getByTestId('swap-retry-payback-button'));
+      await settle();
+      expect(screen.getByRole('alert')).toHaveTextContent('private payout retry failure');
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(mockReportUserVisibleError).toHaveBeenCalledWith('raw_history_retry_failed', 'notice', {
+        kind: 'history_payback_retry',
+        retryNoticeOrigin: 'history_payback',
+        pendingRetryReason: 'guardian_hold'
+      });
+      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('payback-claim-1', {});
+      expect(mockNavigate).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('shows a fee refusal of the retry', async () => {

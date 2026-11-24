@@ -406,6 +406,18 @@ else
   printf '%s\n' "$(( $(cat "$tally") + 1 ))" > "$tally"
 fi
 
+# A Dependabot pull request never edits CHANGELOG.md, so each update entry must label its pull requests with the waiver.
+dependabot="$repo_root/.github/dependabot.yml"
+ecosystems=$(grep -c '^  - package-ecosystem:' "$dependabot" || true)
+waived=$(grep -c '^      - no changelog$' "$dependabot" || true)
+if grep -qF "labels.*.name, 'no changelog'" "$repo_root/.github/workflows/changelog.yml" \
+  && [ "${ecosystems:-0}" -gt 0 ] && [ "$waived" = "$ecosystems" ]; then
+  printf 'ok   %s\n' 'the grouped Dependabot update carries the no changelog label'
+else
+  printf 'FAIL  %s\n' 'the grouped Dependabot update carries the no changelog label'
+  printf '%s\n' "$(( $(cat "$tally") + 1 ))" > "$tally"
+fi
+
 failures=$(cat "$tally")
 if [ "$failures" -ne 0 ]; then
   printf '\n%s check(s) failed\n' "$failures" >&2

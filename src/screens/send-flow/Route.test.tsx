@@ -136,7 +136,7 @@ describe('RouteOptions', () => {
     }
   );
 
-  it.each(['off', 'not-configured', 'not-deployed', 'service-down'] as const)(
+  it.each(['off', 'not-configured', 'not-deployed', 'service-down', 'pending'] as const)(
     'describes %s as route availability without claiming a service outage',
     reason => {
       render(
@@ -385,6 +385,21 @@ describe('RouteOptions', () => {
     expect(resolveDisplayMetadata).toHaveBeenCalledWith('mtst1usdcxnative', {}, 'mtst1usdcxnative');
   });
 
+  it('groups the fast route fee as a USD amount', () => {
+    render(
+      <RouteOptions
+        route="epoch"
+        onRouteChange={jest.fn()}
+        fastFeeUsd={1234.5}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+
+    expect(screen.getByText('$1,234.50')).toBeInTheDocument();
+  });
+
   it('marks the withdrawal notice under the USDCx route for the e2e harness', () => {
     render(
       <RouteOptions
@@ -400,11 +415,12 @@ describe('RouteOptions', () => {
     expect(screen.getByTestId('usdcx-burn-notice')).toHaveTextContent('usdcxWithdrawalNotice');
   });
 
-  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
+  // Circle took 2.5635 USDC from a Sepolia payout, so no fee bound or payout is promised on any chain.
   it.each([
-    [11155111, 10_000_000n, '1.5', '8.5'],
-    [5042002, 1_000_001n, '0.1', '0.900001']
-  ])('shows Circle fee and the least payout for a burn to chain %i', (chainId, amount, fee, payout) => {
+    [11155111, 10_000_000n],
+    [5042002, 1_000_001n],
+    [11155111, 1_500_000n]
+  ])('shows Circle fee as varying and no payout for a burn to chain %i', (chainId, amount) => {
     render(
       <RouteOptions
         usdcxAvailable
@@ -419,27 +435,9 @@ describe('RouteOptions', () => {
 
     const feeRow = within(screen.getByTestId('usdcx-payout-fee'));
     expect(feeRow.getByText('usdcxCircleFee')).toBeInTheDocument();
-    expect(feeRow.getByText(`usdcxPayoutFeeUpTo|${fee}`)).toBeInTheDocument();
-    const payoutRow = within(screen.getByTestId('usdcx-payout-net'));
-    expect(payoutRow.getByText('youReceive')).toBeInTheDocument();
-    expect(payoutRow.getByText(`usdcxPayoutAtLeast|${payout}`)).toBeInTheDocument();
-  });
-
-  it('leaves out the payout while the fee allowance takes the whole amount', () => {
-    render(
-      <RouteOptions
-        usdcxAvailable
-        route="usdcx"
-        onRouteChange={jest.fn()}
-        fastQuoteLoading={false}
-        slowStatus="allowed"
-        usdcxPayout={{ chainId: 11155111, amount: 1_500_000n }}
-        {...UP}
-      />
-    );
-
-    expect(screen.getByTestId('usdcx-payout-fee')).toBeInTheDocument();
+    expect(feeRow.getByText('usdcxPayoutFeeVaries')).toBeInTheDocument();
     expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
+    expect(screen.queryByText('youReceive')).not.toBeInTheDocument();
   });
 
   it.each([
@@ -464,6 +462,30 @@ describe('RouteOptions', () => {
 });
 
 describe('route availability report', () => {
+  it('carries a known incoming route through the neutral notice without changing the dwell', () => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...{ fastFeature: 'fastBridgeIn' as const }}
+        fastAvailability={DOWN}
+        slowAvailability={AVAILABLE}
+      />
+    );
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('bridgeFeatureUnavailableBody', 'notice', {
+      kind: 'feature_unavailable',
+      featureUnavailableFeature: 'fastBridgeIn',
+      featureUnavailableReason: 'service-down'
+    });
+  });
+
   const mockReport = jest.mocked(reportUserVisibleError);
   beforeEach(() => {
     jest.useFakeTimers();
@@ -483,7 +505,29 @@ describe('route availability report', () => {
       />
     );
     act(() => jest.advanceTimersByTime(1000));
-    expect(mockReport.mock.calls).toEqual([['bridgeFeatureUnavailableBody', 'notice']]);
+    expect(mockReport.mock.calls).toEqual([
+      [
+        'bridgeFeatureUnavailableBody',
+        'notice',
+        { kind: 'feature_unavailable', featureUnavailableFeature: 'unknown', featureUnavailableReason: 'service-down' }
+      ]
+    ]);
+  });
+
+  it('reports nothing for a route held while the startup decision is pending', () => {
+    render(
+      <RouteOptions
+        route="agglayer"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        fastAvailability={{ state: 'unavailable', reason: 'pending', detail: 'startup feature eligibility is pending' }}
+        slowAvailability={AVAILABLE}
+      />
+    );
+    expect(screen.getByTestId('feature-unavailable-notice-fast')).toHaveTextContent('bridgeRouteUnavailableBody');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(mockReport).not.toHaveBeenCalled();
   });
 
   it('reports nothing while both routes are available', () => {
@@ -525,4 +569,21 @@ describe('provider route labels', () => {
       }
     }
   });
+});
+
+it('omits the AggLayer card when the destination has no AggLayer route', () => {
+  render(
+    <RouteOptions
+      {...UP}
+      route="epoch"
+      onRouteChange={jest.fn()}
+      fastQuoteLoading={false}
+      slowStatus="error"
+      showSlowRoute={false}
+    />
+  );
+  expect(screen.getByTestId('bridge-route-fast')).toBeInTheDocument();
+  expect(screen.queryByTestId('bridge-route-slow')).not.toBeInTheDocument();
+
+  expect(screen.queryByText('agglayerTokenCheckFailed')).not.toBeInTheDocument();
 });

@@ -142,7 +142,7 @@ it('draws Activity, Explore and the shared component as one band, class for clas
   expect(ref.row.className).not.toMatch(/(^|\s)bg-/);
 
   // Every item is an outlined pill; the selected one carries the bottom nav's raised bubble,
-  // filled with the accent tint, over a transparent border of the same width.
+  // an accessible accent tint and ink, over a transparent border of the same width.
   const bubble = (item: HTMLElement) => item.querySelector('[data-slot="motion-highlight"]');
   expect(bubble(ref.selected)).toHaveClass('bg-accent-tint', 'shadow-raised');
   expect(bubble(ref.unselected)).toBeNull();

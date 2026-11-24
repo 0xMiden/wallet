@@ -12,6 +12,7 @@ import {
   listUsdcxSourceChains,
   minimumUsdcxPayout,
   usdcxArrivalKey,
+  usdcxPayoutFeeShortfall,
   usdcxSourceChains
 } from './constant';
 
@@ -80,6 +81,12 @@ it('has no compiled fallback when the remote document is missing', () => {
 it('keeps the accepted destination payout fee allowance', () => {
   expect(minimumUsdcxPayout(11155111, 3_000_000n)).toBe(1_500_000n);
   expect(minimumUsdcxPayout(84532, 3_000_000n)).toBe(2_900_000n);
+});
+
+// Circle took 2.5635 USDC from a Sepolia payout, so the review promises no fee bound; the allowance only refuses a burn.
+it('refuses a 1 USDCx burn to Sepolia and accepts one above the allowance', () => {
+  expect(usdcxPayoutFeeShortfall(11155111, 1_000_000n)).toEqual({ amount: '1.5', network: 'Sepolia' });
+  expect(usdcxPayoutFeeShortfall(11155111, 1_500_001n)).toBeUndefined();
 });
 
 it('builds source snapshots that IndexedDB can store', () => {

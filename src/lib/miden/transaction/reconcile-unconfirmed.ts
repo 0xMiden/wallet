@@ -6,10 +6,15 @@
 import type { AbandonStatus } from '@openzeppelin/guardian-client';
 
 import { inVerdictTurn } from 'lib/miden/front/storage';
+import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
-import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
+import {
+  annotateProofWaitAvailability,
+  type ProofWaitAvailability
+} from 'lib/telemetry/proof-wait-availability-diagnostics';
+import { reportTransactionFailure, type TransactionFailure } from 'lib/telemetry/transaction-failure';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import {
@@ -20,13 +25,23 @@ import {
   storedNoteIds,
   verifiedLandingRowFields
 } from './helper';
+import { orderFromSavedRequest, sameRequestBytes, swapOpensOrderFromRead } from './pinned-replay-check';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, LandingProof, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
-import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
+import { submitApproach } from './submit-approach-diagnostics';
+import {
+  admitsInclusionAt,
+  awaitingVerdict,
+  evidenceKey,
+  isCheckable,
+  isUnresolvedEntry,
+  nowSeconds
+} from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+import { submittedSwapOrder } from '../sdk/apply-after-submit';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { normalizeHex } from '../sdk/submit-evidence';
+import { normalizeHex, privateOutputNoteIdsOf } from '../sdk/submit-evidence';
 
 export { judgeSubmitEvidence } from './reconcile-judge';
 
@@ -117,24 +132,123 @@ async function networkStillMatches(node: NodeReads, entries: readonly ISubmitEvi
   return true;
 }
 
+const noteSetKey = (noteIds: readonly string[]): string => JSON.stringify(noteIds.map(normalizeHex).sort());
+
 /** The notes recorded by the attempts that submitted `transactionId`: none when none did, or two disagree. */
 const notesOfTransaction = (row: Pick<ITransaction, 'submitEvidence'>, transactionId: string): string[] => {
   const recorded = (row.submitEvidence ?? [])
     .filter(entry => entry.transactionId === transactionId && entry.outputNoteIds !== undefined)
     .map(entry => storedNoteIds(entry.outputNoteIds));
-  const key = (noteIds: string[]) => JSON.stringify(noteIds.map(normalizeHex).sort());
   const [first] = recorded;
-  return first !== undefined && recorded.every(noteIds => key(noteIds) === key(first)) ? first : [];
+  return first !== undefined && recorded.every(noteIds => noteSetKey(noteIds) === noteSetKey(first)) ? first : [];
+};
+
+/**
+ * A Guardian attempt pinned before its offscreen dispatch whose replayed stamp never arrived: it may have submitted,
+ * and it recorded nothing of what, so it can have produced any unbound landing. An id-less stamp the leaf wrote itself
+ * is a hold's that was no longer current, which never submits.
+ */
+const isPinOnly = (entry: ISubmitEvidence): boolean => entry.source === 'pin' && entry.transactionId === undefined;
+
+/**
+ * Can have created `proof.noteId`: not proven dead, not retired before its submit, naming the note with its transaction
+ * id or a pin ({@link isPinOnly}) whose notes no list rules out, its window admitting the note's block.
+ */
+const mayHaveCreatedNote = (entry: ISubmitEvidence, proof: { noteId: string; block: number }): boolean =>
+  isUnresolvedEntry(entry) &&
+  (isPinOnly(entry)
+    ? entry.outputNoteIds?.includes(proof.noteId) !== false
+    : entry.transactionId !== undefined && entry.outputNoteIds?.includes(proof.noteId) === true) &&
+  admitsInclusionAt(entry, proof.block);
+
+/**
+ * The execute stamp whose private notes a landing proven by a note owes, when no transaction id is bound: the execute
+ * attempts that can have created that note ({@link mayHaveCreatedNote}) all read the same private notes, the agreement
+ * {@link notesOfTransaction} asks. A script whose notes depend on state can create other notes on a replay, and the
+ * note alone cannot say which attempt landed, so with none that can, two that disagree, or one that read no list,
+ * nothing is owed and the row keeps the warning that a private note may not have been delivered. An unbound landing of
+ * any proof kind selects through {@link unboundLandingStamp}, which keeps this filter for a note.
+ */
+export const landedNoteStamp = (
+  row: Pick<ITransaction, 'submitEvidence'>,
+  proof: { noteId: string; block: number }
+): ISubmitEvidence | undefined => {
+  const candidates = (row.submitEvidence ?? []).filter(
+    entry => entry.fromExecute === true && mayHaveCreatedNote(entry, proof)
+  );
+  const owed = candidates.map(entry => privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds));
+  const [first] = candidates;
+  const [firstOwed] = owed;
+  if (first === undefined || firstOwed === undefined) return undefined;
+  return owed.every(noteIds => noteIds !== undefined && noteSetKey(noteIds) === noteSetKey(firstOwed))
+    ? first
+    : undefined;
+};
+
+/**
+ * Attempts that can have produced an unbound landing of `proof`, the execute mark aside: with a transaction id, or a
+ * pin ({@link isPinOnly}). Unresolved is the stored row, the same {@link isUnresolvedEntry} test
+ * {@link landedNoteStamp} uses, and not judged never-committed by this pass: the write runs before those verdicts are
+ * stored, and an attempt the pass proved dead cannot have produced the landing. A note admits
+ * {@link mayHaveCreatedNote}, without that pass's verdict, so the order candidates stay the note filter above. A
+ * commitment admits one whose recorded final commitment is absent or the landed attempt's. A nullifier admits one a
+ * recorded nullifier list does not omit the proof's nullifier from, and whose recorded final commitment does not differ
+ * from the proof's.
+ */
+const unboundLandingAttempts = (
+  row: Pick<ITransaction, 'submitEvidence'>,
+  proof: LandingProof,
+  landedFinal: string | undefined,
+  deadThisPass: ReadonlySet<string>
+): ISubmitEvidence[] =>
+  (row.submitEvidence ?? []).filter(entry => {
+    if (proof.kind === 'note') return mayHaveCreatedNote(entry, proof);
+    if (!isUnresolvedEntry(entry) || (entry.transactionId === undefined && !isPinOnly(entry))) return false;
+    if (deadThisPass.has(entry.attemptId)) return false;
+    if (proof.kind === 'commitment') {
+      return entry.finalCommitment === undefined || entry.finalCommitment === landedFinal;
+    }
+    // The judge's nullifier ruled-out test, copied: a list that omits the nullifier, or a different final commitment.
+    return !(
+      (entry.nullifiers !== undefined && !entry.nullifiers.includes(proof.nullifier)) ||
+      (entry.finalCommitment !== undefined && entry.finalCommitment !== proof.finalCommitment)
+    );
+  });
+
+/**
+ * The execute stamp an unbound landing owes. A note proof is {@link landedNoteStamp}. A commitment or nullifier proof
+ * owes what every execute {@link unboundLandingAttempts} admits agrees on: each private list reads and the sets match,
+ * including an empty list, and the stamp is the first of them. Disagreement, or a list that does not read, owes
+ * nothing.
+ */
+const unboundLandingStamp = (
+  row: Pick<ITransaction, 'submitEvidence'>,
+  proof: LandingProof,
+  landedFinal: string | undefined,
+  deadThisPass: ReadonlySet<string>
+): ISubmitEvidence | undefined => {
+  if (proof.kind === 'note') return landedNoteStamp(row, proof);
+  const candidates = unboundLandingAttempts(row, proof, landedFinal, deadThisPass).filter(
+    entry => entry.fromExecute === true
+  );
+  const owed = candidates.map(entry => privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds));
+  const [first] = candidates;
+  const [firstOwed] = owed;
+  if (first === undefined || firstOwed === undefined) return undefined;
+  return owed.every(noteIds => noteIds !== undefined && noteSetKey(noteIds) === noteSetKey(firstOwed))
+    ? first
+    : undefined;
 };
 
 /**
  * The note a landed send owes, at the root where `completeSendTransaction` records it and the delivery sweep reads it
  * (#1473): every note of the attempt the landing binds, else the note a note landing was proven by (attempts replaying
- * one request share it), else none. Never an execute's: its evidence names neither its private notes nor their owner.
- * A root holding only those notes is the landed attempt's own record and stays as written; one another attempt
- * recorded is replaced. A row whose relay recorded the notes it owes in `relayNoteIds`, which the sweep reads before
- * the root, gets none. Undefined when the landing records no target. Retry's landing on the transaction the node
- * verified binds that id and has no proof.
+ * one request share it), else none. Never an execute's: its attempt notes mix public and private ones, and an applied
+ * execute owes only the private ones, apart from the root ({@link landedExecuteDeliveryValues}). A root holding only
+ * those notes is the landed attempt's own record and stays as written; one another attempt recorded is replaced. A row
+ * whose relay recorded the notes it owes in `relayNoteIds`, which the sweep reads before the root, gets none. Undefined
+ * when the landing records no target. Retry's landing on the transaction the node verified binds that id and has no
+ * proof.
  */
 const landedDeliveryTarget = (
   row: ITransaction,
@@ -186,17 +300,131 @@ export const recordLandedDeliveryTarget = (
 };
 
 /**
+ * {@link recordLandedDeliveryTarget} as values for a write that assigns them rather than mutating the stored row
+ * (`updateTransactionStatus`), each field it deletes as undefined; undefined when the landing records no target. Every
+ * field that function writes is listed here, so the two record the same delivery.
+ */
+export const landedDeliveryTargetValues = (
+  row: ITransaction,
+  landing: { boundTransactionId?: string; proof?: LandingProof }
+):
+  | Pick<
+      ITransaction,
+      | 'outputNoteIds'
+      | 'completedAt'
+      | 'noteDelivery'
+      | 'displayMessage'
+      | 'relayAttempts'
+      | 'nextRelayAt'
+      | 'relayRetriesStopped'
+      | 'relayVerifyPushes'
+      | 'relayOutageDeferred'
+      | 'relayAckedNoteIds'
+      | 'relayDeadNoteIds'
+    >
+  | undefined => {
+  const recorded = { ...row };
+  if (recordLandedDeliveryTarget(recorded, landing) === undefined) return undefined;
+  return {
+    outputNoteIds: recorded.outputNoteIds,
+    completedAt: recorded.completedAt,
+    noteDelivery: recorded.noteDelivery,
+    displayMessage: recorded.displayMessage,
+    relayAttempts: recorded.relayAttempts,
+    nextRelayAt: recorded.nextRelayAt,
+    relayRetriesStopped: recorded.relayRetriesStopped,
+    relayVerifyPushes: recorded.relayVerifyPushes,
+    relayOutageDeferred: recorded.relayOutageDeferred,
+    relayAckedNoteIds: recorded.relayAckedNoteIds,
+    relayDeadNoteIds: recorded.relayDeadNoteIds
+  };
+};
+
+/**
+ * The delivery an applied execute's landing owes when its tail recorded none, from `entry`, the landing attempt's own
+ * stamp: the private notes it read off the executed transaction its leaf then submitted and applied, so the store holds
+ * them. A recipient the row names is who `completeCustomTransaction` relays them to. A missing or empty recipient still
+ * records the note ids and the undelivered label, with the relay recipient left unset, as that completion counts a
+ * recipient-less private note. `row` is the row as the write finds it. A stamp that proves no private note leaves the
+ * clean label on a row that recorded no delivery. Undefined when the tail recorded which notes it owes, including an
+ * empty list, or the stamp did not read its notes' types. Never the root `outputNoteIds`, which the sweep would read
+ * as owed, public notes and all. The pipeline binds `entry` to an applied landing, since an apply that failed left
+ * the notes out of the store; the reconciler's landing and Retry's two (on its pinned note, on the transaction the
+ * node verified) cannot tell the two apart, and the sweep records a note the store never took dead at its push.
+ */
+export const landedExecuteDeliveryValues = (
+  row: ITransaction,
+  entry: ISubmitEvidence
+):
+  | Pick<
+      ITransaction,
+      | 'relayNoteIds'
+      | 'relayRecipientId'
+      | 'displayMessage'
+      | 'noteDelivery'
+      | 'relayAttempts'
+      | 'nextRelayAt'
+      | 'relayRetriesStopped'
+    >
+  | undefined => {
+  if (row.type !== 'execute' || entry.fromExecute !== true || entry.transactionId === undefined) return undefined;
+  if (row.relayNoteIds != null) return undefined;
+  const owed = privateOutputNoteIdsOf(entry.outputNoteIds, entry.privateOutputNoteIds);
+  if (owed === undefined) return undefined;
+  const fields = landedValueRowFields(row, owed.length);
+  if (owed.length === 0) {
+    return row.noteDelivery === undefined
+      ? { displayMessage: fields.displayMessage, noteDelivery: undefined }
+      : undefined;
+  }
+  // Nothing pushed these notes yet, so their delivery window opens with the landed write's completedAt. A missing or
+  // empty recipient is left unset: the notes are still owed, and the sweep has nobody to push them to.
+  const relayRecipientId = row.secondaryAccountId ? row.secondaryAccountId : undefined;
+  return {
+    relayNoteIds: owed,
+    relayRecipientId,
+    ...fields,
+    relayAttempts: undefined,
+    nextRelayAt: undefined,
+    relayRetriesStopped: undefined
+  };
+};
+
+interface SavedRequestOrder {
+  decodedBytes?: Uint8Array;
+  savedOrder?: Awaited<ReturnType<typeof orderFromSavedRequest>>;
+}
+
+const NO_SAVED_ORDER: SavedRequestOrder = {};
+
+/** A swap row that holds no order: the bytes its saved request had when decoded, and the order they name. */
+async function savedRequestOrder(rowId: string): Promise<SavedRequestOrder> {
+  const preview = await Repo.transactions.where({ id: rowId }).first();
+  if (preview === undefined || preview.type !== 'swap' || !swapOpensOrderFromRead(preview)) return NO_SAVED_ORDER;
+  return { decodedBytes: preview.requestBytes, savedOrder: await orderFromSavedRequest(preview.requestBytes) };
+}
+
+/**
  * The landed write: one rw transaction that re-reads every row of the account, the target's included. If any entry
  * differs from what the judgement read, or the deferral now holds the landing, it writes nothing and the next pass
- * judges again from the fresh rows. One that records a delivery target is a delivery write, counted once it commits,
- * so an idle sweep looks again.
+ * judges again from the fresh rows. One that records a delivery target, or the private notes an execute owes, is a
+ * delivery write, counted once it commits, so an idle sweep looks again.
  */
-async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: string): Promise<boolean> {
+async function writeLanding(
+  rowId: string,
+  judgement: RowJudgement,
+  accountKey: string,
+  saved: SavedRequestOrder
+): Promise<boolean> {
   const landing = judgement.landed;
   const landedEntry = judgement.judgedEntries.find(entry => entry.attemptId === landing?.attemptId);
   if (landing === undefined || landedEntry === undefined) return false;
+  // The saved request was decoded before the final network check, since the write cannot await the WASM lock. Its
+  // order is the `read` only while the fresh row still holds the bytes that were decoded.
+  const { decodedBytes, savedOrder } = saved;
   let landed: ITransaction | undefined;
   let addedTarget: string[] | undefined;
+  let addedExecuteNotes = false;
   await Repo.db.transaction('rw', Repo.transactions, async () => {
     const fresh = await Repo.transactions.where({ id: rowId }).first();
     if (
@@ -207,18 +435,54 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
-    applyVerifiedLanding(fresh, {
-      ...verifiedLandingRowFields(fresh),
-      ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
-      completedAt: fresh.completedAt
-    });
+    // An execute whose tail recorded nothing before its row was failed (its realm died after the apply, or its landed
+    // write spent its budget and the reaper failed it) owes the private notes its stamp read. Read from the row as
+    // found, before the landed fields label an execute undelivered; such a row never took the completion's write, so
+    // its recipient is the one its request named. A landing that binds no transaction id names no attempt, so it owes
+    // only what every attempt that can have produced it agrees on.
+    const deadThisPass = new Set(
+      judgement.entries.filter(judged => judged.result === 'never-committed').map(judged => judged.attemptId)
+    );
+    const landedAttempt = fresh.submitEvidence?.find(entry => entry.attemptId === landing.attemptId);
+    const landedFinal = landedAttempt?.finalCommitment;
+    const unboundAttempts =
+      landing.boundTransactionId === undefined
+        ? unboundLandingAttempts(fresh, landing.proof, landedFinal, deadThisPass)
+        : undefined;
+    const landedStamp =
+      landing.boundTransactionId === undefined
+        ? unboundLandingStamp(fresh, landing.proof, landedFinal, deadThisPass)
+        : landedAttempt;
+    const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
+    // A single-key swap saves no request. A landing that binds an attempt opens that attempt's order; one that binds
+    // none opens an order only when every attempt the proof admits names the same one, since a silent one may be the
+    // attempt that landed.
+    const silentCandidate = unboundAttempts?.some(
+      entry => entry.orderId === undefined && entry.orderNoteId === undefined
+    );
+    applyVerifiedLanding(
+      fresh,
+      {
+        ...verifiedLandingRowFields(fresh),
+        ...executeDelivery,
+        ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
+        completedAt: fresh.completedAt
+      },
+      (sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined) ??
+        (silentCandidate === true
+          ? undefined
+          : submittedSwapOrder(fresh.submitEvidence, entry =>
+              unboundAttempts !== undefined ? unboundAttempts.includes(entry) : entry.attemptId === landing.attemptId
+            ))
+    );
     const target = recordLandedDeliveryTarget(fresh, landing);
     await Repo.transactions.put(fresh);
     landed = fresh;
     addedTarget = target;
+    addedExecuteNotes = (executeDelivery?.relayNoteIds?.length ?? 0) > 0;
   });
   if (landed === undefined) return false;
-  if (addedTarget !== undefined) countNoteDeliveryWrite();
+  if (addedTarget !== undefined || addedExecuteNotes) countNoteDeliveryWrite();
   reportVerifiedLanding(landed);
   if (landed.type === 'consume') await adoptLandedConsume(landed.id);
   return true;
@@ -251,7 +515,44 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
     return undefined;
   });
   if (failed !== undefined && !failed.restoredFromBackup) {
-    reportTransactionFailure({
+    const failedAttemptId = judgement.neverCommittedBy === 'expired' ? failed.attemptId : undefined;
+    let timingAvailability: ProofWaitAvailability | undefined = 'current_attempt_missing';
+    const expiredEntry =
+      failedAttemptId === undefined
+        ? undefined
+        : ((timingAvailability = 'current_entry_missing'),
+          failed.submitEvidence?.find(entry => entry.attemptId === failedAttemptId));
+    const executing = failed.stageTimestamps?.executing;
+    const submitting = failed.stageTimestamps?.submitting;
+    let proofWaitBlocks: number | undefined;
+    if (expiredEntry !== undefined) {
+      if (typeof executing !== 'number' || !Number.isFinite(executing)) timingAvailability = 'execution_time_invalid';
+      else if (typeof submitting !== 'number' || !Number.isFinite(submitting))
+        timingAvailability = 'submit_time_invalid';
+      else if (!(submitting >= executing)) timingAvailability = 'time_order_invalid';
+      else {
+        proofWaitBlocks = Math.floor((submitting - executing) / ESTIMATED_MS_PER_BLOCK);
+        timingAvailability = undefined;
+      }
+    }
+    let windowAvailability: ProofWaitAvailability | undefined;
+    let expiryWindowBlocks: number | undefined;
+    if (expiredEntry?.refBlock === undefined) windowAvailability = 'reference_block_missing';
+    else if (expiredEntry.expirationBlock === undefined) windowAvailability = 'expiration_block_missing';
+    else if (!Number.isFinite(expiredEntry.refBlock)) windowAvailability = 'reference_block_invalid';
+    else if (!Number.isFinite(expiredEntry.expirationBlock)) windowAvailability = 'expiration_block_invalid';
+    else if (!(expiredEntry.expirationBlock > expiredEntry.refBlock)) windowAvailability = 'expiry_order_invalid';
+    else expiryWindowBlocks = expiredEntry.expirationBlock - expiredEntry.refBlock;
+    let availability = timingAvailability ?? windowAvailability;
+    if (availability === undefined && proofWaitBlocks !== undefined && expiryWindowBlocks !== undefined) {
+      availability =
+        !Number.isFinite(proofWaitBlocks) || proofWaitBlocks < 0
+          ? 'derived_wait_invalid'
+          : !Number.isFinite(expiryWindowBlocks) || expiryWindowBlocks <= 0
+            ? 'derived_window_invalid'
+            : 'available';
+    }
+    const failure: TransactionFailure = {
       point: 'node_verdict',
       type: failed.type,
       stage: failed.stage,
@@ -263,8 +564,23 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
       reason: 'never_committed',
       neverCommittedRule: judgement.neverCommittedBy,
       alreadyReported,
+      ...(judgement.neverCommittedBy !== 'expired' || failed.rawError === undefined
+        ? {}
+        : { priorError: failed.rawError }),
+      ...(failed.attemptId !== undefined &&
+      failed.submitEvidence?.length === 1 &&
+      failed.submitEvidence[0] !== undefined &&
+      failed.submitEvidence[0].attemptId === failed.attemptId &&
+      failed.submitEvidence[0].submitContext !== undefined
+        ? { priorSubmitContext: failed.submitEvidence[0].submitContext }
+        : {}),
+      ...(proofWaitBlocks === undefined ? {} : { proofWaitBlocks }),
+      ...(expiryWindowBlocks === undefined ? {} : { expiryWindowBlocks }),
+      ...submitApproach(failed),
       error: TRANSACTION_NEVER_COMMITTED_ERROR
-    });
+    };
+    if (judgement.neverCommittedBy === 'expired') annotateProofWaitAvailability(failure, availability);
+    reportTransactionFailure(failure);
   }
   return wrote;
 }
@@ -315,13 +631,16 @@ export async function judgeAndWrite(rowId: string, context: JudgeContext): Promi
   // A landing this call found but did not write still reads as one, so Retry refuses it rather than reach the
   // acknowledgeable refusal a plain send could pay twice through.
   const unsettled = judgement.landed !== undefined || judgement.landingHeld ? 'landing-pending' : 'pending';
+  // A swap landing that holds no order decodes its saved request here, before the network check that has to come
+  // right before the write: the decode can wait on the WASM lock.
+  const saved = judgement.landed === undefined ? NO_SAVED_ORDER : await savedRequestOrder(row.id);
   if (!(await networkStillMatches(context.node, decided))) {
     return { kind: unsettled, judgement, baseline: evidenceKey(judgement.judgedEntries) };
   }
   const baseline = evidenceKey(applyEntryWrites(judgement.judgedEntries, judgement));
 
   if (judgement.landed !== undefined) {
-    if (await writeLanding(row.id, judgement, accountKey)) return { kind: 'landed' };
+    if (await writeLanding(row.id, judgement, accountKey, saved)) return { kind: 'landed' };
     return { kind: 'landing-pending', judgement, baseline };
   }
   if (judgement.allDead && (await writeNeverCommitted(row.id, judgement, context.nowSec))) {
@@ -456,8 +775,9 @@ export interface CandidateRelease {
   /**
    * Asks the account's Guardian to abandon the candidate at `nonce` that the attempt `attemptId` kept. Undefined when
    * there is nothing to poll: this realm's record of the account's candidate is not that attempt's at that nonce
-   * (another realm, a restart, another write's record), its abandon window closed, the account's Guardian changed, no
-   * service could be built, or the abandon failed, so the Guardian may never have taken it.
+   * (another realm, a process that ended it without the startup sweep, another write's record), its abandon window
+   * closed, the account's Guardian changed, no service could be built, or the abandon failed, so the Guardian may never
+   * have taken it.
    */
   abandon(accountId: string, nonce: number, attemptId: string): Promise<KeptCandidatePoll | undefined>;
 }
@@ -497,7 +817,9 @@ const clearKeptCandidate = async (rowId: string, attemptId: string, nonce: numbe
  * (nothing asked, or an abandon that failed), or the time running out leaves it, and Retry's hold then waits for the
  * Guardian's own discard. Best-effort and bounded: a later pass joins this one meanwhile, which is rare (only right
  * after such a proof) and cheaper than a second release. The bound reads the monotonic clock and caps every read at
- * the time left, so neither a wall clock set back nor a Guardian slow to answer can hold the pass past it.
+ * the time left, so neither a wall clock set back nor a Guardian slow to answer can hold the pass past it, except on a
+ * read a freeze crosses: its cap is running time (#2060), which a freeze does not spend, so that read can run on for
+ * what was left of the cap after the resume, while the bound has already passed.
  */
 async function releaseKeptCandidates(
   accountId: string,
@@ -547,10 +869,11 @@ let runningPass: Promise<void> | undefined;
 
 /**
  * One reconciler pass in this realm (#1081), fired and forgotten after a successful sync; a second call joins the
- * running pass. Judging takes no WASM client lock: its reads go to the node. With a `release`, each kept Guardian
- * candidate of a row proven never committed adds a short WASM-lock read to build the cold service, a Guardian abandon
- * under the outgoing deadline, and at most 60 s of polling. Never rejects: each row is judged, and each candidate
- * released, in its own try.
+ * running pass. Its node reads take no WASM client lock. A swap landing that holds no order decodes its saved
+ * request in a short WASM-lock hold before the final network check, outside the Dexie transaction. With a `release`,
+ * each kept Guardian candidate of a row proven never committed adds a short WASM-lock read to build the cold service,
+ * a Guardian abandon under the outgoing deadline, and at most 60 s of polling. Never rejects: each row is judged, and
+ * each candidate released, in its own try.
  */
 export const reconcileUnconfirmedTransactions = (deps: ReconcileDeps = {}): Promise<void> => {
   runningPass ??= runPass(deps).finally(() => {

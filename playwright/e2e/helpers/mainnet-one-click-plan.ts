@@ -14,7 +14,12 @@ export function usdToMicroDollarsCeil(value: string): bigint {
   return whole * 1_000_000n + rounded + (/[1-9]/.test(remainder) ? 1n : 0n);
 }
 
-export function tokenValueUsdMicro(amountBaseUnits: bigint, decimals: number, priceUsdMicros: bigint, roundUp: boolean): bigint {
+export function tokenValueUsdMicro(
+  amountBaseUnits: bigint,
+  decimals: number,
+  priceUsdMicros: bigint,
+  roundUp: boolean
+): bigint {
   if (amountBaseUnits < 0n || priceUsdMicros < 0n || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 38) {
     throw new Error('Invalid token USD valuation input');
   }
@@ -30,8 +35,13 @@ export async function searchSmallestViableAmount<T>(options: {
   attempts: number;
   quote: (amount: bigint) => Promise<T | undefined>;
 }): Promise<{ amount: bigint; quote: T }> {
-  if (options.firstAmount <= 0n || options.maximumAmount < options.firstAmount ||
-      !Number.isSafeInteger(options.attempts) || options.attempts < 1 || options.attempts > 8) {
+  if (
+    options.firstAmount <= 0n ||
+    options.maximumAmount < options.firstAmount ||
+    !Number.isSafeInteger(options.attempts) ||
+    options.attempts < 1 ||
+    options.attempts > 8
+  ) {
     throw new Error('Invalid bounded 1Click amount search');
   }
   const digits = options.maximumAmount.toString().length - options.firstAmount.toString().length;
@@ -51,7 +61,44 @@ export async function searchSmallestViableAmount<T>(options: {
     const quote = await options.quote(amount);
     if (quote !== undefined) return { amount, quote };
   }
-  throw new Error('No viable 1Click quote found within the bounded dry-quote search; the smallest viable amount was not established');
+  throw new Error(
+    'No viable 1Click quote found within the bounded dry-quote search; the smallest viable amount was not established'
+  );
+}
+
+interface OneClickMidenBalance {
+  identity: string;
+  before: bigint;
+  after: bigint;
+}
+
+export function assertOneClickMidenBalances(evidence: {
+  principal: OneClickMidenBalance;
+  native: OneClickMidenBalance;
+  sent: bigint;
+  received: bigint;
+  paidFees: bigint;
+}): void {
+  const { principal, native, sent, received, paidFees } = evidence;
+  const amounts = [principal.before, principal.after, native.before, native.after, sent, received, paidFees];
+  if (
+    amounts.some(value => typeof value !== 'bigint' || value < 0n) ||
+    [principal.identity, native.identity].some(id => !/^[a-z0-9:_-]{1,160}$/.test(id))
+  )
+    throw new Error('Invalid Miden principal or fee evidence');
+  const sameAsset = principal.identity === native.identity;
+  if (sameAsset && (principal.before !== native.before || principal.after !== native.after))
+    throw new Error('Conflicting Miden snapshots for the same asset');
+  const principalFees = sameAsset ? paidFees : 0n;
+  const nativeSent = sameAsset ? sent : 0n;
+  const nativeReceived = sameAsset ? received : 0n;
+  if (principal.before < sent + principalFees || native.before < paidFees + nativeSent)
+    throw new Error('The pre-existing Miden balances do not cover principal and fees');
+  if (
+    principal.after !== principal.before - sent + received - principalFees ||
+    native.after !== native.before - nativeSent + nativeReceived - paidFees
+  )
+    throw new Error('Miden balances do not match correlated principal and actual fee receipts');
 }
 
 export interface OneClickLegBound {
@@ -85,9 +132,7 @@ function legLossUsdMicros(leg: OneClickLegBound): bigint {
   nonNegative('input USD value', leg.inputUsdMicros);
   nonNegative('minimum output USD value', leg.minimumOutputUsdMicros);
   nonNegative('native fee USD value', leg.nativeFeeUsdMicros);
-  return leg.inputUsdMicros > leg.minimumOutputUsdMicros
-    ? leg.inputUsdMicros - leg.minimumOutputUsdMicros
-    : 0n;
+  return leg.inputUsdMicros > leg.minimumOutputUsdMicros ? leg.inputUsdMicros - leg.minimumOutputUsdMicros : 0n;
 }
 
 export function planOneClickRoundTrip(candidate: OneClickRoundTripCandidate): OneClickRoundTripPlan {

@@ -16,12 +16,14 @@
  * - `settle`: bubble final landing (no bounce)
  * - `sheetPresent`: bottom sheet present/dismiss
  * - `dragRelease`: post-drag rebound
- * - `tabSwitch`: a tab bar's highlight sliding to the new tab — one visible
+ * - `tabSwitch`: a tab bar's highlight sliding to the new tab - one visible
  *   overshoot (~7%), settled within ~340ms even across three tabs
  * - `tabIconPop`: the newly active tab icon rising to its pop scale, quickly
  *   and without overshoot, before `tabSwitch` brings it back to rest
  * - `sheetOpen` / `sheetClose`: a vaul bottom sheet (`lib/animation/sheet.ts`);
  *   `tabSwitch` and `tabIconPop` at 1.25 times their duration
+ * - `morphExpand` / `morphCollapse` / `morphRelease`: the native dApp morph
+ *   (`lib/animation/morph.ts`), run by the plugin with the same physics
  */
 
 import type { Transition } from 'framer-motion';
@@ -39,6 +41,21 @@ const tabIconPop: Transition = { type: 'spring', stiffness: 900, damping: 40, ma
 const sheetOpen: Transition = { type: 'spring', stiffness: 435, damping: 24, mass: 0.8 };
 const sheetClose: Transition = { type: 'spring', stiffness: 576, damping: 32, mass: 0.6 };
 
+function responseSpring(response: number, dampingRatio: number): Transition {
+  return {
+    type: 'spring',
+    stiffness: ((2 * Math.PI) / response) ** 2,
+    damping: (4 * Math.PI * dampingRatio) / response,
+    mass: 1
+  };
+}
+
+// The iOS and Android morph drivers derive their stiffness and damping from these same response and
+// damping-ratio pairs, so the host companions that follow the page read the page's own curve.
+const morphExpand = responseSpring(0.42, 0.88);
+const morphCollapse = responseSpring(0.38, 0.9);
+const morphRelease = responseSpring(0.4, 0.82);
+
 export const springs = {
   snappy: { type: 'spring', stiffness: 500, damping: 38, mass: 1 } as Transition,
   standard: { type: 'spring', stiffness: 322, damping: 32, mass: 1 } as Transition,
@@ -49,7 +66,10 @@ export const springs = {
   tabSwitch,
   tabIconPop,
   sheetOpen,
-  sheetClose
+  sheetClose,
+  morphExpand,
+  morphCollapse,
+  morphRelease
 };
 
 export type SpringName = keyof typeof springs;

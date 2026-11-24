@@ -3,6 +3,7 @@ import {
   IBridgeProvider,
   IOneClickTrackingData,
   IBridgedReceivePhase,
+  IEpochLockedDeposit,
   IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
@@ -70,7 +71,7 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
-  /** A row whose outcome is unknown rather than confirmed-failed (`isOutcomeUnconfirmed`). */
+  /** A row whose outcome is unknown rather than confirmed-failed (`readsAsNotConfirmed`). */
   isUnconfirmed?: boolean;
   /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
   notConfirmedHint?: NotConfirmedHintKey | SubmissionMessageKey;
@@ -164,6 +165,8 @@ export interface IHistoryEntry {
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
+  /** When the row settled, in ms: the clock a burn confirmed before `confirmedAt` existed counts from. */
+  bridgeSettledAt?: number;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
   bridgeAgglayerRoute?: AgglayerRecoveryConfig;
@@ -214,6 +217,9 @@ export interface IHistoryEntry {
   bridgeInSourceToken?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
+  bridgeInStoppedBeforeSource?: boolean;
+  /** epoch: a deposit in The Compact that has no allocation, which Activity lets the sponsor recover (#2120). */
+  bridgeInLockedDeposit?: IEpochLockedDeposit;
   /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */
   bridgeInCctp?: IUsdcxCctpLeg;
   bridgeInOutputAmount?: string;

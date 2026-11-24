@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { formatUnits, parseUnits, type Hash } from 'viem';
 
+import { commandSendForm, confirmCommandSendReview, openCommandSendDetails } from './command-send';
 import { SEPOLIA_NETWORK, selectSendNetwork, type FieldNetwork } from './contact-network';
 import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
 import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
@@ -109,24 +110,17 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
   const epochTraffic = captureEpochTraffic(page);
 
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`);
-  await expect(page.getByTestId('send-flow')).toBeVisible({ timeout: step });
-  // The home swipe container keeps sibling panes (notably the swap flow) mounted,
-  // so shared testids like `send-token-selector` / `send-amount-input` are not
-  // unique document-wide. Scope every in-flow interaction to the active send
-  // flow; drawers are portaled to the document root and the review is a separate
-  // full-screen route, so those stay on `page`.
-  const flow = page.getByTestId('send-flow');
+  const flow = await commandSendForm(page, step);
 
   // Recipient: a 0x address flips the flow to cross-chain and reveals the network field.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
   await selectSendNetwork(page, SEPOLIA_NETWORK, step);
-  await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
-  // Amount: pick the funded token, type the amount.
+  // Pick the funded token and enter the amount in the same Command form.
   await flow.getByTestId('send-token-selector').click({ timeout: step });
   await page.getByTestId(`send-token-${opts.tokenSymbol}`).click({ timeout: step });
   await flow.getByTestId('send-amount-input').fill(opts.amount);
-  await flow.getByTestId('send-amount-confirm').click({ timeout: step });
+  const details = await openCommandSendDetails(page, step);
 
   // Route: Fast (Epoch) is the default. Selecting it explicitly guards against a
   // default change. The confirm button is never disabled, so gate on the real
@@ -137,8 +131,8 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
   // — and all three paint the same "—", so a text assertion cannot say which
   // happened, and `$0.00` from a missing fiat price would pass it. On failure this
   // reports the hook's own error plus the Epoch HTTP status/body.
-  await expect(flow.getByTestId('bridge-route-fast')).toBeVisible({ timeout: step });
-  await flow.getByTestId('bridge-route-fast').click();
+  await expect(details.getByTestId('bridge-route-fast')).toBeVisible({ timeout: step });
+  await details.getByTestId('bridge-route-fast').click();
   const quote = await waitForFastQuote(page, epochTraffic, { timeoutMs: opts.quoteTimeoutMs ?? 60_000 });
   // The fee the user sees must also render - the quote resolving in state while the
   // card still shows "—" is a real (and otherwise invisible) UI regression. An unpriced
@@ -154,10 +148,10 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
       message: `unpriced token (fiatPrice ${quote.fiatPrice ?? 'null'}): the Fast card must show the "—" placeholder and no "$" fee`
     }
   }[feeCase];
-  await expect(flow.getByTestId('bridge-route-fast'), fastCardText.message).toHaveText(fastCardText.pattern, {
+  await expect(details.getByTestId('bridge-route-fast'), fastCardText.message).toHaveText(fastCardText.pattern, {
     timeout: 15_000
   });
-  await flow.getByTestId('bridge-route-confirm').click();
+  await confirmCommandSendReview(page, step);
 
   // Review -> submit -> generating-transaction.
   await page.getByTestId('send-review-submit').click({ timeout: step });
@@ -182,30 +176,27 @@ const STEP_TIMEOUT_MS = 30_000;
 const REGISTRY_READ_TIMEOUT_MS = 60_000;
 
 /**
- * Drive the real Send flow to the cross-chain route step: 0x recipient -> Sepolia
- * -> token + amount -> confirm. UI-only, like `bridgeOutFast`.
+ * Open Command's cross-chain route details after choosing a 0x recipient, network, token and amount.
+ * UI-only, like `bridgeOutFast`.
  */
-export async function openRouteStep(wallet: Wallet, opts: BridgeOutSlowOptions): Promise<void> {
+export async function openCommandBridgeRoute(wallet: Wallet, opts: BridgeOutSlowOptions): Promise<void> {
   const { page, extensionId } = wallet;
   const step = opts.stepTimeoutMs ?? STEP_TIMEOUT_MS;
 
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`);
-  await expect(page.getByTestId('send-flow')).toBeVisible({ timeout: step });
-
-  const flow = page.getByTestId('send-flow');
+  const flow = await commandSendForm(page, step);
 
   // Recipient: a 0x address flips the flow to cross-chain and reveals the network field.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
   await selectSendNetwork(page, opts.network ?? SEPOLIA_NETWORK, step);
-  await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
-  // Amount: pick the funded token, type the amount.
+  // Pick the funded token and type the amount in Command.
   await flow.getByTestId('send-token-selector').click({ timeout: step });
   await page.getByTestId(`send-token-${opts.tokenSymbol}`).click({ timeout: step });
   await flow.getByTestId('send-amount-input').fill(opts.amount);
-  await flow.getByTestId('send-amount-confirm').click({ timeout: step });
 
-  await expect(flow.getByTestId('bridge-route-slow')).toBeVisible({ timeout: step });
+  const details = await openCommandSendDetails(page, step);
+  await expect(details.getByTestId('bridge-route-slow')).toBeVisible({ timeout: step });
 }
 
 /**
@@ -214,19 +205,21 @@ export async function openRouteStep(wallet: Wallet, opts: BridgeOutSlowOptions):
  * check-failed copy instead, which this assertion names.
  */
 export async function expectSlowRouteUnsupported(wallet: Wallet): Promise<void> {
-  const flow = wallet.page.getByTestId('send-flow');
+  const details = wallet.page.getByTestId('command-details');
   await expect(
-    flow.getByRole('status'),
+    details.getByRole('status'),
     'the registry must refuse this token; "Could not check this token" means the registry read threw'
   ).toHaveText('This token does not support the Slow route.', { timeout: REGISTRY_READ_TIMEOUT_MS });
-  await expect(flow.getByTestId('bridge-route-slow')).toBeDisabled();
+  await expect(details.getByTestId('bridge-route-slow')).toBeDisabled();
 }
 
-/** Back out of the route step to the amount step, which unmounts SendRoute and its registry answer. */
-export async function backToAmountStep(wallet: Wallet): Promise<void> {
-  const flow = wallet.page.getByTestId('send-flow');
-  await flow.getByTestId('flow-back').filter({ visible: true }).click({ timeout: STEP_TIMEOUT_MS });
-  await expect(flow.getByTestId('send-amount-confirm')).toBeVisible({ timeout: STEP_TIMEOUT_MS });
+/** Minimize Command to remount the route registry check after the E2E allowlist changes. */
+export async function minimizeCommandBridge(wallet: Wallet): Promise<void> {
+  await wallet.page.getByTestId('command-workbench').getByRole('button', { name: 'Minimize' }).click({
+    timeout: STEP_TIMEOUT_MS
+  });
+  await expect(wallet.page.getByTestId('command-shell')).toBeVisible({ timeout: STEP_TIMEOUT_MS });
+  await expect(wallet.page.getByTestId('command-workbench')).toHaveCount(0);
 }
 
 /** The real registry approves the bridge's own faucet: the one check of the approving branch against a node. */
@@ -258,25 +251,28 @@ export async function allowAgglayerFaucetForE2E(page: Page, faucetHex: string): 
   }, faucetHex);
 }
 
-/** Confirm the amount step, so a fresh route step mounts and checks the registry again. */
-export async function confirmAmountStep(wallet: Wallet): Promise<void> {
-  const flow = wallet.page.getByTestId('send-flow');
-  await flow.getByTestId('send-amount-confirm').click({ timeout: STEP_TIMEOUT_MS });
-  await expect(flow.getByTestId('bridge-route-slow')).toBeVisible({ timeout: STEP_TIMEOUT_MS });
+/** Reopen the saved Command draft so a fresh route check sees the updated allowlist. */
+export async function reopenCommandBridge(wallet: Wallet, recipient: string, amount: string): Promise<void> {
+  await wallet.navigateTo('/send');
+  const form = await commandSendForm(wallet.page, STEP_TIMEOUT_MS);
+  await expect(form.getByTestId('send-recipient-input')).toHaveValue(recipient);
+  await expect(form.getByTestId('send-amount-input')).toHaveValue(amount);
+  const details = await openCommandSendDetails(wallet.page, STEP_TIMEOUT_MS);
+  await expect(details.getByTestId('bridge-route-slow')).toBeVisible({ timeout: STEP_TIMEOUT_MS });
 }
 
 /**
- * On the route step, take Slow and submit through review, ending on the
+ * In Command's route details, take Slow and submit through review, ending on the
  * generating-transaction screen. Slow is enabled only for a token the bridge
  * registry lists or one allowlisted with `allowAgglayerFaucetForE2E`.
  */
 export async function selectSlowAndSubmit(wallet: Wallet, stepTimeoutMs = STEP_TIMEOUT_MS): Promise<void> {
   const { page } = wallet;
-  const flow = page.getByTestId('send-flow');
+  const details = page.getByTestId('command-details');
 
-  await expect(flow.getByTestId('bridge-route-slow')).toBeEnabled({ timeout: REGISTRY_READ_TIMEOUT_MS });
-  await flow.getByTestId('bridge-route-slow').click();
-  await flow.getByTestId('bridge-route-confirm').click({ timeout: stepTimeoutMs });
+  await expect(details.getByTestId('bridge-route-slow')).toBeEnabled({ timeout: REGISTRY_READ_TIMEOUT_MS });
+  await details.getByTestId('bridge-route-slow').click();
+  await confirmCommandSendReview(page, stepTimeoutMs);
 
   // Review -> submit -> generating-transaction.
   await page.getByTestId('send-review-submit').click({ timeout: stepTimeoutMs });
@@ -290,7 +286,7 @@ export async function selectSlowAndSubmit(wallet: Wallet, stepTimeoutMs = STEP_T
  * allowlisted with `allowAgglayerFaucetForE2E`; for any other token this fails.
  */
 export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions): Promise<void> {
-  await openRouteStep(wallet, opts);
+  await openCommandBridgeRoute(wallet, opts);
   await selectSlowAndSubmit(wallet, opts.stepTimeoutMs);
 }
 
@@ -298,6 +294,13 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
 export interface UsdcxBalanceSnapshotRow {
   balance: string;
   blockNumber: string;
+}
+
+/** Circle's mint that paid a USDCx burn, as the wallet recorded it: base units and the block as decimal strings. */
+export interface UsdcxPayoutRow {
+  transactionHash: string;
+  blockNumber: string;
+  value: string;
 }
 
 export interface UsdcxBurnRow {
@@ -308,8 +311,12 @@ export interface UsdcxBurnRow {
   lastError?: string;
   /** Read before the burn was queued (usdcx/burn.ts). */
   destinationBalanceBefore?: UsdcxBalanceSnapshotRow;
-  /** The balance that met the expected payout: the wallet's own destination confirmation. */
+  /** The balance that met the expected payout: how the wallet confirmed a burn before it read the payout mint. */
   destinationBalanceConfirmed?: UsdcxBalanceSnapshotRow;
+  /** The payout mint whose transaction carries the burn note id: the wallet's own destination confirmation. */
+  payout?: UsdcxPayoutRow;
+  /** The last payout-chain block the wallet's scan for that mint covered. */
+  payoutScannedBlock?: string;
   attemptCount?: number;
   lastAttemptBlockNum?: number;
 }
@@ -455,6 +462,15 @@ function balanceSnapshotOf(source: JsonObject | undefined): UsdcxBalanceSnapshot
   return balance !== undefined && blockNumber !== undefined ? { balance, blockNumber } : undefined;
 }
 
+function payoutOf(source: JsonObject | undefined): UsdcxPayoutRow | undefined {
+  const transactionHash = stringField(source, 'transactionHash');
+  const blockNumber = stringField(source, 'blockNumber');
+  const value = stringField(source, 'value');
+  return transactionHash !== undefined && blockNumber !== undefined && value !== undefined
+    ? { transactionHash, blockNumber, value }
+    : undefined;
+}
+
 function usdcxBurnOf(source: JsonObject | undefined): UsdcxBurnRow | undefined {
   const noteId = stringField(source, 'noteId');
   const destinationDomain = numberField(source, 'destinationDomain');
@@ -467,6 +483,8 @@ function usdcxBurnOf(source: JsonObject | undefined): UsdcxBurnRow | undefined {
     lastError: stringField(source, 'lastError'),
     destinationBalanceBefore: balanceSnapshotOf(objectField(source, 'destinationBalanceBefore')),
     destinationBalanceConfirmed: balanceSnapshotOf(objectField(source, 'destinationBalanceConfirmed')),
+    payout: payoutOf(objectField(source, 'payout')),
+    payoutScannedBlock: stringField(source, 'payoutScannedBlock'),
     attemptCount: numberField(source, 'attemptCount'),
     lastAttemptBlockNum: numberField(source, 'lastAttemptBlockNum')
   };
@@ -758,7 +776,7 @@ export function burnSubmitFailure(payoutChain: PayoutChain, reviewError: string,
 }
 
 /** The value cell of the review's detail row labelled `label` (`DetailRow`: a label span beside a value div). */
-function detailRowValue(page: Page, label: string) {
+export function detailRowValue(page: Page, label: string) {
   if (label.includes('"')) throw new Error(`detailRowValue: label ${label} cannot be quoted in XPath`);
   return page.locator(`xpath=//div[span[normalize-space(.)="${label}"]]/div`);
 }
@@ -773,10 +791,12 @@ function payoutRowValue(scope: Page | Locator, testId: string): Locator {
 
 function readNetworkChips(page: Page): Promise<NetworkChipState[]> {
   return page.locator(`${OPEN_SHEET} [data-testid^="send-network-"]`).evaluateAll(elements =>
-    elements.map(element => ({
-      testId: element.getAttribute('data-testid') ?? '',
-      pressed: element.getAttribute('aria-pressed')
-    }))
+    elements
+      .map(element => ({
+        testId: element.getAttribute('data-testid') ?? '',
+        pressed: element.getAttribute('aria-pressed')
+      }))
+      .filter(({ testId }) => testId !== 'send-network-picker' && testId !== 'send-network-options')
   );
 }
 
@@ -803,33 +823,27 @@ export async function expectArcPreselected(page: Page, timeoutMs: number): Promi
   await page.getByTestId(ARC_CHIP).waitFor({ state: 'hidden', timeout: timeoutMs });
 }
 
-/** What a USDCx burn's payout rows read (`UsdcxPayoutRows`). */
+/** What a USDCx burn's payout row reads (`UsdcxPayoutRows`). */
 export interface UsdcxPayoutRowsText {
-  /** `usdcx-payout-fee`: the most Circle takes. */
+  /** `usdcx-payout-fee`: Circle's fee, which varies and is bounded by nothing the wallet shows. */
   fee: string;
-  /** `usdcx-payout-net`: the least the recipient receives. */
-  net: string;
 }
 
 /**
- * The payout rows a burn of `amount` USDCx to `chainId` shows, from the wallet's own fee allowance table. Throws when
- * the allowance takes the whole amount: the wallet refuses that burn and leaves out its `usdcx-payout-net` row.
+ * The payout row a burn of `amount` USDCx to `chainId` shows. Throws when the destination's fee allowance takes the
+ * whole amount: the wallet still refuses that burn.
  */
 export function usdcxPayoutRowsText(chainId: number, amount: string): UsdcxPayoutRowsText {
   const destination = USDCX_DESTINATIONS.get(chainId);
   if (destination === undefined) throw new Error(`usdcxPayoutRowsText: chain ${chainId} is not a USDCx destination`);
   const allowance = formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS);
-  const payout = minimumUsdcxPayout(chainId, parseUnits(amount, USDCX_DECIMALS));
-  if (payout <= 0n) {
+  if (minimumUsdcxPayout(chainId, parseUnits(amount, USDCX_DECIMALS)) <= 0n) {
     throw new Error(
       `${amount} USDCx does not exceed the ${allowance} USDC payout fee allowance on ${destination.chain.name}, ` +
         'so the wallet refuses the burn'
     );
   }
-  return {
-    fee: enText('usdcxPayoutFeeUpTo', { amount: allowance }),
-    net: enText('usdcxPayoutAtLeast', { amount: formatUnits(payout, USDCX_DECIMALS) })
-  };
+  return { fee: enText('usdcxPayoutFeeVaries') };
 }
 
 /**
@@ -866,7 +880,7 @@ export interface BridgeOutUsdcxOptions {
   stepTimeoutMs?: number;
   /** Where usdcx-route.png, usdcx-review-light.png and usdcx-review-dark.png go. */
   screenshotDir: string;
-  /** Where Circle pays the burn (default Arc Testnet): the network picked, the review's network and the payout rows. */
+  /** Where Circle pays the burn (default Arc Testnet): the network picked, the review's network and the payout row. */
   payoutChain?: PayoutChain;
 }
 
@@ -879,7 +893,7 @@ export interface BridgeOutUsdcxResult {
  * Burn the native USDCx to an address on `opts.payoutChain` (default Arc Testnet) through the real Send UI (spec
  * section 5 step 6), ending on the generating-transaction screen. Checks on the way: exactly the four USDCx
  * destinations in the network sheet with Arc pressed by default, the closed field naming the destination picked, the
- * route subtitle and fee row naming the native symbol, the payout rows and the burn notice on route and review, and
+ * route subtitle and fee row naming the native symbol, the payout fee row and the burn notice on route and review, and
  * the review's network.
  */
 export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions): Promise<BridgeOutUsdcxResult> {
@@ -899,50 +913,36 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
   await page.goto(
     `chrome-extension://${extensionId}/fullpage.html#/send?tokenId=${encodeURIComponent(opts.nativeTokenId)}`
   );
-  const flow = page.getByTestId('send-flow');
-  await expect(flow).toBeVisible({ timeout: step });
+  const flow = await commandSendForm(page, step);
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
   await expectArcPreselected(page, step);
   await selectSendNetwork(page, { id: payoutChain.reviewNetwork, name: payoutChain.networkName }, step);
-  await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
   await flow.getByTestId('send-amount-input').fill(opts.amount);
-  await flow.getByTestId('send-amount-confirm').click({ timeout: step });
 
-  const route = flow.getByTestId('bridge-route-usdcx');
+  const details = await openCommandSendDetails(page, step);
+  const route = details.getByTestId('bridge-route-usdcx');
   await expect(route).toBeVisible({ timeout: step });
   // The route is forced for the native token; the click only guards against that changing.
   await route.click({ timeout: step });
   await expect(route.getByText(routeFees, { exact: true }), 'the route names the native fee asset').toBeVisible({
     timeout: step
   });
-  await expect(payoutRowValue(flow, 'usdcx-payout-fee'), "the route quotes Circle's fee allowance").toHaveText(
+  await expect(payoutRowValue(details, 'usdcx-payout-fee'), "the route says Circle's fee varies").toHaveText(
     payout.fee,
     { timeout: step }
   );
-  await expect(
-    payoutRowValue(flow, 'usdcx-payout-net'),
-    'the route quotes the least the recipient receives'
-  ).toHaveText(payout.net);
-  await expect(flow.getByTestId('usdcx-burn-notice')).toHaveText(notice, { timeout: step });
+  await expect(details.getByTestId('usdcx-burn-notice')).toHaveText(notice, { timeout: step });
   await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-route.png') });
-  await flow.getByTestId('bridge-route-confirm').click({ timeout: step });
-
-  await page.waitForURL(/#\/send\/review\?/, { timeout: step });
+  await confirmCommandSendReview(page, step);
   const reviewUrl = page.url();
   expect(reviewQueryParam(reviewUrl, 'network'), `the review is for ${payoutChain.networkName}`).toBe(
     payoutChain.reviewNetwork
   );
   await expect(detailRowValue(page, enText('network'))).toHaveText(payoutChain.networkName, { timeout: step });
-  await expect(detailRowValue(page, enText('networkFee')), 'the fee row names the native fee asset').toHaveText(
-    sponsorshipFee
-  );
-  await expect(payoutRowValue(page, 'usdcx-payout-fee'), "the review quotes Circle's fee allowance").toHaveText(
-    payout.fee
-  );
-  await expect(
-    payoutRowValue(page, 'usdcx-payout-net'),
-    'the review quotes the least the recipient receives'
-  ).toHaveText(payout.net);
+  const maximumFee = detailRowValue(page, enText('networkFeeMax'));
+  await expect(maximumFee, 'the maximum fee row names the native fee asset').toContainText(sponsorshipFee);
+  await expect(maximumFee.locator(':scope > div:first-child')).toContainText(opts.nativeSymbol);
+  await expect(payoutRowValue(page, 'usdcx-payout-fee'), "the review says Circle's fee varies").toHaveText(payout.fee);
   await expect(page.getByTestId('usdcx-burn-notice')).toHaveText(notice);
   await waitForReviewSubmitEnabled(page, REVIEW_READY_TIMEOUT_MS);
   await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-light.png') });

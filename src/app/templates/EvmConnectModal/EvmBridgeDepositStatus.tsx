@@ -3,9 +3,11 @@ import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { IconName } from 'app/icons/v2';
 import { creditedAmount, formatMoneyAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { EmptyState } from 'components/ui/EmptyState';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransaction } from 'lib/miden/db/types';
@@ -34,6 +36,8 @@ interface EvmBridgeDepositStatusProps {
   /** The new row returned by this mounted deposit flow, absent when viewing history. */
   newSubmissionTxId?: string;
   onDone: () => void;
+  /** The mounted flow is still creating/signing/confirming the source deposit; absent in history views. */
+  submissionPending?: boolean;
   /**
    * The deposit has taken one wallet confirmation and is about to ask for the next. The Slow (AggLayer)
    * and USDCx routes can say this: the screen raises their approve and their bridge, deposit or burn
@@ -127,10 +131,11 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   txId,
   newSubmissionTxId,
   onDone,
+  submissionPending = false,
   awaitingNextConfirmation = false
 }) => {
   const { t } = useTranslation();
-  const { row, loaded } = useTransactionRow(txId);
+  const { row, loaded, readFailed } = useTransactionRow(txId);
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
@@ -148,7 +153,12 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
     : isUserErrorId(inputs.errorId)
       ? inputs.errorId
       : 'raw_bridge_deposit_failed';
-  useUserVisibleError(matchingRow && inputs.phase === 'failed' && failureIsFresh ? failureId : null, 'status_screen');
+  useUserVisibleError(
+    matchingRow && !readFailed && inputs.phase === 'failed' && failureIsFresh ? failureId : null,
+    'status_screen'
+  );
+
+  if (readFailed) return <EmptyState icon={IconName.Warning} title={t('historyDetailsLoadError')} role="status" />;
 
   if (!loaded || !row || row.id !== txId || inputs === undefined)
     return (
@@ -171,6 +181,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
+  const dismissalBlocked = inputs.provider === 'usdcx' && submissionPending && !failed;
   // A failure has its own message, and a submitted deposit has left this screen, so the wait only
   // speaks while the deposit is still in flight.
   const waiting = awaitingNextConfirmation && !failed && !submitted;
@@ -244,17 +255,19 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">
       <FlowLayout
         title={t('transactionProcessingHeader')}
-        onClose={onDone}
+        onClose={dismissalBlocked ? undefined : onDone}
         footer={
-          <Button
-            type="button"
-            accent="receive"
-            variant={ButtonVariant.Primary}
-            onClick={onDone}
-            className="w-full max-w-none"
-          >
-            {failed ? t('done') : t('hide')}
-          </Button>
+          !dismissalBlocked && (
+            <Button
+              type="button"
+              accent="receive"
+              variant={ButtonVariant.Primary}
+              onClick={onDone}
+              className="w-full max-w-none"
+            >
+              {failed ? t('done') : t('hide')}
+            </Button>
+          )
         }
       >
         <section className="flex w-full flex-col items-center pt-5">

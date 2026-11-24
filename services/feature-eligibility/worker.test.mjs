@@ -11,16 +11,19 @@ import { resolveDeploymentSource } from '../../scripts/feature-eligibility-deplo
 class MemoryStorage {
   values = new Map();
   queue = Promise.resolve();
+  writes = 0;
 
   async get(key) {
     return structuredClone(this.values.get(key));
   }
 
   async put(key, value) {
+    this.writes += 1;
     this.values.set(key, structuredClone(value));
   }
 
   async delete(keys) {
+    this.writes += 1;
     for (const key of Array.isArray(keys) ? keys : [keys]) this.values.delete(key);
   }
 
@@ -34,6 +37,7 @@ class MemoryStorage {
   }
 
   async setAlarm(value) {
+    this.writes += 1;
     this.alarm = value;
   }
 
@@ -57,9 +61,17 @@ const policy = (overrides = {}) => ({
   ...overrides
 });
 
-const oneClick = {
+const usdcx = { assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 };
+const nearIntents = {
   serviceUrl: 'https://one-click.example/api',
-  midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 }]
+  midenAssets: { usdcx },
+  chains: {
+    eth: {
+      name: 'Ethereum',
+      addressKind: 'evm',
+      tokens: { USDC: { assetId: 'eth:usdc', decimals: 6, miden: ['usdcx'] } }
+    }
+  }
 };
 
 const walletRules = {
@@ -79,6 +91,11 @@ const walletRules = {
 function harness(options = {}) {
   const storage = new MemoryStorage();
   const calls = [];
+  const globalTargets = [];
+  const callerStates = new Map();
+  const rateEvents = [];
+  const callerRate = new Map();
+  const coloRate = new Map();
   let clock = Date.UTC(2026, 9, 20, 12);
   let currentPolicy = options.policy ?? policy();
   const env = {
@@ -93,7 +110,7 @@ function harness(options = {}) {
   const fetchImpl = async (url, init) => {
     calls.push({ url: String(url), init });
     if (String(url).startsWith('https://raw.githubusercontent.com/0xMiden/wallet-config/main/')) {
-      return options.policyResponse ? options.policyResponse(init) : Response.json(currentPolicy);
+      return options.policyResponse ? options.policyResponse(init, url) : Response.json(currentPolicy);
     }
     if (options.lookupResponse) return options.lookupResponse(init);
     return Response.json(options.place ?? { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] });
@@ -102,18 +119,64 @@ function harness(options = {}) {
   let guard = new service.EligibilityGuard({ storage }, env);
   env.ELIGIBILITY_GUARD = {
     idFromName: name => name,
-    get: () => ({ fetch: request => guard.fetch(request) })
+    get: name => {
+      globalTargets.push(name);
+      return {
+        fetch: request =>
+          options.globalFetch ? options.globalFetch(request, value => guard.fetch(value)) : guard.fetch(request)
+      };
+    }
+  };
+  env.CALLER_GUARD = {
+    idFromName: name => name,
+    get: name => {
+      rateEvents.push({ binding: 'durable_object', key: name });
+      let entry = callerStates.get(name);
+      if (!entry) {
+        entry = { storage: new MemoryStorage() };
+        callerStates.set(name, entry);
+      }
+      entry.guard ??= new service.CallerEligibilityGuard({ storage: entry.storage }, env);
+      return { fetch: request => entry.guard.fetch(request) };
+    }
+  };
+  env.CALLER_RATE_LIMIT = {
+    limit: async ({ key }) => {
+      rateEvents.push({ binding: 'caller', key });
+      const entry = callerRate.get(key) ?? { count: 0, window: clock };
+      if (clock - entry.window >= 60_000) { entry.count = 0; entry.window = clock; }
+      const success = entry.count < Number(env.CALLER_REQUESTS_PER_MINUTE);
+      if (success) entry.count += 1;
+      callerRate.set(key, entry);
+      return { success };
+    }
+  };
+  env.COLO_RATE_LIMIT = {
+    limit: async ({ key }) => {
+      rateEvents.push({ binding: 'colo', key });
+      const entry = coloRate.get(key) ?? { count: 0, window: clock };
+      if (clock - entry.window >= 10_000) { entry.count = 0; entry.window = clock; }
+      const success = entry.count < (options.coloLimit ?? 5000);
+      if (success) entry.count += 1;
+      coloRate.set(key, entry);
+      return { success };
+    }
   };
   const request = async ({
     path = '/v1/eligibility',
     query = 'network=testnet',
     method = 'GET',
     headers = {},
+    origin = 'https://wallet.example',
     cf = { colo: 'ZRH' }
   } = {}) => {
     const incoming = new Request(`https://eligibility.example${path}?${query}`, {
       method,
-      headers: { 'CF-Connecting-IP': '203.0.113.7', Origin: 'https://wallet.example', ...headers }
+      headers: {
+        'CF-Connecting-IP': '203.0.113.7',
+        ...(origin === null ? {} : { Origin: origin }),
+        ...headers
+      }
     });
     Object.defineProperty(incoming, 'cf', { value: cf });
     return service.fetch(incoming, env);
@@ -121,9 +184,16 @@ function harness(options = {}) {
   return {
     request,
     calls,
+    env,
+    globalTargets,
+    rateEvents,
+    callerStates,
     storage,
     guard,
-    restart: () => (guard = new service.EligibilityGuard({ storage }, env)),
+    restart: () => {
+      guard = new service.EligibilityGuard({ storage }, env);
+      for (const entry of callerStates.values()) delete entry.guard;
+    },
     advance: ms => (clock += ms),
     setPolicy: value => (currentPolicy = value),
     paidCalls: () => calls.filter(call => call.url.startsWith('https://geoip.maxmind.com/'))
@@ -134,7 +204,11 @@ test('returns only decisions and accepted policy version, using the edge caller 
   const h = harness();
   const response = await h.request({ headers: { 'X-Forwarded-For': '198.51.100.8', 'X-Real-IP': '198.51.100.9' } });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } });
+  assert.deepEqual(await response.json(), {
+    network: 'testnet',
+    version: 13,
+    allowed: { wallet: true, earn: true, swap: true }
+  });
   assert.equal(h.paidCalls()[0].url, 'https://geoip.maxmind.com/geoip/v2.1/city/203.0.113.7');
   assert.equal(h.paidCalls()[0].init.headers.Authorization, `Basic ${btoa('example-account:example-license')}`);
   assert.equal(h.paidCalls()[0].init.redirect, 'manual');
@@ -143,11 +217,180 @@ test('returns only decisions and accepted policy version, using the edge caller 
   assert.equal(response.headers.get('Vary'), 'Origin');
   assert.ok(!JSON.stringify([...h.storage.values]).includes('203.0.113.7'));
   assert.ok(!JSON.stringify([...h.storage.values]).includes('country'));
+  for (const entry of h.callerStates.values()) {
+    assert.ok(!JSON.stringify([...entry.storage.values]).includes('203.0.113.7'));
+    assert.ok(!JSON.stringify([...entry.storage.values]).includes('country'));
+  }
+});
+
+test('applies caller and colo rate bindings before routing to the caller object', async () => {
+  const h = harness();
+  const response = await h.request();
+  assert.equal(response.status, 200);
+  assert.deepEqual(h.rateEvents.map(event => event.binding), ['caller', 'colo', 'durable_object']);
+  assert.match(h.rateEvents[0].key, /^[a-f0-9]{64}$/);
+  assert.equal(h.rateEvents[1].key, 'colo:ZRH');
+  assert.equal(h.rateEvents[2].key, 'cache:ZRH');
+});
+
+test('rate refusals never contact a durable object', async () => {
+  const caller = harness();
+  caller.env.CALLER_RATE_LIMIT.limit = async () => ({ success: false });
+  let response = await caller.request();
+  assert.equal(response.status, 429);
+  assert.deepEqual(await response.json(), { error: 'rate_limited' });
+  assert.equal(response.headers.get('Retry-After'), '60');
+  assert.equal(caller.callerStates.size, 0);
+
+  const colo = harness();
+  colo.env.COLO_RATE_LIMIT.limit = async () => ({ success: false });
+  response = await colo.request();
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('Retry-After'), '10');
+  assert.equal(colo.callerStates.size, 0);
+});
+
+test('validation and origin failures have distinct private bodies', async () => {
+  const h = harness();
+  const badRequest = await h.request({ query: 'network=invalid' });
+  assert.equal(badRequest.status, 400);
+  assert.deepEqual(await badRequest.json(), { error: 'bad_request' });
+  const forbidden = await h.request({ headers: { Origin: 'https://other.example' } });
+  assert.equal(forbidden.status, 403);
+  assert.deepEqual(await forbidden.json(), { error: 'forbidden' });
+  assert.equal(h.callerStates.size, 0);
+});
+
+test('accepts extension service-worker requests that omit Origin', async () => {
+  const h = harness();
+  const response = await h.request({ origin: null });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'), null);
+  assert.deepEqual(h.globalTargets, ['global-v1']);
+});
+
+test('overloaded caller objects fail closed without retrying', async () => {
+  const h = harness();
+  let attempts = 0;
+  h.env.CALLER_GUARD.get = () => ({ fetch: () => { attempts += 1; throw Object.assign(new Error('overloaded'), { overloaded: true }); } });
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'overloaded' });
+  assert.equal(response.headers.get('Retry-After'), '30');
+  assert.equal(attempts, 1);
+});
+
+test('an overloaded budget object returns the overload class without a paid lookup', async () => {
+  const h = harness();
+  let attempts = 0;
+  h.storage.transaction = async () => {
+    attempts += 1;
+    throw Object.assign(new Error('overloaded'), { overloaded: true });
+  };
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'overloaded' });
+  assert.equal(response.headers.get('Retry-After'), '30');
+  assert.equal(attempts, 1);
+  assert.deepEqual(h.globalTargets, ['global-v1']);
+  assert.equal(h.rateEvents.filter(event => event.binding === 'durable_object').length, 1);
+  assert.equal(h.paidCalls().length, 0);
+  assert.equal(h.storage.values.get('budget'), undefined);
+  assert.equal([...h.storage.values.keys()].some(key => key.startsWith('lease:')), false);
+});
+
+test('a generic budget storage failure stays eligibility_unavailable', async () => {
+  const h = harness();
+  h.storage.transaction = async () => { throw new Error('budget down'); };
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'eligibility_unavailable' });
+  assert.equal(response.headers.get('Retry-After'), null);
+  assert.equal(h.paidCalls().length, 0);
+  assert.equal(h.globalTargets.length, 1);
+});
+
+test('an inexact internal overload response stays generic and private', async () => {
+  const h = harness({
+    globalFetch: async () => Response.json(
+      { error: 'overloaded', detail: 'secret' },
+      { status: 503, headers: { 'Retry-After': '30' } }
+    )
+  });
+  const response = await h.request();
+  const body = await response.json();
+  assert.equal(response.status, 503);
+  assert.deepEqual(body, { error: 'eligibility_unavailable' });
+  assert.equal(response.headers.get('Retry-After'), null);
+  assert.doesNotMatch(JSON.stringify(body), /secret/);
+  assert.equal(h.paidCalls().length, 0);
+});
+
+test('an external overload-shaped response stays generic and private', async () => {
+  for (const source of ['policyResponse', 'lookupResponse']) {
+    const h = harness({
+      [source]: async () => Response.json(
+        { error: 'overloaded', detail: `secret-${source}` },
+        { status: 503, headers: { 'Retry-After': '30' } }
+      )
+    });
+    const response = await h.request();
+    const body = await response.json();
+    assert.equal(response.status, 503);
+    assert.deepEqual(body, { error: 'eligibility_unavailable' });
+    assert.equal(response.headers.get('Retry-After'), null);
+    assert.doesNotMatch(JSON.stringify(body), /secret/);
+    assert.equal(h.paidCalls().length, source === 'policyResponse' ? 0 : 1);
+    assert.equal(h.globalTargets.length, source === 'policyResponse' ? 0 : 1);
+  }
+});
+
+test('one retryable caller object error gets a fresh stub and one bounded retry', async () => {
+  const h = harness({ timeoutMs: 100 });
+  let stubs = 0;
+  const originalGet = h.env.CALLER_GUARD.get;
+  h.env.CALLER_GUARD.get = name => {
+    stubs += 1;
+    if (stubs === 1) return { fetch: () => { throw Object.assign(new Error('reset'), { retryable: true }); } };
+    return originalGet(name);
+  };
+  assert.equal((await h.request()).status, 200);
+  assert.equal(stubs, 2);
+  assert.equal(h.paidCalls().length, 1);
+});
+
+test('a warm decision makes no durable writes', async () => {
+  const h = harness();
+  assert.equal((await h.request()).status, 200);
+  const entry = [...h.callerStates.values()][0];
+  const callerWrites = entry.storage.writes;
+  const budgetWrites = h.storage.writes;
+  assert.equal((await h.request()).status, 200);
+  assert.equal(entry.storage.writes, callerWrites);
+  assert.equal(h.storage.writes, budgetWrites);
+});
+
+test('two colo caches share only the global lease budget under a bounded mock burst', async () => {
+  const h = harness({ timeoutMs: 1000 });
+  const requests = Array.from({ length: 16 }, (_, index) => ({
+    cf: { colo: index % 2 ? 'ZRH' : 'FRA' },
+    headers: { 'CF-Connecting-IP': `203.0.113.${index + 1}` }
+  }));
+  const cold = await Promise.all(requests.map(options => h.request(options)));
+  assert.ok(cold.every(response => response.status === 200));
+  assert.deepEqual([...h.callerStates.keys()].sort(), ['cache:FRA', 'cache:ZRH']);
+  assert.equal(h.paidCalls().length, 16);
+  assert.equal(h.storage.values.get('budget').count, 16);
+  const before = [...h.callerStates.values()].map(entry => entry.storage.writes);
+  const warm = await Promise.all(requests.map(options => h.request(options)));
+  assert.ok(warm.every(response => response.status === 200));
+  assert.equal(h.paidCalls().length, 16);
+  assert.deepEqual([...h.callerStates.values()].map(entry => entry.storage.writes), before);
 });
 
 test('enables swap for explicitly enabled Near Intents with a usable 1Click mapping', async () => {
   const h = harness({
-    policy: policy({ features: { earn: false, nearIntents: true }, swap: { oneClick } })
+    policy: policy({ features: { earn: false, nearIntents: true }, swap: {}, nearIntents })
   });
   const response = await h.request();
   assert.equal(response.status, 200);
@@ -155,19 +398,41 @@ test('enables swap for explicitly enabled Near Intents with a usable 1Click mapp
   assert.equal(h.paidCalls().length, 0);
 });
 
-for (const [name, features, swap] of [
-  ['missing switch', { earn: false }, { oneClick }],
-  ['disabled switch', { earn: false, nearIntents: false }, { oneClick }],
-  ['missing 1Click config', { earn: false, nearIntents: true }, {}],
-  ['missing asset mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [] } }],
-  ['invalid service URL', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, serviceUrl: 'http://one-click.example' } }],
-  ['invalid asset mapping', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [{ assetId: 'miden:usdc', faucetId: 'bad', decimals: 6 }] } }],
-  ['invalid additional mapping', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { assetId: 'miden:bad', faucetId: 'bad', decimals: 6 }] } }],
-  ['duplicate asset mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], faucetId: `0x${'cd'.repeat(15)}` }] } }],
-  ['duplicate faucet mappings', { earn: false, nearIntents: true }, { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], assetId: 'miden:other' }] } }]
+for (const [name, features, section] of [
+  ['missing switch', { earn: false }, nearIntents],
+  ['disabled switch', { earn: false, nearIntents: false }, nearIntents],
+  ['missing section', { earn: false, nearIntents: true }, undefined],
+  ['the old swap.oneClick list shape', { earn: false, nearIntents: true }, { ...nearIntents, midenAssets: [usdcx] }],
+  ['missing asset mappings', { earn: false, nearIntents: true }, { ...nearIntents, midenAssets: {} }],
+  ['missing chains', { earn: false, nearIntents: true }, { ...nearIntents, chains: {} }],
+  [
+    'invalid service URL',
+    { earn: false, nearIntents: true },
+    { ...nearIntents, serviceUrl: 'http://one-click.example' }
+  ],
+  [
+    'invalid asset mapping',
+    { earn: false, nearIntents: true },
+    { ...nearIntents, midenAssets: { usdcx: { ...usdcx, faucetId: 'bad' } } }
+  ],
+  [
+    'invalid additional mapping',
+    { earn: false, nearIntents: true },
+    { ...nearIntents, midenAssets: { usdcx, bad: { assetId: 'miden:bad', faucetId: 'bad', decimals: 6 } } }
+  ],
+  [
+    'duplicate asset mappings',
+    { earn: false, nearIntents: true },
+    { ...nearIntents, midenAssets: { usdcx, other: { ...usdcx, faucetId: `0x${'cd'.repeat(15)}` } } }
+  ],
+  [
+    'duplicate faucet mappings',
+    { earn: false, nearIntents: true },
+    { ...nearIntents, midenAssets: { usdcx, other: { ...usdcx, assetId: 'miden:other' } } }
+  ]
 ]) {
   test(`does not enable Near Intents for ${name}`, async () => {
-    const response = await harness({ policy: policy({ features, swap }) }).request();
+    const response = await harness({ policy: policy({ features, swap: {}, nearIntents: section }) }).request();
     assert.equal(response.status, 200);
     assert.equal((await response.json()).allowed.swap, false);
   });
@@ -175,17 +440,18 @@ for (const [name, features, swap] of [
 
 test('rejects a nonboolean Near Intents switch', async () => {
   const response = await harness({
-    policy: policy({ features: { earn: false, nearIntents: 'true' }, swap: { oneClick } })
+    policy: policy({ features: { earn: false, nearIntents: 'true' }, swap: {}, nearIntents })
   }).request();
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: 'eligibility_unavailable' });
 });
 
-test('applies swap geo restrictions to OneClick-enabled Near Intents', async () => {
+test('applies swap geo restrictions to enabled Near Intents', async () => {
   const h = harness({
     policy: policy({
       features: { earn: false, nearIntents: true },
-      swap: { oneClick },
+      swap: {},
+      nearIntents,
       geo: { wallet: {}, swap: { 'block US-CA': 'yes' } }
     }),
     place: { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'CA' }] }
@@ -197,7 +463,11 @@ test('applies swap geo restrictions to OneClick-enabled Near Intents', async () 
 });
 
 for (const [name, place, allowed] of [
-  ['New York', { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'NY' }] }, { wallet: true, earn: false, swap: true }],
+  [
+    'New York',
+    { country: { iso_code: 'US' }, subdivisions: [{ iso_code: 'NY' }] },
+    { wallet: true, earn: false, swap: true }
+  ],
   ['United Kingdom', { country: { iso_code: 'GB' } }, { wallet: true, earn: false, swap: true }],
   ['US without state', { country: { iso_code: 'US' } }, { wallet: true, earn: false, swap: true }],
   ['Germany', { country: { iso_code: 'DE' } }, { wallet: true, earn: true, swap: true }]
@@ -209,7 +479,9 @@ for (const [name, place, allowed] of [
 }
 
 test('evaluates independent Swap and ISO subdivision rules with one paid query', async () => {
-  const h = harness({ policy: policy({ geo: { wallet: {}, earn: { 'block US-NY': 'yes' }, swap: { 'block US-CA': 'yes' } } }) });
+  const h = harness({
+    policy: policy({ geo: { wallet: {}, earn: { 'block US-NY': 'yes' }, swap: { 'block US-CA': 'yes' } } })
+  });
   assert.deepEqual((await (await h.request()).json()).allowed, { wallet: true, earn: true, swap: false });
   assert.equal(h.paidCalls().length, 1);
 });
@@ -274,7 +546,10 @@ test('an exhausted lookup budget cannot open the wallet merely because products 
 
 for (const [name, document] of [
   ['explicit empty wallet policy', policy({ geo: { wallet: {} } })],
-  ['disabled-only rules', policy({ geo: { wallet: { 'block CU': 'no' }, earn: { 'block NY state': 'no', 'block UK': 'no' } } })],
+  [
+    'disabled-only rules',
+    policy({ geo: { wallet: { 'block CU': 'no' }, earn: { 'block NY state': 'no', 'block UK': 'no' } } })
+  ],
   ['globally disabled Earn', policy({ features: { earn: false } })]
 ]) {
   test(`${name} needs no MaxMind credential or paid lookup`, async () => {
@@ -338,7 +613,11 @@ test('unknown prototype-like feature names cannot create eligibility rules', asy
 
 test('disabled products skip paid lookups only when the explicit wallet policy has no enabled rules', async () => {
   const h = harness({
-    policy: policy({ features: { earn: false }, swap: {}, geo: { wallet: {}, earn: { 'block UK': 'yes' }, swap: { 'block US': 'yes' } } })
+    policy: policy({
+      features: { earn: false },
+      swap: {},
+      geo: { wallet: {}, earn: { 'block UK': 'yes' }, swap: { 'block US': 'yes' } }
+    })
   });
   const response = await h.request();
   assert.deepEqual((await response.json()).allowed, { wallet: true, earn: false, swap: false });
@@ -374,7 +653,10 @@ for (const [name, options] of [
   ['invalid daily budget', { env: { MAXMIND_DAILY_QUERY_LIMIT: '-1' } }],
   ['missing caller hash secret', { env: { CALLER_HASH_SECRET: '' } }],
   ['lookup HTTP failure', { lookupResponse: () => new Response('private error', { status: 401 }) }],
-  ['lookup redirect', { lookupResponse: () => new Response(null, { status: 302, headers: { Location: 'https://other.example' } }) }],
+  [
+    'lookup redirect',
+    { lookupResponse: () => new Response(null, { status: 302, headers: { Location: 'https://other.example' } }) }
+  ],
   ['malformed lookup body', { place: { country: { iso_code: 'not-a-country' }, private: 'private detail' } }],
   ['oversized lookup body', { lookupResponse: () => new Response('x'.repeat(70_000)) }]
 ]) {
@@ -405,7 +687,9 @@ test('applies the deadline before upstream response headers arrive', async () =>
 
 test('a policy fetch failure after expiry cannot fall back to an old cached allow decision', async () => {
   let unavailable = false;
-  const h = harness({ policyResponse: () => unavailable ? new Response('', { status: 502 }) : Response.json(policy()) });
+  const h = harness({
+    policyResponse: () => (unavailable ? new Response('', { status: 502 }) : Response.json(policy()))
+  });
   assert.equal((await h.request()).status, 200);
   h.advance(60_001);
   unavailable = true;
@@ -439,7 +723,11 @@ test('a new authoritative policy version invalidates a cached decision', async (
   h.advance(60_001);
   h.setPolicy(policy({ version: 14, geo: { wallet: {}, earn: { 'block US': 'yes' } } }));
   const response = await h.request();
-  assert.deepEqual(await response.json(), { network: 'testnet', version: 14, allowed: { wallet: true, earn: false, swap: true } });
+  assert.deepEqual(await response.json(), {
+    network: 'testnet',
+    version: 14,
+    allowed: { wallet: true, earn: false, swap: true }
+  });
   assert.equal(h.paidCalls().length, 2);
 });
 
@@ -460,10 +748,11 @@ test('a changed global policy invalidates a cached wallet allow before its five-
 test('old two-decision cache entries cannot authorize wallet access even with a matching policy identity', async () => {
   const h = harness();
   await h.request();
-  const callerKey = [...h.storage.values.keys()].find(key => key.startsWith('caller:'));
-  const caller = h.storage.values.get(callerKey);
+  const callerStorage = [...h.callerStates.values()][0].storage;
+  const callerKey = [...callerStorage.values.keys()].find(key => key.startsWith('caller:'));
+  const caller = callerStorage.values.get(callerKey);
   caller.cache.testnet.allowed = { earn: true, swap: true };
-  h.storage.values.set(callerKey, caller);
+  callerStorage.values.set(callerKey, caller);
   const response = await h.request();
   assert.deepEqual((await response.json()).allowed, { wallet: true, earn: true, swap: true });
   assert.equal(h.paidCalls().length, 2);
@@ -492,12 +781,30 @@ test('zero query budget never contacts MaxMind', async () => {
   assert.equal(h.paidCalls().length, 0);
 });
 
-test('enforces a persisted per-caller request limit even when decisions are cached', async () => {
+test('global-v1 grants bounded idempotent leases alongside the old single reserve API', async () => {
+  const h = harness({ env: { MAXMIND_DAILY_QUERY_LIMIT: '6' } });
+  const payload = { day: '2026-10-20', deadline: Date.UTC(2026, 9, 20, 12) + 30, leaseId: '00000000-0000-4000-8000-000000000001', count: 4 };
+  const lease = () => h.guard.fetch(new Request('https://eligibility.internal/lease', { method: 'POST', body: JSON.stringify(payload) }));
+  assert.deepEqual(await (await lease()).json(), { reserved: true, count: 4 });
+  h.env.MAXMIND_DAILY_QUERY_LIMIT = '2';
+  assert.deepEqual(await (await lease()).json(), { reserved: true, count: 4 });
+  assert.equal(h.storage.values.get('budget').count, 4);
+  h.env.MAXMIND_DAILY_QUERY_LIMIT = '6';
+  const reserve = await h.guard.fetch(new Request('https://eligibility.internal/reserve', { method: 'POST', body: JSON.stringify({ day: payload.day, deadline: payload.deadline }) }));
+  assert.deepEqual(await reserve.json(), { reserved: true });
+  assert.equal(h.storage.values.get('budget').count, 5);
+  payload.leaseId = '00000000-0000-4000-8000-000000000002';
+  assert.deepEqual(await (await lease()).json(), { reserved: true, count: 1 });
+  assert.equal(h.storage.values.get('budget').count, 6);
+});
+
+test('enforces the per-caller edge limit even when decisions are cached', async () => {
   const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' } });
   assert.equal((await h.request()).status, 200);
   assert.equal((await h.request()).status, 200);
   const response = await h.request();
   assert.equal(response.status, 429);
+  assert.deepEqual(await response.json(), { error: 'rate_limited' });
   assert.equal(response.headers.get('Retry-After'), '60');
   assert.equal(h.paidCalls().length, 1);
   h.restart();
@@ -510,19 +817,25 @@ test('cleanup drops expired caller records while preserving the paid-query count
   const h = harness();
   await h.request();
   h.advance(300_001);
-  await h.guard.alarm();
-  assert.equal([...h.storage.values.keys()].filter(key => key.startsWith('caller:')).length, 0);
-  assert.equal(h.storage.values.get('budget').count, 1);
+  const entry = [...h.callerStates.values()][0];
+  entry.storage.alarm = null;
+  await entry.guard.alarm();
+  assert.equal([...entry.storage.values.keys()].filter(key => key.startsWith('caller:')).length, 0);
+  assert.equal(await entry.storage.getAlarm(), null);
+  assert.equal(h.storage.values.get('budget').count, 4);
 });
 
 test('cleanup traverses multiple bounded pages without deleting active callers', async () => {
   const h = harness();
-  for (let i = 0; i < 130; i += 1) h.storage.values.set(`caller:${String(i).padStart(3, '0')}`, { expires: 0 });
-  h.storage.values.set('caller:zzz', { expires: Number.MAX_SAFE_INTEGER });
-  await h.guard.alarm();
-  assert.equal(h.storage.values.get('cleanup-cursor'), 'caller:127');
-  await h.guard.alarm();
-  assert.deepEqual([...h.storage.values.keys()], ['caller:zzz']);
+  await h.request();
+  const entry = [...h.callerStates.values()][0];
+  entry.storage.values.clear();
+  for (let i = 0; i < 130; i += 1) entry.storage.values.set(`caller:${String(i).padStart(3, '0')}`, { expires: 0 });
+  entry.storage.values.set('caller:zzz', { expires: Number.MAX_SAFE_INTEGER });
+  await entry.guard.alarm();
+  assert.equal(entry.storage.values.get('cleanup-cursor'), 'caller:127');
+  await entry.guard.alarm();
+  assert.deepEqual([...entry.storage.values.keys()], ['caller:zzz']);
 });
 
 test('manual main deployment selects only the workflow SHA and rejects untrusted refs', async () => {
@@ -556,14 +869,22 @@ test('published release tag selection accepts output-safe tags and rejects unsaf
     }),
     { mode: 'published-release', ref: 'refs/tags/v1.2.3', message: 'Wallet release v1.2.3' }
   );
-  for (const releaseTag of ['', 'v1.2.3\rDEPLOYMENT_SOURCE=main', 'v1.2.3\nDEPLOYMENT_SOURCE=main', 'x'.repeat(256), undefined, 123]) {
+  for (const releaseTag of [
+    '',
+    'v1.2.3\rDEPLOYMENT_SOURCE=main',
+    'v1.2.3\nDEPLOYMENT_SOURCE=main',
+    'x'.repeat(256),
+    undefined,
+    123
+  ]) {
     assert.throws(() => resolveDeploymentSource({ eventName: 'workflow_dispatch', releaseTag }));
   }
   for (const releaseTag of ['v1[unsafe]', 'release with spaces', 'x'.repeat(255)]) {
-    assert.deepEqual(
-      resolveDeploymentSource({ eventName: 'workflow_dispatch', releaseTag }),
-      { mode: 'published-release', ref: `refs/tags/${releaseTag}`, message: `Wallet release ${releaseTag}` }
-    );
+    assert.deepEqual(resolveDeploymentSource({ eventName: 'workflow_dispatch', releaseTag }), {
+      mode: 'published-release',
+      ref: `refs/tags/${releaseTag}`,
+      message: `Wallet release ${releaseTag}`
+    });
   }
 
   const workflow = readFileSync(
@@ -589,7 +910,10 @@ test('reusable deployment inputs omit source while manual deployment retains its
   assert.doesNotMatch(callInputs, /deployment_source:/);
   assert.match(callInputs, /release_tag:\n        type: string\n        required: true/);
   assert.ok(dispatchInputs);
-  assert.match(dispatchInputs, /deployment_source:\n[\s\S]*?type: choice\n[\s\S]*?options:\n          - published-release\n          - main/);
+  assert.match(
+    dispatchInputs,
+    /deployment_source:\n[\s\S]*?type: choice\n[\s\S]*?options:\n          - published-release\n          - main/
+  );
   assert.match(dispatchInputs, /release_tag:\n[\s\S]*?required: false/);
   const releaseWallet = readFileSync(new URL('../../.github/workflows/release-wallet.yml', import.meta.url), 'utf8');
   const eligibilityCaller = releaseWallet.match(/  eligibility:\n([\s\S]*?)\n\n  chrome:/)?.[1];
@@ -602,7 +926,9 @@ test('deployment resolver step maps each workflow input and context value exactl
     new URL('../../.github/workflows/deploy-feature-eligibility.yml', import.meta.url),
     'utf8'
   );
-  const sourceStep = workflow.match(/      - name: Resolve deployment source\n([\s\S]*?)\n      - name: Require a published release/);
+  const sourceStep = workflow.match(
+    /      - name: Resolve deployment source\n([\s\S]*?)\n      - name: Require a published release/
+  );
   assert.ok(sourceStep);
   for (const mapping of [
     /DEPLOYMENT_SOURCE: \$\{\{ inputs\.deployment_source \|\| 'published-release' \}\}/,
@@ -610,7 +936,8 @@ test('deployment resolver step maps each workflow input and context value exactl
     /DEPLOY_EVENT_NAME: \$\{\{ github\.event_name \}\}/,
     /DEPLOY_WORKFLOW_REF: \$\{\{ github\.ref \}\}/,
     /DEPLOY_WORKFLOW_SHA: \$\{\{ github\.sha \}\}/
-  ]) assert.match(sourceStep[1], mapping);
+  ])
+    assert.match(sourceStep[1], mapping);
 });
 
 test('deployment resolver CLI writes exact outputs and rejects untrusted manual inputs', () => {
@@ -657,4 +984,118 @@ test('deployment resolver CLI writes exact outputs and rejects untrusted manual 
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('warm cache and per-caller rejection do not enter the global reservation object', async () => {
+  const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' } });
+  assert.equal((await h.request()).status, 200);
+  assert.equal((await h.request()).status, 200);
+  assert.equal((await h.request()).status, 429);
+  assert.deepEqual(h.globalTargets, ['global-v1']);
+  assert.equal(h.callerStates.size, 1);
+});
+
+test('a queued storage transaction does not block another warm cache hit in the same colo', async () => {
+  const h = harness();
+  await h.request();
+  await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.8' } });
+  assert.equal(h.callerStates.size, 1);
+  const first = [...h.callerStates.values()][0];
+  let release;
+  const originalQueue = first.storage.queue;
+  first.storage.queue = new Promise(resolve => {
+    release = resolve;
+  });
+  try {
+    const held = h.request();
+    const healthy = await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.8' } });
+    assert.equal(healthy.status, 200);
+    release();
+    assert.equal((await held).status, 200);
+  } finally {
+    release();
+    first.storage.queue = originalQueue;
+  }
+  assert.equal(h.globalTargets.length, 1);
+});
+
+test('all caller objects share the existing nearly exhausted persisted global budget', async () => {
+  const h = harness({ env: { MAXMIND_DAILY_QUERY_LIMIT: '10000' } });
+  h.storage.values.set('budget', { day: '2026-10-20', count: 9999 });
+  const responses = await Promise.all(
+    ['203.0.113.7', '203.0.113.8', '203.0.113.9'].map(ip => h.request({ headers: { 'CF-Connecting-IP': ip } }))
+  );
+  assert.equal(responses.filter(r => r.status === 200).length, 1);
+  assert.equal(h.paidCalls().length, 1);
+  assert.equal(h.storage.values.get('budget').count, 10000);
+  h.restart();
+  assert.equal((await h.request({ headers: { 'CF-Connecting-IP': '203.0.113.10' } })).status, 503);
+  assert.equal(h.paidCalls().length, 1);
+  assert.equal(h.callerStates.size, 1);
+});
+
+test('queued reservation expiry fails closed without starting a late paid lookup or retry', async () => {
+  let h;
+  h = harness({
+    timeoutMs: 10,
+    globalFetch: async (request, proceed) => {
+      await new Promise(resolve => setTimeout(resolve, 40));
+      h.advance(21);
+      return proceed(request);
+    }
+  });
+  const response = await h.request();
+  assert.equal(response.status, 503);
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(h.paidCalls().length, 0);
+  assert.equal(h.globalTargets.length, 1);
+  assert.equal(h.storage.values.get('budget'), undefined);
+});
+
+test('readiness and requests fail closed when the caller namespace binding is unavailable', async () => {
+  const h = harness();
+  delete h.env.CALLER_GUARD;
+  assert.equal((await h.request({ path: '/healthz', query: '' })).status, 503);
+  assert.equal((await h.request()).status, 503);
+  assert.equal(h.globalTargets.length, 0);
+  assert.equal(h.paidCalls().length, 0);
+});
+
+test('caller migration appends a class without recreating the original budget namespace', () => {
+  const config = JSON.parse(readFileSync(new URL('./wrangler.jsonc', import.meta.url), 'utf8'));
+  assert.deepEqual(
+    config.durable_objects.bindings.find(b => b.name === 'ELIGIBILITY_GUARD'),
+    { name: 'ELIGIBILITY_GUARD', class_name: 'EligibilityGuard' }
+  );
+  assert.deepEqual(config.migrations[0], { tag: 'v1', new_sqlite_classes: ['EligibilityGuard'] });
+  assert.ok(
+    config.durable_objects.bindings.some(b => b.name === 'CALLER_GUARD' && b.class_name === 'CallerEligibilityGuard')
+  );
+  assert.deepEqual(config.migrations.slice(1), [{ tag: 'v2', new_sqlite_classes: ['CallerEligibilityGuard'] }]);
+  assert.deepEqual(config.ratelimits, [
+    { name: 'CALLER_RATE_LIMIT', namespace_id: '189401', simple: { limit: 60, period: 60 } },
+    { name: 'COLO_RATE_LIMIT', namespace_id: '189402', simple: { limit: 5000, period: 10 } }
+  ]);
+});
+
+
+test('caller rate state is shared across networks and survives caller object recreation', async () => {
+  const h = harness({ env: { CALLER_REQUESTS_PER_MINUTE: '2' }, policyResponse: (_init, url) => Response.json(policy({ network: new URL(url).pathname.split('/').at(-1).replace('.json', '') })) });
+  assert.equal((await h.request()).status, 200);
+  assert.equal((await h.request({ query: 'network=mainnet' })).status, 200);
+  h.restart();
+  assert.equal((await h.request({ query: 'network=devnet' })).status, 429);
+  assert.equal(h.callerStates.size, 1);
+  assert.equal(h.paidCalls().length, 2);
+});
+
+test('caller cleanup expires local records without deleting the global paid-query budget', async () => {
+  const h = harness();
+  await h.request();
+  const entry = [...h.callerStates.values()][0];
+  assert.equal(entry.storage.values.size, 1);
+  h.advance(300_001);
+  await entry.guard.alarm();
+  assert.equal(entry.storage.values.size, 0);
+  assert.equal(h.storage.values.get('budget').count, 4);
 });

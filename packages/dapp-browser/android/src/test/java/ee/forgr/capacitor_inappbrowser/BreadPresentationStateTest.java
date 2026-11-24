@@ -65,6 +65,35 @@ public class BreadPresentationStateTest {
         assertTrue(state.canReveal(state.generation()));
     }
 
+    @Test public void inputAuthoritySurvivesOnlyVisualChanges() {
+        BreadPresentationState state = ready();
+        long accepted = state.inputAuthority();
+        state.layoutChanged();
+        state.configure("doc", true, true);
+        state.requestVisibility(true, (int) state.policyRevision(), 2, 1);
+        state.beginMotion(BreadPresentationState.Motion.COLLAPSING);
+        state.endMotion();
+        assertEquals(accepted, state.inputAuthority());
+
+        state.visibility(false, 2);
+        state.visibility(true, 3);
+        assertNotEquals(accepted, state.inputAuthority());
+        accepted = state.inputAuthority();
+        state.foreground(false, 4);
+        state.foreground(true, 5);
+        assertNotEquals(accepted, state.inputAuthority());
+        accepted = state.inputAuthority();
+        state.configure("doc", false, true);
+        state.requestVisibility(true, (int) state.policyRevision(), 3, 6);
+        assertNotEquals(accepted, state.inputAuthority());
+        accepted = state.inputAuthority();
+        state.navigate(7);
+        assertNotEquals(accepted, state.inputAuthority());
+        accepted = state.inputAuthority();
+        state.close();
+        assertNotEquals(accepted, state.inputAuthority());
+    }
+
     @Test public void closedStateCannotBeRestoredAndCloseOccursOnce() {
         BreadPresentationState state = ready();
         assertTrue(state.close());
@@ -227,6 +256,67 @@ public class BreadPresentationStateTest {
         state.foreground(false, 2);
         state.requestVisibility(true, (int) state.policyRevision(), 2, 3);
         assertFalse("Late first acknowledgement cannot grant background dialog ownership", state.surfaceVisibility());
+    }
+
+    @Test public void motionStartsOnlyWhileOpenAndEndsOnce() {
+        BreadPresentationState state = ready();
+        assertEquals(BreadPresentationState.Motion.NONE, state.motion());
+        assertFalse(state.beginMotion(BreadPresentationState.Motion.NONE));
+        assertTrue(state.beginMotion(BreadPresentationState.Motion.COLLAPSING));
+        assertEquals(BreadPresentationState.Motion.COLLAPSING, state.motion());
+        assertTrue(state.beginMotion(BreadPresentationState.Motion.EXPANDING));
+        assertEquals(BreadPresentationState.Motion.EXPANDING, state.motion());
+        state.endMotion();
+        assertEquals(BreadPresentationState.Motion.NONE, state.motion());
+        state.endMotion();
+        assertEquals(BreadPresentationState.Motion.NONE, state.motion());
+        state.close();
+        assertFalse(state.beginMotion(BreadPresentationState.Motion.EXPANDING));
+        assertEquals(BreadPresentationState.Motion.NONE, state.motion());
+    }
+
+    @Test public void proxyIsUsableOnlyForItsNavigation() {
+        BreadPresentationState state = ready();
+        assertFalse(state.proxyUsable());
+        state.captureProxy();
+        assertTrue(state.proxyUsable());
+        state.layoutChanged();
+        state.visibility(false, 10);
+        assertTrue("Layout and visibility changes keep the document's proxy", state.proxyUsable());
+        state.navigate(20);
+        assertFalse(state.proxyUsable());
+        state.captureProxy();
+        assertTrue(state.proxyUsable());
+        state.dropProxy();
+        assertFalse(state.proxyUsable());
+        state.captureProxy();
+        state.close();
+        assertFalse(state.proxyUsable());
+    }
+
+    @Test public void hiddenRequestCancelsMotion() {
+        BreadPresentationState state = ready();
+        assertTrue(state.beginMotion(BreadPresentationState.Motion.EXPANDING));
+        assertFalse(state.requestVisibility(false, null, 1, 10));
+        assertEquals(BreadPresentationState.Motion.EXPANDING, state.motion());
+        assertTrue(state.requestVisibility(false, null, 2, 10));
+        assertEquals(BreadPresentationState.Motion.NONE, state.motion());
+    }
+
+    @Test public void collapseKeepsDesiredVisibility() {
+        BreadPresentationState state = ready();
+        assertTrue(state.beginMotion(BreadPresentationState.Motion.COLLAPSING));
+        assertTrue(state.active());
+        assertTrue(state.requestVisibility(true, null, 2, 10));
+        assertEquals(BreadPresentationState.Motion.COLLAPSING, state.motion());
+        assertTrue(state.effectiveVisibility());
+    }
+
+    @Test public void closeCancelsMotion() {
+        BreadPresentationState state = ready();
+        assertTrue(state.beginMotion(BreadPresentationState.Motion.COLLAPSING));
+        assertTrue(state.close());
+        assertEquals(BreadPresentationState.Motion.NONE, state.motion());
     }
 
 }

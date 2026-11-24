@@ -1,11 +1,15 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { userEvent } from '@storybook/test';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { CommandFlowBackProvider, FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { TEST_MIDEN_USDC } from 'lib/epoch/testing/bridge-config';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 import { EARN_DATA } from './data';
 import EarnDepositAmount from './EarnDepositAmount';
@@ -28,11 +32,17 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
   default: () => mockLegacyFeeIdentity ?? 'MIDEN-ID'
 }));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
 // i18n: assert on keys, not English copy.
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual<typeof import('framer-motion')>('framer-motion'),
+  useReducedMotion: () => true
+}));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -42,6 +52,12 @@ jest.mock('react-i18next', () => ({
 // surfaces which vault the page resolved (`data-vault-id`) so we can prove the
 // found-vault vs. default-vault branch without rendering the real header.
 jest.mock('./components', () => ({
+  earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+  EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) => (
+    <span>
+      {subject.asset} on {subject.network}
+    </span>
+  ),
   EarnFlowHeader: ({ subject }: { subject?: { id: string; protocol: string; asset: string; network: string } }) => (
     <div
       data-testid="earn-flow-header"
@@ -89,6 +105,7 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
       <div
         data-testid="select-amount"
         data-accent={props.accent}
+        data-embedded={String(props.embedded)}
         data-amount={props.amount}
         data-valid={String(props.isValidAmount)}
         data-label={String(props.label)}
@@ -104,8 +121,8 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
         data-token-fiat={String(props.token?.fiatPrice)}
       >
         <input data-testid="amount-input" onChange={e => props.onAmountChange(e.target.value)} />
-        <button data-testid="confirm" onClick={() => props.onConfirm?.()} />
-        <button data-testid="select-token" onClick={() => props.onSelectToken()} />
+        {!props.embedded && <button type="button" data-testid="confirm" onClick={() => props.onConfirm?.()} />}
+        <button type="button" data-testid="select-token" onClick={() => props.onSelectToken()} />
       </div>
     );
   }
@@ -137,10 +154,20 @@ const USDC_ROW = {
   metadata: { symbol: 'USDC', decimals: 6 }
 };
 let mockBalanceRows: unknown[] = [USDC_ROW];
+let mockBalancesLoading = false;
+let mockBalanceReadFailed = false;
+let mockBalanceReadInFlight = false;
+const mockBalanceMutate = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
   useAllTokensBaseMetadata: () => ({}),
-  useAllBalances: () => ({ data: mockBalanceRows })
+  useAllBalances: () => ({
+    data: mockBalanceRows,
+    isLoading: mockBalancesLoading,
+    readFailed: mockBalanceReadFailed,
+    balanceReadInFlight: mockBalanceReadInFlight,
+    mutate: mockBalanceMutate
+  })
 }));
 
 const USDC_QUOTE = { USDC: { price: 1.0002, change24h: 0, percentageChange24h: 0 } };
@@ -175,12 +202,85 @@ jest.mock('lib/remote-config/values', () => ({
 
 const mockNavigate = navigate as jest.Mock;
 
+const DRAFT_SCOPE = { accountId: 'account-a', network: 'testnet', rpcUrl: 'https://rpc.example' };
+
+it('restores the deposit amount after minimize and reopen without submitting it, but not after provider remount', () => {
+  const page = (open: boolean) => (
+    <CommandDraftProvider scope={DRAFT_SCOPE}>
+      {open ? <EarnDepositAmount vaultId={EARN_DATA.vaults[2]!.id} /> : <span>Minimized</span>}
+    </CommandDraftProvider>
+  );
+  const { rerender, unmount } = render(page(true));
+  fireEvent.change(screen.getByTestId('amount-input'), { target: { value: '1.000001' } });
+  rerender(page(false));
+  rerender(page(true));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '1.000001');
+  expect(navigate).not.toHaveBeenCalled();
+  unmount();
+  render(page(true));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+});
+
+it('restores the exact deposit amount after review Back and clears it on account scope change', () => {
+  const { rerender } = render(
+    <CommandDraftProvider scope={DRAFT_SCOPE}>
+      <EarnDepositAmount key="first" vaultId={EARN_DATA.vaults[2]!.id} />
+    </CommandDraftProvider>
+  );
+  fireEvent.change(screen.getByTestId('amount-input'), { target: { value: '1.000001' } });
+  fireEvent.click(screen.getByTestId('confirm'));
+  expect(navigate).toHaveBeenCalledWith(expect.stringContaining('amount=1.000001'));
+  rerender(
+    <CommandDraftProvider scope={DRAFT_SCOPE}>
+      <EarnDepositAmount key="after-review" vaultId={EARN_DATA.vaults[2]!.id} />
+    </CommandDraftProvider>
+  );
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '1.000001');
+  rerender(
+    <CommandDraftProvider scope={{ ...DRAFT_SCOPE, accountId: 'account-b' }}>
+      <EarnDepositAmount key="new-account" vaultId={EARN_DATA.vaults[2]!.id} />
+    </CommandDraftProvider>
+  );
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+});
+
 const FOUND_VAULT = EARN_DATA.vaults[2]!; // The Aave V3 USDC market on Base, which accepts deposits.
 const CLOSED_VAULT = EARN_DATA.vaults[1]!; // A Morpho market that accepts no deposits now.
+
+it('uses only the current Earn draft after switching vaults without remounting the amount owner', () => {
+  const otherVault = EARN_DATA.vaults[0]!;
+  const page = (vaultId: string, scope = DRAFT_SCOPE) => (
+    <CommandDraftProvider scope={scope}>
+      <EarnDepositAmount vaultId={vaultId} />
+    </CommandDraftProvider>
+  );
+  const { rerender } = render(page(FOUND_VAULT.id));
+  fireEvent.change(screen.getByTestId('amount-input'), { target: { value: '1.000001' } });
+  rerender(page(otherVault.id));
+  expect(screen.getByTestId('earn-flow-header')).toHaveAttribute('data-vault-id', otherVault.id);
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+  const newScope = { ...DRAFT_SCOPE, accountId: 'account-b' };
+  rerender(page(otherVault.id, newScope));
+  rerender(page(FOUND_VAULT.id, newScope));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+  rerender(page(otherVault.id, newScope));
+  fireEvent.change(screen.getByTestId('amount-input'), { target: { value: '2.000002' } });
+  rerender(page(FOUND_VAULT.id, newScope));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+  rerender(page(otherVault.id, newScope));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '2.000002');
+  rerender(page(otherVault.id, { ...newScope, accountId: 'account-c' }));
+  expect(screen.getByTestId('select-amount')).toHaveAttribute('data-amount', '');
+  expect(navigate).not.toHaveBeenCalled();
+});
 
 const setAmount = (value: string) => fireEvent.change(screen.getByTestId('amount-input'), { target: { value } });
 
 beforeEach(() => {
+  mockBalancesLoading = false;
+  mockBalanceReadFailed = false;
+  mockBalanceReadInFlight = false;
+  mockBalanceMutate.mockClear();
   mockNavigate.mockClear();
   mockBalanceRows = [USDC_ROW];
   mockTokenPrices = USDC_QUOTE;
@@ -190,6 +290,66 @@ beforeEach(() => {
 });
 
 describe('EarnDepositAmount', () => {
+  it('submits the real Command deposit amount field on keyboard Enter only when valid', async () => {
+    mockRealAmountDisplay = true;
+    try {
+      render(
+        <FlowPresentationProvider value="command">
+          <CommandFlowBackProvider>
+            <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+              <EarnDepositAmount vaultId={FOUND_VAULT.id} />
+            </CommandWorkbench>
+          </CommandFlowBackProvider>
+        </FlowPresentationProvider>
+      );
+      const field = screen.getByRole('textbox', { name: 'earnDepositAmountLabel' });
+      const submit = within(screen.getByTestId('command-footer')).getByRole('button', { name: 'confirm' });
+      const form = document.getElementById('earn-deposit-amount-form');
+      expect(form).toBeInstanceOf(HTMLFormElement);
+      expect(submit).toHaveAttribute('form', 'earn-deposit-amount-form');
+      expect(submit).toBeDisabled();
+      field.focus();
+      await userEvent.keyboard('{Enter}');
+      expect(navigate).not.toHaveBeenCalled();
+      fireEvent.change(field, { target: { value: '1.000001' } });
+      expect(submit).toBeEnabled();
+      field.focus();
+      await userEvent.keyboard('{Enter}');
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith(expect.stringContaining('amount=1.000001'));
+    } finally {
+      mockRealAmountDisplay = false;
+    }
+  });
+
+  it('uses the pinned Command footer and form for the actual amount step without a second page CTA', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'earn' }} container={document.body}>
+            <EarnDepositAmount vaultId={FOUND_VAULT.id} />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    const footer = screen.getByTestId('command-footer');
+    const confirm = within(footer).getByRole('button', { name: 'confirm' });
+    const form = document.getElementById('earn-deposit-amount-form');
+    expect(form).toBeInstanceOf(HTMLFormElement);
+    expect(confirm).toHaveAttribute('type', 'submit');
+    expect(confirm).toHaveAttribute('form', 'earn-deposit-amount-form');
+    expect(confirm).toBeDisabled();
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-embedded', 'true');
+    expect(screen.getByRole('heading', { level: 2, name: FOUND_VAULT.protocol })).toBeVisible();
+    expect(screen.queryByTestId('confirm')).toBeNull();
+    setAmount('1.000001');
+    expect(confirm).toBeEnabled();
+    if (!(form instanceof HTMLFormElement)) throw new Error('missing Earn deposit amount form');
+    form.requestSubmit(confirm);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith(expect.stringContaining('amount=1.000001'));
+  });
+
   it.each([
     [1, 0, 'true'],
     [0, 1, 'false']
@@ -441,6 +601,7 @@ describe('EarnDepositAmount after a failed load', () => {
     mockLoadState = { isLoading: true };
     render(<EarnDepositAmount vaultId="no-such-vault" />);
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByTestId('select-amount')).toBeNull();
   });
@@ -655,4 +816,29 @@ describe('user-visible deposit amount reports', () => {
     act(() => jest.advanceTimersByTime(1000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
+});
+
+it('shows a spinner until balances load, then shows amount entry', () => {
+  mockBalancesLoading = true;
+  const { rerender } = render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+  expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
+  expect(screen.queryByTestId('select-amount')).toBeNull();
+  expect(screen.queryByText('insufficientFeeAsset')).toBeNull();
+  mockBalancesLoading = false;
+  rerender(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+  expect(screen.queryByRole('status', { name: 'loading' })).toBeNull();
+  expect(screen.getByTestId('select-amount')).toBeInTheDocument();
+});
+
+it('shows a retry when the first balance read has failed', () => {
+  mockBalancesLoading = true;
+  mockBalanceReadFailed = true;
+  mockEarnDeposit = { state: 'loading' };
+  render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+  expect(screen.getByRole('alert')).toHaveTextContent('earnBalanceLoadError');
+  expect(screen.queryByRole('status', { name: 'loading' })).toBeNull();
+  expect(screen.queryByTestId('select-amount')).toBeNull();
+  fireEvent.click(screen.getByTestId('earn-positions-retry'));
+  expect(mockBalanceMutate).toHaveBeenCalledTimes(1);
 });

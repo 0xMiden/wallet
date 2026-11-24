@@ -1,9 +1,13 @@
+import React from 'react';
+
 import { FlowLayout, FlowLayoutProps } from 'components/flow/FlowLayout';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 
-export type SendStepLayoutProps = FlowLayoutProps;
+export type SendStepLayoutProps = FlowLayoutProps & { embedded?: boolean };
 
-/**
- * A send flow page: the shared flow frame. The Send accent marks the flow's selected states, never
- * its back button, which stays ink like every other page's.
- */
-export const SendStepLayout = FlowLayout;
+/** In Command the workbench supplies the sole frame; compact keeps its existing flow frame. */
+export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ embedded, children, ...props }) => {
+  const command = useFlowPresentation() === 'command';
+  if (command && embedded) return <>{children}</>;
+  return <FlowLayout {...props}>{children}</FlowLayout>;
+};

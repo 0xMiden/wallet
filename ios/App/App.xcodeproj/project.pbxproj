@@ -7,16 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A81900000000000000000001 /* WalletPaymentsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A81900000000000000000002 /* WalletPaymentsPlugin.swift */; };
 		BCAD00000000000000000001 /* BreadPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAD00000000000000000002 /* BreadPresentationTests.swift */; };
 		BCAD00000000000000000003 /* BreadAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAD00000000000000000004 /* BreadAuthTests.swift */; };
 		EA1599000000000000000001 /* AppViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1599000000000000000002 /* AppViewControllerTests.swift */; };
 		E82100000000000000000001 /* UpdateAvailabilityLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000002 /* UpdateAvailabilityLogic.swift */; };
 		E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */; };
+		3859F48B956620297AC9F7A0 /* SecretClipboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86024DE12AB40132B1E7E3F5 /* SecretClipboardTests.swift */; };
 		E82100000000000000000010 /* UpdateAvailabilityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
+		7BC0FFEE2FAB000000000001 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BC0FFEF2FAB000000000001 /* SceneDelegate.swift */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
@@ -29,7 +32,10 @@
 		7BECE3022FA7691500F466A5 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = 7BECE3012FA7691500F466A5 /* P256K */; settings = {ATTRIBUTES = (Required, ); }; };
 		83CCE39C02FD0BF8DD39551F /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6B2865F76F213517CFCCD1 /* AppViewController.swift */; };
 		A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */; };
+		F51C034480B39F241125D70F /* SecretClipboardPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCA9F680CB0BA155E2ED1238 /* SecretClipboardPlugin.swift */; };
+		C4D5E6F708192A3B4C5D6E70 /* GuardianProbeHttpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */; };
 		A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */; };
+		A1C4E9D207F1B3A65D2E8430 /* BackgroundExecutionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */; };
 		B7EAD0C0FFEE000000000001 /* BreadConnectOpenerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */; };
 		AABBCCDD0000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */; };
 		B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */; };
@@ -47,11 +53,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A81900000000000000000002 /* WalletPaymentsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletPaymentsPlugin.swift; sourceTree = "<group>"; };
 		BCAD00000000000000000002 /* BreadPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadPresentationTests.swift; sourceTree = "<group>"; };
 		BCAD00000000000000000004 /* BreadAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadAuthTests.swift; sourceTree = "<group>"; };
 		EA1599000000000000000002 /* AppViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewControllerTests.swift; sourceTree = "<group>"; };
 		E82100000000000000000002 /* UpdateAvailabilityLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogic.swift; sourceTree = "<group>"; };
 		E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogicTests.swift; sourceTree = "<group>"; };
+		86024DE12AB40132B1E7E3F5 /* SecretClipboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretClipboardTests.swift; sourceTree = "<group>"; };
 		E82100000000000000000006 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityPlugin.swift; sourceTree = "<group>"; };
 		1A6B2865F76F213517CFCCD1 /* AppViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppViewController.swift; sourceTree = "<group>"; };
@@ -60,6 +68,7 @@
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		7BC0FFEF2FAB000000000001 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		504EC30C1FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
@@ -70,7 +79,10 @@
 		873F0344C8952CB5585102E0 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScreenshotGuardPlugin.swift; sourceTree = "<group>"; };
+		BCA9F680CB0BA155E2ED1238 /* SecretClipboardPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SecretClipboardPlugin.swift; sourceTree = "<group>"; };
+		C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GuardianProbeHttpPlugin.swift; sourceTree = "<group>"; };
 		A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HighRefreshRatePlugin.swift; sourceTree = "<group>"; };
+		A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundExecutionPlugin.swift; sourceTree = "<group>"; };
 		B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BreadConnectOpenerPlugin.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BarcodeScannerPlugin.swift; sourceTree = "<group>"; };
@@ -125,6 +137,7 @@
 				7B5E86152FD4242E00930C68 /* ReownPlugin.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				7BC0FFEF2FAB000000000001 /* SceneDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -133,8 +146,12 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */,
+				BCA9F680CB0BA155E2ED1238 /* SecretClipboardPlugin.swift */,
+				C4D5E6F708192A3B4C5D6E71 /* GuardianProbeHttpPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */,
+				A1C4E9D207F1B3A65D2E8431 /* BackgroundExecutionPlugin.swift */,
 				B7EAD0C0FFEE000000000002 /* BreadConnectOpenerPlugin.swift */,
+				A81900000000000000000002 /* WalletPaymentsPlugin.swift */,
 				7BC0FFEF2FAA000000000001 /* HotKeyPlugin.swift */,
 				C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */,
 				1A6B2865F76F213517CFCCD1 /* AppViewController.swift */,
@@ -150,6 +167,7 @@
 			isa = PBXGroup;
 			children = (
 				E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */,
+				86024DE12AB40132B1E7E3F5 /* SecretClipboardTests.swift */,
 				BCAD00000000000000000002 /* BreadPresentationTests.swift */,
 				BCAD00000000000000000004 /* BreadAuthTests.swift */,
 				EA1599000000000000000002 /* AppViewControllerTests.swift */,
@@ -284,6 +302,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */,
+				3859F48B956620297AC9F7A0 /* SecretClipboardTests.swift in Sources */,
 				BCAD00000000000000000001 /* BreadPresentationTests.swift in Sources */,
 				BCAD00000000000000000003 /* BreadAuthTests.swift in Sources */,
 				EA1599000000000000000001 /* AppViewControllerTests.swift in Sources */,
@@ -295,10 +314,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				7BC0FFEE2FAB000000000001 /* SceneDelegate.swift in Sources */,
 				B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */,
+				F51C034480B39F241125D70F /* SecretClipboardPlugin.swift in Sources */,
+				C4D5E6F708192A3B4C5D6E70 /* GuardianProbeHttpPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */,
+				A1C4E9D207F1B3A65D2E8430 /* BackgroundExecutionPlugin.swift in Sources */,
 				B7EAD0C0FFEE000000000001 /* BreadConnectOpenerPlugin.swift in Sources */,
+				A81900000000000000000001 /* WalletPaymentsPlugin.swift in Sources */,
 				7BC0FFEE2FAA000000000001 /* HotKeyPlugin.swift in Sources */,
 				C7D4E92A3F8B1C5D00A2B9E1 /* BarcodeScannerPlugin.swift in Sources */,
 				7B5E86162FD4243200930C68 /* ReownPlugin.swift in Sources */,
@@ -486,7 +510,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 18;
+				CURRENT_PROJECT_VERSION = 24;
 				DEVELOPMENT_TEAM = LHU7B7J5WL;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
@@ -495,7 +519,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.17.6;
+				MARKETING_VERSION = 1.18.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -511,7 +535,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 18;
+				CURRENT_PROJECT_VERSION = 24;
 				DEVELOPMENT_TEAM = LHU7B7J5WL;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
@@ -520,7 +544,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.17.6;
+				MARKETING_VERSION = 1.18.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
@@ -590,7 +614,7 @@
 			repositoryURL = "https://github.com/21-DOT-DEV/swift-secp256k1.git";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 0.21.1;
+				minimumVersion = 0.25.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

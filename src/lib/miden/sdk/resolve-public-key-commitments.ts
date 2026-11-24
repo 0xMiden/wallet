@@ -4,21 +4,12 @@ import { AccountInspector } from '@openzeppelin/miden-multisig-client';
 /**
  * Resolves an account's auth public-key commitments.
  *
- * Plain wallet accounts carry a miden-standards `AuthSingleSig` component, which
- * the SDK's `AccountInterface` recognizes, so `Account.getPublicKeyCommitments()`
- * returns the key. Guardian accounts historically carried OpenZeppelin's custom
- * multisig auth component, whose procedures lived outside the standards
- * namespace: nothing MAST-matched a bundled template, `AccountInterface` bucketed
- * it as `Custom`, and `getPublicKeyCommitments()` returned `[]`. For those we
- * read the hot signer's commitment out of the account instead — the key the
- * wallet signs with, independent of component recognition.
- *
- * Since multisig-client 0.17 the component IS the upstream `AuthGuardedMultisig`,
- * so the interface branch is expected to answer for Guardian accounts too and
- * this fallback should be unreachable. It is kept because being wrong about that
- * costs a keyless account, and it goes through `AccountInspector` rather than a
- * hard-coded storage slot name — the wallet previously inlined those names and
- * they broke silently when the component changed namespace in that same release.
+ * Standard auth components use the SDK's interface. SDK 0.18 rejects custom auth
+ * and components from a different standards revision instead of returning `[]`.
+ * Those accounts retain the Guardian inspector fallback for their hot signer
+ * (index 0); malformed account storage and WASM failures still propagate.
+ * Read through `AccountInspector`, not hard-coded storage slot names: the
+ * namespace changed when Guardian adopted upstream `AuthGuardedMultisig`.
  *
  * Returns `[]` if neither source yields a commitment (genuinely keyless account);
  * callers keep their existing empty-result handling.
@@ -26,9 +17,17 @@ import { AccountInspector } from '@openzeppelin/miden-multisig-client';
  * Callers must already hold the WASM client lock (`withWasmClientLock`).
  */
 export function resolvePublicKeyCommitments(account: Account): Word[] {
-  const fromInterface = account.getPublicKeyCommitments();
-  if (fromInterface.length > 0) {
-    return fromInterface;
+  try {
+    const fromInterface = account.getPublicKeyCommitments();
+    if (fromInterface.length > 0) return fromInterface;
+  } catch (error) {
+    const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+    if (
+      !message.startsWith(
+        "cannot derive public key commitments from account state: the account's auth procedure is not owned by exactly one standard auth component bundled with this SDK"
+      )
+    )
+      throw error;
   }
 
   let hotSignerHex: string | undefined;

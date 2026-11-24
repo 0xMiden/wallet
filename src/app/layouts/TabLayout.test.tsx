@@ -10,6 +10,7 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
 
+import { setHomePagerPreview } from './home-pager-preview';
 import {
   PageActiveContext,
   PageMountedByReturnContext,
@@ -26,7 +27,7 @@ import TabLayout from './TabLayout';
 // ---------------------------------------------------------------------------
 const mockLocation = { pathname: '/' };
 const mockPlatform = { isMobile: false, isDesktop: false, isExtension: false, isIOS: false, isAndroid: false };
-const mockEnv = { fullPage: false, sidePanel: false };
+const mockEnv = { fullPage: false, popup: false, sidePanel: false, confirmWindow: false };
 const mockReturning = { value: false };
 const mockHasUnread = { value: false };
 const mockUnreadBadges = { value: false };
@@ -65,6 +66,14 @@ jest.mock('lib/mobile/webview-state', () => ({
 
 jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: mockEnv.fullPage, sidePanel: mockEnv.sidePanel })
+}));
+
+jest.mock('app/layouts/CommandLauncher', () => ({
+  __esModule: true,
+  default: () =>
+    mockPlatform.isExtension && !mockEnv.confirmWindow && (mockEnv.popup || mockEnv.sidePanel) ? (
+      <button data-testid="command-launcher">commandOpenFullscreen</button>
+    ) : null
 }));
 
 jest.mock('app/hooks/useHasUnreadActivity', () => ({
@@ -162,12 +171,24 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => {
+  SegmentedActionBar: ({ items, activeId, displayId, onChange, className }: any) => {
     const tabActive = jest.requireActual('app/layouts/page-active').useTabActive();
     return (
-      <div data-testid="action-bar" data-active={activeId} data-tab-active={String(tabActive)} className={className}>
+      <div
+        data-testid="action-bar"
+        data-active={displayId ?? activeId}
+        data-tab-active={String(tabActive)}
+        className={className}
+      >
         {items.map((it: any) => (
-          <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
+          <button
+            key={it.id}
+            data-testid={`action-${it.id}`}
+            onClick={() => {
+              if (it.id === activeId) return;
+              onChange(it.id);
+            }}
+          >
             {it.icon}
             {it.label}
           </button>
@@ -190,6 +211,7 @@ const getRoot = (container: HTMLElement) => container.firstChild as HTMLElement;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  act(() => setHomePagerPreview(null));
   mockLocation.pathname = '/';
   mockPlatform.isMobile = false;
   mockPlatform.isDesktop = false;
@@ -197,7 +219,9 @@ beforeEach(() => {
   mockPlatform.isIOS = false;
   mockPlatform.isAndroid = false;
   mockEnv.fullPage = false;
+  mockEnv.popup = false;
   mockEnv.sidePanel = false;
+  mockEnv.confirmWindow = false;
   mockReturning.value = false;
   mockHasUnread.value = false;
   mockUnreadBadges.value = false;
@@ -315,6 +339,40 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     expect(screen.queryByTestId('action-bar')).toBeNull();
     expect(screen.queryByTestId('home-swipe')).toBeNull();
     expect(screen.getByTestId('child-content')).toBeInTheDocument();
+  });
+});
+
+describe('TabLayout — compact fullscreen launcher placement', () => {
+  it('leaves the Overview launcher to the balance card without a second launcher above the tabs', () => {
+    mockLocation.pathname = '/';
+    mockPlatform.isExtension = true;
+    mockEnv.sidePanel = true;
+    renderLayout();
+    expect(screen.queryByTestId('command-launcher')).not.toBeInTheDocument();
+  });
+
+  it.each(['/send', '/receive', '/earn', '/swap'])('places the launcher ahead of Home actions on %s', pathname => {
+    mockLocation.pathname = pathname;
+    mockPlatform.isExtension = true;
+    mockEnv.sidePanel = true;
+    const { container } = renderLayout();
+    const launcher = screen.getByTestId('command-launcher');
+    const actions = screen.getByTestId('action-bar');
+    expect(launcher.closest('[data-home-actions]')).toBeNull();
+    expect(launcher.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    document.body.setAttribute('data-hide-home-actions', '');
+    expect(container.querySelector('[data-home-actions]')).toBeInTheDocument();
+    expect(launcher.closest('[data-home-actions]')).toBeNull();
+    document.body.removeAttribute('data-hide-home-actions');
+  });
+
+  it.each(['native', 'fullpage', 'confirmation'] as const)('does not show the launcher on %s', surface => {
+    mockPlatform.isExtension = surface !== 'native';
+    mockEnv.fullPage = surface === 'fullpage';
+    mockEnv.popup = surface !== 'fullpage';
+    mockEnv.confirmWindow = surface === 'confirmation';
+    renderLayout();
+    expect(screen.queryByTestId('command-launcher')).toBeNull();
   });
 });
 
@@ -484,6 +542,24 @@ describe('TabLayout — action change handling (handleActionChange)', () => {
     renderLayout();
     fireEvent.click(screen.getByTestId('action-send'));
     expect(mockNavigate).toHaveBeenCalledWith('/send');
+  });
+
+  it('navigates when the previewed Send segment is tapped while the route is still Overview', () => {
+    mockLocation.pathname = '/';
+    act(() => setHomePagerPreview('send'));
+    renderLayout();
+    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
+    fireEvent.click(screen.getByTestId('action-send'));
+    expect(mockNavigate).toHaveBeenCalledWith('/send');
+  });
+
+  it('keeps the current Overview segment silent while Send is previewed', () => {
+    mockLocation.pathname = '/';
+    act(() => setHomePagerPreview('send'));
+    renderLayout();
+    fireEvent.click(screen.getByTestId('action-overview'));
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockHaptic).not.toHaveBeenCalled();
   });
 
   it('is a no-op when the tapped action is already the current route', () => {

@@ -52,9 +52,9 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
   },
   mainnet: {
     name: 'mainnet',
-    rpcUrl: 'https://rpc.cedar.miden.io',
-    provingUrl: 'https://tx-prover.cedar.miden.io',
-    transportUrl: 'https://transport.cedar.miden.io',
+    rpcUrl: 'https://rpc.mainnet.miden.io',
+    provingUrl: 'https://tx-prover.mainnet.miden.io',
+    transportUrl: 'https://transport.mainnet.miden.io',
     networkFlag: 'mainnet',
     pollIntervalMs: 5_000,
     txTimeoutMs: 180_000,

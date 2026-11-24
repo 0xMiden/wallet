@@ -5,6 +5,7 @@ import type React from 'react';
 
 import type { BrowserContext } from '@playwright/test';
 import { JSDOM } from 'jsdom';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import net from 'node:net';
@@ -107,6 +108,14 @@ describe('test dApp server', () => {
     );
   });
 
+  it('serves accessible text fields for native keyboard coverage', () => {
+    const html = createDappServer({ roots }).serve('/').body.toString('utf8');
+    const document = new JSDOM(html).window.document;
+
+    expect(document.querySelector('input#keyboard-input[aria-label="Keyboard input"]')).not.toBeNull();
+    expect(document.querySelector('textarea#keyboard-textarea[aria-label="Keyboard notes"]')).not.toBeNull();
+  });
+
   it('retries an extensionless import with .js, as the adapters need', () => {
     const server = createDappServer({ pageDir: pageFixture(), roots });
     const served = server.serve('/npm/@miden-sdk/miden-wallet-adapter-miden/dist/adapter');
@@ -204,12 +213,17 @@ describe('test dApp server', () => {
   it('routes the origins it is given, dApps one and two by default', async () => {
     const patterns = async (origins?: readonly string[]): Promise<unknown[]> => {
       const route = jest.fn(async (_pattern: string, _handler: unknown) => undefined);
-      await installTestDapp(
-        { route } as unknown as BrowserContext,
-        createDappServer({ pageDir: pageFixture(), roots }),
-        origins
-      );
-      return route.mock.calls.map(call => call[0]);
+      const context = Object.assign(new EventEmitter(), { route });
+      try {
+        await installTestDapp(
+          context as unknown as BrowserContext,
+          createDappServer({ pageDir: pageFixture(), roots }),
+          origins
+        );
+        return route.mock.calls.map(call => call[0]);
+      } finally {
+        context.emit('close');
+      }
     };
     expect(REACT_DAPP_ORIGIN).toBe(`http://localhost:${DAPP_PORT + 1}`);
     expect(await patterns()).toEqual([`${DAPP_ORIGINS.one}/**`, `${DAPP_ORIGINS.two}/**`]);
@@ -289,7 +303,7 @@ describe('React page server', () => {
       react: versionOf(reactRoots.react),
       reactDom: versionOf(reactRoots['react-dom']),
       adapterReact: versionOf(reactRoots['@miden-sdk/miden-wallet-adapter-react'])
-    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.17.0' });
+    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.18.0' });
     expect(reactRoots.zustand).toBe(
       path.dirname(
         createRequire(path.join(reactRoots['@miden-sdk/react'], 'package.json')).resolve('zustand/package.json')

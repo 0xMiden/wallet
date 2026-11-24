@@ -1,23 +1,22 @@
 import BigNumber from 'bignumber.js';
 
-import { formatUsd } from 'lib/i18n/numbers';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
 
-import { isNominalQuote, type TokenPriceInfo } from './binance';
-import { isFixedQuote } from './fixed';
+import type { TokenPriceInfo } from './binance';
 
 export const USD_QUOTE_MAX_AGE_MS = 10 * 60_000;
 export type UsdQuoteStatus = 'ready' | 'loading' | 'unavailable' | 'stale';
 
 export function usdQuoteStatus(quote: TokenPriceInfo | undefined, now = Date.now()): UsdQuoteStatus {
-  if (!quote || isNominalQuote(quote) || !Number.isFinite(quote.price) || quote.price <= 0) return 'unavailable';
-  if (isFixedQuote(quote)) return 'ready';
+  if (!quote || quote.kind === 'nominal' || !Number.isFinite(quote.price) || quote.price <= 0) return 'unavailable';
+  if (quote.kind === 'fixed') return 'ready';
   if (quote.observedAt === undefined) return 'unavailable';
   return quote.observedAt > now || now - quote.observedAt > USD_QUOTE_MAX_AGE_MS ? 'stale' : 'ready';
 }
 
 /** First millisecond a ready market quote is stale. Fixed quotes do not wake the clock. */
 export function quoteExpiryMs(quote: TokenPriceInfo | undefined, now = Date.now()): number | undefined {
-  if (usdQuoteStatus(quote, now) !== 'ready' || isFixedQuote(quote)) return undefined;
+  if (usdQuoteStatus(quote, now) !== 'ready' || quote?.kind === 'fixed') return undefined;
   const observedAt = quote?.observedAt;
   if (observedAt === undefined || !Number.isFinite(observedAt)) return undefined;
   return observedAt + USD_QUOTE_MAX_AGE_MS + 1;
@@ -57,5 +56,5 @@ export function usdEstimateText(
   if ((numeric === 0 && !value.isZero()) || (value.abs().gt(0) && value.abs().lt('0.00000000000000000001'))) {
     return `${value.isNegative() ? '−' : ''}<$0.00000000000000000001`;
   }
-  return formatUsd(numeric);
+  return formatUsdDisplay(value);
 }

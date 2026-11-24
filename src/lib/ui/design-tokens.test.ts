@@ -167,6 +167,24 @@ it('maps every token to a Tailwind color', () => {
   }
 });
 
+describe.each([':root', '.dark'] as const)('Command launcher in %s', selector => {
+  it.each(['rest', 'hover', 'press', 'focus'])('keeps fixed ink at 4.5:1 on fixed fill in %s', () => {
+    const vars = themeVars(selector);
+    expect(vars['ds-launcher-fill']).toBe('#e77537');
+    expect(vars['ds-launcher-ink']).toBe('#191919');
+    expect(contrast(vars['ds-launcher-ink']!, vars['ds-launcher-fill']!)).toBeGreaterThanOrEqual(4.5);
+    expect(config).toContain("'launcher-fill': 'var(--ds-launcher-fill)'");
+    expect(config).toContain("'launcher-ink': 'var(--ds-launcher-ink)'");
+  });
+});
+
+describe('Command launcher Devnet alias isolation', () => {
+  it('does not use the Devnet accent override for the launcher', () => {
+    expect(config).toContain("'launcher-fill': 'var(--ds-launcher-fill)'");
+    expect(config).toContain("'launcher-ink': 'var(--ds-launcher-ink)'");
+  });
+});
+
 describe.each([':root', '.dark'] as const)('legacy muted text in %s', selector => {
   it('matches the design system muted color', () => {
     const vars = themeVars(selector);

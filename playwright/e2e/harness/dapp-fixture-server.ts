@@ -57,8 +57,12 @@ export interface DappViewportReport {
   devicePixelRatio: number;
   /** Monotonic per-page counter; lets a test require a NEW report, not a stale one. */
   seq: number;
-  /** Why the page reported: first paint, a resize, or regaining visibility. */
-  reason: 'load' | 'resize' | 'visible';
+  /**
+   * Why the page reported: first paint, a resize, or regaining visibility. With `?morphlog=1` also a visual viewport
+   * resize, a ResizeObserver callback on the fill, a change of `env(safe-area-inset-top)` or of the orientation query:
+   * the events a native morph must not cause (#1817).
+   */
+  reason: 'load' | 'resize' | 'visible' | 'visual-viewport' | 'observer' | 'safe-area' | 'media';
   /** Server receipt time (ms). */
   at: number;
 }
@@ -108,14 +112,14 @@ export function fixtureDapp(id: string): FixtureDapp {
  * track the VISUAL viewport exactly, so a stale layout shows up as a
  * wrong-sized colour block rather than being masked by the body stretching.
  */
-function pageHtml(dapp: FixtureDapp): string {
+function pageHtml(dapp: FixtureDapp, fullscreen: boolean): string {
   const [r, g, b] = dapp.rgb;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>${dapp.name}</title>
+${fullscreen ? '<meta name="bread-display" content="fullscreen">\n' : ''}<title>${dapp.name}</title>
 <style>
   html, body { margin: 0; padding: 0; background: rgb(${r}, ${g}, ${b}); }
   #fill {
@@ -180,6 +184,33 @@ function pageHtml(dapp: FixtureDapp): string {
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) report('visible');
   });
+  // Opt-in morph logger: #seq counts frames instead, so a recording shows whether the page kept painting.
+  if (/[?&]morphlog=1(&|$)/.test(location.search)) {
+    var frames = 0;
+    var probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;' +
+      '--sat:env(safe-area-inset-top);padding-top:var(--sat)';
+    document.body.appendChild(probe);
+    var sat = getComputedStyle(probe).paddingTop;
+    var tick = function () {
+      frames += 1;
+      document.getElementById('seq').textContent = String(frames);
+      var now = getComputedStyle(probe).paddingTop;
+      if (now !== sat) { sat = now; report('safe-area'); }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function () { report('visual-viewport'); });
+    }
+    // The observer's first callback reports the size it started with, not a change.
+    var observed = false;
+    new ResizeObserver(function () {
+      if (observed) report('observer');
+      observed = true;
+    }).observe(document.getElementById('fill'));
+    window.matchMedia('(orientation: portrait)').addEventListener('change', function () { report('media'); });
+  }
   if (document.readyState === 'complete') report('load');
   else window.addEventListener('load', function () { report('load'); });
 })();
@@ -213,6 +244,8 @@ export interface StartFixtureServerOpts {
   deviceHost: string;
   /** Fixed port, or 0 for an ephemeral one (default). */
   port?: number;
+  /** Opt into the real native capsule for gesture acceptance; ordinary fixtures stay in browser mode. */
+  fullscreen?: boolean;
 }
 
 export async function startDappFixtureServer(opts: StartFixtureServerOpts): Promise<DappFixtureServer> {
@@ -270,7 +303,7 @@ export async function startDappFixtureServer(opts: StartFixtureServerOpts): Prom
         // Every open must be a real load, not a cache replay — the suite counts loads.
         'cache-control': 'no-store, no-cache, must-revalidate'
       });
-      res.end(pageHtml(dapp));
+      res.end(pageHtml(dapp, opts.fullscreen === true));
       return;
     }
 

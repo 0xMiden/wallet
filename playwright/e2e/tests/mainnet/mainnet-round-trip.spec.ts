@@ -19,6 +19,7 @@ import {
   walletDiscoveredNativeFaucetId
 } from '../../helpers/balance-truth';
 import { landedVaultSample, roundTripReserve, TX_FEE_MULTIPLE } from '../../helpers/mainnet-bridge-plan';
+import { settledRoundTripBalance } from '../../helpers/mainnet-roundtrip-balance';
 
 const SEND_BASE_UNITS = 1n;
 
@@ -109,6 +110,13 @@ test.describe('registration', () => {
   });
 });
 
+async function roundTripBalance(wallet: GuardianAwareWalletPage, faucetId: string): Promise<bigint> {
+  return settledRoundTripBalance(
+    () => wallet.refreshBalancesLanded(60_000),
+    () => vaultBalanceByFaucetId(wallet.page, faucetId)
+  );
+}
+
 async function exchange(
   sender: GuardianAwareWalletPage,
   recipient: GuardianAwareWalletPage,
@@ -118,8 +126,8 @@ async function exchange(
   const amount = fromBaseUnits(SEND_BASE_UNITS, holding.decimals);
   const senderAddress = await sender.getAccountAddress();
   const recipientAddress = await recipient.getAccountAddress();
-  const senderBefore = await vaultBalanceByFaucetId(sender.page, holding.faucetId);
-  const recipientBefore = await vaultBalanceByFaucetId(recipient.page, holding.faucetId);
+  const senderBefore = await roundTripBalance(sender, holding.faucetId);
+  const recipientBefore = await roundTripBalance(recipient, holding.faucetId);
   expect(senderBefore, `${senderAddress} cannot cover one ${holding.symbol} send`).toBeGreaterThanOrEqual(
     SEND_BASE_UNITS + perTx
   );
@@ -134,14 +142,14 @@ async function exchange(
     decimals: holding.decimals,
     diagnoseFrom: sender.page
   });
-  const drop = senderBefore - (await vaultBalanceByFaucetId(sender.page, holding.faucetId));
+  const drop = senderBefore - (await roundTripBalance(sender, holding.faucetId));
   expect(drop, `${senderAddress} ${holding.symbol} debit`).toBeGreaterThanOrEqual(SEND_BASE_UNITS);
   expect(drop, `${senderAddress} ${holding.symbol} debit above the fee budget`).toBeLessThanOrEqual(
     SEND_BASE_UNITS + perTx
   );
   await recipient.claimAllNotes();
   await expect.poll(async () => pendingNoteTotal(recipient.page, holding.symbol), { timeout: 180_000 }).toBe(0n);
-  const gained = (await vaultBalanceByFaucetId(recipient.page, holding.faucetId)) - recipientBefore;
+  const gained = (await roundTripBalance(recipient, holding.faucetId)) - recipientBefore;
   expect(gained, `${recipientAddress} gained more than the payment`).toBeLessThanOrEqual(SEND_BASE_UNITS);
   expect(gained, `${recipientAddress} lost more than the fee budget claiming`).toBeGreaterThanOrEqual(
     SEND_BASE_UNITS - perTx
@@ -206,14 +214,14 @@ test.describe('nightly round trip', () => {
     expect(guardianHolding.faucetId).toBe(plainHolding.faucetId);
 
     const before = {
-      plain: await vaultBalanceByFaucetId(walletA.page, plainHolding.faucetId),
-      guardian: await vaultBalanceByFaucetId(walletB.page, plainHolding.faucetId)
+      plain: await roundTripBalance(walletA, plainHolding.faucetId),
+      guardian: await roundTripBalance(walletB, plainHolding.faucetId)
     };
     await exchange(walletA, walletB, plainHolding, oneTx);
     await exchange(walletB, walletA, plainHolding, oneTx);
     const after = {
-      plain: await vaultBalanceByFaucetId(walletA.page, plainHolding.faucetId),
-      guardian: await vaultBalanceByFaucetId(walletB.page, plainHolding.faucetId)
+      plain: await roundTripBalance(walletA, plainHolding.faucetId),
+      guardian: await roundTripBalance(walletB, plainHolding.faucetId)
     };
 
     mkdirSync('test-results', { recursive: true });

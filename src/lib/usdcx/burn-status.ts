@@ -84,11 +84,13 @@ export async function pollUsdcxBurn(
     ) {
       return;
     }
+    const nextPhase = previous.phase === 'consuming' && phase === 'pending' ? previous.phase : phase;
     row.extraInputs = {
       ...current,
       usdcxBurn: {
         ...previous,
-        phase: previous.phase === 'consuming' && phase === 'pending' ? previous.phase : phase,
+        phase: nextPhase,
+        confirmedAt: nextPhase === 'confirmed' ? (previous.confirmedAt ?? Date.now()) : previous.confirmedAt,
         attemptCount: observation.attemptCount,
         lastAttemptBlockNum: observation.lastAttemptBlockNum,
         lastError: observation.lastError

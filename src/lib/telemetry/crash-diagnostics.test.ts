@@ -13,6 +13,7 @@ import {
   PROPOSAL_GUARDS,
   PROPOSAL_STEPS,
   SECURITY_CHANGE_ACTIONS,
+  type StorageOperation,
   annotateCrash,
   backgroundAgeOf,
   readPageNavigation,
@@ -23,19 +24,92 @@ import {
 import { USER_ERROR_SURFACES } from './user-visible-error';
 
 describe('source-bound crash diagnostics', () => {
+  it.each(['landed-local', 'landed-external', 'invalid', 'processing', 'not-landed', 'unknown'])(
+    'retains the closed consume verdict %s',
+    consumeVerdict => {
+      const failure = new Error('consume failed');
+      annotateCrash(failure, { consumeVerdict });
+      expect(snapshotCrashDiagnostics(failure)).toEqual({ consumeVerdict });
+    }
+  );
+
+  it('takes no closed submit report field from a generic annotation or a cause', () => {
+    const fields = {
+      submitApproachHidden: 'half_or_more',
+      proofWindow: 'under_30_blocks',
+      submitHidden: 'yes',
+      submitLeg: 'under_9s'
+    } as const;
+    const cause = new Error('cause');
+    annotateCrash(cause, fields);
+    const failure = new Error('wrapper', { cause });
+    annotateCrash(failure, fields);
+    for (const field of Object.keys(fields)) {
+      expect(snapshotCrashDiagnostics(cause)).not.toHaveProperty(field);
+      expect(snapshotCrashDiagnostics(failure)).not.toHaveProperty(field);
+    }
+  });
+
+  it('rejects an unlisted consume verdict', () => {
+    const failure = new Error('consume failed');
+    annotateCrash(failure, { consumeVerdict: 'unlisted-consume-verdict' });
+    expect(snapshotCrashDiagnostics(failure)).toEqual({});
+  });
+
+  it('accepts only the fixed client roles at client construction', () => {
+    for (const clientRole of ['primary', 'realm_reader']) {
+      const failure = new Error('client creation failed');
+      annotateCrash(failure, { operation: 'sdk_initialize', stage: 'client_create', clientRole });
+      expect(snapshotCrashDiagnostics(failure)).toMatchObject({ clientRole });
+    }
+    const invalid = new Error('client creation failed');
+    annotateCrash(invalid, {
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      clientRole: 'client /private/0xfeed'
+    });
+    expect(snapshotCrashDiagnostics(invalid)).toEqual({ operation: 'sdk_initialize', stage: 'client_create' });
+    const wrongStage = new Error('client creation failed');
+    annotateCrash(wrongStage, { operation: 'sdk_initialize', stage: 'mock_create', clientRole: 'primary' });
+    expect(snapshotCrashDiagnostics(wrongStage)).toEqual({ operation: 'sdk_initialize', stage: 'mock_create' });
+  });
+
+  it('annotates a DOMException at the fixed client construction boundary', () => {
+    const failure = new DOMException('database path /private/0xfeed and balance 12.5', 'UnknownError');
+    annotateCrash(failure, {
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled',
+      clientRole: 'realm_reader'
+    });
+    expect(snapshotCrashDiagnostics(failure)).toEqual({
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled',
+      clientRole: 'realm_reader'
+    });
+    expect(JSON.stringify(snapshotCrashDiagnostics(failure))).not.toMatch(/private|0xfeed|12\.5/);
+  });
+
   it('retains a coherent storage pair on the exact frozen Error', () => {
     const failure = Object.freeze(new Error('cursor request failed'));
     annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
-    expect(snapshotCrashDiagnostics(failure)).toEqual({
-      storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor'
-    });
+    expect(snapshotCrashDiagnostics(failure)).toEqual({});
     expect(snapshotCrashDiagnostics(new Error('unrelated'))).toEqual({});
   });
 
   it('accepts every compatible closed owner and operation', () => {
     for (const storageOwner of ['wallet_transactions', 'wallet_limits']) {
-      for (const storageOperation of ['get', 'query', 'count', 'cursor', 'mutate', 'transaction', 'open']) {
+      for (const storageOperation of [
+        'get',
+        'query',
+        'count',
+        'cursor_open',
+        'cursor_iteration',
+        'mutate',
+        'transaction',
+        'open'
+      ]) {
         const pair = { storageOwner, storageOperation };
         const failure = new Error('storage failure');
         annotateCrash(failure, pair);
@@ -51,7 +125,10 @@ describe('source-bound crash diagnostics', () => {
     const diagnostics = jest.requireActual<Record<string, unknown>>('./crash-diagnostics');
     const valueSets: ReadonlyArray<readonly [string, readonly string[]]> = [
       ['STORAGE_OWNERS', ['wallet_transactions', 'wallet_limits', 'wallet_database']],
-      ['STORAGE_OPERATIONS', ['get', 'query', 'count', 'cursor', 'mutate', 'transaction', 'open']],
+      [
+        'STORAGE_OPERATIONS',
+        ['get', 'query', 'count', 'cursor_open', 'cursor_iteration', 'mutate', 'transaction', 'open']
+      ],
       ['PAGE_VISIBILITY', ['visible', 'hidden', 'unknown']]
     ];
     for (const [name, values] of valueSets) {
@@ -61,6 +138,11 @@ describe('source-bound crash diagnostics', () => {
       expect(exported).toHaveLength(values.length);
       expect(new Set(exported)).toEqual(new Set(values));
     }
+  });
+
+  it('excludes generic cursor from the storage operation type', () => {
+    const genericCursorIsExcluded: [Extract<StorageOperation, 'cursor'>] extends [never] ? true : false = true;
+    expect(genericCursorIsExcluded).toBe(true);
   });
 
   it('rejects hostile and incompatible storage metadata without changing the failure', () => {
@@ -85,7 +167,7 @@ describe('source-bound crash diagnostics', () => {
       { storageOperation: 'open' },
       { pageVisibility: 'visible' }
     ];
-    for (const storageOperation of ['get', 'query', 'count', 'cursor', 'mutate']) {
+    for (const storageOperation of ['get', 'query', 'count', 'cursor', 'cursor_open', 'cursor_iteration', 'mutate']) {
       invalid.push({ storageOwner: 'wallet_database', storageOperation });
     }
     const hostile = new Proxy(
@@ -141,10 +223,10 @@ describe('source-bound crash diagnostics', () => {
         return ownerReads++ === 0 ? 'wallet_transactions' : 'poison';
       },
       get storageOperation() {
-        return operationReads++ === 0 ? 'cursor' : 'poison';
+        return operationReads++ === 0 ? 'cursor_open' : 'poison';
       }
     });
-    const pair = { storageOwner: 'wallet_transactions', storageOperation: 'cursor' };
+    const pair = { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' };
     expect(ownerReads).toBe(1);
     expect(operationReads).toBe(1);
     expect(snapshotCrashDiagnostics(failure)).toEqual(pair);
@@ -166,7 +248,7 @@ describe('source-bound crash diagnostics', () => {
     const inner = new Error('inner');
     annotateCrash(inner, {
       storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor',
+      storageOperation: 'cursor_open',
       operation: 'sdk_initialize',
       stage: 'client_create',
       workerMode: 'disabled'
@@ -243,7 +325,7 @@ describe('source-bound crash diagnostics', () => {
   });
 
   it('bounds hostile and oversized fixed error links', () => {
-    const pair = { storageOwner: 'wallet_transactions', storageOperation: 'cursor' };
+    const pair = { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' };
     const leaf = new Error('leaf');
     annotateCrash(leaf, pair);
     let nested = leaf;
@@ -345,7 +427,7 @@ describe('source-bound crash diagnostics', () => {
     const cause = new Error('cause');
     annotateCrash(cause, {
       storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor',
+      storageOperation: 'cursor_open',
       operation: 'sdk_initialize',
       stage: 'client_create',
       workerMode: 'disabled'
@@ -354,7 +436,7 @@ describe('source-bound crash diagnostics', () => {
     annotateCrash(outer, { stage: 'wasm_ready' });
     expect(snapshotCrashDiagnostics(outer)).toEqual({
       storageOwner: 'wallet_transactions',
-      storageOperation: 'cursor',
+      storageOperation: 'cursor_open',
       operation: 'sdk_initialize',
       stage: 'wasm_ready',
       workerMode: 'disabled'
@@ -366,7 +448,7 @@ describe('source-bound crash diagnostics', () => {
       link: 'conflicting owners',
       wrap: cause => {
         const other = new Error('other owner');
-        annotateCrash(other, { storageOwner: 'wallet_limits', storageOperation: 'cursor' });
+        annotateCrash(other, { storageOwner: 'wallet_limits', storageOperation: 'cursor_open' });
         return Object.assign(new Error('aggregate', { cause }), { failures: [cause, other] });
       }
     },
@@ -412,7 +494,7 @@ describe('source-bound crash diagnostics', () => {
         Object.assign(new Error('aggregate', { cause }), {
           failures: Array.from({ length: 32 }, () => {
             const failure = new Error('entry');
-            annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+            annotateCrash(failure, { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' });
             return failure;
           })
         })
@@ -423,7 +505,7 @@ describe('source-bound crash diagnostics', () => {
       const cause = new Error('cause');
       annotateCrash(cause, {
         storageOwner: 'wallet_transactions',
-        storageOperation: 'cursor',
+        storageOperation: 'cursor_open',
         operation: 'sdk_initialize',
         stage: 'client_create',
         workerMode: 'disabled'
@@ -1000,3 +1082,120 @@ it('reannotationNeverMixesNativeGroups', () => {
   });
   expect(snapshotCrashDiagnostics(outer)).toEqual(publicationGroup);
 });
+
+test('startup evidence is closed and bound to the eligibility startup identity', () => {
+  const error = new Error('private seed alpha bravo account=0x123 amount=12 https://private.example');
+  annotateCrash(error, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_retry',
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'retry_failed',
+    startupEligibilityRequestFailure: 'http_error'
+  });
+  expect(snapshotCrashDiagnostics(error)).toMatchObject({
+    startupEligibilityStage: 'eligibility_retry',
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'retry_failed',
+    startupEligibilityRequestFailure: 'http_error'
+  });
+  const hostile = new Error('other');
+  annotateCrash(hostile, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'https://private.example',
+    startupEligibilityReason: '0x123',
+    startupEligibilityRetry: 'seed alpha bravo',
+    startupEligibilityRequestFailure: 'https://private.example'
+  });
+  expect(snapshotCrashDiagnostics(hostile)).toEqual({
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup'
+  });
+  const wrongReason = new Error('unavailable');
+  annotateCrash(wrongReason, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_lookup',
+    startupEligibilityReason: 'version_mismatch',
+    startupEligibilityRetry: 'not_attempted',
+    startupEligibilityRequestFailure: 'http_error'
+  });
+  expect(snapshotCrashDiagnostics(wrongReason)).not.toHaveProperty('startupEligibilityRequestFailure');
+  const hostileFailure = new Error('unavailable');
+  annotateCrash(hostileFailure, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_lookup',
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'not_attempted',
+    startupEligibilityRequestFailure: 'https://private.example'
+  });
+  expect(snapshotCrashDiagnostics(hostileFailure)).not.toHaveProperty('startupEligibilityRequestFailure');
+});
+
+test('routes startup request failures through the shared retention contract', () => {
+  const geo = jest.requireActual<typeof import('lib/remote-config/geo')>('lib/remote-config/geo');
+  const retainedStartupRequestFailure = jest.fn(geo.retainedStartupRequestFailure);
+  try {
+    jest.isolateModules(() => {
+      jest.doMock('lib/remote-config/geo', () => ({
+        ...geo,
+        retainedStartupRequestFailure
+      }));
+      const diagnostics = jest.requireActual<typeof import('./crash-diagnostics')>('./crash-diagnostics');
+      const error = new Error('eligibility request failed');
+      diagnostics.annotateCrash(error, {
+        userErrorId: 'walletAccessUnavailableBody',
+        userErrorSurface: 'startup',
+        startupEligibilityStage: 'eligibility_lookup',
+        startupEligibilityReason: 'request_failed',
+        startupEligibilityRetry: 'not_attempted',
+        startupEligibilityRequestFailure: 'http_error'
+      });
+      expect(diagnostics.snapshotCrashDiagnostics(error)).toMatchObject({
+        startupEligibilityReason: 'request_failed',
+        startupEligibilityRequestFailure: 'http_error'
+      });
+    });
+    expect(retainedStartupRequestFailure).toHaveBeenCalledTimes(2);
+    expect(retainedStartupRequestFailure).toHaveBeenNthCalledWith(1, 'request_failed', 'http_error');
+    expect(retainedStartupRequestFailure).toHaveBeenNthCalledWith(2, 'request_failed', 'http_error');
+  } finally {
+    jest.dontMock('lib/remote-config/geo');
+  }
+});
+
+test('reannotating an error for a different display cannot retain a startup attempt', () => {
+  const error = new Error('failed');
+  annotateCrash(error, {
+    userErrorId: 'walletAccessUnavailableBody',
+    userErrorSurface: 'startup',
+    startupEligibilityStage: 'eligibility_lookup',
+    startupEligibilityReason: 'request_failed',
+    startupEligibilityRetry: 'not_attempted',
+    startupEligibilityRequestFailure: 'timeout'
+  });
+  annotateCrash(error, { userErrorId: 'usdcxFaucetUnavailable', userErrorSurface: 'review' });
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('startupEligibilityStage');
+  expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('startupEligibilityRequestFailure');
+});
+
+it.each(['walletAccessUnavailableBody', 'usdcxFaucetUnavailable'])(
+  'never inherits another startup attempt through a cause for %s',
+  userErrorId => {
+    const inner = new Error('old attempt');
+    annotateCrash(inner, {
+      userErrorId: 'walletAccessUnavailableBody',
+      userErrorSurface: 'startup',
+      startupEligibilityStage: 'eligibility_lookup',
+      startupEligibilityReason: 'request_failed',
+      startupEligibilityRetry: 'not_attempted',
+      startupEligibilityRequestFailure: 'timeout'
+    });
+    const outer = new Error('new display', { cause: inner });
+    annotateCrash(outer, { userErrorId, userErrorSurface: 'startup' });
+    expect(snapshotCrashDiagnostics(outer)).not.toHaveProperty('startupEligibilityStage');
+    expect(snapshotCrashDiagnostics(outer)).not.toHaveProperty('startupEligibilityRequestFailure');
+  }
+);

@@ -1,4 +1,7 @@
+import React from 'react';
+
 import { dedupeIntegration } from '@sentry/browser';
+import { act, render, cleanup } from '@testing-library/react';
 
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -13,9 +16,16 @@ import {
   stopCrashReporting
 } from './crash';
 import { annotateCrash } from './crash-diagnostics';
+import { observeProposalCreateRejection } from './proposal-create-diagnostics';
 import { REDACTED } from './redact';
 import { __resetRelayDiagnosticsForTest } from './relay-diagnostics';
+import { annotateTransactionExecution } from './transaction-execution-diagnostics';
+import { reportTransactionFailure } from './transaction-failure';
+import { annotateUiProducer } from './ui-producer-diagnostics';
+import { reportUserVisibleError, _resetUserVisibleErrorLimitsForTest } from './user-visible-error';
 import packageJson from '../../../package.json';
+
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 jest.mock('lib/settings/helpers', () => ({
   ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
@@ -779,7 +789,7 @@ describe('diagnostic snapshots', () => {
       });
       annotateCrash(error, {
         storageOwner: 'wallet_transactions',
-        storageOperation: 'cursor',
+        storageOperation: 'cursor_open',
         pageVisibility: 'visible'
       });
       captureCrash(error);
@@ -801,7 +811,7 @@ describe('diagnostic snapshots', () => {
         throw new Error('missing diagnostics');
       expect(extra.walletDiagnostics).toMatchObject({
         storageOwner: 'wallet_transactions',
-        storageOperation: 'cursor',
+        storageOperation: 'cursor_open',
         pageVisibility: 'hidden'
       });
       const later: Record<string, unknown> = {};
@@ -823,7 +833,7 @@ describe('diagnostic snapshots', () => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
       jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
       const error = new Error('cursor failed');
-      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' });
       captureCrash(error);
       await flushMicrotasks();
       const event: Record<string, unknown> = {
@@ -838,13 +848,13 @@ describe('diagnostic snapshots', () => {
         kept: 'yes',
         network: 'mainnet',
         storage_owner: 'wallet_transactions',
-        storage_operation: 'cursor'
+        storage_operation: 'cursor_open'
       });
       expect(event.tags).not.toHaveProperty('page_visibility');
       expect(event.extra).toEqual({
         walletDiagnostics: expect.objectContaining({
           storageOwner: 'wallet_transactions',
-          storageOperation: 'cursor',
+          storageOperation: 'cursor_open',
           pageVisibility: 'hidden'
         })
       });
@@ -860,7 +870,7 @@ describe('diagnostic snapshots', () => {
     const error = new Error('cursor failed');
     error.name = 'UnknownError';
     error.stack = undefined;
-    annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+    annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' });
     globalThis.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: error }));
     await flushMicrotasks();
     expect(captured).toHaveLength(1);
@@ -879,11 +889,14 @@ describe('diagnostic snapshots', () => {
     expect(event.tags).toEqual({
       network: 'testnet',
       storage_owner: 'wallet_transactions',
-      storage_operation: 'cursor'
+      storage_operation: 'cursor_open'
     });
     expect(event.tags).not.toHaveProperty('page_visibility');
     expect(event.extra).toEqual({
-      walletDiagnostics: expect.objectContaining({ storageOwner: 'wallet_transactions', storageOperation: 'cursor' })
+      walletDiagnostics: expect.objectContaining({
+        storageOwner: 'wallet_transactions',
+        storageOperation: 'cursor_open'
+      })
     });
   });
 
@@ -896,7 +909,7 @@ describe('diagnostic snapshots', () => {
       error.name = 'UnknownError';
       error.stack = 'UnknownError: cursor failed\n    at scan (capacitor://localhost/mobile.js:1:5000)';
       captureCrash(error, 'onunhandledrejection', { level: 'warning' });
-      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor' });
+      annotateCrash(error, { storageOwner: 'wallet_transactions', storageOperation: 'cursor_open' });
       captureCrash(error, 'onunhandledrejection', { level: 'warning' });
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
       captureCrash(new Error('unrelated failure'));
@@ -924,7 +937,7 @@ describe('diagnostic snapshots', () => {
       expect(events[1]?.tags).toEqual({
         network: 'testnet',
         storage_owner: 'wallet_transactions',
-        storage_operation: 'cursor'
+        storage_operation: 'cursor_open'
       });
       expect(events[1]?.tags).not.toHaveProperty('page_visibility');
       expect(events[2]?.tags).toEqual({ network: 'testnet' });
@@ -977,6 +990,41 @@ describe('diagnostic snapshots', () => {
         appVersion: packageJson.version
       })
     });
+  });
+
+  it('reports only the fixed SDK client role for a reader construction failure', async () => {
+    grantBrowserPermission();
+    initCrashReporting();
+    const failure = new DOMException(
+      'Unable to open database file /private/0xfeedcafedeadbeef for balance 1234567890123456',
+      'UnknownError'
+    );
+    annotateCrash(failure, {
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled',
+      clientRole: 'realm_reader'
+    });
+    captureCrash(failure, 'onunhandledrejection');
+    await flushMicrotasks();
+    const reportable = captured[0];
+    expect(reportable).toBeInstanceOf(Error);
+    if (!(reportable instanceof Error)) throw new Error('missing error');
+    const event: Record<string, unknown> = {
+      message: reportable?.message,
+      exception: { values: [{ type: reportable?.name, value: reportable?.message }] }
+    };
+    scrubEvent(event, { originalException: reportable });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: 'disabled',
+        clientRole: 'realm_reader'
+      })
+    });
+    expect(event.tags).toMatchObject({ sdk_client_role: 'realm_reader' });
+    expect(JSON.stringify(event)).not.toMatch(/\/private\/0xfeedcafedeadbeef|1234567890123456/);
   });
 
   it('names the network the crash happened on, in the diagnostics and as a tag beside any other', async () => {
@@ -1112,3 +1160,215 @@ describe('diagnostic snapshots', () => {
     ]);
   });
 });
+
+it('restores only root producer evidence after SDK and native-style enrichment before serialization', async () => {
+  initCrashReporting();
+  const error = new Error('failed to get input note: ' + ADDRESS);
+  observeProposalCreateRejection(error);
+  annotateCrash(error, { proposalStep: 'proposal_create' });
+  reportTransactionFailure({ type: 'consume', stage: 'creating-proposal', error });
+  await flushMicrotasks();
+  expect(captured).toHaveLength(1);
+  const reportable = captured[0];
+  const event: Record<string, unknown> = {
+    extra: {
+      walletDiagnostics: {
+        proposalCreateApi: 'consume_notes',
+        proposalCreateFamily: 'private-canary',
+        guardianProvingSubstep: 'private-canary',
+        offscreenDeadlineMethod: ADDRESS,
+        reapStartRelation: ADDRESS
+      },
+      account: ADDRESS
+    }
+  };
+  scrubEvent(event, { originalException: reportable });
+  expect(event.extra).toEqual({
+    walletDiagnostics: expect.objectContaining({
+      proposalCreateApi: 'consume_notes',
+      proposalCreateFamily: 'sdk_input_note_read'
+    })
+  });
+  event.extra = {
+    walletDiagnostics: { proposalCreateFamily: 'sdk_account_read', raw: ADDRESS },
+    nativePrivate: ADDRESS
+  };
+  scrubEvent(event, { originalException: reportable });
+  const wire = JSON.stringify(event);
+  expect(wire).toContain('sdk_input_note_read');
+  expect(wire).not.toContain('sdk_account_read');
+  expect(wire).not.toContain('private-canary');
+  expect(wire).not.toContain(ADDRESS);
+  expect(wire).not.toContain('guardianProvingSubstep');
+  expect(wire).not.toContain('offscreenDeadlineMethod');
+  expect(wire).not.toContain('reapStartRelation');
+});
+
+it('retains the current UI producer root through both final scrubs without enrichment injection', async () => {
+  _resetUserVisibleErrorLimitsForTest();
+  initCrashReporting();
+  Reflect.apply(reportUserVisibleError, undefined, [
+    'submissionUnanswered',
+    'status_screen',
+    {
+      kind: 'submission_feedback',
+      submissionFeedbackBranch: 'guardian_unanswered'
+    }
+  ]);
+  await flushMicrotasks();
+  expect(captured).toHaveLength(1);
+  const originalException = captured[0];
+  const event: Record<string, unknown> = {
+    extra: {
+      walletDiagnostics: { submissionFeedbackBranch: 'private-canary', recipientValidationStage: 'decoder_throw' },
+      raw: ADDRESS
+    }
+  };
+  scrubEvent(event, { originalException });
+  expect(event.extra).toEqual({
+    walletDiagnostics: expect.objectContaining({ submissionFeedbackBranch: 'guardian_unanswered' })
+  });
+  event.extra = { walletDiagnostics: { submissionFeedbackBranch: 'grpc_unknown', raw: ADDRESS } };
+  scrubEvent(event, { originalException });
+  const wire = JSON.stringify(event);
+  expect(wire).toContain('guardian_unanswered');
+  expect(wire).not.toContain('grpc_unknown');
+  expect(wire).not.toContain('recipientValidationStage');
+  expect(wire).not.toContain(ADDRESS);
+});
+
+it.each(['off', 'not-configured', 'not-deployed', 'service-down'] as const)(
+  'emits the actual displayed feature reason %s through the final wire',
+  async reason => {
+    jest.useFakeTimers();
+    try {
+      _resetUserVisibleErrorLimitsForTest();
+      initCrashReporting();
+      const { FeatureUnavailableNotice } = await import('components/FeatureUnavailable');
+      const component = FeatureUnavailableNotice as React.ComponentType<{
+        availability: { state: 'unavailable'; reason: typeof reason; detail: string };
+        feature: string;
+      }>;
+      render(
+        React.createElement(component, {
+          availability: { state: 'unavailable', reason, detail: ADDRESS },
+          feature: 'earnDeposit'
+        })
+      );
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1000);
+      });
+      expect(captured).toHaveLength(1);
+      const event: Record<string, unknown> = { extra: { private: ADDRESS } };
+      scrubEvent(event, { originalException: captured[0] });
+      expect(event.extra).toEqual({
+        walletDiagnostics: expect.objectContaining({
+          featureUnavailableFeature: 'earnDeposit',
+          featureUnavailableReason: reason
+        })
+      });
+      expect(JSON.stringify(event)).not.toContain(ADDRESS);
+    } finally {
+      cleanup();
+      jest.useRealTimers();
+    }
+  }
+);
+
+it('preserves closed execution facts under scrubber-safe wire names through both final scrubs', async () => {
+  initCrashReporting();
+  const error = new Error(`SDK rejection for ${ADDRESS}, amount 1234.5678, private-canary`);
+  annotateTransactionExecution(error, {
+    executionRoute: 'guardian_signed_request',
+    authObservation: 'observed',
+    authArgPresence: 'present',
+    authLayout: 'guardian',
+    commitmentMatch: 'guardian',
+    accountAuthCode: 'current_guardian'
+  });
+  reportTransactionFailure({ type: 'consume', stage: 'executing', error });
+  await flushMicrotasks();
+  expect(captured).toHaveLength(1);
+  const event: Record<string, unknown> = {};
+  for (const executionObservation of [ADDRESS, 'read_failed']) {
+    event.extra = { walletDiagnostics: { executionObservation, authObservation: 'read_failed', raw: ADDRESS } };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({
+        executionRoute: 'guardian_signed_request',
+        executionObservation: 'observed',
+        executionArguments: 'present',
+        executionLayout: 'guardian',
+        commitmentMatch: 'guardian',
+        accountCodeFamily: 'current_guardian'
+      })
+    });
+    const wire = JSON.stringify(event);
+    for (const oldKey of ['authObservation', 'authArgPresence', 'authLayout', 'accountAuthCode']) {
+      expect(wire).not.toContain(oldKey);
+    }
+    for (const privateValue of [ADDRESS, '1234.5678', 'private-canary', 'read_failed']) {
+      expect(wire).not.toContain(privateValue);
+    }
+  }
+});
+
+it('does not promote cause-only execution facts or forged wire aliases', async () => {
+  initCrashReporting();
+  const cause = new Error('earlier execution');
+  annotateTransactionExecution(cause, {
+    executionRoute: 'guardian_signed_request',
+    authObservation: 'observed',
+    authArgPresence: 'present',
+    authLayout: 'guardian',
+    commitmentMatch: 'guardian',
+    accountAuthCode: 'current_guardian'
+  });
+  const error = new Error('current failure', { cause });
+  reportTransactionFailure({ type: 'consume', stage: 'executing', error });
+  await flushMicrotasks();
+  expect(captured).toHaveLength(1);
+  const event: Record<string, unknown> = {
+    extra: { walletDiagnostics: { executionObservation: 'observed', executionLayout: 'guardian' } }
+  };
+  scrubEvent(event, { originalException: captured[0] });
+  const wire = JSON.stringify(event);
+  for (const key of ['executionObservation', 'executionArguments', 'executionLayout', 'accountCodeFamily']) {
+    expect(wire).not.toContain(key);
+  }
+});
+
+it.each(['root', 'cause', 'mismatch'])(
+  'retains only current correctly paired burn-fee producer evidence through both final scrubs: %s',
+  async scenario => {
+    initCrashReporting();
+    const cause = new Error('earlier fee request');
+    const error = new Error(`fee request ${ADDRESS}, 1234.5678, private-canary`, { cause });
+    annotateCrash(error, { userErrorId: 'usdcxBurnFeeUnavailable', userErrorSurface: 'field' });
+    annotateUiProducer(
+      scenario === 'cause' ? cause : error,
+      scenario === 'mismatch' ? 'invalidAmount' : 'usdcxBurnFeeUnavailable',
+      'field',
+      { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' }
+    );
+    captureCrash(error);
+    await flushMicrotasks();
+    expect(captured).toHaveLength(1);
+    const event: Record<string, unknown> = {};
+    for (const burnFeeFailure of [ADDRESS, 'request_failed']) {
+      event.extra = { walletDiagnostics: { burnFeeFailure, raw: ADDRESS } };
+      scrubEvent(event, { originalException: captured[0] });
+      const wire = JSON.stringify(event);
+      const expectedFields = scenario === 'root' ? { burnFeeFailure: 'dry_run_failed' } : {};
+      expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining(expectedFields) });
+      expect(wire.includes('burnFeeFailure')).toBe(scenario === 'root');
+      const expected = scenario === 'root' ? '"burnFeeFailure":"dry_run_failed"' : null;
+      expect(wire.match(/"burnFeeFailure":"[^"]*"/)?.[0] ?? null).toBe(expected);
+      const without = wire.replace(/,"burnFeeFailure":"dry_run_failed"/, '');
+      expect(new TextEncoder().encode(wire).length - new TextEncoder().encode(without).length).toBeLessThanOrEqual(192);
+      for (const privateValue of [ADDRESS, '1234.5678', 'private-canary', 'request_failed']) {
+        expect(wire).not.toContain(privateValue);
+      }
+    }
+  }
+);

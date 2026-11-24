@@ -1,3 +1,10 @@
+import type { MorphCard } from '@miden/dapp-browser';
+
+import { CARD_HEIGHT, CARD_WIDTH } from './DappPeekCard';
+
+/** The peek card's corner radius (`rounded-2xl`), the one the native morph lands with. */
+export const CARD_CORNER_RADIUS = 16;
+
 export interface SlotRect {
   x: number;
   y: number;
@@ -35,5 +42,16 @@ export function resolveTargetRect(liveSlotRect: SlotRect | null, cachedSlotRect:
     y: FALLBACK_CAPSULE_HEIGHT,
     width: window.innerWidth,
     height: window.innerHeight - FALLBACK_CAPSULE_HEIGHT - FALLBACK_BOTTOM_GUTTER
+  };
+}
+
+/** The front card's rect in the tray's measured box: the card sits at its bottom-right corner. */
+export function frontCardRect(tray: DOMRect): MorphCard {
+  return {
+    x: tray.right - CARD_WIDTH,
+    y: tray.bottom - CARD_HEIGHT,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+    cornerRadius: CARD_CORNER_RADIUS
   };
 }

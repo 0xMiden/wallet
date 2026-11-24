@@ -8,9 +8,9 @@ import { encodeFunctionData, formatEther, formatGwei, formatUnits, type Address,
 import { privateKeyToAccount } from 'viem/accounts';
 
 import {
-  capPriorityFee,
   chainRead,
   ERC20_ABI,
+  estimateUsdcxFees,
   onFirstEndpoint,
   pickWriteEndpoint,
   pinAfterApprove,
@@ -67,7 +67,7 @@ export async function readL2KeyFunds(address: Address, reads: ArcReadDeps): Prom
       functionName: 'balanceOf',
       args: [address]
     }),
-    maxFeePerGas: capPriorityFee(await client.estimateFeesPerGas(), chain.maxPriorityFeeCap).maxFeePerGas
+    maxFeePerGas: (await estimateUsdcxFees(client, chain)).maxFeePerGas
   }));
 }
 

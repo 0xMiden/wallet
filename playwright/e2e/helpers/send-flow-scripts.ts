@@ -44,7 +44,6 @@ export interface UsdcxRouteView {
   pressed: string | null;
   cardText: string;
   fee: string | null;
-  net: string | null;
   notice: string | null;
 }
 
@@ -58,7 +57,7 @@ export const USDCX_ROUTE_JS = scopedJs(
   SEND_FLOW,
   `var card = root.querySelector('[data-testid="bridge-route-usdcx"]'); if (!card) return null; ` +
     `return { pressed: card.getAttribute('aria-pressed'), cardText: (card.textContent || '').trim(), ` +
-    `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+    `fee: val('usdcx-payout-fee'), notice: text('usdcx-burn-notice') };`
 );
 
 /** What the network pick needs of a page object: a script eval and a click through `el.click()`. */

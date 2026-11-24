@@ -52,6 +52,53 @@ describe('IosWalletPage.screenshot', () => {
   });
 });
 
+describe('IosWalletPage app switching', () => {
+  it('starts watching for the hidden document before it leaves, and reports it on return', async () => {
+    const order: string[] = [];
+    const evalJs = jest.fn(async (body: string) => {
+      order.push(body.includes('addEventListener') ? 'watch' : 'read');
+      return true;
+    });
+    const page = new IosWalletPage({
+      cdp: { eval: evalJs } as unknown as CdpSession,
+      sim: {
+        background: jest.fn(async () => order.push('background')),
+        foreground: jest.fn(async () => order.push('foreground'))
+      } as unknown as SimulatorControl,
+      udid: 'udid',
+      bundleId: 'bundle'
+    });
+
+    await page.leaveForeground();
+    const wentHidden = await page.returnToForeground();
+
+    expect(order).toEqual(['watch', 'background', 'foreground', 'read']);
+    expect(wentHidden).toBe(true);
+  });
+
+  it('rides out a bridge eval cut off at 30 s while the attempt holds the JS thread, and still leaves', async () => {
+    let evals = 0;
+    const background = jest.fn(async () => undefined);
+    const page = new IosWalletPage({
+      cdp: {
+        eval: async () => {
+          evals += 1;
+          if (evals === 1) throw new Error('eval: CDP call did not return within 30000ms');
+          return null;
+        }
+      } as unknown as CdpSession,
+      sim: { background } as unknown as SimulatorControl,
+      udid: 'udid',
+      bundleId: 'bundle'
+    });
+
+    await page.leaveForeground();
+
+    expect(evals).toBe(2);
+    expect(background).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('IosWalletPage.prepareSendReview', () => {
   it('scopes shared amount controls to the Send flow', async () => {
     const evalJs = jest.fn(async () => true);
@@ -342,6 +389,15 @@ describe('IosWalletPage vault reads', () => {
     );
   });
 
+  // Both ids are strings, so tsc cannot tell them apart, and a hex id reads 0n until the caller's timeout.
+  it('refuses a CLI hex id, which keys no store row, before it reads', async () => {
+    const evalJs = jest.fn(async () => rowsWith(1));
+    await expect(pageWith(evalJs).readVaultBaseUnits('0xc7a5ae7ed377401147b2427377e193')).rejects.toThrow(
+      /hexToBech32Faucet/
+    );
+    expect(evalJs).not.toHaveBeenCalled();
+  });
+
   it('asks again after a failed eval and fails only on the third in a row', async () => {
     let calls = 0;
     const once = pageWith(async () => {
@@ -463,8 +519,7 @@ function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
     return {
       pressed: 'true',
       cardText: ROUTE_CARD_TEXT,
-      fee: 'Up to 0.1 USDC',
-      net: 'At least 9.9 USDC',
+      fee: enText('usdcxPayoutFeeVaries'),
       notice: enText('usdcxWithdrawalNotice')
     };
   }
@@ -472,9 +527,8 @@ function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
   if (js.includes('function row(')) {
     return {
       network: 'Arc Testnet',
-      networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
-      fee: 'Up to 0.1 USDC',
-      net: 'At least 9.9 USDC',
+      networkFee: '0.000289 USDCXPaid in USDCX, including faucet execution sponsorship',
+      fee: enText('usdcxPayoutFeeVaries'),
       notice: enText('usdcxWithdrawalNotice')
     };
   }
@@ -530,7 +584,34 @@ function burnPage(
 }
 
 describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
-  // #1404 clicked the hidden Swap selector; here the review slides over a Send layer holding the same payout rows.
+  it('reads the measured maximum and sponsorship helper from the current review before submitting', async () => {
+    // DetailRow's captured review shape: label span, value column with amount and helper, never a caption-only fee.
+    const spans = [
+      ['Network', 'Arc Testnet'],
+      ['Max network fee', '0.000289 USDCXPaid in USDCX, including faucet execution sponsorship']
+    ].map(([label, value]) => ({ textContent: label, nextElementSibling: { tagName: 'DIV', textContent: value } }));
+    const root = {
+      querySelectorAll: (selector: string) => (selector === 'span' ? spans : []),
+      querySelector: (selector: string) => {
+        if (selector === '[data-testid="usdcx-burn-notice"]') return { textContent: enText('usdcxWithdrawalNotice') };
+        if (selector === '[data-testid="usdcx-payout-fee"]')
+          return { querySelector: () => ({ textContent: 'Deducted from the payout. Varies with network fees.' }) };
+        return null;
+      }
+    };
+    const { page, selectors } = burnPage((js, sheetOpen) =>
+      js.includes('function row(')
+        ? vm.runInNewContext(`(function () { ${js} })()`, {
+            document: { querySelector: (selector: string) => (selector === REVIEW ? root : null) }
+          })
+        : spikeAnswer(js, { sheetOpen })
+    );
+
+    await expect(page.burnUsdcxViaSendFlow(BURN)).resolves.toMatchObject({ rowId: 'row-1' });
+    expect(selectors.filter(selector => selector === SUBMIT)).toHaveLength(1);
+  }, 30_000);
+
+  // #1404 clicked the hidden Swap selector; here the review slides over a Send layer holding the same payout row.
   it('drives every step inside the Send flow, its network sheet and the review layer, picks Arc and returns routes without the password', async () => {
     const { page, selectors, bodies } = burnPage();
 
@@ -558,6 +639,9 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     expect(rootsFor('function row(')).toEqual([REVIEW]);
     expect(rootsFor("state: 'enabled'")).toEqual([REVIEW]);
     expect(rootsFor('loading')).toEqual([REVIEW]);
+    // The wallet draws one payout row, the fee, on the route and the review.
+    expect(bodies.filter(js => js.includes('usdcx-payout-fee'))).toHaveLength(2);
+    expect(bodies.join('\n')).not.toContain('usdcx-payout-net');
   }, 15_000);
 
   it("refuses an amount that does not exceed Arc's payout fee allowance before it touches the UI", async () => {
@@ -611,9 +695,8 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
       if (js.includes('function row(')) {
         return {
           network: BASE_SEPOLIA_PAYOUT.networkName,
-          networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
+          networkFee: '0.000289 USDCXPaid in USDCX, including faucet execution sponsorship',
           fee: rows.fee,
-          net: rows.net,
           notice: enText('usdcxWithdrawalNotice')
         };
       }
@@ -622,7 +705,6 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
           pressed: 'true',
           cardText: ROUTE_CARD_TEXT,
           fee: rows.fee,
-          net: rows.net,
           notice: enText('usdcxWithdrawalNotice')
         };
       }

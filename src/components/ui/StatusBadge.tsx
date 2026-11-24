@@ -19,10 +19,22 @@ export type Status =
   | 'burnConsuming'
   | 'burnConfirmed'
   | 'burnDiscarded'
+  // A confirmed burn Circle has not paid out after 2 hours
+  | 'payoutDelayed'
+  | 'stoppedBeforeSource'
+  // An Epoch deposit in The Compact that has no allocation, and the same deposit after it went back to its sender
+  | 'depositLocked'
+  | 'depositWithdrawn'
+  | 'awaitingReturn'
+  | 'readyToClaim'
+  | 'returningFunds'
+  | 'fundsReturned'
   | 'failed'
   | 'cancelled'
   | 'unconfirmed'
   | 'reclaimed'
+  // A NEAR Intents deposit that got no funds before its quote deadline
+  | 'expired'
   // A pending transfer the wallet has claimed
   | 'claimed'
   // A Smart Withdraw's phases
@@ -80,10 +92,19 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   burnConsuming: { labelKey: 'usdcxBurnConsuming', tone: 'pending' },
   burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },
   burnDiscarded: { labelKey: 'usdcxBurnDiscarded', tone: 'negative' },
+  payoutDelayed: { labelKey: 'usdcxPayoutDelayed', tone: 'pending' },
+  stoppedBeforeSource: { labelKey: 'bridgeStoppedBeforeSending', tone: 'neutral' },
+  depositLocked: { labelKey: 'epochDepositLocked', tone: 'negative' },
+  depositWithdrawn: { labelKey: 'epochDepositWithdrawn', tone: 'neutral' },
+  awaitingReturn: { labelKey: 'epochAwaitingReturn', tone: 'neutral' },
+  readyToClaim: { labelKey: 'epochReadyToClaim', tone: 'neutral' },
+  returningFunds: { labelKey: 'epochReturningFunds', tone: 'neutral' },
+  fundsReturned: { labelKey: 'epochFundsReturned', tone: 'neutral' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },
   reclaimed: { labelKey: 'reclaimed', tone: 'neutral' },
+  expired: { labelKey: 'statusExpired', tone: 'neutral' },
   claimed: { labelKey: 'accepted', tone: 'positive' },
   redeeming: { labelKey: 'earnWithdrawStatusRedeeming', tone: 'pending' },
   delivering: { labelKey: 'earnWithdrawStatusDelivering', tone: 'pending' },

@@ -9,6 +9,7 @@ import {
   isSyncFused,
   noteSyncWatchdogEviction
 } from 'lib/miden/front/sync-fuse';
+import * as Repo from 'lib/miden/repo';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
@@ -171,6 +172,8 @@ jest.mock('../metadata', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
+  __esModule: true,
+  ...jest.requireActual('../sdk/helpers'),
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech-stub')
 }));
 
@@ -206,9 +209,11 @@ jest.mock('./assets', () => ({
   })
 }));
 
-import { selectAutoConsumeBatch } from './auto-managed-notes';
+import { excludeAutoManagedNotes, selectAutoConsumeBatch } from './auto-managed-notes';
 import { __resetClaimableNotesCacheForTests, ClaimableNoteWithMetadata, useClaimableNotes } from './claimable-notes';
 import { requestNotesRefresh } from './note-refresh';
+import { midenClientProxy } from '../back/miden-client-proxy';
+import { ITransactionStatus } from '../db/types';
 
 // A test can leave a fetch in flight (RTL unmounts the hook, the promise chain keeps
 // going). Such a straggler still writes the module-level last-known-list cache, so it
@@ -289,6 +294,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -308,6 +314,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -328,6 +335,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100000000',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
       }
     ];
@@ -349,6 +357,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -389,6 +398,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -434,6 +444,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -477,6 +488,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -502,6 +514,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -533,6 +546,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -553,6 +567,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
       }
     ];
@@ -568,6 +583,7 @@ describe('useClaimableNotes (extension mode)', () => {
       amountBaseUnits: '100',
       senderAddress: 's1',
       noteType: 'public',
+      standardPayment: true,
       metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
       carriesMoreAssets
     });
@@ -591,15 +607,39 @@ describe('useClaimableNotes (extension mode)', () => {
       metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
       standardPayment
     });
-    _g.__cnTest.walletState.extensionClaimableNotes = [synced('a', true), synced('b', false), synced('c')];
+    const ownTip = {
+      ...synced('own-tip', false),
+      swapOrder: { orderId: '9', depth: 1, role: 'tip', lineageState: 'active', expiresAt: 220, autoConsume: false }
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [synced('a', true), ownTip];
 
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
 
     expect(result.current.data?.map(note => [note.id, note.standardPayment])).toEqual([
       ['a', true],
-      ['b', false],
-      ['c', undefined]
+      ['own-tip', false]
     ]);
+  });
+
+  it("drops another trader's PSWAP order from a service worker list stored before the rule (#2118)", () => {
+    const synced = (id: string, standardPayment?: boolean) => ({
+      id,
+      faucetId: 'f1',
+      amountBaseUnits: '100',
+      senderAddress: 's1',
+      noteType: 'public',
+      metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
+      standardPayment
+    });
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      synced('payment', true),
+      synced('foreign-order', false),
+      synced('unflagged')
+    ];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    expect(result.current.data?.map(note => note.id)).toEqual(['payment']);
   });
 
   it('publishes the extension list in the fixed order, however the service worker stored it', () => {
@@ -610,6 +650,7 @@ describe('useClaimableNotes (extension mode)', () => {
       amountBaseUnits: '100',
       senderAddress: 's1',
       noteType: 'public',
+      standardPayment: true,
       receivedAt,
       metadata
     });
@@ -641,6 +682,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata,
         swapOrder: {
           orderId: '77',
@@ -657,6 +699,8 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        // A PSWAP tip is no standard payment; its swap order makes it this account's.
+        standardPayment: false,
         metadata,
         swapOrder: {
           orderId: '78',
@@ -673,6 +717,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's1',
         noteType: 'public',
+        standardPayment: true,
         metadata
       }
     ];
@@ -703,7 +748,8 @@ describe('useClaimableNotes (extension mode)', () => {
         faucetId: 'f1',
         amountBaseUnits: '100',
         senderAddress: 's',
-        noteType: 'public'
+        noteType: 'public',
+        standardPayment: true
       }
     ];
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
@@ -719,6 +765,7 @@ describe('useClaimableNotes (extension mode)', () => {
         amountBaseUnits: '100',
         senderAddress: 's',
         noteType: 'public',
+        standardPayment: true,
         // The faucet could not be read, so its scale is unknown and the user's decimals apply.
         metadata: { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
       }
@@ -734,7 +781,8 @@ describe('useClaimableNotes (extension mode)', () => {
         faucetId: 'unknown',
         amountBaseUnits: '100',
         senderAddress: 's',
-        noteType: 'public'
+        noteType: 'public',
+        standardPayment: true
       }
     ];
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
@@ -748,6 +796,7 @@ describe('useClaimableNotes (extension mode)', () => {
         faucetId: 'f1',
         amountBaseUnits: '100',
         senderAddress: 's',
+        standardPayment: true,
         metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
         // noteType intentionally omitted -> nullish coalescing fallback
       }
@@ -989,7 +1038,8 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       senderAccountId: senderId,
       state: 2,
       assets: [{ faucetId, amount }],
-      swapAttachment: null
+      swapAttachment: null,
+      standardPayment: true
     };
   }
 
@@ -1063,6 +1113,92 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     } finally {
       Object.defineProperty(_g.__cnTest, 'quarantined', { value: new Set(), writable: true, configurable: true });
       Object.defineProperty(_g.__cnTest, 'uncompletedTxs', { value: [], writable: true, configurable: true });
+    }
+  });
+
+  // Order 77 asks 50 of `requestedFaucetId`, and its lineage at round `depth` says `filled` of it were filled.
+  const readOrder = async (requestedFaucetId: string, depth: number, filled: number) => {
+    await Repo.transactions.put({
+      id: 'swap-1',
+      accountId: 'pk-1',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      completedAt: 2,
+      displayIcon: 'SWAP',
+      faucetId: 'offer',
+      amount: 50n,
+      extraInputs: { requestedFaucetId, requestedAmount: 50n, orderId: '77', expiresAt: 220 }
+    });
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'tip',
+        currentDepth: depth,
+        state: 0,
+        remainingOffered: '20',
+        remainingRequested: String(50 - filled)
+      }
+    ]);
+  };
+  const payback = (id: string, faucetId: string, depth: number, amount: string) => ({
+    ...makeMockNote({ id, faucetId, amount }),
+    swapAttachment: { orderId: '77', depth }
+  });
+  const readList = async (): Promise<ClaimableNoteWithMetadata[]> => {
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    return _g.__cnTest.lastFetchData;
+  };
+  const forgetOrder = async () => {
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
+    await Repo.transactions.clear();
+  };
+
+  it("lists a payback short of its order's fill to accept by hand, which the native auto-consume leaves", async () => {
+    await readOrder('miden-faucet', 1, 30);
+    _g.__cnTest.consumableNotes = [payback('payback-1', 'miden-faucet', 1, '10'), makeMockNote({ id: 'payment' })];
+    try {
+      const notes = await readList();
+
+      // It keeps its order, so no auto-consumer takes it: the native one claims only the payment.
+      expect(selectAutoConsumeBatch(notes, 'miden-faucet', 0).map(note => note.id)).toEqual(['payment']);
+      expect(excludeAutoManagedNotes(notes, 'miden-faucet', true, 0)?.map(note => note.id)).toEqual(['payback-1']);
+      expect(notes.find(note => note.id === 'payback-1')?.swapOrder).toEqual(
+        expect.objectContaining({ role: 'payback', autoConsume: true, coverageShort: true })
+      );
+    } finally {
+      await forgetOrder();
+    }
+  });
+
+  it("leaves a payback that covers its order's fill out of the list, for settlement to claim", async () => {
+    await readOrder('miden-faucet', 1, 10);
+    _g.__cnTest.consumableNotes = [payback('payback-1', 'miden-faucet', 1, '10'), makeMockNote({ id: 'payment' })];
+    try {
+      expect((await readList()).map(note => note.id)).toEqual(['payment']);
+    } finally {
+      await forgetOrder();
+    }
+  });
+
+  // The notes and the lineages come from two holds, so a sync between them can show a fill whose payback the note read
+  // missed. The earlier payback is listed for that poll, still on its order; settlement, reading both in one hold,
+  // claims it on its own read.
+  it('lists an earlier payback, still on its order, when the lineage shows a fill its note read missed', async () => {
+    await readOrder('requested', 2, 30);
+    // Known metadata, which the list needs to show a note.
+    _g.__cnTest.metadataCache = { requested: { decimals: 6, symbol: 'REQ', name: 'Requested' } };
+    _g.__cnTest.consumableNotes = [payback('payback-1', 'requested', 1, '10'), makeMockNote({ id: 'payment' })];
+    try {
+      const notes = await readList();
+
+      expect(notes.map(note => note.id).sort()).toEqual(['payback-1', 'payment']);
+      expect(notes.find(note => note.id === 'payback-1')?.swapOrder).toEqual(
+        expect.objectContaining({ orderId: '77', role: 'payback', depth: 1, coverageShort: true })
+      );
+    } finally {
+      await forgetOrder();
     }
   });
 
@@ -1340,7 +1476,8 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       senderAccountId: undefined,
       state: 0,
       assets: [{ faucetId: 'miden-faucet', amount: '42' }],
-      swapAttachment: null
+      swapAttachment: null,
+      standardPayment: true
     };
     _g.__cnTest.consumableNotes = [noMetaNote];
     renderHook(() => useClaimableNotes('pk-1'));
@@ -1362,6 +1499,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       senderAddress: 'sender-1',
       isBeingClaimed: false,
       type: 'public',
+      standardPayment: true,
       receivedAt,
       metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
     };
@@ -1378,6 +1516,34 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(result.current.data?.map((n: any) => n.id)).toEqual(['cached-1', 'cached-2']);
+    });
+  });
+
+  it('drops a cached entry that is no payment to the account and no note of its own swap order (#2118)', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [
+      makeCachedNote('pay'),
+      { ...makeCachedNote('foreign'), standardPayment: false },
+      { ...makeCachedNote('legacy'), standardPayment: undefined }
+    ];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['pay']);
+    });
+  });
+
+  it("keeps a cached note of the account's own swap order", async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [
+      {
+        ...makeCachedNote('tip'),
+        standardPayment: false,
+        swapOrder: { orderId: '7', depth: 1, role: 'tip', lineageState: 'active', expiresAt: 220, autoConsume: false }
+      }
+    ];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['tip']);
     });
   });
 
@@ -1417,18 +1583,31 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
   });
 
   it('keeps whether a note is a standard payment in the list and in the cache (#805)', async () => {
-    _g.__cnTest.consumableNotes = [
-      { ...makeMockNote({ id: 'standard' }), standardPayment: true },
-      { ...makeMockNote({ id: 'custom' }), standardPayment: false }
-    ];
+    _g.__cnTest.consumableNotes = [{ ...makeMockNote({ id: 'standard' }), standardPayment: true }];
     const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     rerender();
 
     const flags = (notes: Array<{ id: string; standardPayment?: boolean }> | undefined) =>
       Object.fromEntries((notes ?? []).map(note => [note.id, note.standardPayment]));
-    expect(flags(result.current.data)).toEqual({ standard: true, custom: false });
-    await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true, custom: false }));
+    expect(flags(result.current.data)).toEqual({ standard: true });
+    await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true }));
+  });
+
+  it('drops a note that is neither a payment to this account nor of its own swap order, from the list and the cache (#2118)', async () => {
+    // Another trader's public PSWAP order on a tracked pair tag, and a note whose script could not be read.
+    _g.__cnTest.consumableNotes = [
+      makeMockNote({ id: 'payment' }),
+      { ...makeMockNote({ id: 'foreign-order' }), standardPayment: false },
+      { ...makeMockNote({ id: 'unflagged' }), standardPayment: undefined }
+    ];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+
+    const ids = (notes: Array<{ id: string }> | undefined) => (notes ?? []).map(note => note.id);
+    expect(ids(result.current.data)).toEqual(['payment']);
+    await waitFor(() => expect(ids(_g.__cnTest.kv[CACHE_KEY])).toEqual(['payment']));
   });
 
   it('live single-asset notes preserve explicit asset knowledge', async () => {

@@ -34,11 +34,16 @@ async function buildSdk(address: `0x${string}`, apiBaseUrl: string, chainOverrid
  *
  * Caches one instance per (address, flow) so repeated calls in a single
  * session don't rebuild. Resets via `resetEpochSdk()` (called on WC disconnect).
+ *
+ * `account` is the EVM address that the caller verified and expects to sign. When it is given and the connected
+ * address is another one (the comparison ignores letter case), return null and leave every cache as it is. When it
+ * matches, build the SDK for that account.
  */
 export async function getEpochSdk(opts?: {
   forMidenFlow?: boolean;
   chainId?: number;
   allocatorUrl?: string;
+  account?: `0x${string}`;
 }): Promise<EpochIntentSDK | null> {
   const { address } = await getEvmConnection();
   if (!address) {
@@ -48,6 +53,7 @@ export async function getEpochSdk(opts?: {
     midenCache = null;
     return null;
   }
+  if (opts?.account !== undefined && opts.account.toLowerCase() !== address.toLowerCase()) return null;
   await initBridgeConfig();
   const apiBaseUrl = opts?.allocatorUrl ?? getEpochAllocatorUrl();
   const chainId = opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : (opts?.chainId ?? sepolia.id);
@@ -55,7 +61,7 @@ export async function getEpochSdk(opts?: {
   if (slot && slot.address === address && slot.chainId === chainId && slot.apiBaseUrl === apiBaseUrl) {
     return slot.sdk;
   }
-  const sdk = await buildSdk(address as `0x${string}`, apiBaseUrl, chainId);
+  const sdk = await buildSdk(opts?.account ?? (address as `0x${string}`), apiBaseUrl, chainId);
   const entry: SdkCache = { address, chainId, apiBaseUrl, sdk };
   if (opts?.forMidenFlow) {
     midenCache = entry;
@@ -144,11 +150,35 @@ export async function ensureEpochSmartAccount(
     throw new Error(setup.reason ?? 'Failed to enable the Epoch smart account.');
   }
 
-  const ready = await sdk.getWalletGaslessStatus(chainId);
-  if (ready.delegation !== 'epoch') {
-    throw new Error('Epoch smart-account setup completed but the delegation is not active.');
-  }
+  await waitForEpochDelegation(sdk, chainId);
   return sdk;
+}
+
+// The SDK's own setup screen waits as long. Base landed in 7 s and Ethereum in 28 s on 2026-11-04 (#2117).
+const DELEGATION_WAIT_MS = 60_000;
+const DELEGATION_POLL_MS = 2_000;
+
+/**
+ * Wait until the setup transaction has landed. Epoch SDK 2.0.1 returns from `convertToSmartAccount` once the relay
+ * accepts the transaction, not once it is on chain, and then reports the delegation as `epoch` while the chain still
+ * shows none, so the chain is read until it shows the delegation. A failed read is tried again until the wait ends.
+ */
+async function waitForEpochDelegation(sdk: EpochIntentSDK, chainId: number): Promise<void> {
+  const deadline = Date.now() + DELEGATION_WAIT_MS;
+  for (;;) {
+    const status = await sdk.getWalletGaslessStatus(chainId).catch(() => undefined);
+    switch (status?.delegation) {
+      case 'epoch':
+        return;
+      case 'other':
+        throw new Error('The EVM account is delegated to an unsupported smart-account implementation.');
+      default:
+        if (Date.now() >= deadline) {
+          throw new Error('Epoch smart-account setup completed but the delegation is not active.');
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, DELEGATION_POLL_MS));
+    }
+  }
 }
 
 export function resetEpochSdk(): void {

@@ -18,7 +18,7 @@ import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
  * recorded-error vs. generic-fallback message.
  */
 
-let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
+let mockRowState: { row?: ITransaction; loaded: boolean; readFailed?: true } = { row: undefined, loaded: false };
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
 
 // The screen resolves the delivered faucet synchronously from the store, as the transaction badge does.
@@ -97,7 +97,7 @@ jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
     <header>
       {title}
-      <button type="button" aria-label="close" onClick={onClose} />
+      {onClose && <button type="button" aria-label="close" onClick={onClose} />}
     </header>
   )
 }));
@@ -150,16 +150,19 @@ jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () 
     title,
     footerDescription,
     secondaryAction,
+    primaryAction,
     children
   }: {
     title: string;
     footerDescription?: string;
     secondaryAction?: { label: string; onClick: () => void };
+    primaryAction?: { label: string; onClick: () => void };
     children?: React.ReactNode;
   }) => (
     <div data-testid="success-layout">
       {title}
       <p data-testid="success-footer">{footerDescription}</p>
+      {primaryAction && <button onClick={primaryAction.onClick}>{primaryAction.label}</button>}
       {secondaryAction && <button onClick={secondaryAction.onClick}>{secondaryAction.label}</button>}
       {children}
     </div>
@@ -209,6 +212,29 @@ describe('EvmBridgeDepositStatus', () => {
     mockAssetsMetadata = { 'miden-usdc': { symbol: 'USDC', name: 'USDC', decimals: 6 } };
   });
 
+  it('withholds destination execute on a stale row read and restores the original leg after recovery', () => {
+    const row = makeRow(
+      makeInputs({
+        provider: 'usdcx',
+        phase: 'ready',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, message: '0x12', attestation: '0xab' }
+      })
+    );
+    mockRowState = { row, loaded: true };
+    const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+    expect(screen.getByTestId('usdcx-execute-action')).toBeInTheDocument();
+
+    mockRowState = { row, loaded: true, readFailed: true };
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+    expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
+    expect(screen.queryByTestId('usdcx-execute-action')).not.toBeInTheDocument();
+
+    mockRowState = { row, loaded: true };
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+    expect(screen.getByTestId('usdcx-execute-action')).toBeInTheDocument();
+  });
+
   it('shows a spinner until a transaction row is available', () => {
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
     expect(screen.getByTestId('spinner')).toBeInTheDocument();
@@ -226,6 +252,42 @@ describe('EvmBridgeDepositStatus', () => {
     // default, which is the Send flow's blue.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
 
+    fireEvent.click(screen.getByRole('button', { name: 'hide' }));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('hides dismissal during an active USDCx submission (next prompt: %s)', awaiting => {
+    mockRowState = { row: makeRow(makeInputs({ provider: 'usdcx' })), loaded: true };
+    render(
+      <EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} submissionPending awaitingNextConfirmation={awaiting} />
+    );
+
+    expect(screen.queryByRole('button', { name: 'close' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'hide' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
+  });
+
+  it.each(['failed', 'delivering', 'ready', 'received'] satisfies IBridgedReceivePhase[])(
+    'restores dismissal at %s even if the submission callback has not settled yet',
+    phase => {
+      mockRowState = { row: makeRow(makeInputs({ provider: 'usdcx', phase })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} submissionPending />);
+      fireEvent.click(screen.getByRole('button', { name: 'done' }));
+      expect(onDone).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('allows a submitted hash awaiting background receipt recovery to be hidden after local work settles', () => {
+    mockRowState = { row: makeRow(makeInputs({ provider: 'usdcx' })), loaded: true };
+    const view = render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} submissionPending />);
+    view.rerender(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+    fireEvent.click(screen.getByRole('button', { name: 'hide' }));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['epoch', 'agglayer'] as const)('keeps %s processing dismissible', provider => {
+    mockRowState = { row: makeRow(makeInputs({ provider })), loaded: true };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} submissionPending />);
     fireEvent.click(screen.getByRole('button', { name: 'hide' }));
     expect(onDone).toHaveBeenCalledTimes(1);
   });

@@ -9,6 +9,7 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { useBadgeBackfill } from 'lib/badges/useBadgeBackfill';
 import { useMarkWalletBadgesViewed, useWalletBadges } from 'lib/badges/useWalletBadges';
 import { useNetwork } from 'lib/miden/front';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
@@ -24,8 +25,8 @@ const BadgeCard: React.FC<{ badge: BadgeDefinition; earned: boolean }> = ({ badg
     >
       <BadgeMedallion badge={badge} earned={earned} />
       <h3 className="mt-4 text-row-title font-extrabold text-ink">{t(badge.titleI18nKey)}</h3>
-      <p className="mt-1 text-caption-heading text-muted">{t(badge.descriptionI18nKey)}</p>
-      <span className="mt-auto pt-3">
+      <p className="mt-1 text-caption-heading font-bold text-muted">{t(badge.descriptionI18nKey)}</p>
+      <span className="mt-auto pt-2">
         <Pill size="xs" tone={earned ? 'positive' : 'inactive'}>
           {t(earned ? 'badgeEarned' : badge.available ? 'locked' : 'badgesStatComingSoon')}
         </Pill>
@@ -58,6 +59,7 @@ const MyBadges: React.FC = () => {
   const { t } = useTranslation();
   const network = useNetwork();
   const earned = useWalletBadges();
+  useBadgeBackfill(network.id);
   useMarkWalletBadgesViewed(earned);
   const back = useBackWithFallback('/me');
   const isMainnet = network.id === MIDEN_NETWORK_NAME.MAINNET;

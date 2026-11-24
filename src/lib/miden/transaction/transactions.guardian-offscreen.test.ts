@@ -54,18 +54,29 @@
  *     update-procedure-threshold completes with its finalization (#1233).
  */
 
+import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { clearGuardianAccountLocks, GuardianBackpressureError } from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WalletType } from 'screens/onboarding/types';
 
-import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
+import {
+  CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR,
+  CustomTransactionEffectsChangedError,
+  isUnconfirmedFailure,
+  STALE_PROOF_ERROR,
+  TRANSACTION_EXPIRED_ERROR
+} from './constants';
+import { noteDeliveryWriteCount } from './helper';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+import { parseSubmitEvidence } from '../sdk/submit-evidence';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
@@ -74,6 +85,12 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // `advice_map.write_into(target)`, so the extended advice map holding the hot/cold/
 // guardian co-signatures survives serialize; verified end-to-end at the WASM level in
 // the flag-flip guardian E2E, structurally here).
+jest.mock('../sdk/test-guardian-authorization', () => ({
+  authorizeTestGuardianRequest: jest.fn(async () => undefined),
+  assertTestGuardianRequestAuthorization: jest.fn(async () => undefined)
+}));
+const mockGuardianAuthorization = jest.requireMock('../sdk/test-guardian-authorization');
+
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
 
 // What the mock `createRebasedCustomProposal` hands back as the request the proposal was
@@ -240,8 +257,31 @@ jest.mock('lib/miden/sdk/custom-request', () => ({
     mockPrepareCustomRequestBytes(...args)
 }));
 
+// The effects check of an `execute` row is covered by `custom-effects.test.ts`. Here the generation-time dry run
+// gives the approved effects, so the row goes on to its proposal.
+const mockVerifyPreparedCustomRequest = jest.fn(async (..._args: unknown[]): Promise<void> => undefined);
+const mockAssertCustomEffectsApproved = jest.fn((..._args: unknown[]) => undefined);
+// The access stands for the client, the prepared bytes and the hold that the check receives.
+jest.mock('./custom-effects', () => ({
+  customEffectsCheckAccess: (_client: unknown, accountId: string, preparedBytes: Uint8Array, hold: unknown) => ({
+    accountId,
+    preparedBytes,
+    hold
+  }),
+  assertCustomEffectsApproved: (...args: unknown[]) => mockAssertCustomEffectsApproved(...args),
+  verifyPreparedCustomRequest: (...args: unknown[]) => mockVerifyPreparedCustomRequest(...args)
+}));
+
 jest.mock('lib/settings/constants', () => ({}));
-jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
+// These proposals carry no summary; both signing-time effect checks have their own tests (#2147).
+jest.mock('./proposal-effect-guard', () => ({
+  assertProposalEffectApproved: async () => {},
+  isEffectChecked: () => false
+}));
+jest.mock('lib/telemetry/transaction-failure', () => ({
+  reportTransactionFailure: jest.fn(),
+  captureSubmitContext: jest.fn(() => undefined)
+}));
 
 const mockIsGuardianAccount = jest.fn();
 const mockGetOrCreateMultisigService = jest.fn();
@@ -260,8 +300,11 @@ const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => {
   const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
   return {
+    ColdProposalAdoptionError: actual.ColdProposalAdoptionError,
     GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
+    isProposalChainSyncError: actual.isProposalChainSyncError,
     PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+    ProposalChainSyncError: actual.ProposalChainSyncError,
     MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
   };
 });
@@ -297,7 +340,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   cacheScope: () => 'fixture-rpc|testnet',
   captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
-  recordSyncedFeeFaucetId: jest.fn(async () => true)
+  recordSyncedFeeFaucetId: jest.fn(async () => true),
+  // An approved custom proposal reads the chain fee first; the read is the node's, not this suite's.
+  refreshVerificationBaseFee: jest.fn(async () => 2),
+  isVerificationBaseFeeKnownAbsent: () => false
 }));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
@@ -349,11 +395,13 @@ const mockProxyGetInputNoteDetails = jest.fn(async (..._a: unknown[]) => [] as u
 // The node's verdict on a transaction, which the real `didDirectSwitchLand` reads after a structural
 // commit wait fails. Default: still pending, no verdict.
 const mockProxyGetCommitState = jest.fn(async (..._a: unknown[]) => 'pending');
+const mockProxyNewTransaction = jest.fn(async (..._a: unknown[]) => makeResult());
 jest.mock('../back/miden-client-proxy', () => ({
   dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
     getAccount: (...a: unknown[]) => mockProxyGetAccount(...a),
+    newTransaction: (...a: unknown[]) => mockProxyNewTransaction(...a),
     waitForTransactionCommit: (...a: unknown[]) => mockProxyWaitForCommit(...a),
     getInputNoteDetails: (...a: unknown[]) => mockProxyGetInputNoteDetails(...a),
     getTransactionCommitState: (...a: unknown[]) => mockProxyGetCommitState(...a)
@@ -542,6 +590,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '3',
       requestBytes: new Uint8Array([6, 6]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } }
     },
     complete: mockComplete.bridged
@@ -554,6 +603,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '3',
       requestBytes: new Uint8Array([3, 3]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'agglayer' }
     },
     complete: mockComplete.bridged
@@ -566,6 +616,7 @@ const bridgeEarnCases = (): Case[] => [
       faucetId: 'f',
       amount: '5',
       requestBytes: new Uint8Array([4, 4]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10 }
     },
     complete: mockComplete.earn
@@ -607,6 +658,10 @@ function arrange(id: string, extra: Record<string, unknown>, result = makeResult
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGuardianAuthorization.authorizeTestGuardianRequest.mockReset().mockResolvedValue(undefined);
+  mockGuardianAuthorization.assertTestGuardianRequestAuthorization.mockReset().mockResolvedValue(undefined);
+  mockAssertCustomEffectsApproved.mockReset();
+  mockAssertCustomEffectsApproved.mockImplementation(() => undefined);
   txStore.length = 0;
   mockPlatformIsMobile = false;
   // Reset alongside its siblings. Left `false` by a test that forgot to restore
@@ -627,6 +682,49 @@ afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   // The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
   clearGuardianAccountLocks();
+});
+
+describe('actual Guardian request authorization boundary', () => {
+  const nativeCases = [
+    ...valueMovingCases().filter(item => item.type !== 'execute'),
+    {
+      type: 'epoch',
+      row: {
+        type: 'bridged-send',
+        secondaryAccountId: 'r',
+        faucetId: 'f',
+        amount: '3',
+        requestBytes: new Uint8Array([3, 3]),
+        extraInputs: { provider: 'epoch', recallBlocks: 1000 }
+      }
+    }
+  ];
+  it.each(nativeCases.flatMap(item => [false, true].map(offscreen => ({ ...item, offscreen }))))(
+    '$type refuses execution or dispatch before actual signed-byte upload (offscreen=$offscreen)',
+    async ({ row, offscreen }) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = String(offscreen);
+      const { inline } = arrange('native-signed-upload', row);
+      mockGuardianAuthorization.authorizeTestGuardianRequest.mockRejectedValue(
+        new Error('Actual request not uploaded')
+      );
+      await generateTransaction(buildTx('native-signed-upload', row) as never, signCallback, false, provider as never);
+      expect(inline.__executeRequest).not.toHaveBeenCalled();
+      expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+      expect(txStore.find(item => item.id === 'native-signed-upload')?.status).toBe(ITransactionStatus.Failed);
+    }
+  );
+  it('checks the spent signed authority after asynchronous executing-stage bookkeeping', async () => {
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { inline } = arrange('native-signed-expiry', row);
+    mockGuardianAuthorization.authorizeTestGuardianRequest.mockResolvedValue('send');
+    mockGuardianAuthorization.assertTestGuardianRequestAuthorization.mockImplementation(async () => {
+      expect(txStore.find(item => item.id === 'native-signed-expiry')?.stage).toBe('executing');
+      throw new Error('Signed authority expired during stage bookkeeping');
+    });
+    await generateTransaction(buildTx('native-signed-expiry', row) as never, signCallback, false, provider as never);
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(txStore.find(item => item.id === 'native-signed-expiry')?.status).toBe(ITransactionStatus.Failed);
+  });
 });
 
 describe('guardian leaf routing — flag OFF (inline)', () => {
@@ -702,11 +800,46 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     await generateTransaction(buildTx('on-send-pre-submit', row) as never, signCallback, false, provider as never);
 
     const stored = txStore.find(r => r.id === 'on-send-pre-submit') as Record<string, unknown>;
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
   });
+
+  it.each([
+    ['a plain send', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }],
+    [
+      'a send with its bytes pinned',
+      { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1', requestBytes: new Uint8Array([4, 4]) }
+    ]
+  ])(
+    'a stale proof from the offscreen leaf ends %s Failed with its candidate abandoned and Retry open (#2060)',
+    async (label, row) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockDispatchGuardianPipeline.mockRejectedValue(new StaleProofError());
+      const id = `on-stale-${label}`;
+      const { service } = arrange(id, row);
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+      const stored = txStore.find(r => r.id === id) as unknown as ITransaction;
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+      expect(stored).toMatchObject({ status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR });
+      expect(stored.mayHaveSubmitted).toBeUndefined();
+      expect(stored.submitEvidence ?? []).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+      );
+      expect(isUnconfirmedFailure(stored)).toBe(false);
+
+      const restoreLocks = installNavigatorLocks();
+      try {
+        await requeueFailedTransaction(id);
+      } finally {
+        restoreLocks();
+      }
+      expect(stored.status).toBe(ITransactionStatus.Queued);
+    }
+  );
 
   it('an untagged failure after the offscreen dispatch keeps the candidate, a node refusal included (#1081)', async () => {
     // Once the request reached the leaf no classifier tells a refusal from a lost response, so the candidate waits
@@ -768,7 +901,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     expect(stored.status).toBe(ITransactionStatus.Queued);
     expect(stored.processingStartedAt).toBeUndefined();
     // Provably before the submit, so the candidate is abandoned at once and the requeue never meets it (#1081).
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -2149,6 +2282,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       faucetId: 'f',
       amount: '5',
       requestBytes: new Uint8Array([4, 4]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 10 }
     };
     arrange('on-earn-unauthorized', row);
@@ -2678,6 +2812,123 @@ describe('guardian custom proposals preserve the prepared request through signin
     expect(Array.from(txStore.find(row => row.id === id)!.requestBytes as Uint8Array)).toEqual([71, 72, 73]);
   });
 
+  it('execute: checks the prepared bytes against the approved effects and the charged spends before proposing', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'effects-checked-execute';
+    const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
+    const spentAssetTotals = [{ faucetId: 'faucet-a', amount: 5n }];
+    const { service } = arrange(id, { ...executeCase.row, approvedEffects, spentAssetTotals });
+    const enriched = new Uint8Array([81, 82]);
+    mockPrepareCustomRequestBytes.mockResolvedValueOnce(enriched);
+    const proposalSummary = 'proposal-summary';
+    service.createCustomProposal.mockImplementationOnce(async () => {
+      expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledTimes(1);
+      const proposal = { id: 'prop', nonce: 7, txSummary: proposalSummary };
+      return proposal;
+    });
+
+    await generateTransaction(
+      buildTx(id, { ...executeCase.row, approvedEffects, spentAssetTotals }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // Both decodes are handed the scope of the fee read before the dry run.
+    expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledWith(
+      { accountId: 'guardian-acc', preparedBytes: enriched, hold: expect.anything() },
+      approvedEffects,
+      spentAssetTotals,
+      'fixture-rpc|testnet'
+    );
+    expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
+      approvedEffects,
+      { summaryBytes: proposalSummary },
+      spentAssetTotals,
+      false,
+      'fixture-rpc|testnet'
+    );
+    expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
+  });
+
+  it('execute: fails the row before any proposal when the generation-time effects are not the approved ones', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'effects-changed-execute';
+    const { service } = arrange(id, executeCase.row);
+    mockVerifyPreparedCustomRequest.mockRejectedValueOnce(new CustomTransactionEffectsChangedError('outgoing'));
+
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(row => row.id === id) as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.error).toBe(CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR);
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+  });
+
+  it('execute: checks a standard-account request against approved effects before submit', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'standard-effects-checked-execute';
+    const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
+    const spentAssetTotals = [{ faucetId: 'faucet-a', amount: 5n }];
+    const { row } = arrange(id, { ...executeCase.row, approvedEffects, spentAssetTotals });
+    mockIsGuardianAccount.mockResolvedValueOnce(false);
+    const prepared = new Uint8Array([91, 92]);
+    mockPrepareCustomRequestBytes.mockResolvedValueOnce(prepared);
+
+    await generateTransaction(
+      buildTx(id, { ...row, approvedEffects, spentAssetTotals }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockVerifyPreparedCustomRequest).toHaveBeenCalledWith(
+      { accountId: 'guardian-acc', preparedBytes: prepared, hold: expect.anything() },
+      approvedEffects,
+      spentAssetTotals
+    );
+    expect(mockProxyNewTransaction.mock.calls[0]?.slice(0, 4)).toEqual(['guardian-acc', prepared, false, signCallback]);
+    expect(mockVerifyPreparedCustomRequest.mock.invocationCallOrder[0]).toBeLessThan(
+      mockProxyNewTransaction.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('execute: abandons a proposal whose summary differs from the approved effects', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'proposal-effects-changed-execute';
+    const approvedEffects = { shape: 'summary', outgoing: [{ faucetId: 'faucet-a', amount: 5n }] };
+    const { service } = arrange(id, { ...executeCase.row, approvedEffects });
+    const mismatch = new Error('approved effects changed');
+    service.createCustomProposal.mockResolvedValueOnce({
+      id: 'proposal-mismatch',
+      nonce: 19,
+      txSummary: 'proposal-summary'
+    } as never);
+    mockAssertCustomEffectsApproved.mockImplementationOnce(() => {
+      throw mismatch;
+    });
+
+    await generateTransaction(
+      buildTx(id, { ...executeCase.row, approvedEffects }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockAssertCustomEffectsApproved).toHaveBeenCalledWith(
+      approvedEffects,
+      { summaryBytes: 'proposal-summary' },
+      undefined,
+      false,
+      'fixture-rpc|testnet'
+    );
+    expect(service.abandonCandidate).toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === id)?.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('execute: persists auth diagnostics before creating the proposal', async () => {
     const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
     const id = 'diagnosed-execute';
@@ -2836,6 +3087,19 @@ describe('the pin is per attempt and retires on a tagged failure (#1081)', () =>
     expect(row.mayHaveSubmitted).toBeUndefined();
   });
 
+  it('a retired pin leaves the requeue arms open (#2060)', async () => {
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      markErrorBeforeSubmit(new Error('transaction execution failed: transaction is unauthorized'))
+    );
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'pin', preSubmitEnd: true })]);
+    // A pin counted as a crossing would close every arm and end this row Failed.
+    const stored = txStore.find(r => r.id === 'pin-retire');
+    expect(stored?.status).toBe(ITransactionStatus.Queued);
+    expect(stored?.lastDeferral).toBe('guardian_unauthorized');
+  });
+
   it('a request that cannot serialize is never pinned', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const row = {
@@ -2946,13 +3210,13 @@ describe('guardian bridged-send / earn-deposit byte-identity — flag ON result 
 
 // An Agglayer bridged-send and a USDCx burn can await the node's verdict, so a killed attempt keeps the candidate
 // (#1081); an earn deposit cannot, so it still abandons at once.
-type KillCase = Case & { abandons: number[][]; evidence: unknown };
+type KillCase = Case & { abandons: [number, string][]; evidence: unknown };
 const bridgeEarnKillCases = (): KillCase[] => [
   { ...bridgeEarnCase('agglayer'), abandons: [], evidence: KEPT_AT_7 },
   { ...bridgeEarnCase('usdcx'), abandons: [], evidence: KEPT_AT_7 },
   {
     ...bridgeEarnCase('earn-deposit'),
-    abandons: [[7]],
+    abandons: [[7, 'prop']],
     evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
   }
 ];
@@ -3136,7 +3400,7 @@ describe('guardian offscreen submit gate (#1644)', () => {
 
     const stored = txStore.find(r => r.id === id) as Record<string, unknown>;
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(stored.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
@@ -3189,7 +3453,7 @@ describe('guardian offscreen submit gate (#1644)', () => {
     await generateTransaction(buildTx('gate-pending', consumeRow) as never, signCallback, false, provider as never);
 
     expect(await pending).toBe(false);
-    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
   });
 
   it('the gate refuses once the attempt has settled', async () => {
@@ -3387,6 +3651,67 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.displayMessage).not.toBe('Sent');
   });
 
+  it('swap: a round-tripped landed failure is Completed with its order id and order note', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    // As the proxy rebuilds the reply: the order id crossed as decimal text.
+    const applyErr = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      landed: { transactionId: '0xlanded', orderId: '42', orderNoteId }
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(applyErr);
+    const swap = valueMovingCases().find(c => c.type === 'swap')!.row;
+    arrange('apply-swap-order', swap);
+
+    await generateTransaction(buildTx('apply-swap-order', swap) as never, signCallback, false, provider as never);
+
+    const finalRow = txStore.find(r => r.id === 'apply-swap-order')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.transactionId).toBe('0xlanded');
+    expect(finalRow.extraInputs).toMatchObject({ orderId: 42n, expiresAt: expect.any(Number) });
+    expect(finalRow.extraInputs).not.toHaveProperty('landedOrder');
+    expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
+  });
+
+  // An apply trap reads nothing off the result, so the facts name no order: the one the rebuild recorded beside the
+  // bytes it proposed is the order, held at the landing and opened by the Completed write, with no decode.
+  it('swap: a round-tripped apply trap with no landed facts is Completed with the order its request recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const orderNoteId = `0x${'ab'.repeat(32)}`;
+    const swap = valueMovingCases().find(c => c.type === 'swap')!.row;
+    const extraInputs = { requestedFaucetId: 'rfaucet', requestedAmount: '10', expirySeconds: 100 };
+    const row = { ...swap, extraInputs: { ...extraInputs, requestOrder: { orderId: '42', noteId: orderNoteId } } };
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    mockDispatchGuardianPipeline.mockImplementationOnce(async () => {
+      deserialize.mockClear();
+      throw Object.assign(new Error('local apply failed after submit'), {
+        errorCode: 'ApplyTransactionAfterSubmitFailed'
+      });
+    });
+    const { service } = arrange('apply-trap-swap-recorded-order', row);
+    const rebuilt = {
+      proposal: { id: 'prop', nonce: 7 },
+      requestBytes: new Uint8Array(REBASED_BYTES),
+      order: { orderId: '42', orderNoteId }
+    };
+    service.createRebasedCustomProposal.mockResolvedValueOnce(rebuilt);
+
+    await generateTransaction(
+      buildTx('apply-trap-swap-recorded-order', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'apply-trap-swap-recorded-order')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Completed);
+    expect(finalRow.extraInputs).toMatchObject({ orderId: 42n, expiresAt: expect.any(Number) });
+    expect(finalRow.extraInputs).not.toHaveProperty('landedOrder');
+    expect(finalRow.outputNoteIds).toEqual([orderNoteId]);
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(deserialize).not.toHaveBeenCalled();
+  });
+
   it('execute: a round-tripped landed failure says how many private notes were not delivered (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     // As the proxy rebuilds the reply: the code and the landed facts on a plain Error.
@@ -3405,6 +3730,247 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.noteDelivery).toBe('undelivered');
     expect(finalRow.displayMessage).toBe('Executed - 2 private notes could not be delivered');
     expect(finalRow.transactionId).toBe('0xlanded');
+  });
+
+  // A trap serializing the result follows the leaf's apply, so the store holds the notes its gate recorded: the landed
+  // send owes exactly those, on the fresh schedule a reconciler landing starts, and the sweep is told to look again.
+  const appliedSendTxId = `0x${'cd'.repeat(32)}`;
+  const appliedSendNote = `0x${'ef'.repeat(32)}`;
+  const privateSend = {
+    type: 'send',
+    secondaryAccountId: 'recipient',
+    faucetId: 'faucet',
+    amount: '1000',
+    noteType: 'private'
+  };
+  const landAfterGate = (evidence: Record<string, unknown> | undefined, landed: Record<string, unknown>) => {
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(await gate(evidence)).toBe(true);
+      // As the proxy rebuilds the reply.
+      throw Object.assign(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: This transaction was accepted into the node's mempool but the " +
+            'local store update failed'
+        ),
+        { errorCode: 'ApplyTransactionAfterSubmitFailed', landed }
+      );
+    });
+  };
+
+  it('send: a landed reply after a serialize trap that followed the apply owes the notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] }, { applied: true });
+    const { service } = arrange('serialize-trap-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+    const landing = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      buildTx('serialize-trap-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-private-send')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [appliedSendNote],
+      noteDelivery: 'undelivered',
+      secondaryAccountId: 'recipient'
+    });
+    expect(finalRow.relayNoteIds).toBeUndefined();
+    expect(finalRow.relayAttempts).toBeUndefined();
+    expect(finalRow.nextRelayAt).toBeUndefined();
+    expect(finalRow.completedAt).toBeGreaterThanOrEqual(landing);
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  // An apply that failed left the notes out of the store, so nothing can push them: the row stays inert, as before.
+  it('send: a landed reply whose apply failed owes no note, whatever its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] }, {});
+    arrange('apply-failed-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('apply-failed-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'apply-failed-private-send')!;
+    expect(finalRow).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  it("send: an applied landing owes no note an earlier attempt's stamp recorded", async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate(undefined, { applied: true });
+    arrange('applied-send-earlier-stamp', privateSend);
+    txStore.find(r => r.id === 'applied-send-earlier-stamp')!.submitEvidence = [
+      {
+        attemptId: 'earlier',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: appliedSendTxId,
+        outputNoteIds: [appliedSendNote]
+      }
+    ];
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('applied-send-earlier-stamp', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'applied-send-earlier-stamp')!;
+    expect(finalRow).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  // An execute's gate also recorded which of its notes are private: those, not its public ones, are what the
+  // recipient its row names is owed.
+  const appliedExecuteNote = `0x${'7a'.repeat(32)}`;
+  const privateExecute = { type: 'execute', requestBytes: new Uint8Array([2, 2]), secondaryAccountId: 'recipient' };
+
+  it('execute: a landed reply after a serialize trap that followed the apply owes the private notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    landAfterGate(
+      {
+        transactionId: appliedSendTxId,
+        outputNoteIds: [appliedExecuteNote, appliedSendNote],
+        privateOutputNoteIds: [appliedSendNote]
+      },
+      { applied: true }
+    );
+    const { service } = arrange('serialize-trap-private-execute', privateExecute);
+    const writes = noteDeliveryWriteCount();
+    const landing = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      buildTx('serialize-trap-private-execute', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-private-execute')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [appliedSendNote],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(finalRow.relayAttempts).toBeUndefined();
+    expect(finalRow.nextRelayAt).toBeUndefined();
+    expect(finalRow.completedAt).toBeGreaterThanOrEqual(landing);
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+  });
+
+  // A transaction can create up to 1024 notes, so a gate naming 300 crosses the bus whole, as the service worker
+  // parses it.
+  it('execute: a landed reply after a serialize trap owes the one private note out of 300 its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const outputNoteIds = Array.from({ length: 300 }, (_, i) => `0x${(0xe0000 + i).toString(16).padStart(64, '0')}`);
+    outputNoteIds[150] = appliedSendNote;
+    landAfterGate(
+      parseSubmitEvidence({ transactionId: appliedSendTxId, outputNoteIds, privateOutputNoteIds: [appliedSendNote] }),
+      { applied: true }
+    );
+    arrange('serialize-trap-execute-300', privateExecute);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('serialize-trap-execute-300', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'serialize-trap-execute-300')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      relayNoteIds: [appliedSendNote],
+      relayRecipientId: 'recipient',
+      noteDelivery: 'undelivered'
+    });
+    expect(finalRow.outputNoteIds).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
+  });
+
+  // A failure before the submit never reaches the landed write, so the notes its gate recorded are owed to nobody.
+  it('execute: a failure before its submit owes none of the private notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(
+        await gate({
+          transactionId: appliedSendTxId,
+          outputNoteIds: [appliedExecuteNote, appliedSendNote],
+          privateOutputNoteIds: [appliedSendNote]
+        })
+      ).toBe(true);
+      throw markErrorBeforeSubmit(new Error("Offscreen call 'guardianPipeline' failed: the chain tip did not read"));
+    });
+    arrange('pre-submit-private-execute', privateExecute);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('pre-submit-private-execute', privateExecute) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const finalRow = txStore.find(r => r.id === 'pre-submit-private-execute')!;
+    expect(finalRow.submitEvidence).toEqual([expect.objectContaining({ privateOutputNoteIds: [appliedSendNote] })]);
+    expect(finalRow.status).not.toBe(ITransactionStatus.Completed);
+    expect(finalRow.relayNoteIds).toBeUndefined();
+    expect(finalRow.relayRecipientId).toBeUndefined();
+    expect(finalRow.noteDelivery).toBeUndefined();
+    expect(noteDeliveryWriteCount()).toBe(writes);
+  });
+
+  // The offscreen leaf resolves only after its apply, so a tail that fails after it leaves the notes its gate recorded
+  // in the store, owed as after a serialize trap.
+  it('send: a tail that fails after a resolved offscreen leaf owes the notes its gate recorded', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      expect(await gate({ transactionId: appliedSendTxId, outputNoteIds: [appliedSendNote] })).toBe(true);
+      return makeResult();
+    });
+    mockComplete.send.mockRejectedValueOnce(new Error('the completion failed'));
+    arrange('tail-failed-private-send', privateSend);
+    const writes = noteDeliveryWriteCount();
+
+    await generateTransaction(
+      buildTx('tail-failed-private-send', privateSend) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockComplete.send).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(r => r.id === 'tail-failed-private-send')!;
+    expect(finalRow).toMatchObject({
+      status: ITransactionStatus.Completed,
+      outputNoteIds: [appliedSendNote],
+      noteDelivery: 'undelivered'
+    });
+    expect(noteDeliveryWriteCount()).toBe(writes + 1);
   });
 
   it('execute: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
@@ -3450,7 +4016,10 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 const makeStructuralService = () => {
   const pushSwitchDelta = jest.fn(async (_proposalId: string) => {});
   return {
-    createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop', nonce: 7 } })),
+    createSwitchGuardianProposal: jest.fn(async () => ({
+      proposal: { id: 'prop', nonce: 7 },
+      exportedProposal: '{"commitment":"prop"}'
+    })),
     createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
     createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
     signProposal: jest.fn(async () => {}),
@@ -3482,6 +4051,24 @@ const makeStructuralProvider = () => ({
 });
 
 type StructuralCase = { type: string; row: Record<string, unknown>; complete: jest.Mock };
+
+const expectStructuralCoSign = (service: ReturnType<typeof makeStructuralService>, type: string) => {
+  const expectedCalls =
+    type === 'switch-guardian'
+      ? [
+          [
+            'prop',
+            expect.objectContaining({ label: 'switch-guardian cold co-sign' }),
+            '{"commitment":"prop"}',
+            expect.objectContaining({ syncing: false, abandoned: false })
+          ]
+        ]
+      : [];
+  expect(service.signProposal.mock.calls).toEqual(expectedCalls);
+  const hotSignOrder = service.signAndCreateTransactionRequest.mock.invocationCallOrder[0]!;
+  expect(service.signProposal.mock.invocationCallOrder.every(order => order < hotSignOrder)).toBe(true);
+};
+
 const structuralCases = (): StructuralCase[] => [
   {
     type: 'switch-guardian',
@@ -3523,7 +4110,7 @@ function arrangeStructural(id: string, extra: Record<string, unknown>, result = 
 describe('structural guardian leaf routing — flag OFF (inline)', () => {
   it.each(structuralCases())(
     '$type: runs the inline pipeline, never dispatchGuardianPipeline; commit-wait routes through the proxy with the re-derived id',
-    async ({ row, complete }) => {
+    async ({ type, row, complete }) => {
       const { service, inline, provider: sp } = arrangeStructural(`s-off-${row.type}`, row);
 
       await generateTransaction(buildTx(`s-off-${row.type}`, row) as never, signCallback, false, sp as never);
@@ -3545,6 +4132,7 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
       const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
       const completeOrder = complete.mock.invocationCallOrder[0]!;
       expect(waitOrder).toBeLessThan(completeOrder);
+      expectStructuralCoSign(service, type);
     }
   );
 });
@@ -3552,11 +4140,11 @@ describe('structural guardian leaf routing — flag OFF (inline)', () => {
 describe('structural guardian leaf routing — flag ON (offscreen)', () => {
   it.each(structuralCases())(
     '$type: crosses the co-signed request bytes to dispatchGuardianPipeline; commit-wait routes through the proxy (offscreen), never the dormant SW client',
-    async ({ row, complete }) => {
+    async ({ type, row, complete }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       const dispatched = makeResult();
       mockDispatchGuardianPipeline.mockResolvedValue(dispatched);
-      const { inline, provider: sp } = arrangeStructural(`s-on-${row.type}`, row);
+      const { service, inline, provider: sp } = arrangeStructural(`s-on-${row.type}`, row);
 
       await generateTransaction(buildTx(`s-on-${row.type}`, row) as never, signCallback, false, sp as never);
 
@@ -3584,6 +4172,7 @@ describe('structural guardian leaf routing — flag ON (offscreen)', () => {
       const waitOrder = mockProxyWaitForCommit.mock.invocationCallOrder[0]!;
       const completeOrder = complete.mock.invocationCallOrder[0]!;
       expect(waitOrder).toBeLessThan(completeOrder);
+      expectStructuralCoSign(service, type);
       // Structural completion finalized with the round-tripped result.
       expect(complete).toHaveBeenCalledTimes(1);
       expect(complete.mock.calls[0][STRUCTURAL_RESULT_ARG]).toBe(dispatched);
@@ -3720,7 +4309,7 @@ describe('structural guardian leaf kill-window (funds-safety) — an offscreen k
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
       // The SW submit-catch abandoned the guardian candidate (idempotent), exactly once.
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       // The row is terminally FAILED — NOT requeued, and carries no requeue cooldown stamp.
       const finalRow = txStore.find(r => r.id === `s-kill-${row.type}`)!;
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
@@ -4108,7 +4697,7 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       expect(service.pushSwitchDelta).toHaveBeenCalledTimes(1);
       expect(service.pushSwitchDelta).toHaveBeenCalledWith('prop');
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       expect(mockProxyGetCommitState).not.toHaveBeenCalled();
       expect(statusAtAbandon).toBeDefined();
       expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);
@@ -4134,7 +4723,7 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
 
       expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
       expect(mockProxyGetCommitState).not.toHaveBeenCalled();
       expect(statusAtAbandon).toBeDefined();
       expect(statusAtAbandon).not.toBe(ITransactionStatus.Failed);

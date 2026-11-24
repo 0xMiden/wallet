@@ -39,6 +39,7 @@
 
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
+import { isExtensionPageSender, isExtensionServiceWorkerSender } from 'lib/intercom/sender';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
   clearConnectivityIssue,
@@ -77,9 +78,11 @@ import type {
   ConsumeTransaction,
   ITransactionStage,
   SendTransaction,
+  StageDetail,
   SubmitEvidenceFields,
   SwapTransaction
 } from 'lib/miden/db/types';
+import { OFFSCREEN_PROOF_BUDGET_MS, type ProofPass, withFreshProof } from 'lib/miden/guardian/proof-freshness';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
@@ -97,21 +100,26 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
+  retireWasmClientForCaughtTrap,
   tryWithWasmClientLock,
   withWasmClientLock,
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { readChainTip } from 'lib/miden/sdk/pswap-order-note';
 import {
+  ApplyAfterSubmitError,
   extractLanded,
   extractSdkErrorCode,
   hasErrorBeforeSubmit,
   markErrorBeforeSubmit,
+  SubmitCrossingUnrecordedError,
   type LandedTransaction
 } from 'lib/miden/sdk/sdk-error-code';
 import { readSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { syncAndRecordFeeFaucet } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+import { observeTransactionExecutionRequest } from 'lib/miden/sdk/transaction-execution-diagnostics';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -124,9 +132,15 @@ import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { assertOneClickDeadline } from 'lib/one-click/deadline';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
+import {
+  annotateTransactionExecution,
+  snapshotTransactionExecution,
+  unobservedTransactionExecution
+} from 'lib/telemetry/transaction-execution-diagnostics';
 
 import { ProveWorkerClient } from './prove-worker-client';
 import { proveThreadCount } from './prove-worker-protocol';
+import { assertTestGuardianRequestAuthorization } from '../lib/miden/sdk/test-guardian-authorization';
 
 const TAG = '[offscreen-prover]';
 
@@ -279,6 +293,10 @@ installLocalProveTransport(proveWorker);
 let initPromise: Promise<void> | null = null;
 
 async function init() {
+  if (process.env.MIDEN_E2E_TEST === 'true') {
+    const { restoreOffscreenFetchFaults } = await import('./e2e-fetch-faults');
+    await restoreOffscreenFetchFaults();
+  }
   // Force WASM init (lazy entry doesn't auto-load) so the wasm-bindgen `wasm`
   // namespace is populated and `initThreadPool` can call into it.
   // getWasmOrThrow → ensureWasm → loadWasm → import('Cargo-*.js') + __wbg_init
@@ -464,7 +482,7 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // stamp it fires afterwards is correctly addressed to a row the SW has already
 // moved past — 'proving' arriving after the row completed would rewind the UI,
 // and 'submitting' would set may-have-submitted on a row already adjudicated.
-// The Guardian leaf's submit gate (#1644). Unlike a stage stamp it is AWAITED, and only an `ok` from the service
+// An offscreen leaf's submit gate (#1644). Unlike a stage stamp it is AWAITED, and only an `ok` from the service
 // worker lets the leaf submit: the worker records the crossing before it answers, so an attempt it never let through
 // provably never called submit, and the candidate a kill left can be abandoned instead of held for the Guardian's grace.
 // A missing op_id, a settled dispatch, a refusal or no answer at all all mean no submit, failed before it like any other
@@ -502,6 +520,23 @@ function postStageEvent(context: DispatchContext, stage: ITransactionStage, evid
   } catch {
     /* a synchronous sendMessage throw must not reach the write — see (2) above */
   }
+}
+
+// A single-key write's stage stamps. Where the service worker gates the op (`gated`: the call's `submitGated`, or the
+// positional flag a gated newTransaction also carries), its 'submitting' stamp is that gate, awaited before the submit (#1081): posted
+// fire-and-forget, a stamp whose one write failed left an attempt that crossed with no record of its notes. A refusal is
+// no prover failure, so it leaves as an unrecorded crossing that nothing re-proves, tagged as before the submit. The
+// await parks inside this op's hold, so the client asks ownership again before it submits.
+function leafStageStamp(
+  context: DispatchContext,
+  gated = context.submitGated
+): (stage: ITransactionStage, detail?: StageDetail) => Promise<void> | void {
+  return (stage, detail) => {
+    if (stage !== 'submitting' || !gated) return postStageEvent(context, stage, detail?.evidence);
+    return passSubmitGate(context, detail?.evidence).catch(error => {
+      throw new SubmitCrossingUnrecordedError(context.op_id, error);
+    });
+  };
 }
 
 // --- Generalized OFFSCREEN_CALL surface (issue #260, slice 1) ---------------
@@ -553,8 +588,19 @@ type DispatchContext = {
    * runtime; this makes it a compile error instead.
    */
   readonly hold: WasmLockHold;
+  /** Whether the service worker registered a submit gate for the op; see `leafStageStamp`. */
+  readonly submitGated: boolean;
   /** Set by `handleCall` when the dispatch settles; see `postStageEvent`. */
   settled: boolean;
+};
+
+/** One execute and prove of a guardian leaf, ready for its submit. */
+type GuardianLeafAttempt = {
+  txResult: sdk.TransactionResult;
+  // The delegated branch submits its own proof; a worker proof goes back through `submitProven` with the result it was
+  // made from.
+  submit: () => Promise<sdk.TransactionSubmission>;
+  evidence: SubmitEvidenceFields;
 };
 
 // A write's arguments decoded before its leaf runs: a failure here is before the submit by construction (#1081).
@@ -572,6 +618,28 @@ async function stepBeforeSubmit<T>(step: () => Promise<T>): Promise<T> {
     return await step();
   } catch (error) {
     throw markErrorBeforeSubmit(error);
+  }
+}
+
+/**
+ * The bytes of a result its leaf already submitted and applied. A trap here is the client failing past the submit, so
+ * it is retired through the dispatch's own hold and crosses as `ApplyAfterSubmitError` that says only `applied`: the
+ * result's handles borrow the trapped client and are not read again, and the service worker settles the row through
+ * its landed arm instead of failing a write the node holds. The store holds the transaction's notes, so a landed
+ * private send owes the ones its submit stamp recorded. Any other failure keeps its own shape.
+ */
+function serializeLandedResult(context: DispatchContext, result: { serialize(): Uint8Array }): Uint8Array {
+  try {
+    return result.serialize();
+  } catch (error) {
+    if (!(error instanceof WebAssembly.RuntimeError)) throw error;
+    try {
+      retireWasmClientForCaughtTrap(context.hold, error);
+    } catch (retireError) {
+      // The retire costs only itself: replacing the landed verdict would offer a Retry that submits the write again.
+      console.error(`${TAG} retiring a trap past the submit failed; the landed verdict stands`, { error, retireError });
+    }
+    throw new ApplyAfterSubmitError(error, { applied: true });
   }
 }
 
@@ -688,6 +756,20 @@ const DISPATCH: Record<string, DispatchFn> = {
       { allowNodeNote: allowNodeNote === true }
     ),
 
+  // Fee-aware fill of a public PSWAP sale note (an Arcade GC purchase). The note is read on the
+  // node inside the build; the fill crosses as a decimal string, since a bigint cannot.
+  buildPswapConsumeRequest: async (
+    context,
+    client,
+    accountId: string,
+    noteId: string,
+    fillAmount: string,
+    creatorAccountId: string
+  ) =>
+    client.buildPswapConsumeRequest(accountId, { noteId, fillAmount: BigInt(fillAmount), creatorAccountId }, step =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen buildPswapConsumeRequest', step)
+    ),
+
   // Deferred reach-through READS moved offscreen (issue #260, slice 7a). Each reads
   // the OFFSCREEN client's canonical synced state — the whole point, since flag-on
   // the SW client is dormant and these formerly read stale data off it. The results
@@ -794,6 +876,10 @@ const DISPATCH: Record<string, DispatchFn> = {
   decodeGuardianHistory: async (context, client, encoded: string) => {
     return new TextEncoder().encode(JSON.stringify(await client.decodeGuardianHistory(encoded, context.hold)));
   },
+  importGuardianHistoryP2ideNotes: async (context, client, encoded: string, accountId: string, noteId: string) => {
+    await client.importGuardianHistoryP2ideNotes(encoded, accountId, noteId, context.hold);
+    return null;
+  },
   getGuardianResultCommitment: async (context, client, encoded: string) => {
     return new TextEncoder().encode(await client.getGuardianResultCommitment(b64ToBytes(encoded), context.hold));
   },
@@ -856,7 +942,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // consume may already be broadcast. Completing beats aborting past
     // a possible submit — refusing to serialize would abandon the applied result
     // of a write the network may have accepted.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   // The remaining non-guardian WRITES moved offscreen (issue #260, slice 5b),
@@ -879,13 +965,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     // drives execute → prove → submit as distinct stages and invokes `onStage` on
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
-    const result = await client.sendTransaction(tx, (stage, detail) =>
-      postStageEvent(context, stage, detail?.evidence)
-    );
+    const result = await client.sendTransaction(tx, leafStageStamp(context));
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
     // it returns, so the send may be broadcast — completing beats aborting.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   swapTransaction: async (
@@ -915,41 +999,38 @@ const DISPATCH: Record<string, DispatchFn> = {
           }
         }) as unknown as SwapTransaction
     );
-    const result = await client.swapTransaction(
-      tx,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence),
-      feeContext
-    );
+    const result = await client.swapTransaction(tx, leafStageStamp(context), feeContext);
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
     // applied) by the time it returns, through its staged submit (in this realm, or
     // `submitProven` for a worker proof), so the PSWAP note may already be on the
     // network. Post-submit, completing beats aborting.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
-  // Positional args (accountId, requestBytes, delegateTransaction) mirroring the
-  // SDK signature — `requestBytes` crossed as raw bytes, not JSON. `?? undefined`
-  // maps a JSON-`null` delegate arg (an `undefined` round-tripped through
-  // encodeArg) back to the SDK's optional-boolean shape.
+  // Positional args (accountId, requestBytes, delegateTransaction) mirroring the SDK signature, then the submit-gate
+  // flag the proxy sends with every gated call, beside the envelope's `submitGated`. `requestBytes` crossed as raw
+  // bytes, not JSON. `?? undefined` maps a JSON-`null` delegate arg (an `undefined` round-tripped through encodeArg)
+  // back to the SDK's optional-boolean shape.
   newTransaction: async (
     context,
     client,
     accountId: string,
     requestBytes: Uint8Array,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    submitGateRequired = false
   ) => {
     const result = await client.newTransaction(
       accountId,
       requestBytes,
       delegateTransaction ?? undefined,
-      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+      leafStageStamp(context, submitGateRequired || context.submitGated)
     );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has
     // submitted and applied — its pre-submit seams live inside
     // `MidenClientInterface`, not here. The request may be broadcast, so the
     // serialize completes rather than aborts.
-    return result.serialize() as Uint8Array;
+    return serializeLandedResult(context, result);
   },
 
   // The GUARDIAN write LEAF PIPELINE moved offscreen (issue #260, slice 6a). A
@@ -981,167 +1062,192 @@ const DISPATCH: Record<string, DispatchFn> = {
   // than re-declared here, so this list and the SW-side packer cannot drift.
   // The historical anchor slot remains on the wire; execution uses the request's bound block at the tip.
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
-    const [accountId, trBytes, delegateTransaction, , oneClickDeadline, oneClickRequired] = args;
-    // This op's own id and lock hold, threaded in by `handleCall` before any
-    // await so both are provably ours (issue #775). The hold is what keeps a pause from
-    // silencing the watchdog of whichever holder took the lock after an
-    // eviction; the id is what keeps a late 'submitting' stamp off the
-    // successor's row.
-    const { hold } = context;
-    recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
-    // Overlaps the worker's WASM load and pool start with execute and its sign.
-    if (!delegateTransaction) proveWorker.prewarm();
-    // Declared outside the pre-submit try below, because the submit, its evidence read and the apply use them.
-    let executedTx;
-    let txResult: sdk.TransactionResult;
-    // The delegated branch submits its own proof; a worker proof goes back through
-    // `submitProven` with the result it was made from.
-    let submit: () => Promise<sdk.TransactionSubmission>;
-    let proven: sdk.ProvenTransaction;
+    let execution = unobservedTransactionExecution('guardian_signed_request');
     try {
-      const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
-      postStageEvent(context, 'executing');
-      recordProveTiming('guardianPipeline preparing current tip');
-      await prepareGuardianTipExecution(client.client, tr, () =>
-        assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
-      );
-      assertWasmHoldCurrent(hold, 'in the guardian pipeline before executing at the tip');
-      recordProveTiming('guardianPipeline calling executeRequest at current tip');
-      executedTx = await client.client.transactions.executeRequest(accountId, tr);
-      recordProveTiming('guardianPipeline executeRequest returned; proving');
-      // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
-      // brackets below cover proving, not this), so a node that accepts and never
-      // answers is evicted here - and an eviction abandons this callback rather than
-      // stopping it, so what resumes would prove and submit with no mutex held,
-      // alongside the successor that legitimately holds it. Checked at each of the two
-      // points that are still provably PRE-SUBMIT, so the throw cannot cost a write
-      // that already reached the network.
-      assertWasmHoldCurrent(hold, 'in the guardian pipeline before proving');
-      postStageEvent(context, 'proving');
-      txResult = executedTx.result;
-      // Reported from here as well as from the two inline copies, because on the
-      // extension THIS is the copy that runs: every guardian leaf type is offscreen
-      // routable and the flag defaults on, so instrumenting only the inline path
-      // left guardian operations contributing nothing to prover health on the build
-      // almost everyone uses.
-      const proveStartedAt = performance.now();
-      if (!delegateTransaction) {
-        recordProveTiming('guardianPipeline proving in the prove worker');
-        // Unbounded like every local prove: `proveInWorker` relaxes the watchdog under
-        // this hold, and an eviction cancels the worker (#775, #945).
-        try {
-          const proof = await proveInWorker(txResult, hold);
-          proven = proof;
-          submit = () => client.client.transactions.submitProven(proof, txResult);
-          reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
-        } catch (proveError) {
-          reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
-          throw proveError;
-        }
-      } else {
-        try {
-          // Explicit remote prover rather than `prove({})`, and BOUNDED: the same fix
-          // the inline `runGuardianPipeline` (transaction/index.ts) and
-          // `MidenClientInterface.newTransaction` already carry. It was missed here, and
-          // here is the copy that actually runs on Chrome: the service-worker bundle
-          // DEFAULTS `MIDEN_USE_OFFSCREEN_CLIENT` to 'true', so a guardian write takes
-          // `dispatchGuardianPipeline` into this realm and the fixed inline pipeline is
-          // dead code on the shipping path. Two independent failures rode on that:
-          //   1. The empty `prove({})` selects the SDK's DEFAULT-PROVER FALLBACK, which
-          //      requires an initialized client and so never dispatches from one that
-          //      never called createClient() - the remote prover logs no request at all
-          //      and the await never settles (#718).
-          //   2. There was no client-side ceiling, unlike both fixed call sites, so
-          //      nothing could convert that silence into the rejection the local
-          //      fallback below needs. The write simply held the offscreen WASM mutex
-          //      until the SW's write deadline killed the whole document.
-          // Safe to bound here in the strongest sense available, exactly as inline: this
-          // pipeline drives execute/prove/submit itself, so the deadline provably
-          // expires BEFORE any submit and the local re-prove cannot broadcast twice.
-          // Unlike those two, this copy calls `withDelegatedProveTimeout` directly, without
-          // `proveDelegated`'s freeze retry: the extension never starts the running-time
-          // clock (`initBackgroundTimeTracking` runs only at mobile startup), so `frozenMs()`
-          // never grows in this realm and a retry could never fire.
-          const delegatedProver = remoteProver();
-          recordProveTiming(
-            `guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`
+      const [accountId, trBytes, delegateTransaction, , oneClickDeadline, oneClickRequired, testAuthorizationKind] =
+        args;
+      // This op's own id and lock hold, threaded in by `handleCall` before any
+      // await so both are provably ours (issue #775). The hold is what keeps a pause from
+      // silencing the watchdog of whichever holder took the lock after an
+      // eviction; the id is what keeps a late 'submitting' stamp off the
+      // successor's row.
+      const { hold } = context;
+      recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
+      // Overlaps the worker's WASM load and pool start with execute and its sign.
+      if (!delegateTransaction) proveWorker.prewarm();
+      // Declared outside the pre-submit try below, because the submit and the apply use it.
+      let attempt: GuardianLeafAttempt;
+      try {
+        const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
+        postStageEvent(context, 'executing');
+        const executeAndProve = async ({
+          reexecuting,
+          proveLocally,
+          delegatedProveFailed
+        }: ProofPass): Promise<GuardianLeafAttempt> => {
+          recordProveTiming('guardianPipeline preparing current tip');
+          await prepareGuardianTipExecution(client.client, tr, () =>
+            assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
           );
-          const provenTx = await withDelegatedProveTimeout(
-            executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
-            'Delegated guardian prove'
-          );
-          proven = provenTx.proof;
-          submit = () => provenTx.submit();
-          reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
-          clearConnectivityIssue('prover');
-        } catch (proveError) {
-          // Same rule as the inline pipeline: the delegated prove was this hold's
-          // longest parking await, and the fallback is a WASM call on `executedTx`,
-          // itself a borrow of the client's RefCell. An eviction while the delegated
-          // prove was parked leaves this catch running on an abandoned callback, so
-          // ownership is re-checked BEFORE the re-prove, not only after it. Still
-          // pre-submit - nothing has been broadcast.
-          assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
-          // A trap is not a prover failure: the dispatch's lock retires it, and a re-prove would run on the trapped
-          // client.
-          if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
-          console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
-          // Marked HERE, in the realm that watched the prove fail, and not left to
-          // the worker's catch. That catch gates its own `markConnectivityIssue`
-          // on the row's stage being `proving`, which only the inline leaf ever
-          // stamps: this one reports no stages back at all, so the row is still
-          // frozen at `sending` and the gate cannot fire. On the default build
-          // that gate covers nothing, and a prover that failed only on guardian
-          // operations would produce no `service_prover` event from anywhere.
-          //
-          // Same realm marks and clears, so the outage gets a duration rather
-          // than a start with no end.
-          if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
-          recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
-          try {
-            const proof = await proveInWorker(txResult, hold);
-            proven = proof;
-            submit = () => client.client.transactions.submitProven(proof, txResult);
-            reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
-          } catch (fallbackError) {
-            reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
-            throw fallbackError;
+          assertWasmHoldCurrent(hold, 'in the guardian pipeline before executing at the tip');
+          await assertTestGuardianRequestAuthorization(accountId, tr, testAuthorizationKind ?? undefined);
+          assertWasmHoldCurrent(hold, 'after exact Guardian authorization verification');
+          recordProveTiming('guardianPipeline calling executeRequest at current tip');
+          execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
+          const executedTx = await client.client.transactions.executeRequest(accountId, tr);
+          recordProveTiming('guardianPipeline executeRequest returned; proving');
+          // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
+          // brackets below cover proving, not this), so a node that accepts and never
+          // answers is evicted here - and an eviction abandons this callback rather than
+          // stopping it, so what resumes would prove and submit with no mutex held,
+          // alongside the successor that legitimately holds it. Checked at each of the two
+          // points that are still provably PRE-SUBMIT, so the throw cannot cost a write
+          // that already reached the network.
+          assertWasmHoldCurrent(hold, 'in the guardian pipeline before proving');
+          // A re-execution stays on 'proving', as the inline pipeline does.
+          if (!reexecuting) postStageEvent(context, 'proving');
+          const txResult = executedTx.result;
+          let submit: GuardianLeafAttempt['submit'];
+          let proven: sdk.ProvenTransaction;
+          // Reported from here as well as from the two inline copies, because on the
+          // extension THIS is the copy that runs: every guardian leaf type is offscreen
+          // routable and the flag defaults on, so instrumenting only the inline path
+          // left guardian operations contributing nothing to prover health on the build
+          // almost everyone uses.
+          const proveStartedAt = performance.now();
+          if (!delegateTransaction || proveLocally) {
+            recordProveTiming('guardianPipeline proving in the prove worker');
+            // Unbounded like every local prove: `proveInWorker` relaxes the watchdog under
+            // this hold, and an eviction cancels the worker (#775, #945).
+            try {
+              const proof = await proveInWorker(txResult, hold);
+              proven = proof;
+              submit = () => client.client.transactions.submitProven(proof, txResult);
+              reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
+            } catch (proveError) {
+              reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
+              throw proveError;
+            }
+          } else {
+            try {
+              // Explicit remote prover rather than `prove({})`, and BOUNDED: the same fix
+              // the inline `runGuardianPipeline` (transaction/index.ts) and
+              // `MidenClientInterface.newTransaction` already carry. It was missed here, and
+              // here is the copy that actually runs on Chrome: the service-worker bundle
+              // DEFAULTS `MIDEN_USE_OFFSCREEN_CLIENT` to 'true', so a guardian write takes
+              // `dispatchGuardianPipeline` into this realm and the fixed inline pipeline is
+              // dead code on the shipping path. Two independent failures rode on that:
+              //   1. The empty `prove({})` selects the SDK's DEFAULT-PROVER FALLBACK, which
+              //      requires an initialized client and so never dispatches from one that
+              //      never called createClient() - the remote prover logs no request at all
+              //      and the await never settles (#718).
+              //   2. There was no client-side ceiling, unlike both fixed call sites, so
+              //      nothing could convert that silence into the rejection the local
+              //      fallback below needs. The write simply held the offscreen WASM mutex
+              //      until the SW's write deadline killed the whole document.
+              // Safe to bound here in the strongest sense available, exactly as inline: this
+              // pipeline drives execute/prove/submit itself, so the deadline provably
+              // expires BEFORE any submit and the local re-prove cannot broadcast twice.
+              // Unlike those two, this copy calls `withDelegatedProveTimeout` directly, without
+              // `proveDelegated`'s freeze retry: the extension never starts the running-time
+              // clock (`initBackgroundTimeTracking` runs only at mobile startup), so `frozenMs()`
+              // never grows in this realm and a retry could never fire.
+              const delegatedProver = remoteProver();
+              recordProveTiming(
+                `guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`
+              );
+              const provenTx = await withDelegatedProveTimeout(
+                executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+                'Delegated guardian prove'
+              );
+              proven = provenTx.proof;
+              submit = () => provenTx.submit();
+              reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
+              clearConnectivityIssue('prover');
+            } catch (proveError) {
+              // Same rule as the inline pipeline: the delegated prove was this hold's
+              // longest parking await, and the fallback is a WASM call on `executedTx`,
+              // itself a borrow of the client's RefCell. An eviction while the delegated
+              // prove was parked leaves this catch running on an abandoned callback, so
+              // ownership is re-checked BEFORE the re-prove, not only after it. Still
+              // pre-submit - nothing has been broadcast.
+              assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
+              // A trap is not a prover failure: the dispatch's lock retires it, and a re-prove would run on the trapped
+              // client.
+              if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
+              console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
+              delegatedProveFailed();
+              // Marked HERE, in the realm that watched the prove fail, and not left to
+              // the worker's catch. That catch gates its own `markConnectivityIssue`
+              // on the row's stage being `proving`, which only the inline leaf ever
+              // stamps: this one reports no stages back at all, so the row is still
+              // frozen at `sending` and the gate cannot fire. On the default build
+              // that gate covers nothing, and a prover that failed only on guardian
+              // operations would produce no `service_prover` event from anywhere.
+              //
+              // Same realm marks and clears, so the outage gets a duration rather
+              // than a start with no end.
+              if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
+              recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
+              try {
+                const proof = await proveInWorker(txResult, hold);
+                proven = proof;
+                submit = () => client.client.transactions.submitProven(proof, txResult);
+                reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+              } catch (fallbackError) {
+                reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+                throw fallbackError;
+              }
+            }
           }
-        }
+          recordProveTiming('guardianPipeline prove returned; submitting');
+          // The prove is the longest await in the pipeline - delegated over the network or
+          // local under a relaxed ceiling - so the same question has to be asked again.
+          // Still pre-submit: nothing has been broadcast at this point.
+          assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
+          return {
+            txResult,
+            submit,
+            evidence: readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
+          };
+        };
+        attempt = await withFreshProof({
+          executeAndProve,
+          expirationBlockOf: proven => proven.evidence.expirationBlock,
+          readTip: readChainTip,
+          assertLive: () => assertWasmHoldCurrent(hold, 'in the guardian pipeline after reading the chain tip'),
+          budgetMs: OFFSCREEN_PROOF_BUDGET_MS
+        });
+        // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
+        await passSubmitGate(context, attempt.evidence);
+        // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
+        assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
+        if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
+      } catch (preSubmitError) {
+        // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
+        // own shape: markErrorBeforeSubmit never tags one.
+        throw markErrorBeforeSubmit(preSubmitError);
       }
-      recordProveTiming('guardianPipeline prove returned; submitting');
-      // The prove is the longest await in the pipeline - delegated over the network or
-      // local under a relaxed ceiling - so the same question has to be asked again.
-      // Still pre-submit: nothing has been broadcast at this point.
-      assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
-      // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
-      await passSubmitGate(
-        context,
-        readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
-      );
-      // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
-      assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
-      if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
-    } catch (preSubmitError) {
-      // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
-      // own shape: markErrorBeforeSubmit never tags one.
-      throw markErrorBeforeSubmit(preSubmitError);
+      const submittedTx = await attempt.submit();
+      recordProveTiming('guardianPipeline submit returned; applying');
+      // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has
+      // the write, so a failed local apply is retried in this hold while that is safe, and one that
+      // outlasts the retries crosses back as submitted. Its code survives the crossing and its cause
+      // does not, so each failed attempt names the store's reason on the harness's own record.
+      await applyAfterSubmit({
+        apply: () => submittedTx.apply(),
+        result: attempt.txResult,
+        readLocalAccount: accountId => client.client.accounts.get(accountId),
+        holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+        retireTrap: cause => retireWasmClientForCaughtTrap(hold, cause),
+        onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
+      });
+      recordProveTiming('guardianPipeline apply returned');
+      return serializeLandedResult(context, attempt.txResult);
+    } catch (error) {
+      annotateTransactionExecution(error, execution);
+      throw error;
     }
-    const submittedTx = await submit();
-    recordProveTiming('guardianPipeline submit returned; applying');
-    // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has
-    // the write, so a failed local apply is retried in this hold while that is safe, and one that
-    // outlasts the retries crosses back as submitted. Its code survives the crossing and its cause
-    // does not, so each failed attempt names the store's reason on the harness's own record.
-    await applyAfterSubmit({
-      apply: () => submittedTx.apply(),
-      result: txResult,
-      readLocalAccount: accountId => client.client.accounts.get(accountId),
-      holdIsCurrent: () => getCurrentWasmLockHold() === hold,
-      onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
-    });
-    recordProveTiming('guardianPipeline apply returned');
-    return executedTx.result.serialize() as Uint8Array;
   },
 
   // Post-pipeline commit-wait for the STRUCTURAL guardian completions (issue #260,
@@ -1560,7 +1666,12 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // knowable (issue #775) — and threaded in as the dispatch's first
       // parameter (#788), so every dispatch can re-check ownership after its
       // parking awaits without opting in.
-      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
+      const context: DispatchContext = {
+        op_id: msg.op_id,
+        hold,
+        submitGated: msg.submitGated === true,
+        settled: false
+      };
       try {
         const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
         return await dispatch(context, client, ...dispatchArgs);
@@ -1656,6 +1767,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       error,
       errorCode,
       errorLanded,
+      errorTransactionExecution: snapshotTransactionExecution(err),
       // The error CLASS, for the classifications that key off it rather than off
       // a code — today `WasmClientPoisonedError` from this realm's own lock
       // recovery (issue #775). Without it the SW rebuilds a bare `Error` and
@@ -1674,8 +1786,16 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
   }
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target !== 'offscreen') return false;
+  // Only this extension's own pages and its service worker. A content script carries the page url and a tab, and
+  // another extension carries a foreign id. Both predicates declining leaves the message unanswered.
+  if (
+    !isExtensionPageSender(sender, chrome.runtime.id, chrome.runtime.getURL('')) &&
+    !isExtensionServiceWorkerSender(sender, chrome.runtime.id)
+  ) {
+    return false;
+  }
 
   if (msg?.type === 'OFFSCREEN_PROVE') {
     (async () => {

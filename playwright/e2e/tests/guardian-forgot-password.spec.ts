@@ -40,7 +40,7 @@
  *  3. The re-key. Nothing anywhere in this repo pins that the wallet comes back
  *     under a DIFFERENT password: `wallet-lifecycle.spec.ts` :31-43 locks and
  *     unlocks with the same one. The falsifiable pair is P2 reaching
- *     `explore-page` and P1 being refused — together they are the only proof the
+ *     `command-shell` and P1 being refused — together they are the only proof the
  *     vault was genuinely re-encrypted rather than reused.
  *  4. The failure surface (#630). A recovery that fails has already wiped the
  *     wallet — the second test READS that, rather than asserting it in prose:
@@ -76,12 +76,11 @@ const FUND_BASE_UNITS = 100_000_000_000n;
  * The password the wallet is created with — `createGuardianWallet`'s default,
  * i.e. the one the whole suite uses. It must stop working after the reset.
  */
-const OLD_PASSWORD = 'Test1234!';
+const OLD_PASSWORD = 'Test1234!Wallet';
 /**
  * The password typed into the reset flow. Different from OLD_PASSWORD and still
- * satisfying `CreatePassword.tsx`'s real strength gate (>1 of {8+ chars, mixed
- * case, letters+digits, special char, 12+ chars}), since this journey drives
- * that real screen rather than the onboarding bypass.
+ * meeting `CreatePassword.tsx`'s real new-password floor (12+ characters), since
+ * this journey drives that real screen rather than the onboarding bypass.
  */
 const NEW_PASSWORD = 'Recovered9#Pass';
 
@@ -114,6 +113,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
     //   note-discovery pin            120s
     //   claimAllNotes                 132s (120s + ~12s of reload/prepare)
     //   funded-balance pin            120s
+    //   guardian settlement           240s (queue drain + canonicalization)
     //   lockWallet ×2                  64s (reload + unlock-screen wait)
     //   openForgotPasswordFlow        165s (navigateHome 60s + 7×15s)
     //   submitRecoveryFromSeed        135s (4 bounded clicks + 3 waits)
@@ -121,7 +121,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
     //   post-recovery reload + pin    180s
     //   expectUnlockRejects           105s   unlockWallet 105s
     //
-    // ≈ 1996s = 33.3 minutes, hence 35. Deliberately NOT included: the CLI
+    // About 2236s = 37.3 minutes, hence 40. Deliberately NOT included: the CLI
     // helpers' transient-RPC retry ceilings (createFaucet alone is 5×180s +
     // backoff — helpers/miden-cli.ts) and `navigateHome`'s unbounded `page.goto`
     // (wallet-page.ts, shared). No wall-clock budget can cover a full retry
@@ -133,18 +133,19 @@ test.describe('Forgot password — destructive in-place reset', () => {
     // The honest cost, since an earlier version of this comment cited
     // `maxFailures` as the reason it fits: `maxFailures` bounds the NUMBER of
     // failures, not wall clock, so it does not cap this. A single wedged run of
-    // this file can claim 35 of the guardian job's 60 minutes while sitting
+    // this file can claim 40 of the guardian job's 60 minutes while sitting
     // partway through a long sequential list — and a job timeout loses the
     // artifacts that would explain it. That is the trade being made: a budget
     // shorter than the waits reports a bare "Test timeout" naming no step, which
     // is worse. Sharding the guardian job is the real fix if this bites.
-    test.setTimeout(2_100_000);
+    test.setTimeout(2_400_000);
 
     let addressBeforeReset: string;
     let seed = '';
     let faucetId: string;
 
     await steps.step('create_and_fund_the_wallet_we_are_about_to_wipe', async () => {
+      walletA.trackGuardianCommitments();
       const created = await walletA.createGuardianWallet(A, OLD_PASSWORD);
       addressBeforeReset = created.address;
       seed = created.seedPhrase.join(' ');
@@ -179,6 +180,8 @@ test.describe('Forgot password — destructive in-place reset', () => {
         timeoutMs: 120_000,
         decimals: TOKEN_DECIMALS
       });
+      // The vault updates before the Guardian canonicalizes its backup; recovery must start from that backup.
+      await walletA.waitForGuardianSettled();
     });
 
     await steps.step(
@@ -220,7 +223,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
       // make this pin one refactor away from matching the PRE-wipe value on its
       // first poll and passing a recovery that restored nothing.
       await walletA.page.reload({ waitUntil: 'domcontentloaded' });
-      await walletA.page.getByTestId('explore-page').waitFor({ timeout: 60_000 });
+      await walletA.page.getByTestId('command-shell').waitFor({ timeout: 60_000 });
 
       // And it must come back with the money. `> 0` would pass on a wallet that
       // recovered a fraction of its notes; the exact base-unit pin is what makes
@@ -242,7 +245,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
       await expectUnlockRejects(walletA, OLD_PASSWORD);
 
       // …and the password the user actually typed during the reset does open it.
-      // `unlockWallet` waits for `explore-page`, so reaching this line means the
+      // `unlockWallet` waits for `command-shell`, so reaching this line means the
       // re-keyed vault decrypted and the wallet is usable again.
       await walletA.unlockWallet(NEW_PASSWORD);
     });

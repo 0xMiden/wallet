@@ -72,7 +72,7 @@ afterAll(() => _setSwapTokensForTest(undefined));
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 const mockPollUsdcxBurn = jest.fn();
-const mockPollUsdcxDestination = jest.fn();
+const mockPollUsdcxDestination = jest.fn(async (..._args: unknown[]) => ({ more: false }));
 jest.mock('lib/usdcx/burn-status', () => ({ pollUsdcxBurn: (...args: unknown[]) => mockPollUsdcxBurn(...args) }));
 jest.mock('lib/usdcx/destination-status', () => ({
   ...jest.requireActual<typeof import('lib/usdcx/destination-status')>('lib/usdcx/destination-status'),
@@ -258,8 +258,8 @@ describe('wallet prompts', () => {
 
   describe('getPendingNotesUsdTotal', () => {
     const prices = {
-      USDC: { price: 2, change24h: 0, percentageChange24h: 0 },
-      ETH: { price: 3000, change24h: 0, percentageChange24h: 0 }
+      USDC: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+      ETH: { price: 3000, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
     };
     const usdc = {
       id: 'note-1',
@@ -2024,6 +2024,18 @@ describe('bridge prompts', () => {
       expect(mockPollUsdcxBurn).toHaveBeenCalledTimes(1);
     });
 
+    // A scan that stopped at its chunk cap is behind the head, so the back-off would only delay its catch-up.
+    it('checks a two-day-old row again at once when its scan stopped below the head', async () => {
+      bridgeRows.push(awaitingPayout('usdcx-catching-up', nowSec() - 2 * 24 * 60 * 60));
+      mockPollUsdcxDestination.mockResolvedValueOnce({ more: true });
+
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+
+      expect(mockPollUsdcxDestination).toHaveBeenCalledTimes(2);
+    });
+
     it('checks a row completed a minute ago on every pass', async () => {
       bridgeRows.push(awaitingPayout('usdcx-fresh', nowSec() - 60));
 
@@ -2186,6 +2198,7 @@ describe('bridge prompts', () => {
     const exitAt = (cnt: number) => ({
       network_id: 86,
       dest_net: 0,
+      dest_addr: '0xdest',
       tx_hash: `0x${cnt.toString(16).padStart(64, '0')}`,
       deposit_cnt: cnt,
       ready_for_claim: true,
@@ -2415,7 +2428,14 @@ describe('bridge prompts', () => {
   it('re-pins a ready row the address page found at another deposit, and the warning stops', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const status: typeof import('lib/agglayer/status') = jest.requireActual('lib/agglayer/status');
-    const mine = { network_id: 86, dest_net: 0, tx_hash: '0xexit', deposit_cnt: 16, ready_for_claim: true };
+    const mine = {
+      network_id: 86,
+      dest_net: 0,
+      dest_addr: '0xdest',
+      tx_hash: '0xexit',
+      deposit_cnt: 16,
+      ready_for_claim: true
+    };
     const sibling = { ...mine, tx_hash: '0xsibling', deposit_cnt: 5 };
     const fetchBefore = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
     Object.defineProperty(globalThis, 'fetch', {

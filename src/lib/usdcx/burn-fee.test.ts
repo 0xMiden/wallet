@@ -1,6 +1,7 @@
 import { isAddress } from 'viem';
 
 import type { TxAssetView } from 'app/confirm/decode';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { estimateUsdcxBurnFeeReserve, USDCX_BURN_FEE_LOCK_WAIT_MS, USDCX_BURN_FEE_PROBE_RECIPIENT } from './burn-fee';
 
@@ -11,12 +12,16 @@ const REQUEST_BYTES = new Uint8Array([1, 2, 3]);
 const mockDryRun = jest.fn();
 const mockProxySyncState = jest.fn();
 const mockGetMidenClient = jest.fn();
+const mockNativeAsset = jest.fn<Promise<string>, []>();
 const mockSimulate = jest.fn();
 const mockView = jest.fn<TxAssetView | undefined, [unknown]>();
 const mockBuild = jest.fn();
 const mockDestination = jest.fn();
 const mockInitBridgeConfig = jest.fn<Promise<void>, []>();
+const mockAssertHold = jest.fn<void, [object, string]>();
 let mockInlineRealm = true;
+let mockSourceScope = 'rpc-a|testnet';
+let mockCurrentNative = NATIVE;
 
 // A FIFO mutex like the real one: a hold runs only once every earlier hold has settled. Each hold
 // it hands out and the options each acquisition passed are recorded.
@@ -25,6 +30,8 @@ const mockLock = {
   holds: [] as object[],
   options: [] as unknown[]
 };
+// Every trap that rejected a hold's callback: the real lock retires the client for exactly these.
+const trapsFromTheHold: unknown[] = [];
 async function mockWithWasmClientLock<T>(operation: (hold: object) => Promise<T>, options?: unknown): Promise<T> {
   mockLock.options.push(options);
   const previous = mockLock.tail;
@@ -37,6 +44,9 @@ async function mockWithWasmClientLock<T>(operation: (hold: object) => Promise<T>
   mockLock.holds.push(hold);
   try {
     return await operation(hold);
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) trapsFromTheHold.push(error);
+    throw error;
   } finally {
     release();
   }
@@ -62,7 +72,8 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
   withWasmClientLock: (operation: (hold: object) => Promise<unknown>, options?: unknown) =>
-    mockWithWasmClientLock(operation, options)
+    mockWithWasmClientLock(operation, options),
+  assertWasmHoldCurrent: (hold: object, where: string) => mockAssertHold(hold, where)
 }));
 // simulateCustomTransaction imports the request's notes and syncs before it executes; the probe must never route
 // through it.
@@ -71,7 +82,11 @@ jest.mock('lib/miden/back/simulate-custom-tx', () => ({
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => `hex:${ref}` }) }));
 jest.mock('app/confirm/decode', () => ({ simulatedBytesToView: (result: unknown) => mockView(result) }));
-jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetId: async () => NATIVE }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: () => mockNativeAsset(),
+  getNativeAssetIdSync: () => mockCurrentNative,
+  cacheScope: () => mockSourceScope
+}));
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: () => mockInitBridgeConfig() }));
 jest.mock('lib/shared/helpers', () => ({ u8ToB64: () => 'request-b64' }));
 jest.mock('./burn', () => ({ buildUsdcxBurnRequest: (...args: unknown[]) => mockBuild(...args) }));
@@ -92,9 +107,13 @@ function view(fee: TxAssetView['fee'], outgoing: TxAssetView['outgoing']): TxAss
 }
 
 const measuredView = () => view({ faucetId: NATIVE, amount: 252n }, [{ faucetId: NATIVE, amount: 1n }]);
-const measured = (reserve: bigint) => ({ outcome: 'measured', reserve });
+const measured = (reserve: bigint) => ({
+  outcome: 'measured',
+  reserve,
+  faucetId: NATIVE,
+  scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+});
 const BUSY = { outcome: 'busy' };
-const FAILED = { outcome: 'failed' };
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('estimateUsdcxBurnFeeReserve', () => {
@@ -106,13 +125,18 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     mockLock.tail = Promise.resolve();
     mockLock.holds = [];
     mockLock.options = [];
+    trapsFromTheHold.length = 0;
     mockInlineRealm = true;
+    mockSourceScope = 'rpc-a|testnet';
+    mockCurrentNative = NATIVE;
     mockInitBridgeConfig.mockResolvedValue(undefined);
+    mockNativeAsset.mockResolvedValue(NATIVE);
     mockDestination.mockReturnValue({ domain: 0 });
     mockBuild.mockReturnValue({ burnNoteId: 'note', requestBytes: REQUEST_BYTES });
     mockDryRun.mockResolvedValue({ executedBytes: 'executed' });
     mockSimulate.mockResolvedValue({ executedBytes: 'executed' });
     mockView.mockReturnValue(measuredView());
+    mockAssertHold.mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -133,6 +157,7 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       expect(mockDryRun).toHaveBeenCalledTimes(1);
       expect(mockDryRun).toHaveBeenCalledWith('hex:mm1sender', REQUEST_BYTES, mockLock.holds[0]);
       expect(mockView).toHaveBeenCalledWith({ executedBytes: 'executed' });
+      expect(mockView).toHaveBeenCalledTimes(1);
       expect(mockProxySyncState).not.toHaveBeenCalled();
       expect(mockGetMidenClient).not.toHaveBeenCalled();
       // The dry run's deadline starts once the lock is held: inline it is the hold's own ceiling, offscreen the
@@ -142,6 +167,48 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       expect(typeof options?.watchdogMs === 'number').toBe(inline);
     }
   );
+
+  it('does not label an estimate with a source or native identity changed during its dry run', async () => {
+    mockDryRun.mockImplementationOnce(async () => {
+      mockSourceScope = 'rpc-b|testnet';
+      return { executedBytes: 'executed' };
+    });
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'configuration_failed'
+    });
+    mockSourceScope = 'rpc-a|testnet';
+    mockDryRun.mockImplementationOnce(async () => {
+      mockCurrentNative = OTHER;
+      return { executedBytes: 'executed' };
+    });
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'configuration_failed'
+    });
+  });
+
+  it('does not share an old-source estimate with a new-source caller of the same account and chain', async () => {
+    let release = () => {};
+    mockDryRun.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = () => resolve({ executedBytes: 'executed' });
+        })
+    );
+    const first = estimateUsdcxBurnFeeReserve('mm1sender', 1);
+    await flush();
+    mockSourceScope = 'rpc-b|testnet';
+    const second = estimateUsdcxBurnFeeReserve('mm1sender', 1);
+    release();
+    const answers = await Promise.all([first, second]);
+    expect(second).not.toBe(first);
+    expect(answers[0]).toEqual({ outcome: 'failed', failure: 'configuration_failed' });
+    expect(answers[1]).toEqual({
+      ...measured(315n),
+      scope: 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4'
+    });
+  });
 
   it('runs one dry run for concurrent estimates of the same account and chain, and a fresh one afterwards', async () => {
     let finish: ((result: { executedBytes: string }) => void) | undefined;
@@ -181,7 +248,43 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     await jest.advanceTimersByTimeAsync(0);
     expect(mockLock.holds).toHaveLength(1);
     expect(mockDryRun).not.toHaveBeenCalled();
+    expect(mockView).not.toHaveBeenCalled();
     expect(mockSimulate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'configuration_failed',
+      () => mockInitBridgeConfig.mockRejectedValueOnce(new Error('private-account secret amount=123'))
+    ],
+    [
+      'configuration_failed',
+      () =>
+        mockDestination.mockImplementationOnce(() => {
+          throw new Error('private-route');
+        })
+    ],
+    ['native_asset_failed', () => mockNativeAsset.mockRejectedValueOnce(new Error('private-asset'))],
+    [
+      'request_build_failed',
+      () =>
+        mockBuild.mockImplementationOnce(() => {
+          throw new Error('private-account');
+        })
+    ],
+    ['dry_run_failed', () => mockDryRun.mockRejectedValueOnce(new Error('private-node amount=123'))],
+    ['result_decode_failed', () => mockView.mockReturnValueOnce(undefined)],
+    [
+      'result_decode_failed',
+      () =>
+        mockView.mockImplementationOnce(() => {
+          throw new Error('private-bytes');
+        })
+    ],
+    ['probe_mismatch', () => mockView.mockReturnValueOnce(view(undefined, []))]
+  ])('returns only the closed %s failure for its producer', async (failure, prepare) => {
+    prepare();
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({ outcome: 'failed', failure });
   });
 
   it('builds the probe for a fixed, well-formed placeholder recipient', async () => {
@@ -226,13 +329,19 @@ describe('estimateUsdcxBurnFeeReserve', () => {
   ])('answers failed, not a measured cost, when %s', async (_case, dryRunView) => {
     mockView.mockReturnValue(dryRunView);
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'probe_mismatch'
+    });
   });
 
   it('answers failed when the dry run fails', async () => {
     mockDryRun.mockRejectedValue(new Error('the execution failed'));
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'dry_run_failed'
+    });
     expect(mockView).not.toHaveBeenCalled();
   });
 
@@ -241,12 +350,42 @@ describe('estimateUsdcxBurnFeeReserve', () => {
     mockDryRun.mockRejectedValue(trap);
 
     await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).rejects.toBe(trap);
+    expect(trapsFromTheHold).toEqual([trap]);
+  });
+
+  it('a trap from decoding the dry run rejects the hold and is rethrown', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockView.mockImplementation(() => {
+      throw trap;
+    });
+
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).rejects.toBe(trap);
+    // The decode's fee checks rethrow a trap, so it must reach the lock that retires the client.
+    expect(trapsFromTheHold).toEqual([trap]);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not decode a dry run that resolved after its hold was evicted', async () => {
+    mockAssertHold.mockImplementation(() => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'dry_run_failed'
+    });
+    // The evicted hold's decode would trap where no lock can retire it, so it never runs.
+    expect(mockAssertHold).toHaveBeenCalledWith(mockLock.holds[0], expect.any(String));
+    expect(mockView).not.toHaveBeenCalled();
   });
 
   it('answers failed, through its guard, when the dry run gives nothing to decode', async () => {
     mockView.mockReturnValue(undefined);
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 1)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'result_decode_failed'
+    });
     // Without the guard the read of the missing view throws and the catch-all answers failed with a warning.
     expect(warnSpy).not.toHaveBeenCalled();
   });
@@ -269,7 +408,10 @@ describe('estimateUsdcxBurnFeeReserve', () => {
       throw new Error('USDCx withdrawal is not configured for chain 5');
     });
 
-    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 5)).resolves.toEqual(FAILED);
+    await expect(estimateUsdcxBurnFeeReserve('mm1sender', 5)).resolves.toEqual({
+      outcome: 'failed',
+      failure: 'configuration_failed'
+    });
     expect(mockDryRun).not.toHaveBeenCalled();
     expect(mockSimulate).not.toHaveBeenCalled();
   });

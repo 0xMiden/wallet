@@ -1039,7 +1039,7 @@ async function pay(recipient: string, faucetId: string) {
         <div class="table-wrap"><table>
           <thead><tr><th>Network</th><th>RPC</th><th>Faucet</th><th>Explorer</th></tr></thead>
           <tbody>
-            <tr><td><b>mainnet</b></td><td class="wrap"><code>https://rpc.cedar.miden.io</code></td><td>None</td><td><a href="https://explorer.cedar.miden.io">explorer.cedar.miden.io</a></td></tr>
+            <tr><td><b>mainnet</b></td><td class="wrap"><code>https://rpc.mainnet.miden.io</code></td><td>None</td><td><a href="https://explorer.mainnet.miden.io">explorer.mainnet.miden.io</a></td></tr>
             <tr><td><b>testnet</b></td><td class="wrap"><code>https://rpc.testnet.miden.io</code></td><td><a href="https://faucet.testnet.miden.io">faucet.testnet.miden.io</a></td><td><a href="https://testnet.midenscan.com">testnet.midenscan.com</a></td></tr>
             <tr><td><b>devnet</b></td><td class="wrap"><code>https://rpc.devnet.miden.io</code></td><td><a href="https://faucet.devnet.miden.io">faucet.devnet.miden.io</a></td><td><a href="https://devnet.midenscan.com">devnet.midenscan.com</a></td></tr>
             <tr><td><b>localnet</b></td><td class="wrap"><code>http://localhost:57291</code></td><td>Your own</td><td>None</td></tr>
@@ -1153,12 +1153,15 @@ const signature = await adapter.signBytes(word.serialize(), 'word');
 // or: adapter.signBytes(signingInputs.serialize(), 'signingInputs')
 // signature: the SDK's serialized Signature bytes</code></pre></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>kind</th><th>message holds</th></tr></thead>
+          <thead><tr><th>kind</th><th>What Bread signs</th></tr></thead>
           <tbody>
-            <tr><td><code>'word'</code></td><td>A serialized <code>Word</code>, 32 bytes</td></tr>
-            <tr><td><code>'signingInputs'</code></td><td>Serialized <code>SigningInputs</code></td></tr>
+            <tr><td><code>'word'</code></td><td>Signs the domain-separated commitment of that <code>Word</code>, tag Poseidon2 of <code>miden-wallet/sign-bytes/v1</code>, not the raw Word, and cannot authorize a transaction.</td></tr>
+            <tr><td><code>'signingInputs'</code> holding a transaction summary</td><td>Signs that summary's own commitment, which can authorize the transaction.</td></tr>
+            <tr><td><code>'signingInputs'</code> holding Blind or Arbitrary</td><td>Signs the domain-separated commitment of that payload and cannot authorize a transaction.</td></tr>
           </tbody>
         </table></div>
+        <p>A Guardian account is stricter: it signs only <code>'signingInputs'</code> holding Arbitrary whose preimage is at most 256 elements, is not 24 elements long (the length of a transaction summary) and does not have the layout of a Guardian lookup. It refuses <code>'word'</code>, a transaction summary and Blind before the user can approve them, and the approval lists the elements being signed. Other accounts are unchanged.</p>
+        <p>To verify, take the word Bread signed and check <code>publicKey.verify(word, Signature.deserialize(signature))</code>. For a word, Blind, or Arbitrary payload, compute that word with <code>domainSeparatedSignCommitment(data, kind)</code> from <code>@miden-sdk/miden-sdk</code> 0.17.10; for a transaction summary it is <code>signingInputs.toCommitment()</code>. A page that calls the injected provider directly also gets the word back as <code>signedCommitment</code>. A word, Blind, or Arbitrary signature does not verify against the raw payload.</p>
         <p>To sign people in, use the login key below instead: it is separate from the account's transaction keys.</p>
       </section>
 

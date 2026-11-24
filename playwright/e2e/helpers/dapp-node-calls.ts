@@ -1,6 +1,9 @@
 import type { BlockHeader, RpcClient } from '@miden-sdk/miden-sdk';
 import { execFile } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { rootCertificates } from 'node:tls';
 
 import { ChainUnavailable } from './dapp-channel';
 
@@ -140,38 +143,52 @@ try {
  * The node's height once it reaches `target`, read by one real gRPC-web call a second from the harness (a GET answering
  * 200 shows only the HTTP front end, spike plan change 13). A node that fails or a chain that stalls is ChainUnavailable.
  */
-export function waitForNodeHeight(
+export async function waitForNodeHeight(
   rpcUrl: string,
   target: number,
   timeoutMs: number,
   repoRoot: string = path.resolve(__dirname, '../../..')
 ): Promise<number> {
   const killAfterMs = timeoutMs + 30_000;
-  return new Promise((resolve, reject) => {
-    execFile(
-      process.execPath,
-      ['--input-type=module', '--eval', HEIGHT_QUERY, rpcUrl, String(target), String(timeoutMs)],
-      { cwd: repoRoot, timeout: killAfterMs, encoding: 'utf8' },
-      (error, stdout, stderr) => {
-        if (error) {
-          // error.message would quote the whole script.
-          const reported = stderr
-            .split('\n')
-            .find(line => line.startsWith(FAILED))
-            ?.slice(FAILED.length);
-          const reason =
-            error.killed === true
-              ? `timed out after ${killAfterMs} ms`
-              : (reported ?? `exited with code ${String(error.code)}`);
-          reject(new ChainUnavailable(`node ${rpcUrl} height ${target}: ${reason}`));
-          return;
+  const rootDirectory =
+    process.platform === 'darwin' && process.env.SSL_CERT_FILE === undefined && process.env.SSL_CERT_DIR === undefined
+      ? mkdtempSync(path.join(tmpdir(), 'dapp-height-roots-'))
+      : undefined;
+  try {
+    const env = { ...process.env };
+    if (rootDirectory) {
+      // The native SDK can find no keychain roots on macOS runners. Keep TLS verification with Node's public roots.
+      env.SSL_CERT_FILE = path.join(rootDirectory, 'roots.pem');
+      writeFileSync(env.SSL_CERT_FILE, rootCertificates.join('\n') + '\n');
+    }
+    return await new Promise<number>((resolve, reject) => {
+      execFile(
+        process.execPath,
+        ['--input-type=module', '--eval', HEIGHT_QUERY, rpcUrl, String(target), String(timeoutMs)],
+        { cwd: repoRoot, timeout: killAfterMs, encoding: 'utf8', env },
+        (error, stdout, stderr) => {
+          if (error) {
+            // error.message would quote the whole script.
+            const reported = stderr
+              .split('\n')
+              .find(line => line.startsWith(FAILED))
+              ?.slice(FAILED.length);
+            const reason =
+              error.killed === true
+                ? `timed out after ${killAfterMs} ms`
+                : (reported ?? `exited with code ${String(error.code)}`);
+            reject(new ChainUnavailable(`node ${rpcUrl} height ${target}: ${reason}`));
+            return;
+          }
+          const height = Number(stdout.trim());
+          if (Number.isInteger(height)) resolve(height);
+          else reject(new ChainUnavailable(`node ${rpcUrl} answered no height: ${stdout.trim()}`));
         }
-        const height = Number(stdout.trim());
-        if (Number.isInteger(height)) resolve(height);
-        else reject(new ChainUnavailable(`node ${rpcUrl} answered no height: ${stdout.trim()}`));
-      }
-    );
-  });
+      );
+    });
+  } finally {
+    if (rootDirectory) rmSync(rootDirectory, { recursive: true, force: true });
+  }
 }
 
 export const nodeHeight = (rpcUrl: string, timeoutMs = 60_000): Promise<number> =>

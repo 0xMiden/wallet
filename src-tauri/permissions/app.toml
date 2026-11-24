@@ -26,6 +26,7 @@ description = "Lets the wallet's own window invoke the app-defined commands."
 commands.allow = [
   "js_log",
   "focus_main_window",
+  "set_content_protection",
   "generate_hardware_key",
   "encrypt_with_hardware_key",
   "decrypt_with_hardware_key",

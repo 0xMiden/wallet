@@ -13,15 +13,19 @@ const document = (network = 'testnet', version = 13) => ({
   features: { earn: true },
   swap: { etaUrl: 'https://quotes.test' }
 });
-const oneClick = {
+const usdcx = { assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 };
+const nearIntents = {
   serviceUrl: 'https://one-click.example/api',
-  midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'ab'.repeat(15)}`, decimals: 6 }]
+  midenAssets: { usdcx },
+  chains: {
+    eth: { name: 'Ethereum', addressKind: 'evm', tokens: { USDC: { assetId: 'eth:usdc', decimals: 6, miden: ['usdcx'] } } }
+  }
 };
-const nearIntentsDocument = (network = 'testnet', version = 13, serviceUrl = oneClick.serviceUrl) => ({
+const nearIntentsDocument = (network = 'testnet', version = 13, serviceUrl = nearIntents.serviceUrl) => ({
   network,
   version,
   features: { earn: false, nearIntents: true },
-  swap: { oneClick: { ...oneClick, serviceUrl } },
+  nearIntents: { ...nearIntents, serviceUrl },
   geo: { wallet: {} }
 });
 async function start(options = {}) {
@@ -49,6 +53,22 @@ test('freezes one upstream policy and serves identical versions in config and de
   assert.deepEqual(config.geo.wallet, {});
   assert.deepEqual(decision, { network: 'testnet', version: 13, allowed: { wallet: true, earn: true, swap: true } });
   assert.equal((await fetch(`${fixture.url}/v1/eligibility?network=devnet`)).status, 400);
+});
+
+test('exposes only the most recent eligibility Origin and can clear the observation', async () => {
+  const fixture = await start();
+  const observationUrl = `${fixture.url}/_fixture/origin`;
+  assert.deepEqual(await (await fetch(observationUrl)).json(), { observed: false, origin: null });
+
+  await fetch(`${fixture.url}/v1/eligibility?network=testnet`, { headers: { Origin: 'chrome-extension://test-id' } });
+  assert.deepEqual(await (await fetch(observationUrl)).json(), {
+    observed: true,
+    origin: 'chrome-extension://test-id'
+  });
+
+  const reset = await fetch(observationUrl, { method: 'POST' });
+  assert.equal(reset.status, 200);
+  assert.deepEqual(await (await fetch(observationUrl)).json(), { observed: false, origin: null });
 });
 
 test('generates localnet explicitly without requesting a nonexistent published document', async () => {
@@ -99,17 +119,12 @@ test('config overrides update both realms and strict decisions together', async 
   });
 });
 
-test('oneClick-only swap capability is eligible only with nearIntents and a valid Miden mapping', async () => {
+test('a Near Intents section alone is eligible only with nearIntents and a valid Miden mapping', async () => {
   const oneClickDocument = {
     network: 'testnet',
     version: 13,
     features: { earn: false, nearIntents: true },
-    swap: {
-      oneClick: {
-        serviceUrl: 'https://oneclick.example',
-        midenAssets: [{ assetId: 'miden:usdc', faucetId: `0x${'11'.repeat(15)}`, decimals: 6 }]
-      }
-    }
+    nearIntents: { ...nearIntents, serviceUrl: 'https://oneclick.example' }
   };
   const fixture = await start({ fetchImpl: async () => new Response(JSON.stringify(oneClickDocument)) });
   const eligible = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
@@ -123,7 +138,7 @@ test('oneClick-only swap capability is eligible only with nearIntents and a vali
   const missingMapping = {
     ...oneClickDocument,
     version: 15,
-    swap: { oneClick: { serviceUrl: 'https://oneclick.example', midenAssets: [] } }
+    nearIntents: { ...nearIntents, serviceUrl: 'https://oneclick.example', midenAssets: {} }
   };
   await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(missingMapping) });
   const unusable = await fetch(`${fixture.url}/v1/eligibility?network=testnet`);
@@ -177,10 +192,11 @@ test('HTTP eligibility follows OneClick-only Near Intents policy and validates m
   for (const config of [
     { ...nearIntentsDocument('testnet', 16), features: { earn: false } },
     { ...nearIntentsDocument('testnet', 17), features: { nearIntents: false } },
-    { ...nearIntentsDocument('testnet', 18), swap: { oneClick: { ...oneClick, midenAssets: [] } } },
-    { ...nearIntentsDocument('testnet', 19), swap: { oneClick: { ...oneClick, midenAssets: [{ ...oneClick.midenAssets[0], assetId: '' }] } } },
-    { ...nearIntentsDocument('testnet', 20), swap: { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], faucetId: `0x${'cd'.repeat(15)}` }] } } },
-    { ...nearIntentsDocument('testnet', 21), swap: { oneClick: { ...oneClick, midenAssets: [...oneClick.midenAssets, { ...oneClick.midenAssets[0], assetId: 'miden:other' }] } } }
+    { ...nearIntentsDocument('testnet', 18), nearIntents: { ...nearIntents, midenAssets: {} } },
+    { ...nearIntentsDocument('testnet', 19), nearIntents: { ...nearIntents, midenAssets: { usdcx: { ...usdcx, assetId: '' } } } },
+    { ...nearIntentsDocument('testnet', 20), nearIntents: { ...nearIntents, midenAssets: { usdcx, other: { ...usdcx, faucetId: `0x${'cd'.repeat(15)}` } } } },
+    { ...nearIntentsDocument('testnet', 21), nearIntents: { ...nearIntents, midenAssets: { usdcx, other: { ...usdcx, assetId: 'miden:other' } } } },
+    { ...nearIntentsDocument('testnet', 22), nearIntents: { ...nearIntents, chains: {} } }
   ]) {
     const result = await update('testnet', config);
     assert.equal(result.allowed.swap, false);
@@ -254,4 +270,61 @@ test('rejects IP parameters and malformed or foreign config overrides', async ()
       .status,
     400
   );
+});
+
+test('explicit prelaunch testnet keeps general onboarding after the published launch without changing eligibility', async () => {
+  const published = {
+    ...document(),
+    mainnetCountdown: { enabled: true, launchAt: '2026-10-26T13:00:00Z' },
+    geo: { wallet: {}, earn: { US: true } }
+  };
+  const fixture = await start({
+    prelaunchTestnet: true,
+    fetchImpl: async () => new Response(JSON.stringify(published))
+  });
+  const config = await (await fetch(`${fixture.url}/testnet.json`)).json();
+  assert.deepEqual(config, { ...published, mainnetCountdown: { ...published.mainnetCountdown, enabled: false } });
+  assert.equal(published.mainnetCountdown.enabled, true);
+  assert.deepEqual(await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json(), {
+    network: 'testnet',
+    version: 13,
+    allowed: { wallet: true, earn: true, swap: true }
+  });
+  const updated = { ...published, version: 14, features: { earn: false } };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(updated) });
+  assert.deepEqual(await (await fetch(`${fixture.url}/testnet.json`)).json(), {
+    ...updated, mainnetCountdown: { ...published.mainnetCountdown, enabled: false }
+  });
+  assert.deepEqual(await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json(), {
+    network: 'testnet', version: 14, allowed: { wallet: true, earn: false, swap: true }
+  });
+  await fetch(`${fixture.url}/_fixture/response`, { method: 'POST', body: JSON.stringify({ state: 'restricted' }) });
+  assert.deepEqual((await (await fetch(`${fixture.url}/v1/eligibility?network=testnet`)).json()).allowed, {
+    wallet: false,
+    earn: false,
+    swap: false
+  });
+  assert.equal((await fetch(`${fixture.url}/mainnet.json`)).status, 404);
+  assert.equal((await fetch(`${fixture.url}/v1/eligibility?network=mainnet`)).status, 400);
+});
+
+test('ordinary fixtures retain the real launch state and explicit config updates', async () => {
+  const published = { ...document(), mainnetCountdown: { enabled: true, launchAt: '2026-10-26T13:00:00Z' } };
+  const fixture = await start({ fetchImpl: async () => new Response(JSON.stringify(published)) });
+  assert.equal((await (await fetch(`${fixture.url}/testnet.json`)).json()).mainnetCountdown.enabled, true);
+  const updated = { ...published, version: 14, mainnetCountdown: { enabled: false } };
+  await fetch(`${fixture.url}/_fixture/config`, { method: 'POST', body: JSON.stringify(updated) });
+  assert.deepEqual(await (await fetch(`${fixture.url}/testnet.json`)).json(), { ...updated, geo: { wallet: {} } });
+});
+
+test('prelaunch mode refuses Mainnet and mixed-network fixtures', async () => {
+  for (const networks of [['mainnet'], ['testnet', 'mainnet'], ['devnet']]) {
+    await assert.rejects(
+      createEligibilityFixture({
+        networks,
+        prelaunchTestnet: true,
+        fetchImpl: async () => new Response(JSON.stringify(document(networks[0])))
+      })
+    );
+  }
 });

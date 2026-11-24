@@ -21,6 +21,8 @@ import type { ProveViaOffscreenResult } from './offscreen-prover';
 type OnMessageListener = (msg: any, sender: any, sendResponse: (response?: any) => void) => boolean | undefined;
 
 interface FakeChromeRuntime {
+  id: string;
+  getURL: (path: string) => string;
   sendMessage: jest.Mock;
   onMessage: {
     listeners: OnMessageListener[];
@@ -50,6 +52,8 @@ function installChromeMock(opts: { withOffscreen?: boolean; withHasDocument?: bo
 
   fakeChrome = {
     runtime: {
+      id: 'this-extension',
+      getURL: (path: string) => `chrome-extension://this-extension/${path}`,
       sendMessage: jest.fn(),
       onMessage: {
         listeners: [],
@@ -83,10 +87,11 @@ function uninstallChromeMock() {
   delete (globalThis as any).chrome;
 }
 
-/** Fire the OFFSCREEN_READY signal so ensureOffscreenDocument resolves. */
+/** Fire the OFFSCREEN_READY signal from the offscreen document so ensureOffscreenDocument resolves. */
 function fireReady() {
+  const sender = { id: fakeChrome.runtime.id, url: fakeChrome.runtime.getURL('offscreen.html') };
   for (const listener of fakeChrome.runtime.onMessage.listeners) {
-    listener({ type: 'OFFSCREEN_READY' }, undefined, () => {});
+    listener({ type: 'OFFSCREEN_READY' }, sender, () => {});
   }
 }
 
@@ -188,6 +193,36 @@ describe('offscreen-prover', () => {
 
       fireReady();
       await ensurePromise;
+    });
+
+    it('leaves ensureOffscreenDocument pending for a content script or an extension page', async () => {
+      const mod = await import('./offscreen-prover');
+      const ensurePromise = mod.ensureOffscreenDocument();
+      await flush();
+      let resolved = false;
+      void ensurePromise.then(() => {
+        resolved = true;
+      });
+      const signal = (sender?: { id?: string; url?: string; tab?: unknown }) => {
+        for (const listener of [...fakeChrome.runtime.onMessage.listeners]) {
+          listener({ type: 'OFFSCREEN_READY' }, sender, () => {});
+        }
+      };
+
+      signal({ id: fakeChrome.runtime.id, url: 'https://dapp.example/', tab: { id: 3 } });
+      await flush();
+      expect(resolved).toBe(false);
+
+      signal({ id: fakeChrome.runtime.id, url: fakeChrome.runtime.getURL('popup.html') });
+      signal({ id: fakeChrome.runtime.id });
+      signal(undefined);
+      await flush();
+      expect(resolved).toBe(false);
+      expect(fakeChrome.runtime.onMessage.removeListener).not.toHaveBeenCalled();
+
+      fireReady();
+      await ensurePromise;
+      expect(resolved).toBe(true);
     });
 
     it('coalesces concurrent calls through the lifecycle queue', async () => {

@@ -84,6 +84,15 @@ export function midenFeeReserve(baseFee: bigint, burns: bigint, otherTxs: bigint
   return NIGHTS * (burns * BURN_FEE_MULTIPLE + otherTxs * TX_FEE_MULTIPLE) * baseFee;
 }
 
+/** Message when no balance was read, or the sample is short of `need`. */
+export function feePrecheckProblem(address: string, need: bigint, held: bigint | undefined): string | undefined {
+  if (held === undefined) {
+    return `${address} native balance was not read within 60s, so the fee precheck cannot say the account is short`;
+  }
+  if (held >= need) return undefined;
+  return `${address} holds ${held} native base units, short of ${need} for two nights of bridge fees`;
+}
+
 /**
  * A funding-gate sample that did not land. Both gates compare with
  * `toBeGreaterThanOrEqual` against a positive bigint, so this fails the lap
@@ -171,4 +180,15 @@ export function bridgeLoops(chains: readonly MainnetBridgeChain[]): BridgeLoop[]
     loops.push({ kind: 'agglayer', name: 'ethereum', chainId: 1 });
   }
   return loops;
+}
+
+/** The USDCx loops of `loops`. A night with none would pass having bridged nothing, so it fails instead. */
+export function usdcxLoopsOrFail(loops: readonly BridgeLoop[]): UsdcxLoop[] {
+  const usdcx = loops.filter((loop): loop is UsdcxLoop => loop.kind === 'usdcx');
+  if (usdcx.length === 0) {
+    throw new Error(
+      'the mainnet config names no USDCx route with deposits enabled, so the bridge loop would test nothing'
+    );
+  }
+  return usdcx;
 }

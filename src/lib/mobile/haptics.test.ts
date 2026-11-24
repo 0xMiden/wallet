@@ -17,6 +17,7 @@ jest.mock('@capacitor/haptics', () => ({
   Haptics: {
     impact: jest.fn(),
     notification: jest.fn(),
+    selectionStart: jest.fn(),
     selectionChanged: jest.fn()
   },
   ImpactStyle: {
@@ -32,7 +33,8 @@ jest.mock('@capacitor/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn()
+  isMobile: jest.fn(),
+  isIOS: jest.fn()
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -192,6 +194,78 @@ describe('haptics', () => {
     it('hapticError handles errors gracefully', async () => {
       (Haptics.notification as jest.Mock).mockRejectedValueOnce(new Error('Device not supported'));
       await expect(hapticError()).resolves.not.toThrow();
+    });
+  });
+
+  describe('selection generator', () => {
+    // The started flag is module state, so each test loads a fresh module and the mocks it resolves.
+    const load = async () => {
+      jest.resetModules();
+      const capacitor = await import('@capacitor/haptics');
+      const platform = await import('lib/platform');
+      const settings = await import('lib/settings/helpers');
+      jest.mocked(platform.isMobile).mockReturnValue(true);
+      jest.mocked(platform.isIOS).mockReturnValue(true);
+      jest.mocked(settings.isHapticFeedbackEnabled).mockReturnValue(true);
+      const { hapticSelection: freshSelection } = await import('./haptics');
+      return { Haptics: capacitor.Haptics, platform, settings, hapticSelection: freshSelection };
+    };
+
+    it('starts the generator before the first selectionChanged', async () => {
+      const { Haptics: H, hapticSelection: select } = await load();
+      const order: string[] = [];
+      jest.mocked(H.selectionStart).mockImplementation(async () => {
+        order.push('start');
+      });
+      jest.mocked(H.selectionChanged).mockImplementation(async () => {
+        order.push('changed');
+      });
+      await select();
+      expect(order).toEqual(['start', 'changed']);
+    });
+
+    it('starts the generator once per app run', async () => {
+      const { Haptics: H, hapticSelection: select } = await load();
+      await select();
+      await select();
+      expect(H.selectionStart).toHaveBeenCalledTimes(1);
+      expect(H.selectionChanged).toHaveBeenCalledTimes(2);
+    });
+
+    it('calls neither when haptics are disabled', async () => {
+      const { Haptics: H, settings, hapticSelection: select } = await load();
+      jest.mocked(settings.isHapticFeedbackEnabled).mockReturnValue(false);
+      await select();
+      expect(H.selectionStart).not.toHaveBeenCalled();
+      expect(H.selectionChanged).not.toHaveBeenCalled();
+    });
+
+    it('calls neither off mobile', async () => {
+      const { Haptics: H, platform, hapticSelection: select } = await load();
+      jest.mocked(platform.isMobile).mockReturnValue(false);
+      await select();
+      expect(H.selectionStart).not.toHaveBeenCalled();
+      expect(H.selectionChanged).not.toHaveBeenCalled();
+    });
+
+    // Android's selection effect is a 100 ms vibration, so it keeps main's behaviour: no start.
+    it('never starts the generator on Android and still calls selectionChanged', async () => {
+      const { Haptics: H, platform, hapticSelection: select } = await load();
+      jest.mocked(platform.isIOS).mockReturnValue(false);
+      await select();
+      await select();
+      expect(H.selectionStart).not.toHaveBeenCalled();
+      expect(H.selectionChanged).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not throw when selectionStart rejects and retries it on the next call', async () => {
+      const { Haptics: H, hapticSelection: select } = await load();
+      jest.mocked(H.selectionStart).mockRejectedValueOnce(new Error('Device not supported'));
+      await expect(select()).resolves.toBeUndefined();
+      expect(H.selectionChanged).not.toHaveBeenCalled();
+      await select();
+      expect(H.selectionStart).toHaveBeenCalledTimes(2);
+      expect(H.selectionChanged).toHaveBeenCalledTimes(1);
     });
   });
 });

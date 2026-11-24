@@ -103,11 +103,15 @@ describe('lib/store/types', () => {
         balances: { addr: [] },
         balancesLoading: { addr: true },
         balancesLastFetched: { addr: 1234 },
-        balancesDisplayFaucetId: { addr: 'faucet' }
+        balancesDisplayFaucetId: { addr: 'faucet' },
+        balanceReadFailed: { addr: true },
+        balanceReadInFlight: { addr: true }
       };
       expect(slice.balances.addr).toEqual([]);
       expect(slice.balancesLoading.addr).toBe(true);
       expect(slice.balancesLastFetched.addr).toBe(1234);
+      expect(slice.balanceReadFailed.addr).toBe(true);
+      expect(slice.balanceReadInFlight.addr).toBe(true);
     });
 
     it('AssetsSlice holds a metadata record', () => {
@@ -234,7 +238,6 @@ describe('lib/store/types', () => {
         revealHotKey: jest.fn(),
         importAccount: jest.fn(),
         updateSettings: jest.fn(),
-        signData: jest.fn(),
         signTransaction: jest.fn(),
         signWord: jest.fn(),
         persistNewHotKey: jest.fn(),
@@ -270,7 +273,6 @@ describe('lib/store/types', () => {
         'revealHotKey',
         'importAccount',
         'updateSettings',
-        'signData',
         'signTransaction',
         'signWord',
         'persistNewHotKey',
@@ -422,6 +424,8 @@ describe('lib/store/types', () => {
         ownMnemonic: null,
         balances: {},
         balancesLoading: {},
+        balanceReadFailed: {},
+        balanceReadInFlight: {},
         balancesLastFetched: {},
         assetsMetadata: {},
         selectedNetworkId: null,

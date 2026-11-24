@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
+
 import { BackUpSeedPhraseScreen } from './BackUpSeedPhrase';
 
 // ---------------------------------------------------------------------------
@@ -23,6 +25,13 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
+// Off mobile a hidden word leaves the DOM; mobile keeps blurred text.
+let mockIsMobile = false;
+jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile, isDesktop: () => false }));
+
+// The native guard plugin never answers in jsdom, and the guard has its own suite.
+jest.mock('lib/mobile/screenshot-guard', () => ({ useScreenshotGuard: () => true }));
+
 // `components/Button` pulls in framer-motion / haptics / the icon switch. Stub
 // it to a plain <button> that records `title`, `iconLeft` and `onClick` so the
 // title/icon toggles and click wiring are assertable. A `btn-<title>` test id
@@ -35,7 +44,8 @@ jest.mock('components/Button', () => ({
     onClick,
     className,
     size,
-    children
+    children,
+    'data-testid': dataTestId
   }: {
     children?: React.ReactNode;
     title?: string;
@@ -43,9 +53,11 @@ jest.mock('components/Button', () => ({
     onClick?: () => void;
     className?: string;
     size?: string;
+    'data-testid'?: string;
   }) => (
     <button
       data-testid={`btn-${title}`}
+      data-seed-testid={dataTestId}
       data-icon={String(iconLeft)}
       data-classname={className}
       data-size={size}
@@ -90,11 +102,17 @@ jest.mock('components/ui/Pill', () => ({
 // Environment stubs
 // ---------------------------------------------------------------------------
 
-// The copy goes through useClipboardCopy, which writes through @capacitor/clipboard, so that is the boundary to
-// assert.
+// The Copy pill writes through lib/ui/secret-clipboard, so that module is the boundary to assert; @capacitor/clipboard
+// stays mocked to prove the plain write is not used.
 const mockClipboardWrite = jest.fn();
+const mockWriteSecret = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
+jest.mock('lib/ui/secret-clipboard', () => ({
+  ...jest.requireActual('lib/ui/secret-clipboard'),
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
 }));
 
 // ---------------------------------------------------------------------------
@@ -106,36 +124,12 @@ const SEED = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'];
 const renderComponent = (props: Partial<React.ComponentProps<typeof BackUpSeedPhraseScreen>> = {}) =>
   render(<BackUpSeedPhraseScreen seedPhrase={SEED} {...props} />);
 
-/**
- * Fire a synthetic `copy` event on `document`, temporarily swapping
- * `window.getSelection` for the given selection value. Returns the event and a
- * spy on `preventDefault` so the handler side-effects can be asserted.
- */
-const dispatchCopy = ({
-  selection,
-  clipboardData
-}: {
-  selection: { toString: () => string } | null;
-  clipboardData?: { setData: jest.Mock };
-}) => {
-  const event = new Event('copy', { cancelable: true, bubbles: true });
-  if (clipboardData !== undefined) {
-    Object.defineProperty(event, 'clipboardData', { value: clipboardData, configurable: true });
-  }
-  const preventDefaultSpy = jest.spyOn(event, 'preventDefault');
-
-  const originalGetSelection = window.getSelection;
-  (window as unknown as { getSelection: () => unknown }).getSelection = jest.fn(() => selection);
-  document.dispatchEvent(event);
-  (window as unknown as { getSelection: () => unknown }).getSelection = originalGetSelection;
-
-  return { event, preventDefaultSpy };
-};
-
 beforeEach(() => {
+  mockIsMobile = false;
   // The clipboard mock is module-level, so a call-count assertion reads every
   // preceding case's clicks unless the count is reset per case.
   mockClipboardWrite.mockClear();
+  mockWriteSecret.mockReset();
 });
 
 afterEach(() => {
@@ -158,6 +152,7 @@ describe('BackUpSeedPhraseScreen', () => {
 
     it('renders one chip per seed word with its 1-based index and word', () => {
       renderComponent();
+      fireEvent.click(screen.getByTestId('btn-show'));
       const chips = screen.getAllByTestId(/^seed-word-\d+$/);
       expect(chips).toHaveLength(SEED.length);
       expect(chips[0]).toHaveTextContent('1.');
@@ -221,6 +216,10 @@ describe('BackUpSeedPhraseScreen', () => {
     const wordMasks = () =>
       screen.getAllByTestId(/^seed-word-\d+$/).map(chip => chip.querySelector('[data-slot="word-mask"]'));
 
+    beforeEach(() => {
+      mockIsMobile = true;
+    });
+
     it('starts hidden: words are blurred and the toggle shows the "show" affordance', () => {
       renderComponent();
       // A plain filter value, since the composed blur-sm draws nothing on a Chrome 113 WebView.
@@ -263,6 +262,69 @@ describe('BackUpSeedPhraseScreen', () => {
     });
   });
 
+  describe('masking off mobile', () => {
+    it('off mobile a hidden word is not in the DOM', () => {
+      const { container } = renderComponent();
+      expect(screen.queryAllByTestId(/^seed-word-\d+$/)).toHaveLength(0);
+      for (const word of SEED) expect(container.textContent).not.toContain(word);
+      expect(container.textContent).toContain('1.');
+      expect(screen.getByTestId('btn-show')).toHaveAttribute('data-seed-testid', 'seed-reveal-toggle');
+    });
+
+    it('off mobile Show reveals and a window blur hides again', () => {
+      renderComponent();
+      fireEvent.click(screen.getByTestId('btn-show'));
+      expect(screen.getByTestId('seed-word-0')).toHaveTextContent('alpha');
+
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+
+      expect(screen.queryAllByTestId(/^seed-word-\d+$/)).toHaveLength(0);
+      expect(screen.getByTestId('btn-show')).toBeInTheDocument();
+    });
+
+    // Only a revealed private key hides itself on a timer; a phrase is being written down.
+    it('off mobile shown words stay on screen past SECRET_REVEAL_MS', () => {
+      jest.useFakeTimers();
+      try {
+        renderComponent();
+        fireEvent.click(screen.getByTestId('btn-show'));
+        act(() => {
+          jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+        });
+        expect(screen.getByTestId('seed-word-0')).toHaveTextContent('alpha');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('on mobile the hidden words stay blurred text and a window blur does not hide them', () => {
+      mockIsMobile = true;
+      renderComponent();
+      const chip = screen.getByTestId('seed-word-0');
+      expect(chip).toHaveTextContent('alpha');
+      expect(chip.querySelector('[data-slot="word-mask"]')).toHaveClass('[filter:blur(8px)]');
+
+      fireEvent.click(screen.getByTestId('btn-show'));
+      act(() => {
+        window.dispatchEvent(new Event('blur'));
+      });
+
+      expect(screen.getByTestId('seed-word-0').querySelector('[data-slot="word-mask"]')).toHaveClass('[filter:none]');
+    });
+
+    it('on mobile a hidden word is kept out of the accessibility tree until Show', () => {
+      mockIsMobile = true;
+      renderComponent();
+      expect(screen.getByText('alpha')).toHaveAttribute('aria-hidden', 'true');
+
+      fireEvent.click(screen.getByTestId('btn-show'));
+
+      expect(screen.getByText('alpha')).not.toHaveAttribute('aria-hidden');
+    });
+  });
+
   // The navigator owns the one back chevron; a step no longer carries its own footer Back. The
   // navigator's suite cannot pin this - it mocks every step to a bare div, so the count it used to
   // assert was 1 by construction. Here the real step renders.
@@ -283,8 +345,9 @@ describe('BackUpSeedPhraseScreen', () => {
         fireEvent.click(copyBtn);
       });
 
-      expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
-      expect(mockClipboardWrite).toHaveBeenCalledWith({ string: SEED.join(' ') });
+      expect(mockWriteSecret).toHaveBeenCalledTimes(1);
+      expect(mockWriteSecret).toHaveBeenCalledWith(SEED.join(' '));
+      expect(mockClipboardWrite).not.toHaveBeenCalled();
       expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
       expect(screen.getByTestId('copy-label')).toHaveTextContent('copied');
     });
@@ -292,7 +355,7 @@ describe('BackUpSeedPhraseScreen', () => {
     // The whole point of the shared implementation: the confirmation follows the WRITE. The screen
     // used to report success without awaiting it, on the one value where that costs the most.
     it('says nothing was copied when the write fails', async () => {
-      mockClipboardWrite.mockRejectedValueOnce(new Error('denied'));
+      mockWriteSecret.mockRejectedValueOnce(new Error('denied'));
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       try {
         renderComponent();
@@ -301,7 +364,7 @@ describe('BackUpSeedPhraseScreen', () => {
           fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
         });
 
-        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        expect(mockWriteSecret).toHaveBeenCalledTimes(1);
         expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
         expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
         expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
@@ -374,77 +437,10 @@ describe('BackUpSeedPhraseScreen', () => {
     });
   });
 
-  describe('document copy interception (useEffect)', () => {
-    it('sanitizes the selection to letters/spaces and writes it to the clipboard event', () => {
-      renderComponent();
+  // The words are not selectable (main.css), so the screen has no copy of its own to handle.
+  it('leaves a document copy uncancelled', () => {
+    renderComponent();
 
-      const setData = jest.fn();
-      const { preventDefaultSpy } = dispatchCopy({
-        selection: { toString: () => 'Hello 123 World!!' },
-        clipboardData: { setData }
-      });
-
-      expect(setData).toHaveBeenCalledWith('text/plain', 'Hello World');
-      expect(preventDefaultSpy).toHaveBeenCalled();
-    });
-
-    it('writes an empty string when there is no active selection', () => {
-      renderComponent();
-
-      const setData = jest.fn();
-      const { preventDefaultSpy } = dispatchCopy({
-        selection: null,
-        clipboardData: { setData }
-      });
-
-      expect(setData).toHaveBeenCalledWith('text/plain', '');
-      expect(preventDefaultSpy).toHaveBeenCalled();
-    });
-
-    it('does not throw and still prevents default when the event has no clipboardData', () => {
-      renderComponent();
-
-      let result: ReturnType<typeof dispatchCopy>;
-      expect(() => {
-        result = dispatchCopy({ selection: { toString: () => 'anything' } });
-      }).not.toThrow();
-
-      expect(result!.preventDefaultSpy).toHaveBeenCalled();
-    });
-
-    it('removes the SAME copy listener it added, so the handler cannot outlive the screen', () => {
-      // `expect.any(Function)` used to sit in this slot, which is exactly the thing the bug changed:
-      // the old cleanup passed a freshly allocated `() => {}`, so removeEventListener was still
-      // called with a Function and the assertion passed while the real handler stayed on document
-      // for the life of the realm, rewriting every later copy.
-      const addSpy = jest.spyOn(document, 'addEventListener');
-      const removeSpy = jest.spyOn(document, 'removeEventListener');
-      const { unmount } = renderComponent();
-
-      const added = addSpy.mock.calls.find(([type]) => type === 'copy')?.[1];
-      expect(added).toBeInstanceOf(Function);
-
-      unmount();
-      expect(removeSpy).toHaveBeenCalledWith('copy', added);
-
-      addSpy.mockRestore();
-      removeSpy.mockRestore();
-    });
-
-    it('stops rewriting the clipboard once unmounted', () => {
-      const { unmount } = renderComponent();
-      unmount();
-
-      const setData = jest.fn();
-      const { preventDefaultSpy } = dispatchCopy({
-        selection: { toString: () => 'Send 123 MIDEN to mtst1abc' },
-        clipboardData: { setData }
-      });
-
-      // Behavioural mirror of the identity check: a leaked handler would strip the digits and
-      // preventDefault() on a copy that has nothing to do with this screen.
-      expect(setData).not.toHaveBeenCalled();
-      expect(preventDefaultSpy).not.toHaveBeenCalled();
-    });
+    expect(document.dispatchEvent(new Event('copy', { cancelable: true, bubbles: true }))).toBe(true);
   });
 });

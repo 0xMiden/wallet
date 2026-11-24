@@ -5,16 +5,19 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { Status, StatusBadge } from 'components/ui/StatusBadge';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { springs, useMotion } from 'lib/animation';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
-import { formatAmount } from 'lib/shared/format';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import HashChip from '../HashChip';
@@ -84,6 +87,7 @@ interface SwapDetailProps {
   isRetryingPayback?: boolean;
   paybackRetryError?: string | null;
   paybackRetryErrorId?: UserErrorId | null;
+  paybackRetryErrorDiagnostics?: Extract<UiEvidenceInput, { kind: 'history_payback_retry' }>;
   onRetryPayback?: () => void;
 }
 
@@ -145,7 +149,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
   const receivedAmount =
     transaction?.amount === undefined || deliveredRequested !== true || !requestedScaleIsKnown
       ? undefined
-      : formatAmount(transaction.amount, requestedDecimals);
+      : formatAmountDisplay(transaction.amount, { decimals: requestedDecimals, rounding: 'down' });
 
   switch (kind) {
     case 'settled':
@@ -280,9 +284,11 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   isRetryingPayback = false,
   paybackRetryError = null,
   paybackRetryErrorId = null,
+  paybackRetryErrorDiagnostics,
   onRetryPayback
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const progressTransition = useMotion(springs.standard);
   // An unknown fill (no lineage and no settlement consume in the requested
   // token) is not a zero fill, and neither is an unknown requested total.
@@ -299,11 +305,14 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   // fill on a receipt whose progress line reads "- of 1000". It is the receipt's
   // rule, so an order that reached its slippage target reads Filled here too.
   const isPartialFill = isPartialSwapFill(requestedAmount, filledAmount, slippageBps);
-  const formattedOffered = entry.amount === undefined ? '-' : entry.amount.toString();
   const formattedRequested =
-    requestedAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(requestedAmount, requestedDecimals);
+    requestedAmount === undefined || !requestedScaleIsKnown
+      ? '-'
+      : formatAmountDisplay(requestedAmount, { decimals: requestedDecimals, rounding: 'down' });
   const formattedFilled =
-    filledAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(filledAmount, requestedDecimals);
+    filledAmount === undefined || !requestedScaleIsKnown
+      ? '-'
+      : formatAmountDisplay(filledAmount, { decimals: requestedDecimals, rounding: 'down' });
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
   // The settlement stamp the Activity list reads (`swapSettlementOf`), never the expiry clock, so one order cannot
   // read Pending there and Returning funds here.
@@ -323,7 +332,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
   return (
     <div data-testid="swap-order-card" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto pb-4">
+      <div className={command ? 'flex-1 pb-4' : 'flex-1 overflow-y-auto pb-4'}>
         <section className="flex flex-col items-center pt-4">
           <div className="[&>div]:rounded-full">
             <TransactionIcon entry={entry} size="lg" />
@@ -337,7 +346,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             className="mt-2 flex min-h-14 w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-4xl bg-fill px-4 py-2 font-heading text-2xl font-extrabold text-text-primary-token"
           >
             <span className="flex min-w-0 max-w-full items-center gap-2">
-              <span className="truncate">{formattedOffered}</span>
+              <TokenAmount amount={entry.amount?.toString()} rounding="up" />
               {entry.token && (
                 <span className="shrink-0 whitespace-nowrap text-text-secondary-token">{entry.token}</span>
               )}
@@ -347,7 +356,11 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-tx-swap text-text-on-accent">
                 <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
               </span>
-              <span className="truncate">{formattedRequested}</span>
+              {requestedAmount !== undefined && requestedScaleIsKnown && requestedDecimals !== undefined ? (
+                <TokenAmount amount={requestedAmount} decimals={requestedDecimals} rounding="down" />
+              ) : (
+                formattedRequested
+              )}
               {requestedSymbol && (
                 <span className="shrink-0 whitespace-nowrap text-text-secondary-token">{requestedSymbol}</span>
               )}
@@ -561,7 +574,13 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             </Notice>
           )}
           {paybackRetryError && (
-            <Notice tone="negative" errorId={paybackRetryErrorId} role="alert" data-testid="swap-retry-payback-error">
+            <Notice
+              tone="negative"
+              errorId={paybackRetryErrorId}
+              errorDiagnostics={paybackRetryErrorDiagnostics}
+              role="alert"
+              data-testid="swap-retry-payback-error"
+            >
               {paybackRetryError}
             </Notice>
           )}

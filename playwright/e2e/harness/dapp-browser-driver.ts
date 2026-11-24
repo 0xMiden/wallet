@@ -24,8 +24,10 @@ import {
   FIXTURE_DAPPS,
   GENERATION_COLORS,
   GENERATION_MARKER_PX,
-  type DappFixtureServer
+  type DappFixtureServer,
+  type DappViewportReport
 } from './dapp-fixture-server';
+import type { BrowserMotion } from '../helpers/dapp-mobile-wallet';
 import { describeStats, measureVerticalOffsetCss, sampleRegion, type Rect } from './dapp-visual';
 import { resolveWalletNetwork } from './extension-network';
 import devnetCatalog from '../../../src/lib/explore-config/snapshot/devnet.json';
@@ -72,7 +74,18 @@ export interface DappBrowserState {
     isCold: boolean;
     error: string | null;
   }>;
+  /** The native morph in flight (#1817); null at rest, absent from a build without it. */
+  motion?: BrowserMotion | null;
 }
+
+/** Fixture reports of a viewport-class event (`?morphlog=1`); a load or a visibility change is not one. */
+const VIEWPORT_EVENT_REASONS: ReadonlyArray<DappViewportReport['reason']> = [
+  'resize',
+  'visual-viewport',
+  'observer',
+  'safe-area',
+  'media'
+];
 
 export interface DappDriverOpts {
   target: DappDriverTarget;
@@ -161,6 +174,16 @@ export class DappBrowserDriver {
     timeoutMs = DEFAULT_TIMEOUT_MS
   ): Promise<DappBrowserState> {
     return this.pollUntil(description, () => this.state(), predicate, timeoutMs);
+  }
+
+  /** Wait until no native morph is in flight, so the next step sees a page at rest. */
+  async waitForMotionIdle(timeoutMs = DEFAULT_TIMEOUT_MS): Promise<DappBrowserState> {
+    return this.waitForState('the dApp morph to come to rest', s => !s.motion, timeoutMs);
+  }
+
+  /** The viewport-class events `dappId` reported after its report `seq`: a morph must cause none. */
+  viewportEventsSince(dappId: string, seq: number): DappViewportReport[] {
+    return this.server.reports(dappId).filter(r => r.seq > seq && VIEWPORT_EVENT_REASONS.includes(r.reason));
   }
 
   /** The session the wallet currently has foregrounded, if any. */
@@ -318,6 +341,7 @@ export class DappBrowserDriver {
       'the foreground dApp to become parked',
       s => s.foregroundId === null && s.sessions.some(x => x.id === before.foregroundId && x.status === 'parked')
     );
+    await this.waitForMotionIdle();
   }
 
   /** Close the foreground dApp via the capsule's close button. */
@@ -354,6 +378,7 @@ export class DappBrowserDriver {
     await this.target.waitFor(selector, { timeoutMs: DEFAULT_TIMEOUT_MS });
     await this.target.click(selector);
     await this.waitForForeground(dappId);
+    await this.waitForMotionIdle();
   }
 
   // ── Switcher ─────────────────────────────────────────────────────────────
