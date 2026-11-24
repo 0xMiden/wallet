@@ -166,6 +166,14 @@ describe('readBridgeRegistry', () => {
     expect(requested(1)).not.toBe(requested(0));
   });
 
+  it('does not retry getAccountProof after a WebAssembly.RuntimeError', async () => {
+    mockGetAccountProof
+      .mockRejectedValueOnce(new WebAssembly.RuntimeError('unreachable'))
+      .mockResolvedValueOnce(proof());
+    await expect(readBridgeRegistry(BRIDGE, RPC)).rejects.toThrow(WebAssembly.RuntimeError);
+    expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+  });
+
   it('reads the maps through syncStorageMaps when the proof cannot carry them', async () => {
     mockGetAccountProof.mockResolvedValue(proof({ tooMany: [REGISTRY] }));
     const update = (slot: string, { key, value }: FakeEntry) => ({

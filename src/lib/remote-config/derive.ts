@@ -244,17 +244,22 @@ function decodeRegistry(
 
 /** Runs a read of `accountId` at the chain tip; the node's not-found for that account becomes NotDeployedError. */
 async function readAccount<T>(accountId: string, label: string, read: () => Promise<T>): Promise<T> {
-  try {
-    return await withRpcTimeout(read, label);
-  } catch (err) {
-    // miden-node GetAccountError::AccountNotFound (crates/store/src/errors.rs), through the SDK's
-    // "invalid request parameters" wrapper.
-    const missing = /account (0x[0-9a-f]+) not found at block \d+/i.exec(errorMessage(err));
-    if (missing?.[1]?.toLowerCase() === accountId.toLowerCase()) {
-      throw new NotDeployedError(`${accountId} does not exist`);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      return await withRpcTimeout(read, label, { retries: 0 });
+    } catch (err) {
+      lastErr = err;
+      if (isWasmTrap(err)) break;
     }
-    throw err;
   }
+  // miden-node GetAccountError::AccountNotFound (crates/store/src/errors.rs), through the SDK's
+  // "invalid request parameters" wrapper.
+  const missing = /account (0x[0-9a-f]+) not found at block \d+/i.exec(errorMessage(lastErr));
+  if (missing?.[1]?.toLowerCase() === accountId.toLowerCase()) {
+    throw new NotDeployedError(`${accountId} does not exist`);
+  }
+  throw lastErr;
 }
 
 function bridgeNetworkId(proof: AccountProof, bridge: string): bigint[] {

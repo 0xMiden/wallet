@@ -1650,6 +1650,47 @@ describe('deriveBridgeConfig default I/O', () => {
     expect(rpcTrapFree).not.toHaveBeenCalled();
   });
 
+  it('does not retry getAccountProof on the same RpcClient after a WebAssembly.RuntimeError', async () => {
+    const asyncTrapRpcFree = mockTrackedRpcClient();
+    const asyncOk = trackedFaucetProof();
+    mockGetAccountProof
+      .mockRejectedValueOnce(new WebAssembly.RuntimeError('unreachable'))
+      .mockResolvedValueOnce(asyncOk.proof);
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toThrow(
+      WebAssembly.RuntimeError
+    );
+    expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+    expect(asyncOk.proofFree).not.toHaveBeenCalled();
+    expect(asyncTrapRpcFree).not.toHaveBeenCalled();
+
+    mockGetAccountProof.mockReset();
+    const syncTrapRpcFree = mockTrackedRpcClient();
+    const syncOk = trackedFaucetProof();
+    mockGetAccountProof
+      .mockImplementationOnce(() => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      })
+      .mockResolvedValueOnce(syncOk.proof);
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toThrow(
+      WebAssembly.RuntimeError
+    );
+    expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+    expect(syncOk.proofFree).not.toHaveBeenCalled();
+    expect(syncTrapRpcFree).not.toHaveBeenCalled();
+
+    mockGetAccountProof.mockReset();
+    const retryOkRpcFree = mockTrackedRpcClient();
+    const retryOk = trackedFaucetProof();
+    mockGetAccountProof.mockRejectedValueOnce(new Error('transient RPC error')).mockResolvedValueOnce(retryOk.proof);
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).resolves.toEqual({
+      symbol: 'TEST',
+      decimals: 8
+    });
+    expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+    expect(retryOk.proofFree).toHaveBeenCalledTimes(1);
+    expect(retryOkRpcFree).toHaveBeenCalledTimes(1);
+  });
+
   it('defers freeing AccountProof and RpcClient on timed-out attempt until settled', async () => {
     jest.useFakeTimers();
     try {
