@@ -7,11 +7,9 @@ import {
   type ViewNote
 } from 'app/confirm/decode';
 import { getMessage } from 'lib/i18n/core';
-import {
-  getVerificationBaseFeeSync,
-  isVerificationBaseFeeKnownAbsent,
-  refreshVerificationBaseFee
-} from 'lib/miden-chain/native-asset';
+import { isSummaryFeeUnknownAtDecode } from 'lib/miden-chain/fee-at-decode';
+import { cacheScope, isVerificationBaseFeeKnownAbsent, refreshVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { usdcxSponsorshipApprovalOf } from 'lib/usdcx/sponsorship';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import type { IConsumeGcPurchaseExtraInputs, IExecuteApproval, ITransaction, ITransactionType } from '../db/types';
@@ -32,6 +30,15 @@ interface Allowance {
   outputNoteIds?: readonly string[] | 'assetless';
 }
 
+/** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */
+export const effectRefusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
+  new ProposalEffectRefusedError(
+    transaction.type,
+    detail,
+    getMessage('proposalEffectRefused'),
+    cause === undefined ? undefined : { cause }
+  );
+
 const approvedTransfer = ({ faucetId, amount }: ITransaction): Allowance => {
   if (typeof faucetId !== 'string' || faucetId.length === 0 || typeof amount !== 'bigint' || amount < 0n) {
     throw new Error('the transaction has no valid approved asset and amount');
@@ -39,11 +46,22 @@ const approvedTransfer = ({ faucetId, amount }: ITransaction): Allowance => {
   return { outflow: [{ faucetId, amount }], nfts: [] };
 };
 
+// Its request bytes were built before signing, so it may create only the one note their build recorded. A row queued
+// before that was recorded is refused.
+const approvedPrebuiltTransfer = (transaction: ITransaction): Allowance => {
+  const builtNoteIds = transaction.approvedOutputNoteIds;
+  if (builtNoteIds?.length !== 1) {
+    throw effectRefusal(transaction, 'the transaction has no recorded note of its own');
+  }
+  return { ...approvedTransfer(transaction), outputNoteIds: builtNoteIds };
+};
+
 /** The allowance of each checked type. A type with no entry is not checked. */
 const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransaction) => Allowance>> = {
   send: approvedTransfer,
   swap: approvedTransfer,
-  'earn-deposit': approvedTransfer,
+  'earn-deposit': approvedPrebuiltTransfer,
+  'bridged-send': approvedPrebuiltTransfer,
   // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
   consume: transaction => {
     const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
@@ -84,6 +102,20 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
   const allowedOutflow = ALLOWED_OUTFLOW[transaction.type];
   if (allowedOutflow === undefined) return undefined;
   const allowance = allowedOutflow(transaction);
+  try {
+    const approval = usdcxSponsorshipApprovalOf(transaction);
+    if (
+      approval &&
+      view.fee &&
+      (view.fee.faucetId !== approval.budget.faucetId ||
+        view.fee.amount < 0n ||
+        view.fee.amount > BigInt(approval.budget.maxAmount))
+    )
+      return 'the network fee exceeds its reviewed native budget';
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError || isKilledPipeline(error)) throw error;
+    return 'the reviewed native fee budget could not be read';
+  }
   let measured = view;
   if (allowance.introducedNoteIds !== undefined) {
     try {
@@ -155,14 +187,10 @@ export function executeApprovalOf(
   return { view: holdings, signing: executeApprovalFromHoldings(holdings, createdNotes, introducedNoteIds) };
 }
 
-/** The refusal the effect check throws for `transaction`, with the localized sentence the row shows. */
-export const effectRefusal = (transaction: ITransaction, detail: string, cause?: unknown): ProposalEffectRefusedError =>
-  new ProposalEffectRefusedError(
-    transaction.type,
-    detail,
-    getMessage('proposalEffectRefused'),
-    cause === undefined ? undefined : { cause }
-  );
+/** Refuses as an unknown fee a summary decoded now that cannot tell its fee note apart. */
+function assertSummaryFeeKnownAtDecode(feeScope: string): void {
+  if (isSummaryFeeUnknownAtDecode(feeScope)) throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
+}
 
 /** Decode `transaction`'s view and refuse it when it moves more than the row was approved to move. */
 async function assertDecodedViewApproved(
@@ -176,12 +204,16 @@ async function assertDecodedViewApproved(
     // A trap stays that same error. Wrapping it would hide the object from the retire that owns it.
     if (error instanceof WebAssembly.RuntimeError) throw error;
     if (isKilledPipeline(error) || error instanceof ProposalEffectRefusedError) throw error;
+    if (error instanceof ProposalFeeUnknownError) throw error;
     throw effectRefusal(transaction, 'the transaction summary could not be read', error);
   }
   let detail: string | undefined;
   try {
     detail = proposalEffectRefusal(transaction, view);
   } catch (error) {
+    // The allowance's own refusal (a pre-built row with no recorded note) is already that error. Any other throw,
+    // such as an amount that does not parse, stays the unreadable-amounts refusal.
+    if (error instanceof ProposalEffectRefusedError) throw error;
     throw effectRefusal(transaction, 'its approved amounts could not be read', error);
   }
   if (detail !== undefined) throw effectRefusal(transaction, detail);
@@ -189,13 +221,15 @@ async function assertDecodedViewApproved(
 
 /**
  * Refuse a checked-type transaction whose decoded view moves more than its row was approved to move. `decode` is a
- * thunk because the chain-fee lookup must run first: the decoder reads the fee that lookup fills. A decode that throws
- * a refusal passes through, a kill of the decoding hold passes through, a trap passes through as that same error,
+ * thunk because the chain-fee lookup must run first: the decoder reads the fee that lookup fills. It is handed the
+ * fee check of its decode, which it calls right before the decode with no await between: once the cache has emptied
+ * or the endpoint has moved since the lookup, the check refuses as an unknown fee. A decode that throws a refusal or
+ * an unknown fee passes through, a kill of the decoding hold passes through, a trap passes through as that same error,
  * and any other failure becomes a refusal.
  */
 export async function assertViewEffectApproved(
   transaction: ITransaction,
-  decode: () => TxAssetView | Promise<TxAssetView>
+  decode: (assertFeeKnownAtDecode: () => void) => TxAssetView | Promise<TxAssetView>
 ): Promise<void> {
   if (!isEffectChecked(transaction.type)) return;
   // The fee note is told apart only once this realm knows the chain's fee; an untold fee reads as an outflow and
@@ -203,31 +237,32 @@ export async function assertViewEffectApproved(
   // failed or the probe is cooling down is not an answer, and the summary stays unread. A number, 0 included, and a
   // null the probe found absent, both continue; the decoder reads the fee the await just filled.
   const chainFee = await refreshVerificationBaseFee();
+  const feeScope = cacheScope();
   if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
     throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
-  await assertDecodedViewApproved(transaction, decode);
+  await assertDecodedViewApproved(transaction, () => decode(() => assertSummaryFeeKnownAtDecode(feeScope)));
 }
 
 /**
  * The signer's effect check. The write decided the chain fee before it ran, and this reads that cache. A null while
- * the probe has not found the fee absent throws, and the summary stays unread. A number, 0 included, and a null the
- * probe found absent, both continue into the same decode as `assertViewEffectApproved`.
+ * the probe has not found the fee absent throws, and the summary stays unread, as does a cache whose endpoint is no
+ * longer `feeScope`, the scope of the write's fee read. A number, 0 included, and a null the probe found absent, both
+ * continue into the same decode as `assertViewEffectApproved`.
  */
 export async function assertCachedViewEffectApproved(
   transaction: ITransaction,
-  decode: () => TxAssetView | Promise<TxAssetView>
+  decode: () => TxAssetView | Promise<TxAssetView>,
+  feeScope: string
 ): Promise<void> {
   if (!isEffectChecked(transaction.type)) return;
-  const chainFee = getVerificationBaseFeeSync();
-  if (chainFee === null && !isVerificationBaseFeeKnownAbsent())
-    throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
+  assertSummaryFeeKnownAtDecode(feeScope);
   await assertDecodedViewApproved(transaction, decode);
 }
 
 /**
  * Refuse a proposal of a checked type whose summary moves more than its row was approved to move (#2147). Runs before
  * the hot key signs: it signs this summary's commitment, so the summary is what lands. A summary that is missing or
- * does not decode is refused too; a kill of the decoding hold passes through unchanged.
+ * does not decode is refused too; a kill of the decoding hold and an unknown fee at the decode pass through unchanged.
  */
 export async function assertProposalEffectApproved(
   transaction: ITransaction,
@@ -237,12 +272,19 @@ export async function assertProposalEffectApproved(
   if (typeof txSummary !== 'string' || txSummary.length === 0) {
     throw effectRefusal(transaction, 'the proposal carries no transaction summary');
   }
-  await assertViewEffectApproved(transaction, async () => {
+  await assertViewEffectApproved(transaction, async assertFeeKnownAtDecode => {
     try {
-      // A trap rejects the hold's callback, so the lock retires the client before the refusal wraps it.
-      return await withWasmClientLock(async () => summaryBytesToView(txSummary), { label: 'proposal effect check' });
+      // A trap rejects the hold's callback, so the lock retires the client before the refusal wraps it. The fee is
+      // checked again after the lock wait.
+      return await withWasmClientLock(
+        async () => {
+          assertFeeKnownAtDecode();
+          return summaryBytesToView(txSummary, usdcxSponsorshipApprovalOf(transaction));
+        },
+        { label: 'proposal effect check' }
+      );
     } catch (error) {
-      if (isKilledPipeline(error)) throw error;
+      if (isKilledPipeline(error) || error instanceof ProposalFeeUnknownError) throw error;
       throw effectRefusal(transaction, 'the proposal summary could not be read', error);
     }
   });

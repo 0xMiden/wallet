@@ -15,6 +15,7 @@ import {
   initiateSwapTransaction,
   initiateBridgedSendTransaction,
   initiateEarnDepositTransaction,
+  BRIDGED_SEND_MISSING_REQUEST_ERROR,
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   initiateConsumeTransaction,
   initiateConsumeTransactionFromId,
@@ -39,7 +40,7 @@ import {
   TRANSACTION_FORCE_CANCELLED_ERROR,
   INVALID_NOTE_ERROR
 } from './index';
-import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
+import { BridgedSendTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
@@ -104,7 +105,7 @@ jest.mock('lib/miden/repo', () => {
       return {
         // Run the body inline so the existing mockTransactionsWhere / mockTransactionsAdd
         // wiring the tests already set up still drives behavior. In prod, Dexie serializes
-        // concurrent rw transactions at the DB level — this mock preserves the "body runs
+        // concurrent rw transactions at the DB level - this mock preserves the "body runs
         // with atomic check+add" contract without the real atomicity machinery.
         transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()
       };
@@ -319,7 +320,7 @@ describe('transactions utilities', () => {
     it('refuses to fail a row that completed between the read and the write', async () => {
       // The finalized guard above it is a read in its own Dexie transaction, so
       // it only rejects a row that was ALREADY terminal. A pipeline that commits
-      // Completed in the gap — a user cancel racing its own finishing send — was
+      // Completed in the gap - a user cancel racing its own finishing send - was
       // overwritten with Failed, turning a settled send into a reported failure.
       // The guarded `onlyIfStatus` path cannot cover this: it is the callers that
       // pass nothing that need it.
@@ -400,7 +401,7 @@ describe('transactions utilities', () => {
     it('stamps stage="complete" on success so a finished tx stops reading as in-flight (#618)', async () => {
       // setTransactionStage refuses post-terminal writes, so without this a
       // completed replace-hot-key froze at 'confirming' and a completed guardian
-      // consume at 'guardian-synced' — both of which read as still-running.
+      // consume at 'guardian-synced' - both of which read as still-running.
       const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'confirming' };
       const row: Record<string, unknown> = { ...tx };
       mockTransactionsWhere
@@ -415,7 +416,7 @@ describe('transactions utilities', () => {
 
     it('stamps complete even when the payload is a whole row carrying a stale stage (#618)', async () => {
       // completeCustomTransaction forwards interpretTransactionResult(...), which is
-      // the pick-time row object itself — so the payload DOES carry a `stage` key.
+      // the pick-time row object itself - so the payload DOES carry a `stage` key.
       // A presence check on otherValues.stage would skip the stamp here and let
       // Object.assign write the stale pick-time stage back over the DB's current one.
       const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'guardian-synced' };
@@ -433,7 +434,7 @@ describe('transactions utilities', () => {
       expect(row.transactionId).toBe('hash-1');
     });
 
-    it('preserves the stage on FAILURE — it records where the failure happened (#618)', async () => {
+    it('preserves the stage on FAILURE - it records where the failure happened (#618)', async () => {
       const tx = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, stage: 'creating-proposal' };
       const row: Record<string, unknown> = { ...tx };
       mockTransactionsWhere
@@ -486,7 +487,7 @@ describe('transactions utilities', () => {
       // The read above and the write below are separate Dexie transactions, and
       // the terminal writer is no longer always inside the loop lock: the requeue
       // wake's ceiling can fail a stale row from outside it. Lose that race
-      // without a write-time check and this writes Completed over the Failed —
+      // without a write-time check and this writes Completed over the Failed -
       // leaving `error`, `displayIcon: 'FAILED'` and `completedAt` in place,
       // since nothing on the success path clears them. The user sees a FAILED
       // icon and an expiry message on a send that actually went through.
@@ -670,7 +671,8 @@ describe('transactions utilities', () => {
         '0xrecipient',
         1,
         'agglayer',
-        undefined,
+        '0xbuilt',
+        new Uint8Array([1]),
         undefined,
         undefined,
         authorization,
@@ -688,6 +690,48 @@ describe('transactions utilities', () => {
       );
     });
 
+    it.each<[string, Uint8Array | undefined]>([
+      ['missing', undefined],
+      ['empty', new Uint8Array()]
+    ])(
+      'refuses a bridged send whose request bytes are %s before queueing it or booking its spend',
+      async (_, bytes) => {
+        await expect(
+          initiateBridgedSendTransaction(
+            'account-a',
+            10n,
+            'faucet-a',
+            '0xrecipient',
+            1,
+            'agglayer',
+            '0xbuilt',
+            // @ts-expect-error the type requires the bytes; this is the run-time guard behind it
+            bytes
+          )
+        ).rejects.toThrow(BRIDGED_SEND_MISSING_REQUEST_ERROR);
+        expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
+      }
+    );
+
+    it('copies original Epoch collateral bytes before exposing the native row to its queue', async () => {
+      const bytes = new Uint8Array([81, 82]);
+      await initiateBridgedSendTransaction(
+        'account-a',
+        10n,
+        'faucet-a',
+        '0xrecipient',
+        1,
+        'epoch',
+        'original-note',
+        bytes
+      );
+      const queued = mockQueueOutgoingTransaction.mock.calls.at(-1)?.[0];
+      if (!(queued instanceof BridgedSendTransaction)) throw new Error('Missing actual Epoch row');
+      expect(queued.extraInputs.epochCollateralRequestBytes).toEqual(bytes);
+      expect(queued.extraInputs.epochCollateralRequestBytes?.buffer).not.toBe(bytes.buffer);
+      expect(queued.requestBytes).toBe(bytes);
+    });
+
     it('atomically persists the USDCx burn identity alongside its replayable request', async () => {
       const requestBytes = new Uint8Array([1, 2, 3]);
       const burn: { noteId: string; destinationDomain: number; phase: 'pending' } = {
@@ -702,6 +746,7 @@ describe('transactions utilities', () => {
         '0xrecipient',
         11155111,
         'usdcx',
+        '0xbuilt',
         requestBytes,
         true,
         undefined,
@@ -729,6 +774,7 @@ describe('transactions utilities', () => {
           '0xrecipient',
           11155111,
           'usdcx',
+          '0xbuilt',
           new Uint8Array([1])
         )
       ).rejects.toThrow('persisted request and note id');
@@ -743,6 +789,7 @@ describe('transactions utilities', () => {
         '0xrecipient',
         0,
         'agglayer',
+        '0xbuilt',
         new Uint8Array([1]),
         true,
         undefined,
@@ -766,6 +813,52 @@ describe('transactions utilities', () => {
       );
     });
 
+    // Signing may create only this note (`proposal-effect-guard.ts`), so the row records it as its build reported it.
+    it('records the one note its request was built with on the bridged-send row it queues', async () => {
+      await initiateBridgedSendTransaction(
+        'account-a',
+        10n,
+        'faucet-a',
+        '0xrecipient',
+        0,
+        'agglayer',
+        '0xbuilt',
+        new Uint8Array([1]),
+        true,
+        undefined,
+        undefined,
+        '0xexit',
+        undefined,
+        AGGLAYER_RECOVERY
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'bridged-send', approvedOutputNoteIds: ['0xbuilt'] }),
+        [{ faucetId: 'faucet-a', amount: 10n }],
+        undefined
+      );
+    });
+
+    it('records the one note its request was built with on the Earn deposit row it queues', async () => {
+      await initiateEarnDepositTransaction(
+        'account-a',
+        10n,
+        '0xrecipient',
+        'market-a',
+        'faucet-a',
+        { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
+        true,
+        new Uint8Array([1, 2, 3]),
+        '0xbuilt'
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'earn-deposit', approvedOutputNoteIds: ['0xbuilt'] }),
+        [{ faucetId: 'faucet-a', amount: 10n }],
+        undefined
+      );
+    });
+
     it('routes Earn deposit through the atomic outgoing queue with its authorization', async () => {
       await initiateEarnDepositTransaction(
         'account-a',
@@ -776,6 +869,7 @@ describe('transactions utilities', () => {
         { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
         true,
         new Uint8Array([1, 2, 3]),
+        '0xbuilt',
         authorization
       );
 
@@ -801,6 +895,7 @@ describe('transactions utilities', () => {
         { recipientId: 'account-b', noteType: NoteTypeEnum.Public, recallBlocks: 10 },
         true,
         new Uint8Array([1, 2, 3]),
+        '0xbuilt',
         undefined,
         'https://allocator.test',
         '1delta',
@@ -838,6 +933,7 @@ describe('transactions utilities', () => {
             true,
             // @ts-expect-error the type requires the bytes; this is the run-time guard behind it
             bytes,
+            '0xbuilt',
             authorization
           )
         ).rejects.toThrow(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
@@ -986,7 +1082,7 @@ describe('transactions utilities', () => {
 
     it('queues a fresh attempt on a manual retry even while the cooldown has not elapsed', async () => {
       // The bounded-retry gate throttles auto-consume's background polling, but
-      // an explicit user retry (manualRetry=true) must bypass it — otherwise the
+      // an explicit user retry (manualRetry=true) must bypass it - otherwise the
       // Retry button silently no-ops for up to RETRY_COOLDOWN_SEC.
       const nowSec = Math.floor(Date.now() / 1000);
       const recentFailed = {
@@ -1008,7 +1104,7 @@ describe('transactions utilities', () => {
     });
 
     it('still dedups a manual retry against an in-flight consume for the same note', async () => {
-      // manualRetry only bypasses the Failed-row backoff — it must NOT double-queue
+      // manualRetry only bypasses the Failed-row backoff - it must NOT double-queue
       // when a Queued/Generating/Completed row is already in flight.
       const existingTx = {
         id: 'existing-tx',
@@ -1029,7 +1125,7 @@ describe('transactions utilities', () => {
     it('clears a requeue cooldown on the blocking Queued row so an explicit retry is not silently ignored (#617)', async () => {
       // A guardian 429 requeues the consume as Queued with nextEligibleAt up to
       // 5 min out, and the FIFO loop skips it until then. Dedup means a fresh tap
-      // does NOT queue a second row — so without clearing the cooldown, tapping
+      // does NOT queue a second row - so without clearing the cooldown, tapping
       // Claim would appear to do nothing for minutes. Regression guard: this is
       // the interaction that made the guardian e2e drain time out.
       const modify = jest.fn(async (cb: (t: Record<string, unknown>) => void) => {
@@ -1069,8 +1165,8 @@ describe('transactions utilities', () => {
     it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {
       // The backoff doubles with lifetime failures. Five failures require
       // RETRY_COOLDOWN_SEC · 2^4 = 80 min of idle. The most recent failure is
-      // RETRY_COOLDOWN_SEC + 100s ago — enough to clear the base cooldown a
-      // single failure would impose, but far short of the grown backoff — so the
+      // RETRY_COOLDOWN_SEC + 100s ago - enough to clear the base cooldown a
+      // single failure would impose, but far short of the grown backoff - so the
       // new attempt is suppressed. This is exactly what a sliding window missed.
       const nowSec = Math.floor(Date.now() / 1000);
       const failedRows = Array.from({ length: 5 }, (_, i) => ({
@@ -1199,7 +1295,7 @@ describe('transactions utilities', () => {
       // Same `?? initiatedAt` fallback, single failure: the backoff is only
       // RETRY_COOLDOWN_SEC (2^0), and the row's initiatedAt-derived recency is
       // far past that, so the backoff has elapsed and a fresh attempt is enqueued
-      // — the re-probe that keeps this a bounded backoff, not a permanent give-up.
+      // - the re-probe that keeps this a bounded backoff, not a permanent give-up.
       const nowSec = Math.floor(Date.now() / 1000);
       const ancientNoCompletedAt = {
         id: 'ancient-no-completed-at',
@@ -1223,7 +1319,7 @@ describe('transactions utilities', () => {
       // Terminal-safe, not terminal: the backoff is capped at MAX_RETRY_BACKOFF_SEC,
       // so a note stuck for a long time is still retried roughly daily. If it has
       // since become consumable (reclaim height reached, chain advanced), that probe
-      // succeeds and the note recovers on its own — no permanent give-up, no
+      // succeeds and the note recovers on its own - no permanent give-up, no
       // failure-class parsing.
       const nowSec = Math.floor(Date.now() / 1000);
       const failures = Array.from({ length: 12 }, (_, i) => ({
@@ -1578,7 +1674,7 @@ describe('transactions utilities', () => {
       expect(mockModify).not.toHaveBeenCalled();
     });
 
-    it('sweeps ONLY GeneratingTransaction rows — Queued/Completed are excluded by the predicate', async () => {
+    it('sweeps ONLY GeneratingTransaction rows - Queued/Completed are excluded by the predicate', async () => {
       const nowSec = Math.floor(Date.now() / 1000);
       const gen = {
         id: 'gen',
@@ -1726,7 +1822,7 @@ describe('transactions utilities', () => {
       expect(dbTx.status).toBe(ITransactionStatus.Failed);
       expect(dbTx.displayMessage).toMatch(/interrupted/i);
       // Must NOT be relabelled as a prover failure ("please try again") just because the
-      // tx died in the 'proving' stage — that would invite the retry the sweep avoids.
+      // tx died in the 'proving' stage - that would invite the retry the sweep avoids.
       expect(dbTx.error).toMatch(/interrupted/i);
       expect(dbTx.error).not.toMatch(/prov(e|ing)|try again/i);
     });
@@ -1858,7 +1954,7 @@ describe('transactions utilities', () => {
       };
 
       // The 'sending' stage can't be pinned to pre-submit, so a delegated timeout
-      // gets the hedged copy (no false "no funds moved" claim) — not the definitive
+      // gets the hedged copy (no false "no funds moved" claim) - not the definitive
       // stage-'proving' REMOTE_PROVER_FAILED_ERROR (#419 review).
       const remoteTimedOut = await runCancel('request timeout hit', true);
       expect(remoteTimedOut.error).toBe(REMOTE_PROVER_TIMEOUT_ERROR);
@@ -1925,11 +2021,11 @@ describe('transactions utilities', () => {
           signWord: async () => ''
         });
       } catch {
-        // Expected to fail on TransactionResult.deserialize — that's fine
+        // Expected to fail on TransactionResult.deserialize - that's fine
       }
 
       // Verify syncState runs before the status flip to GeneratingTransaction.
-      // An earlier `updateStatus` entry is the stage='syncing' marker — that's
+      // An earlier `updateStatus` entry is the stage='syncing' marker - that's
       // an informational write; what matters is that syncState completes
       // before the final status flip (the last `updateStatus`).
       const syncIdx = callOrder.indexOf('syncState');
@@ -2114,7 +2210,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       withHoldSigner: (_hold: unknown, _signer: unknown, run: () => Promise<unknown>) => run()
     }));
     // The #260 proxy (routed by index.ts's syncState preflight) imports
-    // getMidenClient via the `lib/...` alias — inside this isolate block the
+    // getMidenClient via the `lib/...` alias - inside this isolate block the
     // relative doMock above doesn't cover it, so delegate the alias to it.
     jest.doMock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 
@@ -2184,7 +2280,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     });
 
     const signCallback = jest.fn(async () => new Uint8Array());
-    // Guardian provider stub — test accounts are non-Guardian, so getAccounts()
+    // Guardian provider stub - test accounts are non-Guardian, so getAccounts()
     // returns an empty list and the isGuardianAccount check short-circuits.
     const guardianProvider = {
       getAccounts: async () => [],
@@ -2271,7 +2367,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
 
     // ---- Phase 4: the pre-flight sync is EVICTED by the watchdog (#777) ----
     // The sync ceiling makes this the likeliest place for an eviction to land,
-    // and an eviction ABANDONS its operation rather than cancelling it — so the
+    // and an eviction ABANDONS its operation rather than cancelling it - so the
     // funds-relevant question is what stage the row is in when the recovery
     // reads it. `syncUnderBoundedLock` runs BEFORE the flip to
     // GeneratingTransaction, while the row still reads 'syncing', which is the

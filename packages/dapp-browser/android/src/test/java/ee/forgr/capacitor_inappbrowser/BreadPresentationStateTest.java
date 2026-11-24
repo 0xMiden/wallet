@@ -65,6 +65,35 @@ public class BreadPresentationStateTest {
         assertTrue(state.canReveal(state.generation()));
     }
 
+    @Test public void inputAuthoritySurvivesOnlyVisualChanges() {
+        BreadPresentationState state = ready();
+        long accepted = state.inputAuthority();
+        state.layoutChanged();
+        state.configure("doc", true, true);
+        state.requestVisibility(true, (int) state.policyRevision(), 2, 1);
+        state.beginMotion(BreadPresentationState.Motion.COLLAPSING);
+        state.endMotion();
+        assertEquals(accepted, state.inputAuthority());
+
+        state.visibility(false, 2);
+        state.visibility(true, 3);
+        assertNotEquals(accepted, state.inputAuthority());
+        accepted = state.inputAuthority();
+        state.foreground(false, 4);
+        state.foreground(true, 5);
+        assertNotEquals(accepted, state.inputAuthority());
+        accepted = state.inputAuthority();
+        state.configure("doc", false, true);
+        state.requestVisibility(true, (int) state.policyRevision(), 3, 6);
+        assertNotEquals(accepted, state.inputAuthority());
+        accepted = state.inputAuthority();
+        state.navigate(7);
+        assertNotEquals(accepted, state.inputAuthority());
+        accepted = state.inputAuthority();
+        state.close();
+        assertNotEquals(accepted, state.inputAuthority());
+    }
+
     @Test public void closedStateCannotBeRestoredAndCloseOccursOnce() {
         BreadPresentationState state = ready();
         assertTrue(state.close());

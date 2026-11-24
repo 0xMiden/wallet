@@ -28,8 +28,9 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('@reown/appkit/react', () => ({
   useAppKit: () => ({ open: jest.fn() }),
-  useDisconnect: () => ({ disconnect: jest.fn() })
+  useDisconnect: () => ({ disconnect: () => mockDisconnect() })
 }));
+let mockDisconnect: jest.Mock = jest.fn();
 
 let mockConnectionError: string | null = null;
 let mockConnection: { address: string | undefined; connected: boolean } = { address: undefined, connected: false };
@@ -40,6 +41,12 @@ jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
     nativeReown: { error: mockConnectionError },
     useNativeReownWallet: false
   })
+}));
+
+let mockOpenConnectModal: jest.Mock = jest.fn();
+jest.mock('lib/walletconnect/appkit', () => ({
+  prepareAppKitConnection: jest.fn(async () => undefined),
+  openConnectModal: () => mockOpenConnectModal()
 }));
 
 jest.mock('lib/store', () => ({
@@ -81,8 +88,11 @@ jest.mock('components/ui/Button', () => ({
 }));
 
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
-  EvmBridgeDepositScreen: ({ onClose }: { onClose: () => void }) => (
+  EvmBridgeDepositScreen: ({ onClose, onConnectAnother }: { onClose: () => void; onConnectAnother: () => void }) => (
     <div data-testid="bridge-deposit-screen">
+      <button type="button" onClick={onConnectAnother}>
+        switch
+      </button>
       <button type="button" onClick={onClose}>
         back
       </button>
@@ -255,4 +265,58 @@ it('reports a displayed wallet connection failure after 1000 ms without its text
     mockConnectionError = null;
     jest.useRealTimers();
   }
+});
+
+describe('BridgeDeposit web connect failure (#2109)', () => {
+  beforeEach(() => {
+    mockConnection = { address: undefined, connected: false };
+    mockBridgeIn = { state: 'available' };
+    mockOpenConnectModal = jest.fn();
+    mockDisconnect = jest.fn();
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('shows the failure when the connect modal cannot open instead of leaving the button dead', async () => {
+    mockOpenConnectModal = jest.fn().mockRejectedValue(new Error('WalletConnect relay unreachable'));
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'bridgeConnectWalletAction' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('WalletConnect relay unreachable');
+  });
+
+  it('clears the failure on the next attempt that opens', async () => {
+    mockOpenConnectModal = jest.fn().mockRejectedValueOnce(new Error('first failure')).mockResolvedValue(undefined);
+    render(<BridgeDeposit />);
+    const connect = screen.getByRole('button', { name: 'bridgeConnectWalletAction' });
+
+    fireEvent.click(connect);
+    expect(await screen.findByRole('alert')).toHaveTextContent('first failure');
+    fireEvent.click(connect);
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('shows a localized fallback when the failure carries no message', async () => {
+    mockOpenConnectModal = jest.fn().mockRejectedValue('refused');
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'bridgeConnectWalletAction' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('bridgeConnectPickerFailed');
+  });
+
+  it('shows the failure when switching wallets cannot reopen the picker', async () => {
+    mockConnection = { address: '0xabc', connected: true };
+    mockDisconnect = jest.fn(async () => {
+      mockConnection = { address: undefined, connected: false };
+    });
+    mockOpenConnectModal = jest.fn().mockRejectedValue(new Error('picker refused'));
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'switch' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('picker refused');
+  });
 });

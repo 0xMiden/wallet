@@ -157,21 +157,38 @@ export async function ensureOffscreenDocument(): Promise<void> {
 }
 
 /**
- * Unconditionally tear down the offscreen document (OS-level kill) via
- * `closeDocument()`: the deadline / heal-alarm kill path (design §3.2), whose
- * whole purpose is to kill a wedged realm. Serialized through
- * `withLifecycleLock` so the close can't race a concurrent create.
+ * Tear down the offscreen document (OS-level kill) via `closeDocument()`: the
+ * deadline / heal-alarm kill path (design §3.2), whose whole purpose is to kill
+ * a wedged realm. Serialized through `withLifecycleLock` so the close can't
+ * race a concurrent create.
  *
- * Callers that must not kill a healthy critical op should gate on
- * {@link isCriticalOpInFlight} first; this function itself does not.
+ * The no-argument call is unconditional. This function does not read
+ * {@link isCriticalOpInFlight}; a caller that must not kill a healthy critical
+ * op gates on that itself. It returns true after `closeDocument` and false when
+ * no document exists.
  *
- * Returns true if a document was actually closed; false if none existed.
+ * A predicate is run once, synchronously, inside that lock after
+ * `hasOffscreenDocument` resolves and before `closeDocument`, with no await
+ * between the check and the close. `blocked` means the predicate returned
+ * false; `absent` means it returned true and no document exists; `closed`
+ * means `closeDocument` ran.
  */
-export async function forceCloseOffscreenDocument(): Promise<boolean> {
+export function forceCloseOffscreenDocument(): Promise<boolean>;
+export function forceCloseOffscreenDocument(mayClose: () => boolean): Promise<'closed' | 'absent' | 'blocked'>;
+export async function forceCloseOffscreenDocument(
+  mayClose?: () => boolean
+): Promise<boolean | 'closed' | 'absent' | 'blocked'> {
   return await withLifecycleLock(async () => {
-    if (!(await hasOffscreenDocument())) return false;
+    const present = await hasOffscreenDocument();
+    if (mayClose === undefined) {
+      if (!present) return false;
+      await chrome.offscreen.closeDocument();
+      return true;
+    }
+    if (!mayClose()) return 'blocked';
+    if (!present) return 'absent';
     await chrome.offscreen.closeDocument();
-    return true;
+    return 'closed';
   });
 }
 

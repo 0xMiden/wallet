@@ -1,8 +1,10 @@
 import { TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
 import { summaryToView } from 'app/confirm/decode';
+import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
+  cacheScope,
   getVerificationBaseFee,
   getVerificationBaseFeeSync,
   isVerificationBaseFeeKnownAbsent,
@@ -14,9 +16,19 @@ import {
   assertProposalEffectApproved,
   assertViewEffectApproved,
   executeApprovalOf,
+  isEffectChecked,
   proposalEffectRefusal
 } from './proposal-effect-guard';
-import { IApprovedCustomEffects, ITransaction, ITransactionStatus } from '../db/types';
+import {
+  BridgedSendTransaction,
+  EarnDepositTransaction,
+  IApprovedCustomEffects,
+  ITransaction,
+  ITransactionStatus,
+  IUsdcxBurn
+} from '../db/types';
+import { withWasmClientLock } from '../sdk/miden-client';
+import { NoteTypeEnum } from '../types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionSummary: { deserialize: jest.fn() }
@@ -38,15 +50,28 @@ jest.mock('lib/shared/helpers', () => ({
 }));
 // The chain charges a fee in its native asset, USDCX here as on testnet, so the fee note is told apart.
 jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: jest.fn(() => 'rpc-a|testnet'),
   getNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => 'bech32:usdcx'),
   getVerificationBaseFeeSync: jest.fn(() => 2),
   getVerificationBaseFee: jest.fn(async () => 2),
   refreshVerificationBaseFee: jest.fn(async () => 2),
   isVerificationBaseFeeKnownAbsent: jest.fn(() => false)
 }));
 // By the path the guard imports: a root manual mock shadows the `lib/` spelling of this module.
+let mockWithinHold = false;
 jest.mock('../sdk/miden-client', () => ({
-  withWasmClientLock: jest.fn(async (fn: (hold: object) => unknown) => fn({}))
+  withWasmClientLock: jest.fn(async (fn: (hold: object) => unknown) => {
+    mockWithinHold = true;
+    try {
+      return await fn({});
+    } finally {
+      mockWithinHold = false;
+    }
+  })
+}));
+jest.mock('lib/miden/sdk/fee-sponsorship', () => ({
+  canonicalFeeSponsorshipNoteId: jest.fn(() => 'sponsorship-note')
 }));
 jest.mock('lib/i18n/core', () => ({
   getMessage: jest.fn((key: string) => `copy:${key}`)
@@ -134,6 +159,7 @@ const row = (fields: Partial<ITransaction>): ITransaction => ({
   ...fields
 });
 const claim = row({ type: 'consume', noteId: 'note-1' });
+const REQUEST = new Uint8Array([1]);
 const gcPurchase = (fillAmount: string) =>
   row({
     type: 'consume',
@@ -207,6 +233,7 @@ const givenSummary = (ts: Summary) => jest.mocked(TransactionSummary.deserialize
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(canonicalFeeSponsorshipNoteId).mockReset().mockReturnValue('sponsorship-note');
   jest.mocked(TransactionSummary.deserialize).mockReset();
   jest.mocked(getVerificationBaseFee).mockReset();
   jest.mocked(getVerificationBaseFee).mockImplementation(async () => 2);
@@ -215,6 +242,8 @@ beforeEach(() => {
   jest.mocked(getVerificationBaseFeeSync).mockReturnValue(2);
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReset();
   jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(false);
+  jest.mocked(cacheScope).mockReset();
+  jest.mocked(cacheScope).mockReturnValue('rpc-a|testnet');
 });
 
 describe('consume', () => {
@@ -279,7 +308,7 @@ describe('consume', () => {
   });
 });
 
-describe.each(['send', 'swap', 'earn-deposit'] as const)('%s approved outflow', type => {
+describe.each(['send', 'swap'] as const)('%s approved outflow', type => {
   const approved = () =>
     row({
       type,
@@ -326,6 +355,226 @@ describe.each(['send', 'swap', 'earn-deposit'] as const)('%s approved outflow', 
         ProposalEffectRefusedError
       );
     }
+  });
+});
+
+// The one note a bridged send's or Earn deposit's request was built with, as its row records it.
+const BUILT = 'built-note';
+const builtNote = (id: string) => ({ approvedOutputNoteIds: [id] });
+
+describe('bridged-send and earn-deposit', () => {
+  // Each provider's row and an Earn deposit's, with the reviewed source faucet and base-unit amount its constructor
+  // records. A USDCx burn bridges the native asset, so its fee leaves the same faucet.
+  const prebuilt = [
+    [
+      'agglayer bridged-send',
+      'fA',
+      () => new BridgedSendTransaction('acct', 100n, '0xevm', 0, 'agglayer', 'bech32:fA', REQUEST, true)
+    ],
+    [
+      'usdcx bridged-send',
+      'usdcx',
+      () => {
+        const tx = new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true);
+        tx.extraInputs.usdcxBurn = {
+          noteId: BUILT,
+          destinationDomain: 6,
+          phase: 'pending',
+          networkFeeBudget: {
+            faucetId: 'bech32:usdcx',
+            maxAmount: '60',
+            scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+          }
+        };
+        return tx;
+      }
+    ],
+    [
+      'epoch bridged-send',
+      'fA',
+      () =>
+        new BridgedSendTransaction('acct', 100n, '0xevm', 8453, 'epoch', 'bech32:fA', REQUEST, true, {
+          recipientId: 'allocator',
+          noteType: NoteTypeEnum.Public,
+          recallBlocks: 30
+        })
+    ],
+    [
+      'earn-deposit',
+      'fA',
+      () =>
+        new EarnDepositTransaction(
+          'acct',
+          100n,
+          '0xevm',
+          'AAVE:8453:0xusdc',
+          'bech32:fA',
+          { recipientId: 'allocator', noteType: NoteTypeEnum.Public, recallBlocks: 30 },
+          true,
+          REQUEST
+        )
+    ]
+  ] as const;
+
+  it('are checked types, which turns on the check of both signing paths', () => {
+    expect(isEffectChecked('bridged-send')).toBe(true);
+    expect(isEffectChecked('earn-deposit')).toBe(true);
+  });
+
+  describe.each(prebuilt)('%s', (_kind, faucet, queued) => {
+    const approved = (): ITransaction => ({ ...queued(), ...builtNote(BUILT) });
+    // The built note carrying `amount` and `extra` assets, then the kernel fee, as one net vault entry per faucet.
+    const bridgesOut = (amount: bigint, extra: Asset[] = [], noteId = BUILT) =>
+      summary({
+        removed:
+          faucet === 'usdcx' ? [fa('usdcx', amount + 2n), ...extra] : [fa(faucet, amount), fa('usdcx', 2n), ...extra],
+        outputs: [note([fa(faucet, amount), ...extra], [], noteId), feeNote(2n)]
+      });
+
+    it('permits exactly the reviewed amount, with the kernel fee excluded', () => {
+      expect(refusalOf(approved(), bridgesOut(100n))).toBeUndefined();
+      expect(refusalOf(approved(), bridgesOut(99n))).toBeUndefined();
+    });
+
+    it('refuses one base unit beyond the reviewed amount', () => {
+      expect(refusalOf(approved(), bridgesOut(101n))).toBe(`101 of bech32:${faucet} leaves (approved 100)`);
+    });
+
+    it('lets no asset but the reviewed one leave', () => {
+      expect(refusalOf(approved(), bridgesOut(100n, [fa('fB', 1n)]))).toBe('1 of bech32:fB leaves (approved 0)');
+    });
+
+    it('refuses an outgoing NFT', () => {
+      const outgoing = summary({
+        removed: [fa('usdcx', 2n)],
+        outputs: [note([], [nft('fN', 'n1')]), feeNote(2n)],
+        unlisted: 1
+      });
+      expect(refusalOf(approved(), outgoing)).toContain('an unapproved NFT of bech32:fN leaves');
+    });
+
+    it('refuses a vault change the summary cannot list', () => {
+      expect(refusalOf(approved(), summary({ unlisted: 1 }))).toContain('vault change(s) the summary does not list');
+    });
+
+    it('does not sign a row with an invalid reviewed amount or faucet', async () => {
+      givenSummary(bridgesOut(100n));
+      for (const missing of [{ amount: undefined }, { faucetId: undefined }, { amount: -1n }, { faucetId: '' }]) {
+        await expect(assertProposalEffectApproved({ ...approved(), ...missing }, 'sum')).rejects.toThrow(
+          ProposalEffectRefusedError
+        );
+      }
+    });
+
+    // The note id commits to the note's recipient, script, assets and serial, so binding it binds where the amount goes.
+    it('refuses a summary that creates a different note for the reviewed amount', () => {
+      expect(refusalOf(approved(), bridgesOut(100n, [], 'other-note'))).toBe(
+        'creates a note that was not approved (other-note)'
+      );
+    });
+
+    it('refuses a summary that creates a second note beside the built one, even one carrying nothing', () => {
+      const second = summary({
+        removed: faucet === 'usdcx' ? [fa('usdcx', 102n)] : [fa(faucet, 100n), fa('usdcx', 2n)],
+        outputs: [note([fa(faucet, 100n)], [], BUILT), note([], [], 'empty-note'), feeNote(2n)]
+      });
+      expect(refusalOf(approved(), second)).toBe('creates a note that was not approved (empty-note)');
+    });
+
+    it.each([
+      ['no recorded note', {}],
+      ['an empty record', { approvedOutputNoteIds: [] }],
+      ['two recorded notes', { approvedOutputNoteIds: [BUILT, 'other-note'] }]
+    ])('does not sign a row with %s, whatever its summary creates', async (_record, record) => {
+      givenSummary(bridgesOut(100n));
+      const refused = assertProposalEffectApproved({ ...queued(), ...record }, 'sum');
+      await expect(refused).rejects.toThrow(ProposalEffectRefusedError);
+      await expect(refused).rejects.toThrow('the transaction has no recorded note of its own');
+    });
+  });
+});
+
+describe('reviewed USDCx network fee budget', () => {
+  const budgeted = (
+    maxAmount = '2',
+    faucetId = 'bech32:usdcx',
+    scope = '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+  ) => {
+    const tx = new BridgedSendTransaction('acct', 100n, '0xevm', 6, 'usdcx', 'bech32:usdcx', REQUEST, true);
+    const burn: IUsdcxBurn = {
+      noteId: BUILT,
+      destinationDomain: 6,
+      phase: 'pending',
+      networkFeeBudget: { faucetId, maxAmount, scope }
+    };
+    tx.extraInputs.usdcxBurn = burn;
+    tx.approvedOutputNoteIds = [BUILT];
+    return tx;
+  };
+  const paid = () =>
+    viewOf(
+      summary({
+        removed: [fa('usdcx', 102n)],
+        outputs: [note([fa('usdcx', 100n)], [], BUILT), feeNote(2n)]
+      })
+    );
+
+  const sponsored = (companionId = 'sponsorship-note') =>
+    summary({
+      removed: [fa('usdcx', 105n)],
+      outputs: [note([fa('usdcx', 100n)], [], BUILT), note([fa('usdcx', 3n)], [], companionId), feeNote(2n)]
+    });
+
+  it('partitions the canonical companion inside the existing Guardian decode hold', async () => {
+    givenSummary(sponsored());
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
+      expect(mockWithinHold).toBe(true);
+      return 'sponsorship-note';
+    });
+    await expect(assertProposalEffectApproved(budgeted('5'), 'sum')).resolves.toBeUndefined();
+    expect(withWasmClientLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an unrecognized companion subject to the unchanged principal and exact-note checks', async () => {
+    givenSummary(sponsored('not-canonical'));
+    await expect(assertProposalEffectApproved(budgeted('1000'), 'sum')).rejects.toThrow(ProposalEffectRefusedError);
+  });
+
+  it('propagates a sponsorship reconstruction trap through the existing decode hold', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    givenSummary(sponsored());
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementationOnce(() => {
+      throw trap;
+    });
+    const refused = assertProposalEffectApproved(budgeted('5'), 'sum');
+    await expect(refused).rejects.toMatchObject({ cause: trap });
+    await expect(jest.mocked(withWasmClientLock).mock.results[0]?.value).rejects.toBe(trap);
+  });
+
+  it('keeps the reviewed principal allowance when total native fees fit the cap', () => {
+    expect(proposalEffectRefusal(budgeted(), paid())).toBeUndefined();
+  });
+
+  it.each(['0', '1', '-1', '', '1.5', 'NaN', '0002'])('refuses a native fee budget of %s', maximum => {
+    expect(proposalEffectRefusal(budgeted(maximum), paid())).toBeDefined();
+  });
+
+  it('does not invent fee approval for a previously queued row', () => {
+    const tx = budgeted();
+    const burn = tx.extraInputs.usdcxBurn;
+    if (!burn) throw new Error('missing test burn');
+    Reflect.deleteProperty(burn, 'networkFeeBudget');
+    expect(proposalEffectRefusal(tx, paid())).toBeDefined();
+  });
+
+  it('refuses a fee budget for another asset or source scope', () => {
+    expect(proposalEffectRefusal(budgeted('2', 'bech32:other'), paid())).toBeDefined();
+    expect(
+      proposalEffectRefusal(
+        budgeted('2', 'bech32:usdcx', 'ac86888532e6c070013d6f92d90a251ff6e97b0fac34bb6819db27298ac309f4'),
+        paid()
+      )
+    ).toBeDefined();
   });
 });
 
@@ -694,7 +943,7 @@ describe('assertProposalEffectApproved', () => {
     expect(TransactionSummary.deserialize).toHaveBeenCalledTimes(1);
 
     jest.mocked(refreshVerificationBaseFee).mockResolvedValueOnce(null);
-    jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValueOnce(true);
+    jest.mocked(isVerificationBaseFeeKnownAbsent).mockReturnValue(true);
     jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
     givenSummary(
       summary({
@@ -710,6 +959,39 @@ describe('assertProposalEffectApproved', () => {
       message: 'Refused to sign this consume transaction: 2 of bech32:usdcx leaves (approved 0)'
     });
     expect(TransactionSummary.deserialize).toHaveBeenCalledTimes(2);
+  });
+
+  // A plain claim of 50 fB whose only outflow is its 2 USDCX fee note.
+  const FEE_ONLY_CLAIM = summary({
+    removed: [fa('usdcx', 2n)],
+    added: [fa('fB', 50n)],
+    inputs: [note([fa('fB', 50n)])],
+    outputs: [feeNote(2n)]
+  });
+  /** The decoding hold, entered once `whileWaiting` changed the fee cache its decode reads. */
+  const holdEnteredAfter = (whileWaiting: () => void) =>
+    jest.mocked(withWasmClientLock).mockImplementationOnce(async fn => {
+      whileWaiting();
+      return fn({} as never);
+    });
+
+  it('refuses as an unknown fee, not as moving more, a proposal whose fee cache empties while it waits for the decoding hold', async () => {
+    givenSummary(FEE_ONLY_CLAIM);
+    holdEnteredAfter(() => jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null));
+
+    await expect(assertProposalEffectApproved(claim, 'sum')).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
+  });
+
+  it('refuses as an unknown fee a proposal whose endpoint moves while it waits for the decoding hold', async () => {
+    givenSummary(FEE_ONLY_CLAIM);
+    holdEnteredAfter(() => jest.mocked(cacheScope).mockReturnValue('rpc-b|testnet'));
+
+    const refused = assertProposalEffectApproved(claim, 'sum');
+    await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    await expect(refused).rejects.toMatchObject({ displayMessage: 'copy:chainFeeUnknown' });
+    expect(getVerificationBaseFeeSync()).toBe(2);
+    expect(TransactionSummary.deserialize).not.toHaveBeenCalled();
   });
 
   it('passes a plain claim and a custom transaction within its approval', async () => {
@@ -782,6 +1064,20 @@ describe('assertViewEffectApproved', () => {
     await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
     await expect(refused).rejects.toMatchObject({ displayMessage: 'copy:chainFeeUnknown' });
     expect(decode).not.toHaveBeenCalled();
+  });
+
+  it('hands its decode the fee check, which refuses as an unknown fee once the cache empties, unwrapped', async () => {
+    const decoded: string[] = [];
+    const refused = assertViewEffectApproved(claim, async assertFeeKnownAtDecode => {
+      assertFeeKnownAtDecode();
+      decoded.push('known');
+      jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
+      assertFeeKnownAtDecode();
+      decoded.push('unknown');
+      return summaryToView(PSWAP_FILL as never);
+    });
+    await expect(refused).rejects.toBeInstanceOf(ProposalFeeUnknownError);
+    expect(decoded).toEqual(['known']);
   });
 
   it('leaves an unchecked type alone without calling the decode', async () => {

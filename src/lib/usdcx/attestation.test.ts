@@ -117,7 +117,10 @@ describe('fetchXReserveAttestations', () => {
     }));
 
     const pending = fetchXReserveAttestations(TX_HASH, { timeoutMs: 1000 });
-    await Promise.all([expect(pending).rejects.toThrow('aborted'), jest.advanceTimersByTimeAsync(1000)]);
+    await Promise.all([
+      expect(pending).rejects.toThrow('Circle status unavailable'),
+      jest.advanceTimersByTimeAsync(1000)
+    ]);
     expect(jest.getTimerCount()).toBe(0);
   });
 
@@ -132,7 +135,7 @@ describe('fetchXReserveAttestations', () => {
 
     const pending = fetchXReserveAttestations(TX_HASH, { timeoutMs: 1000 });
     jest.advanceTimersByTime(1000);
-    await expect(pending).rejects.toThrow('aborted');
+    await expect(pending).rejects.toThrow('Circle status unavailable');
   });
 });
 

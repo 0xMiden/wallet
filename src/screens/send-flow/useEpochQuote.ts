@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useDebounce } from 'use-debounce';
 
+import type { QuoteValidity } from 'lib/bridge/core/quote';
 import { quoteEpochSendOutput } from 'lib/epoch';
 import { normalizeMidenIdToHex } from 'lib/epoch/bridge';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectEpochOutputToken, selectEvmChainId } from 'lib/remote-config/values';
 
 export interface EpochQuoteState {
+  validity?: QuoteValidity;
   loading: boolean;
   /** Estimated EVM output as an exact human decimal; the Review rounds it down for display. */
   amount?: string;
@@ -33,7 +35,7 @@ export interface UseEpochQuoteOpts {
   destinationChainId?: number;
 }
 
-type QuoteRequestState = Omit<EpochQuoteState, 'symbol'> & { symbol?: string };
+type QuoteRequestState = Omit<EpochQuoteState, 'symbol'> & { symbol?: string; requestKey?: string };
 
 const IDLE: QuoteRequestState = { loading: false };
 
@@ -73,6 +75,8 @@ export function useEpochQuote({
     ? JSON.stringify({ a: amount!.toString(), f: faucetId, d: destinationAddress, s: senderPublicKey })
     : '';
   const [debouncedKey] = useDebounce(key, 500);
+  const requestKey = JSON.stringify([debouncedKey, configKey, destinationChainId]);
+  const currentKey = JSON.stringify([key, configKey, destinationChainId]);
   const [state, setState] = useState<QuoteRequestState>(IDLE);
   const reqId = useRef(0);
 
@@ -84,7 +88,7 @@ export function useEpochQuote({
     }
     const { a, f, d, s } = JSON.parse(debouncedKey) as { a: string; f: string; d: string; s: string };
     const id = ++reqId.current;
-    setState({ loading: true });
+    setState({ loading: true, requestKey });
     quoteEpochSendOutput({
       amount: BigInt(a),
       faucetId: f,
@@ -94,17 +98,25 @@ export function useEpochQuote({
     })
       .then(res => {
         if (id !== reqId.current) return;
-        setState({ loading: false, amount: res.amount, symbol: res.symbol });
+        setState({
+          loading: false,
+          amount: res.amount,
+          symbol: res.symbol,
+          ...(res.validity ? { validity: res.validity } : {}),
+          requestKey
+        });
       })
       .catch((err: unknown) => {
         if (id !== reqId.current) return;
-        setState({ loading: false, error: err instanceof Error ? err.message : 'Quote failed' });
+        setState({ loading: false, error: err instanceof Error ? err.message : 'Quote failed', requestKey });
       });
-  }, [debouncedKey, configKey, destinationChainId]);
+  }, [debouncedKey, requestKey, destinationChainId]);
 
+  const { requestKey: savedKey, ...resolved } = state;
+  const visible: QuoteRequestState = savedKey === currentKey ? resolved : { loading: ready };
   return {
-    ...state,
-    symbol: state.symbol ?? outputSymbol,
+    ...visible,
+    symbol: visible.symbol ?? outputSymbol,
     ...(outputToken ? { address: outputToken.address, decimals: outputToken.decimals } : {})
   };
 }

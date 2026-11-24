@@ -1,11 +1,13 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
-import type { TestInfo } from '@playwright/test';
+import type { ConsoleMessage, TestInfo } from '@playwright/test';
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 import sharp from 'sharp';
 
 import { getEnvironmentConfig } from '../../config/environments';
 import { expect, test } from '../../fixtures/hermetic-bridge';
 import { suspendScreenCapture } from '../../harness/screen-capture';
+import { summarizeEarnReactFrames } from '../../helpers/earn-react-frames';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
 import { type AccountAxis, guardianAxis, offChainAxis } from '../../helpers/money-path';
@@ -248,7 +250,8 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
       await midenCli.init();
 
       await walletA.navigateTo('/earn');
-      const positionCard = walletA.page.locator('[data-testid^="earn-position-card-"]').first();
+      const workbench = walletA.page.getByTestId('command-shell').getByTestId('command-workbench');
+      const positionCard = workbench.locator('[data-testid^="command-earn-withdraw-"]').first();
       await expect(positionCard).toBeVisible({ timeout: 30_000 });
       await positionCard.click();
       await expect(walletA.page.getByTestId('earn-position-detail-page')).toBeVisible({ timeout: 30_000 });
@@ -258,12 +261,12 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
       const amountStep = walletA.page.getByTestId('earn-withdraw-amount-page');
       await expect(amountStep).toBeVisible({ timeout: 30_000 });
       await amountStep.getByRole('button', { name: 'Max', exact: true }).click();
-      await amountStep.getByRole('button', { name: 'Review', exact: true }).click();
-      await expect(walletA.page.getByTestId('earn-withdraw-review-page')).toBeVisible({ timeout: 30_000 });
+      await workbench.getByTestId('command-footer').getByRole('button', { name: 'Review', exact: true }).click();
+      await expect(workbench.getByTestId('earn-withdraw-review-page')).toBeVisible({ timeout: 30_000 });
       expect(new URL(walletA.page.url()).hash, 'Max reviews the whole position').toMatch(
         new RegExp(`/withdraw/review\\?amount=${WITHDRAW_AMOUNT}$`)
       );
-      const confirm = walletA.page.getByTestId('earn-withdraw-review-confirm');
+      const confirm = workbench.getByTestId('command-footer').getByTestId('earn-withdraw-review-confirm');
       await expect(confirm).toBeEnabled({ timeout: 30_000 });
       const nonceRequests = () => allocator.requests.filter(request => request.path.startsWith('/suggested-nonce/'));
       expect(nonceRequests(), 'the review quotes once before Confirm').toHaveLength(1);
@@ -423,9 +426,35 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         await expect
           .poll(async () => (await withdrawState(survivor, txId))?.phase, { timeout: 45_000, intervals: [1000] })
           .toBe('failed');
-        await survivor.navigateTo(`/history-details/${txId}`);
         const retryDelivery = survivorPage.getByRole('button', { name: 'Retry delivery', exact: true });
-        await expect(retryDelivery).toBeVisible({ timeout: 30_000 });
+        const consoleErrors: string[] = [];
+        const diagnoseColdReceipt = getEnvironmentConfig().name === 'localhost';
+        const onConsoleError = (message: ConsoleMessage) => {
+          if (message.type() !== 'error' || consoleErrors.length >= 2) return;
+          const text = message.text();
+          if (text.length <= 16_384 && text.includes('Minified React error #185')) consoleErrors.push(text);
+        };
+        if (diagnoseColdReceipt) survivorPage.on('console', onConsoleError);
+        try {
+          await survivor.navigateTo(`/history-details/${txId}`);
+          await expect(retryDelivery).toBeVisible({ timeout: 30_000 });
+        } catch (error) {
+          if (diagnoseColdReceipt) {
+            try {
+              const frames = summarizeEarnReactFrames(
+                consoleErrors,
+                walletA.extensionId,
+                process.env.EXTENSION_DIST ?? resolve(__dirname, '../../../..', 'dist/chrome_unpacked')
+              );
+              console.error(`Earn receipt #185 frames: ${frames}`);
+            } catch {
+              console.error('Earn receipt #185 frames: unavailable');
+            }
+          }
+          throw error;
+        } finally {
+          if (diagnoseColdReceipt) survivorPage.off('console', onConsoleError);
+        }
         await expect(survivorPage.getByText(/Max network fee/)).toHaveCount(0);
         await retryDelivery.scrollIntoViewIfNeeded();
         await captureWithdrawalScreen(survivor, testInfo, 'withdrawal-retry-delivery');
@@ -508,7 +537,9 @@ function defineEarnWithdrawSuite(axis: AccountAxis): void {
         expect(nonceRequests()).toHaveLength(6);
         expect(positions.requests.some(request => request.path === '/positions')).toBe(true);
         await survivor.navigateTo(`/history-details/${txId}`);
-        await expect(survivorPage.getByText('Received', { exact: true })).toBeVisible({ timeout: 30_000 });
+        await expect(survivorPage.getByTestId('history-status-pill').getByText('Received', { exact: true })).toBeVisible({
+          timeout: 30_000
+        });
         await expect(survivorPage.getByRole('button', { name: 'Retry delivery', exact: true })).toHaveCount(0);
         await captureWithdrawalScreen(survivor, testInfo, 'withdrawal-received');
         await survivor.navigateTo(`/history-details/${receipt.id}`);

@@ -22,6 +22,7 @@ import {
   openPlainAccount
 } from '../../helpers/mainnet-bridge-run';
 import { burnUsdcxToAddress, tokenIdBySymbol } from '../../helpers/mainnet-bridge-send';
+import { nightlyAmount, nightlyDuration, observeNightly, observedStage } from '../../reporting/nightly-observation';
 import {
   executorSource,
   mainnetChain,
@@ -47,6 +48,28 @@ const PAYOUT_POLL_MS = 10_000;
 const PAYOUT_SUMMARY = 'test-results/mainnet-usdcx-payouts.md';
 
 /** A loop's burn: the wallet row that records it and the USDC Circle pays it in. */
+function observeUsdcx(loop: UsdcxLoop) {
+  const routes = new Map<
+    number,
+    ['usdcx-ethereum' | 'usdcx-base' | 'usdcx-arbitrum' | 'usdcx-arc', 'Ethereum' | 'Base' | 'Arbitrum' | 'Arc']
+  >([
+    [1, ['usdcx-ethereum', 'Ethereum']],
+    [8453, ['usdcx-base', 'Base']],
+    [42161, ['usdcx-arbitrum', 'Arbitrum']],
+    [5042, ['usdcx-arc', 'Arc']]
+  ]);
+  const route = routes.get(loop.chainId);
+  if (!route) return () => {};
+  return observeNightly(test.info(), {
+    key: route[0],
+    kind: 'bridge',
+    surface: 'wallet_ui_and_helper',
+    provider: loop.route === 'xreserve' ? 'Circle xReserve' : 'Circle USDCx',
+    sourceNetwork: 'Miden',
+    destinationNetwork: route[1]
+  });
+}
+
 interface MainnetBurn {
   loop: UsdcxLoop;
   rowId: string;
@@ -74,7 +97,16 @@ test('loops the minimum on every mainnet USDCx route', async ({ walletA }) => {
   }
 
   const burns: MainnetBurn[] = [];
-  for (const loop of loops) burns.push(await runUsdcx(doc, loop, signer, accountId, evm.address, walletA));
+  for (const loop of loops) {
+    const observe = observeUsdcx(loop);
+    const burn = await observedStage(
+      observe,
+      { key: 'execution', origin: 'wallet_assertion', errorCode: 'bridge_failed' },
+      () => runUsdcx(doc, loop, signer, accountId, evm.address, walletA)
+    );
+    observe({ outcome: 'executed', offered: nightlyAmount({ symbol: 'USDCx', decimals: 6 }, LOOP_USDC) });
+    burns.push(burn);
+  }
   const latest = started + test.info().timeout - VERIFY_MARGIN_MS;
   await proveMainnetPayouts(doc, burns, evm.address, walletA, Math.min(Date.now() + PAYOUT_WAIT_MS, latest));
 });
@@ -95,6 +127,8 @@ async function proveMainnetPayouts(
     const rows = await readBridgedSendRows(wallet.page);
     return burns.map(burn => ({ burn, usdcxBurn: rows.find(row => row.id === burn.rowId)?.extraInputs?.usdcxBurn }));
   };
+  const timing = nightlyDuration();
+  const observedDeadline = new Date(deadline).toISOString();
   const waitedMinutes = Math.max(0, Math.round((deadline - Date.now()) / 60_000));
   let found = await read();
   while (found.some(({ usdcxBurn }) => !usdcxBurn?.payout) && Date.now() < deadline) {
@@ -108,8 +142,19 @@ async function proveMainnetPayouts(
   });
   for (const { burn, usdcxBurn } of found) {
     const chain = mainnetChain(burn.loop.chainId).name;
+    const observe = observeUsdcx(burn.loop);
+    const failedPayout = () =>
+      observe(undefined, {
+        key: 'bridge_finality',
+        origin: 'wallet_assertion',
+        status: 'failed',
+        errorCode: 'bridge_failed',
+        deadlineAt: observedDeadline,
+        ...timing()
+      });
     const payout = usdcxBurn?.payout;
     if (!usdcxBurn || !payout) {
+      failedPayout();
       failures.push(
         `${chain}: burn ${usdcxBurn?.noteId ?? `row ${burn.rowId} with no note id`} unpaid after ` +
           `${waitedMinutes} minutes, phase ${usdcxBurn?.phase ?? 'none'}, ` +
@@ -119,15 +164,18 @@ async function proveMainnetPayouts(
       continue;
     }
     if (!isHash(payout.transactionHash)) {
+      failedPayout();
       failures.push(`${chain}: burn ${usdcxBurn.noteId} recorded mint ${payout.transactionHash}, not a hash`);
       continue;
     }
     if (!/^\d+$/.test(payout.value)) {
+      failedPayout();
       failures.push(`${chain}: burn ${usdcxBurn.noteId} recorded value ${payout.value}, not base units`);
       continue;
     }
     const entry = { chain, burnUnits: LOOP_USDC, transactionHash: payout.transactionHash };
     if (!gateway) {
+      failedPayout();
       recordPayoutFee(
         { ...entry, suite: 'mainnet-bridge-loop (unverified)', value: BigInt(payout.value) },
         PAYOUT_SUMMARY
@@ -147,7 +195,22 @@ async function proveMainnetPayouts(
         depositor: gateway.depositor
       });
       recordPayoutFee({ ...entry, suite: 'mainnet-bridge-loop', value }, PAYOUT_SUMMARY);
+      observe(
+        {
+          outcome: 'bridge_completion_asserted',
+          received: nightlyAmount({ symbol: 'USDC', decimals: 6 }, value),
+          fee: nightlyAmount({ symbol: 'USDC', decimals: 6 }, LOOP_USDC - value)
+        },
+        {
+          key: 'bridge_finality',
+          origin: 'wallet_assertion',
+          status: 'passed',
+          deadlineAt: observedDeadline,
+          ...timing()
+        }
+      );
     } catch (error) {
+      failedPayout();
       failures.push(`${chain}: ${errorMessage(error)}`);
     }
   }

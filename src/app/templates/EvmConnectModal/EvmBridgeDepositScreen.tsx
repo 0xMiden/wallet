@@ -12,7 +12,6 @@ import {
   formatUnits,
   Hash,
   isAddress,
-  isHash,
   isHex,
   parseUnits,
   toHex
@@ -92,6 +91,7 @@ import {
   UsdcxExecutorSigner
 } from 'lib/usdcx/executor';
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
+import { sendEvmContractTransaction } from 'lib/walletconnect/contract-send';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
 import { chromeExtensionWalletConnectId } from 'lib/walletconnect/identity';
 import {
@@ -109,6 +109,7 @@ import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types'
 
 import { depositTokenPrice, useBridgeInBalanceCap } from './bridge-in-balance-cap';
 import { type DepositToken, depositTokenKey, epochTokenKey, type OfferedErc20 } from './deposit-token';
+import { EpochWithdrawalGate } from './EpochWithdrawalGate';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
@@ -1702,38 +1703,22 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       // the typed call. Both pin the source chain before broadcasting.
       if (!usdcxSource) throw new Error('USDCx source is not configured');
       const { usdc: circleUsdcAddress, chain: usdcxChain } = usdcxSource;
-      const sendNative = async (to: `0x${string}`, data: `0x${string}`): Promise<Hash> => {
-        // Fee fields with headroom: the wallet's own estimate can fall under a base fee that rose
-        // during the prompt, and the node then rejects the signed transaction outright.
-        const result = await NativeReown.sendTransaction({
-          chainId: usdcxChain.id,
-          from: evmAddress,
-          to,
-          value: toHex(0n),
-          data,
-          ...(await readNativeFeeFields(usdcxChain.id))
-        });
-        const hash = unwrapNativeResult(result.hash);
-        if (!isHash(hash)) {
-          throw walletRaised(new Error('The wallet returned no transaction hash.'));
-        }
-        return hash;
+      const usdcxSigner = {
+        nativeReownAvailable,
+        writeContract: writeContract.mutateAsync,
+        chainId: usdcxChain.id,
+        from: evmAddress
       };
       // A signed approval is always followed by another wallet prompt: a second approval or the deposit or burn.
       const approve = async (spender: `0x${string}`, value: bigint): Promise<Hash> => {
         step = 'wallet_approve';
-        const hash = await (nativeReownAvailable
-          ? sendNative(
-              circleUsdcAddress,
-              encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [spender, value] })
-            )
-          : writeContract.mutateAsync({
-              chainId: usdcxChain.id,
-              abi: ERC20_APPROVE_ABI,
-              address: circleUsdcAddress,
-              functionName: 'approve',
-              args: [spender, value]
-            }));
+        const hash = await sendEvmContractTransaction({
+          ...usdcxSigner,
+          address: circleUsdcAddress,
+          abi: ERC20_APPROVE_ABI,
+          functionName: 'approve',
+          args: [spender, value]
+        });
         setAwaitingNextConfirmation(true);
         step = 'approve_receipt';
         return hash;
@@ -1784,18 +1769,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               approve,
               depositToRemote: args =>
                 lastPrompt(
-                  nativeReownAvailable
-                    ? sendNative(
-                        xReserve,
-                        encodeFunctionData({ abi: XRESERVE_ABI, functionName: 'depositToRemote', args })
-                      )
-                    : writeContract.mutateAsync({
-                        chainId: usdcxChain.id,
-                        abi: XRESERVE_ABI,
-                        address: xReserve,
-                        functionName: 'depositToRemote',
-                        args
-                      })
+                  sendEvmContractTransaction({
+                    ...usdcxSigner,
+                    address: xReserve,
+                    abi: XRESERVE_ABI,
+                    functionName: 'depositToRemote',
+                    args
+                  })
                 )
             };
             await runUsdcxDeposit(trackingTxId, amount, recipient, {
@@ -1820,22 +1800,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               approve,
               depositForBurnWithHookAndFees: args =>
                 lastPrompt(
-                  nativeReownAvailable
-                    ? sendNative(
-                        tokenMessengerWithFees,
-                        encodeFunctionData({
-                          abi: TOKEN_MESSENGER_WITH_FEES_ABI,
-                          functionName: 'depositForBurnWithHookAndFees',
-                          args
-                        })
-                      )
-                    : writeContract.mutateAsync({
-                        chainId: usdcxChain.id,
-                        abi: TOKEN_MESSENGER_WITH_FEES_ABI,
-                        address: tokenMessengerWithFees,
-                        functionName: 'depositForBurnWithHookAndFees',
-                        args
-                      })
+                  sendEvmContractTransaction({
+                    ...usdcxSigner,
+                    address: tokenMessengerWithFees,
+                    abi: TOKEN_MESSENGER_WITH_FEES_ABI,
+                    functionName: 'depositForBurnWithHookAndFees',
+                    args
+                  })
                 )
             };
             await runUsdcxExecutorDeposit(trackingTxId, amount, recipient, {
@@ -2449,7 +2420,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     tokenSymbol
   ]);
 
-  const renderStep = useCallback(
+  const renderDepositStep = useCallback(
     (activeRoute: Route) => {
       switch (activeRoute.name) {
         case ReceiveStep.ShowBridgePageStatus:
@@ -2663,6 +2634,61 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       tokenSymbol,
       tokenLabel,
       arrivingName
+    ]
+  );
+
+  const renderStep = useCallback(
+    (step: Route) => {
+      const content = renderDepositStep(step);
+      const checksWithdrawal =
+        step.name === ReceiveStep.ShowBridgePageRoute || step.name === ReceiveStep.ShowBridgePageReview;
+      if (
+        !checksWithdrawal ||
+        route !== 'epoch' ||
+        fastAvailability.state !== 'available' ||
+        !evmUsdc ||
+        !allocatorUrl
+      ) {
+        return content;
+      }
+      const alternative = (() => {
+        if (token === 'CIRCLE_USDC' && usdcxAvailable) {
+          return { label: t('bridgeWithdrawalUseCircle'), onSelect: () => handleRouteChange('usdcx') };
+        }
+        if (slowAvailability.state === 'available') {
+          return { label: t('bridgeWithdrawalUseSlow'), onSelect: () => handleRouteChange('agglayer') };
+        }
+        return undefined;
+      })();
+      return (
+        <EpochWithdrawalGate
+          key={`${allocatorUrl}:${evmUsdc.chainId}:${evmUsdc.address}:${evmAddress}`}
+          chainId={evmUsdc.chainId}
+          tokenAddress={evmUsdc.address}
+          tokenLabel={tokenLabel}
+          sponsorAddress={evmAddress}
+          allocatorUrl={allocatorUrl}
+          onDisabled={requote}
+          alternative={alternative}
+        >
+          {content}
+        </EpochWithdrawalGate>
+      );
+    },
+    [
+      allocatorUrl,
+      evmAddress,
+      evmUsdc,
+      fastAvailability.state,
+      handleRouteChange,
+      renderDepositStep,
+      requote,
+      route,
+      slowAvailability.state,
+      t,
+      token,
+      tokenLabel,
+      usdcxAvailable
     ]
   );
 

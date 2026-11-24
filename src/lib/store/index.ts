@@ -260,7 +260,7 @@ export function withLandedBalances(
     balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
   };
   const finalRows = result.balances[accountAddress];
-  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot);
+  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot, accountAddress);
   return result;
 }
 
@@ -443,6 +443,12 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.UnlockResponse);
+    },
+
+    platformUnlock: async command => {
+      const res = await request({ type: WalletMessageType.PlatformUnlockRequest, command });
+      assertResponse(res.type === WalletMessageType.PlatformUnlockResponse);
+      return res.result;
     },
 
     // Account actions
@@ -865,7 +871,7 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
       const failure = burnFeeFailureOf(res);
       return res.outcome === 'measured'
-        ? { outcome: 'measured', reserve: BigInt(res.feeReserve) }
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve), faucetId: res.faucetId, scope: res.scope }
         : res.outcome === 'failed' && failure
           ? { outcome: 'failed', failure }
           : { outcome: res.outcome };
@@ -1712,4 +1718,42 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       setTestSyncPaused(false);
     }
   });
+  // Proves an abandon on the Guardian under test: pushes a 1-unit public send as a candidate (signing the proposal
+  // pushes its delta), never executes it, abandons it and polls the quarantine to its end. The sleeps run outside the
+  // WASM lock; the proposal steps take it themselves.
+  Reflect.set(
+    globalThis,
+    '__TEST_GUARDIAN_ABANDON_PROBE__',
+    async (accountPublicKey: string, recipient: string, faucetId: string) => {
+      setTestSyncPaused(true);
+      try {
+        const [{ NoteType }, { getOrCreateMultisigService }, { zustandProvider }, { sameWalletAccountId }] =
+          await Promise.all([
+            import('@miden-sdk/miden-sdk/lazy'),
+            import('lib/miden/front/guardian-manager'),
+            import('lib/miden/front/guardian-sync'),
+            import('lib/miden/sdk/helpers')
+          ]);
+        const walletAccount = useWalletStore
+          .getState()
+          .accounts.find(account => sameWalletAccountId(account.publicKey, accountPublicKey));
+        if (!walletAccount) return { error: `No wallet account ${accountPublicKey}` };
+        const service = await getOrCreateMultisigService(walletAccount.publicKey, zustandProvider);
+        const proposal = await service.createSendProposal(recipient, faucetId, 1n, NoteType.Public);
+        await service.signAndCreateTransactionRequest(proposal.id);
+        const ticket = await service.abandonCandidate(proposal.nonce, proposal.id);
+        const deadline = Date.now() + 150_000;
+        for (;;) {
+          const status = await service.abandonStatus(proposal.nonce, ticket);
+          if (status !== 'waiting') return { legacy: ticket.legacy, status };
+          if (Date.now() >= deadline) return { error: 'abandon still waiting after 150 s' };
+          await new Promise(resolve => setTimeout(resolve, 3_000));
+        }
+      } catch (e) {
+        return { error: describeHookError(e) };
+      } finally {
+        setTestSyncPaused(false);
+      }
+    }
+  );
 }

@@ -13,6 +13,8 @@
  *   - waitForTransactionCompletion
  */
 
+import { NoteScript, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { reportOperation } from 'lib/telemetry/report-operation';
@@ -43,8 +45,15 @@ import {
   waitForTransactionCompletion
 } from './index';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { IBridgeClaimStatus, ITransactionStatus, Transaction } from '../db/types';
+import {
+  IBridgeClaimStatus,
+  ITransactionStatus,
+  ReplaceHotKeyTransaction,
+  SwitchGuardianTransaction,
+  Transaction
+} from '../db/types';
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncParked } from '../front/sync-fuse';
+import { installLandedTrapRetirement } from '../sdk/landed-trap-retirement';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { type ConsumableNote, NoteTypeEnum } from '../types';
 import * as ClaimFee from './claim-fee';
@@ -1058,6 +1067,31 @@ describe('cancelTransaction error variants', () => {
   });
 });
 
+// A result whose handles stop answering once `replace()` runs, as after a wait that replaced the client: each later read
+// is recorded and throws.
+const replaceableResult = (outputNotes: unknown[]) => {
+  const lateReads: string[] = [];
+  let replaced = false;
+  const answer =
+    <T>(name: string, read: () => T) =>
+    () => {
+      if (replaced) {
+        lateReads.push(name);
+        throw new Error('null pointer passed to rust');
+      }
+      return read();
+    };
+  const result = {
+    executedTransaction: answer('executedTransaction', () => ({
+      id: answer('id', () => ({ toHex: answer('toHex', () => 'h') })),
+      outputNotes: answer('outputNotes', () => ({ notes: () => outputNotes })),
+      inputNotes: answer('inputNotes', () => ({ notes: () => [] }))
+    })),
+    serialize: answer('serialize', () => new Uint8Array([1]))
+  };
+  return { result, lateReads, replace: () => (replaced = true) };
+};
+
 describe('completeCustomTransaction', () => {
   let mockSendPrivateNote: jest.Mock;
   let mockWaitForCommit: jest.Mock;
@@ -1265,6 +1299,38 @@ describe('completeCustomTransaction', () => {
     expect(txStore[0]).toMatchObject({ secondaryAccountId: 'sender', relayRecipientId: 'acc-2' });
   });
 
+  it('records the interpreted result a custom transaction read before its commit wait', async () => {
+    const { result, lateReads, replace } = replaceableResult([
+      {
+        id: () => ({ toString: () => '0xprivate' }),
+        metadata: () => ({ noteType: () => 'private' }),
+        intoFull: () => ({}) as any
+      }
+    ]);
+    jest
+      .requireMock('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce((tx: any, landed: typeof result) => ({
+        ...tx,
+        transactionId: landed.executedTransaction().id().toHex(),
+        resultBytes: landed.serialize()
+      }));
+    mockWaitForCommit.mockImplementationOnce(async () => {
+      replace();
+    });
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, result);
+
+    expect(mockWaitForCommit).toHaveBeenCalledWith('h');
+    expect(mockSendPrivateNote).toHaveBeenCalledWith({}, 'acc-2');
+    expect(txStore[0]).toMatchObject({
+      status: ITransactionStatus.Completed,
+      transactionId: 'h',
+      resultBytes: new Uint8Array([1]),
+      noteDelivery: 'relayed'
+    });
+    expect(lateReads).toEqual([]);
+  });
+
   const twoPrivateNotes = () =>
     ({
       executedTransaction: () => ({
@@ -1363,6 +1429,569 @@ describe('completeSendTransaction relay acknowledgement', () => {
     }
 
     expect(txStore[0]).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: ['0xsent'] });
+  });
+
+  it('records the id, bytes and fee a private send read before its commit wait, not after it', async () => {
+    txStore.push({
+      id: 'tx-send-read-first',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const fullNote = {
+      id: () => ({ toString: () => '0xsent' }),
+      metadata: () => ({ noteType: () => 'private' })
+    };
+    const { result, lateReads, replace } = replaceableResult([
+      { metadata: () => ({ noteType: () => 'private' }), intoFull: () => fullNote }
+    ]);
+    const waitForTransactionCommit = jest.fn(async (_id: string) => {
+      replace();
+    });
+    const sendPrivateNote = jest.fn(async () => {});
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({ waitForTransactionCommit, sendPrivateNote });
+    const { completeSendTransaction } = require('./index');
+
+    try {
+      await completeSendTransaction(txStore[0]!, result);
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+    }
+
+    expect(waitForTransactionCommit).toHaveBeenCalledWith('h');
+    expect(sendPrivateNote).toHaveBeenCalledWith(fullNote, 'acc-2');
+    expect(txStore[0]).toMatchObject({
+      status: ITransactionStatus.Completed,
+      transactionId: 'h',
+      resultBytes: new Uint8Array([1]),
+      noteDelivery: 'relayed'
+    });
+    expect(lateReads).toEqual([]);
+  });
+});
+
+describe('landed tail catches', () => {
+  const retire = jest.fn();
+  let restoreRetirement: (() => void) | undefined;
+
+  beforeEach(() => {
+    restoreRetirement = installLandedTrapRetirement(retire);
+  });
+
+  afterEach(() => {
+    restoreRetirement?.();
+  });
+
+  const userNote = (full: Record<string, unknown>) => ({
+    metadata: () => ({ tag: () => ({ asU32: () => 0 }) }),
+    intoFull: () => full
+  });
+
+  const sendResult = (notes: unknown[], idHex: () => string = () => 'h') => ({
+    executedTransaction: () => ({
+      id: () => ({ toHex: idHex }),
+      outputNotes: () => ({ notes: () => notes })
+    }),
+    serialize: () => new Uint8Array([1])
+  });
+
+  it('completeSendTransaction rejects when the Completed write rejects', async () => {
+    txStore.push({
+      id: 'tx-send-completed-write',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Failed,
+      initiatedAt: 100
+    });
+    const { completeSendTransaction } = require('./index');
+    await expect(
+      completeSendTransaction(
+        txStore[0],
+        sendResult([
+          userNote({
+            id: () => ({ toString: () => '0xsent' }),
+            metadata: () => ({ noteType: () => 'public' })
+          })
+        ])
+      )
+    ).rejects.toThrow(/finalized/);
+  });
+
+  it('a private-send metadata trap retires the landed client', async () => {
+    const rowId = 'tx-send-metadata-trap';
+    txStore.push({
+      id: rowId,
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const trap = new WebAssembly.RuntimeError('note-type');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const { completeSendTransaction } = require('./index');
+      await completeSendTransaction(
+        txStore[0],
+        sendResult([
+          userNote({
+            id: () => ({ toString: () => '0xmeta' }),
+            metadata: () => ({
+              noteType: () => {
+                throw trap;
+              }
+            })
+          })
+        ])
+      );
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(retire).toHaveBeenCalledWith(trap, rowId);
+    expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Completed });
+    expect(txStore[0]!.noteDelivery).toBeUndefined();
+  });
+
+  it('a pending-delivery id trap retires the landed client and the relay still runs', async () => {
+    const rowId = 'tx-send-pending-trap';
+    txStore.push({
+      id: rowId,
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const trap = new WebAssembly.RuntimeError('pending-id');
+    let hexCalls = 0;
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    const sendPrivateNote = jest.fn(async () => undefined);
+    sdk.getMidenClient = async () => ({
+      waitForTransactionCommit: jest.fn(async () => undefined),
+      sendPrivateNote
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const { completeSendTransaction } = require('./index');
+      await completeSendTransaction(
+        txStore[0],
+        sendResult([userNote({ id: () => ({ toString: () => '0xsent' }) })], () => {
+          hexCalls += 1;
+          if (hexCalls === 1) throw trap;
+          return 'h';
+        })
+      );
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+      warn.mockRestore();
+    }
+
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(retire).toHaveBeenCalledWith(trap, rowId);
+    expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+  });
+
+  // The fallback id read throws as the kept one did, so only a record built from the kept values names the note.
+  it('a private send whose every id read throws records the note it owes before its relay, and a failed relay keeps it owed', async () => {
+    const rowId = 'tx-send-id-reads-throw';
+    txStore.push({
+      id: rowId,
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const trap = new WebAssembly.RuntimeError('id');
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      waitForTransactionCommit: jest.fn(async () => undefined),
+      sendPrivateNote: jest.fn(async () => {
+        throw new Error('transport down');
+      })
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { completeSendTransaction } = require('./index');
+      await expect(
+        completeSendTransaction(
+          txStore[0],
+          sendResult([userNote({ id: () => ({ toString: () => '0xsent' }) })], () => {
+            throw trap;
+          })
+        )
+      ).rejects.toBe(trap);
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+      warn.mockRestore();
+      error.mockRestore();
+    }
+
+    expect(txStore[0]).toMatchObject({ outputNoteIds: ['0xsent'], noteDelivery: 'undelivered' });
+  });
+
+  it.each([
+    ['serialize', 'rhk-serialize-trap'],
+    ['the transaction id', 'rhk-id-trap']
+  ])(
+    'a replace-hot-key trap reading %s retires once and the committed rotation is Completed',
+    async (read, account) => {
+      const tx = new ReplaceHotKeyTransaction(account, false);
+      tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+      txStore.push({
+        id: tx.id,
+        type: 'replace-hot-key',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        // Skips the failure report, which reads a platform helper this file's mock does not provide.
+        restoredFromBackup: true
+      });
+      const trap = new WebAssembly.RuntimeError(read);
+      const result = {
+        executedTransaction: () => ({
+          id: () =>
+            read === 'serialize'
+              ? { toHex: () => 'hex' }
+              : (() => {
+                  throw trap;
+                })(),
+          outputNotes: () => ({ notes: () => [] })
+        }),
+        serialize: () => {
+          throw trap;
+        }
+      };
+      const swapHotKey = jest.fn(async () => undefined);
+      const err = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const { completeReplaceHotKeyTransaction } = require('./index');
+        await completeReplaceHotKeyTransaction(
+          tx,
+          result,
+          { getAccounts: async () => [{ publicKey: account }], swapHotKey },
+          {}
+        );
+      } finally {
+        err.mockRestore();
+        warn.mockRestore();
+      }
+
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledWith(trap, tx.id);
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      const row = txStore.find(entry => entry.id === tx.id)!;
+      expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Everyday key rotated' });
+      expect(row.transactionId).toBeUndefined();
+      expect(row.resultBytes).toBeUndefined();
+    }
+  );
+
+  it('retires when a guardian switch cannot read its result and still completes without those fields', async () => {
+    const tx = new SwitchGuardianTransaction('acc-sw', 'https://new.guardian', false);
+    txStore.push({
+      id: tx.id,
+      type: 'switch-guardian',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const trap = new WebAssembly.RuntimeError('executed');
+    let reads = 0;
+    const result = {
+      executedTransaction: () => {
+        reads += 1;
+        if (reads === 1) throw trap;
+        return {
+          id: () => ({ toHex: () => 'hex' }),
+          outputNotes: () => ({ notes: () => [] })
+        };
+      },
+      serialize: () => new Uint8Array([4])
+    };
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const { completeSwitchGuardianTransaction } = require('./index');
+      await completeSwitchGuardianTransaction(
+        tx,
+        result,
+        { finalizeGuardianSwitch: async () => undefined },
+        { getAccounts: async () => [{ publicKey: 'acc-sw' }], setGuardianEndpoint: async () => undefined }
+      );
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(retire).toHaveBeenCalledWith(trap, tx.id);
+    const row = txStore.find(stored => stored.id === tx.id);
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.transactionId).toBeUndefined();
+    expect(row.resultBytes).toBeUndefined();
+  });
+
+  it('stays Completed when consume tagging metadata traps and retires the landed client', async () => {
+    const rowId = 'tx-consume-tag-trap';
+    txStore.push({
+      id: rowId,
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+    const trap = new WebAssembly.RuntimeError('tag-metadata');
+    let metadataReads = 0;
+    const note = () => ({
+      id: () => ({ toString: () => 'note-1' }),
+      metadata: () => {
+        metadataReads += 1;
+        if (metadataReads >= 3) throw trap;
+        return { sender: () => 'sender-1', noteType: () => 1 };
+      },
+      assets: () => ({
+        fungibleAssets: () => [{ faucetId: () => 'faucet-1', amount: () => 50n }]
+      })
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await completeConsumeTransaction(rowId, {
+        executedTransaction: () => ({
+          id: () => ({ toHex: () => 'on-chain-hash' }),
+          inputNotes: () => ({ notes: () => [{ note }] }),
+          outputNotes: () => ({ notes: () => [] })
+        }),
+        serialize: () => new Uint8Array([1, 2, 3])
+      } as any);
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(retire).toHaveBeenCalledWith(trap, rowId);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('a private-send relay trap retires the landed client and labels the note undelivered', async () => {
+    const rowId = 'tx-send-relay-trap';
+    txStore.push({
+      id: rowId,
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const trap = new WebAssembly.RuntimeError('relay');
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      waitForTransactionCommit: jest.fn(async () => undefined),
+      sendPrivateNote: jest.fn(async () => {
+        throw trap;
+      })
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { completeSendTransaction } = require('./index');
+      await completeSendTransaction(txStore[0], sendResult([userNote({ id: () => ({ toString: () => '0xsent' }) })]));
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+      warn.mockRestore();
+      error.mockRestore();
+    }
+
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(retire).toHaveBeenCalledWith(trap, rowId);
+    expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+  });
+
+  it('a private-send commit-wait trap retires the landed client and the relay still runs', async () => {
+    const rowId = 'tx-send-commit-trap';
+    txStore.push({
+      id: rowId,
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const trap = new WebAssembly.RuntimeError('commit-wait');
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    const sendPrivateNote = jest.fn(async () => undefined);
+    sdk.getMidenClient = async () => ({
+      waitForTransactionCommit: jest.fn(async () => {
+        throw trap;
+      }),
+      sendPrivateNote
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const { completeSendTransaction } = require('./index');
+      await completeSendTransaction(txStore[0], sendResult([userNote({ id: () => ({ toString: () => '0xsent' }) })]));
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+      warn.mockRestore();
+    }
+
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(retire).toHaveBeenCalledWith(trap, rowId);
+    expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'relayed' });
+  });
+
+  describe('a custom transaction relaying private notes', () => {
+    const privateNote = (full: unknown) => ({
+      id: () => ({ toString: () => '0xnote' }),
+      metadata: () => ({ noteType: () => 'private' }),
+      intoFull: () => full
+    });
+    const customResult = (notes: unknown[], idHex: () => string) => ({
+      executedTransaction: () => ({
+        id: () => ({ toHex: idHex }),
+        outputNotes: () => ({ notes: () => notes })
+      })
+    });
+    let waitForTransactionCommit: jest.Mock;
+    let sendPrivateNote: jest.Mock;
+    let originalGetMidenClient: unknown;
+
+    beforeEach(() => {
+      waitForTransactionCommit = jest.fn(async () => undefined);
+      sendPrivateNote = jest.fn(async () => undefined);
+      const sdk = require('../sdk/miden-client');
+      originalGetMidenClient = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({ waitForTransactionCommit, sendPrivateNote });
+      _gh.__noteTypeForTest = 'private';
+    });
+
+    afterEach(() => {
+      require('../sdk/miden-client').getMidenClient = originalGetMidenClient;
+      _gh.__noteTypeForTest = 'public';
+    });
+
+    const run = async (rowId: string, result: unknown) => {
+      txStore.push({
+        id: rowId,
+        type: 'execute',
+        accountId: 'acc-1',
+        secondaryAccountId: 'acc-2',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100
+      });
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const { completeCustomTransaction } = require('./index');
+        await completeCustomTransaction(txStore[0]!, result);
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    };
+
+    // The first id read is the pending-delivery record's; later reads answer.
+    const trappingFirstId = (trap: WebAssembly.RuntimeError) => {
+      let reads = 0;
+      return () => {
+        reads += 1;
+        if (reads === 1) throw trap;
+        return 'h';
+      };
+    };
+
+    it('retires a trap from the pending-delivery id read, and still waits and relays', async () => {
+      const trap = new WebAssembly.RuntimeError('pending-id');
+      await run('tx-cct-pending-trap', customResult([privateNote({ valid: true })], trappingFirstId(trap)));
+
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledWith(trap, 'tx-cct-pending-trap');
+      expect(waitForTransactionCommit).toHaveBeenCalledTimes(1);
+      expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it('retires a trap from the commit wait, and still relays', async () => {
+      const trap = new WebAssembly.RuntimeError('commit-wait');
+      waitForTransactionCommit.mockRejectedValueOnce(trap);
+      await run(
+        'tx-cct-commit-trap',
+        customResult([privateNote({ valid: true })], () => 'h')
+      );
+
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledWith(trap, 'tx-cct-commit-trap');
+      expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it('retires a trap from a relay, and labels the row undelivered', async () => {
+      const trap = new WebAssembly.RuntimeError('relay');
+      sendPrivateNote.mockRejectedValueOnce(trap);
+      await run(
+        'tx-cct-relay-trap',
+        customResult([privateNote({ valid: true })], () => 'h')
+      );
+
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledWith(trap, 'tx-cct-relay-trap');
+      expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    });
+
+    // The fallback id read throws as the kept one did, and so does each interpretation, which reads the id too: only a
+    // record built from the kept values names the notes and their recipient.
+    it('records which notes it owes and to whom before its relays when every id read throws', async () => {
+      const trap = new WebAssembly.RuntimeError('id');
+      const interpret = jest.requireMock('../activity/helpers').interpretTransactionResult as jest.Mock;
+      const failedInterpretation = () => {
+        throw trap;
+      };
+      interpret.mockImplementationOnce(failedInterpretation).mockImplementationOnce(failedInterpretation);
+      sendPrivateNote.mockRejectedValueOnce(new Error('transport down'));
+
+      await expect(
+        run(
+          'tx-cct-id-reads-throw',
+          customResult([privateNote({ valid: true })], () => {
+            throw trap;
+          })
+        )
+      ).rejects.toBe(trap);
+
+      expect(sendPrivateNote).toHaveBeenCalledTimes(1);
+      expect(txStore[0]).toMatchObject({
+        relayNoteIds: ['0xnote'],
+        relayRecipientId: 'acc-2',
+        noteDelivery: 'undelivered'
+      });
+    });
+
+    it('retires a trap from the undelivered record when no note can be relayed', async () => {
+      const trap = new WebAssembly.RuntimeError('undelivered-id');
+      await run('tx-cct-undelivered-trap', customResult([privateNote(undefined)], trappingFirstId(trap)));
+
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledWith(trap, 'tx-cct-undelivered-trap');
+      expect(sendPrivateNote).not.toHaveBeenCalled();
+      expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Completed, noteDelivery: 'undelivered' });
+    });
   });
 });
 
@@ -2254,28 +2883,39 @@ describe('completeSwapTransaction', () => {
   // → partially-filled orders were never reclaimed (swap-partial-fill e2e stuck
   // `active`). settlement.test.ts hand-sets expiresAt on its mocks, so only a
   // test on completion itself catches the missing stamp.
-  const swapResult = () => {
-    const outputNote = {
-      id: () => ({ toString: () => 'out-note-1' }),
-      intoFull: () => ({
-        recipient: () => ({ serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] }) })
+  const pswapScript = () => ({ root: () => NoteScript.pswap().root() });
+  const otherScript = () => ({ root: () => ({ toHex: () => 'other' }) });
+  const swapNote = (id: string, felt1: bigint, script: () => { root(): { toHex(): string } }) => ({
+    id: () => ({ toString: () => id }),
+    metadata: () => ({ noteType: () => 'public' }),
+    intoFull: () => ({
+      recipient: () => ({
+        script,
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => felt1 }] })
       })
-    };
-    return {
+    })
+  });
+  const swapResult = (notes = [swapNote('out-note-1', 42n, pswapScript)]) =>
+    ({
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'swap-hash' }),
-        outputNotes: () => ({ notes: () => [outputNote] })
+        outputNotes: () => ({ notes: () => notes })
       }),
       serialize: () => new Uint8Array()
-    } as any;
-  };
+    }) as any;
 
   it('stamps an absolute expiresAt (completedAt + expirySeconds) so the remainder can be reclaimed', async () => {
     txStore.push({
       id: 'swap-1',
       type: 'swap',
       status: ITransactionStatus.GeneratingTransaction,
-      extraInputs: { expirySeconds: 100, requestedFaucetId: 'f', requestedAmount: 1n }
+      extraInputs: {
+        expirySeconds: 100,
+        requestedFaucetId: 'f',
+        requestedAmount: 1n,
+        // An earlier attempt's landed failure decided this; the result's own order replaces it.
+        landedOrder: { orderId: '7', expiresAt: 1, noteId: 'earlier-order-note' }
+      }
     });
     const { completeSwapTransaction } = require('./index');
     await completeSwapTransaction(
@@ -2287,6 +2927,170 @@ describe('completeSwapTransaction', () => {
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.extraInputs.orderId).toBe(42n);
     expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+  });
+
+  it('a PSWAP note listed after an unset-aside fee note is the order', async () => {
+    txStore.push({
+      id: 'swap-fee-first',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { expirySeconds: 100 }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-fee-first'),
+      swapResult([swapNote('fee-note', 7n, otherScript), swapNote('order-note', 42n, pswapScript)])
+    );
+
+    const row = txStore.find(t => t.id === 'swap-fee-first')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual(['order-note']);
+  });
+
+  it('two public notes and no PSWAP root record no order', async () => {
+    txStore.push({
+      id: 'swap-no-root',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: {
+        expirySeconds: 100,
+        landedOrder: { orderId: '7', expiresAt: 1, noteId: 'earlier-order-note' }
+      }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-no-root'),
+      swapResult([swapNote('fee-note', 7n, otherScript), swapNote('other-note', 9n, otherScript)])
+    );
+
+    const row = txStore.find(t => t.id === 'swap-no-root')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBeUndefined();
+    expect(row.extraInputs.expiresAt).toBeUndefined();
+    expect(row.extraInputs.landedOrder).toBeUndefined();
+    expect(row.outputNoteIds).toBeUndefined();
+  });
+
+  it('a result that names no order takes the one its saved request names', async () => {
+    const savedNote = {
+      id: () => ({ toString: () => 'saved-order-note' }),
+      metadata: () => ({ noteType: () => 'public' }),
+      recipient: () => ({
+        script: pswapScript,
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    deserialize.mockImplementationOnce(
+      () => ({ expectedOutputOwnNotes: () => [savedNote] }) as unknown as ReturnType<typeof deserialize>
+    );
+    txStore.push({
+      id: 'swap-saved-order',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      requestBytes: new Uint8Array([7, 7, 7]),
+      extraInputs: { expirySeconds: 100 }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-saved-order'),
+      swapResult([swapNote('fee-note', 7n, otherScript), swapNote('other-note', 9n, otherScript)])
+    );
+
+    const row = txStore.find(t => t.id === 'swap-saved-order')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual(['saved-order-note']);
+  });
+
+  it('reads the result fields it writes before the saved-request decode can retire the client', async () => {
+    const savedNote = {
+      id: () => ({ toString: () => 'saved-order-note' }),
+      metadata: () => ({ noteType: () => 'public' }),
+      recipient: () => ({
+        script: pswapScript,
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    };
+    // The decode is where the client can be retired: after it, the result's handles no longer answer.
+    let decoded = false;
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    deserialize.mockImplementationOnce(() => {
+      decoded = true;
+      return { expectedOutputOwnNotes: () => [savedNote] } as unknown as ReturnType<typeof deserialize>;
+    });
+    const notes = [swapNote('fee-note', 7n, otherScript), swapNote('other-note', 9n, otherScript)];
+    const result = {
+      executedTransaction: () => ({
+        id: () => ({
+          toHex: () => {
+            if (decoded) throw new Error('null pointer passed to rust');
+            return 'swap-hash';
+          }
+        }),
+        outputNotes: () => ({ notes: () => notes })
+      }),
+      serialize: () => {
+        if (decoded) throw new Error('null pointer passed to rust');
+        return Uint8Array.of(9);
+      }
+    } as any;
+    txStore.push({
+      id: 'swap-read-first',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      requestBytes: new Uint8Array([7, 7, 7]),
+      extraInputs: { expirySeconds: 100 }
+    });
+    const { completeSwapTransaction } = require('./index');
+    await completeSwapTransaction(
+      txStore.find(t => t.id === 'swap-read-first'),
+      result
+    );
+
+    const row = txStore.find(t => t.id === 'swap-read-first')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.transactionId).toBe('swap-hash');
+    expect(row.resultBytes).toEqual(Uint8Array.of(9));
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual(['saved-order-note']);
+  });
+
+  // The order its saved request recorded is the one the bytes name, so the completion opens it with no lock wait.
+  it('a result that names no order takes the order the row recorded, with no saved-request decode', async () => {
+    const deserialize = jest.mocked(TransactionRequest.deserialize);
+    deserialize.mockClear();
+    const lock = jest.spyOn(jest.requireMock('../sdk/miden-client'), 'withWasmClientLock');
+    const recordedNote = `0x${'ab'.repeat(32)}`;
+    txStore.push({
+      id: 'swap-recorded-order',
+      type: 'swap',
+      status: ITransactionStatus.GeneratingTransaction,
+      requestBytes: new Uint8Array([7, 7, 7]),
+      extraInputs: { expirySeconds: 100, requestOrder: { orderId: '42', noteId: recordedNote } }
+    });
+    const { completeSwapTransaction } = require('./index');
+    try {
+      await completeSwapTransaction(
+        txStore.find(t => t.id === 'swap-recorded-order'),
+        swapResult([swapNote('fee-note', 7n, otherScript), swapNote('other-note', 9n, otherScript)])
+      );
+    } finally {
+      lock.mockRestore();
+    }
+
+    const row = txStore.find(t => t.id === 'swap-recorded-order')!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs.orderId).toBe(42n);
+    expect(row.extraInputs.expiresAt).toBe(row.completedAt + 100);
+    expect(row.outputNoteIds).toEqual([recordedNote]);
+    expect(deserialize).not.toHaveBeenCalled();
+    expect(lock).not.toHaveBeenCalled();
   });
 
   it('defaults expirySeconds to 120 when absent', async () => {

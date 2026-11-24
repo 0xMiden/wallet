@@ -1069,6 +1069,25 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('preserves the platform enrollment token returned by the worker', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.PlatformUnlockResponse,
+        result: { action: 'begin', enrollmentId: 'token' }
+      });
+      await expect(
+        useWalletStore.getState().platformUnlock({ action: 'begin', expectedCredentialId: null })
+      ).resolves.toEqual({ action: 'begin', enrollmentId: 'token' });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.PlatformUnlockRequest,
+        command: { action: 'begin', expectedCredentialId: null }
+      });
+    });
+
+    it('does not mistake another message response for platform unlock completion', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.UnlockResponse });
+      await expect(useWalletStore.getState().platformUnlock({ action: 'state' })).rejects.toThrow('Invalid response');
+    });
+
     it('unlock throws on invalid response', async () => {
       mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
 
@@ -1645,12 +1664,16 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '9007199254740993'
+        feeReserve: '9007199254740993',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
 
       await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toEqual({
         outcome: 'measured',
-        reserve: 9007199254740993n
+        reserve: 9007199254740993n,
+        faucetId: 'native',
+        scope: 'source-scope'
       });
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
@@ -1663,12 +1686,16 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
         outcome: 'measured',
-        feeReserve: '0'
+        feeReserve: '0',
+        faucetId: 'native',
+        scope: 'source-scope'
       });
 
       await expect(useWalletStore.getState().estimateUsdcxBurnFee('mm1account', 5042002)).resolves.toStrictEqual({
         outcome: 'measured',
-        reserve: 0n
+        reserve: 0n,
+        faucetId: 'native',
+        scope: 'source-scope'
       });
     });
 
@@ -2434,7 +2461,7 @@ describe('useWalletStore', () => {
         balanceReadFailed: { 'addr-1': true, 'addr-2': true },
         balanceReadInFlight: { 'addr-1': true, 'addr-2': false },
         assetsMetadata: { 'asset-1': row.metadata },
-        tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0 } } as any,
+        tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } } as any,
         accounts: [{ publicKey: 'addr-1', name: 'One' } as any]
       });
       const { balances, balancesLoading, balancesLastFetched, balanceReadFailed, balanceReadInFlight, ...others } =
@@ -2488,7 +2515,9 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().selectedFiatCurrency).toBe('USD');
       useWalletStore.getState().setFiatRates({ usd: 1 });
       expect(useWalletStore.getState().fiatRates).toEqual({ usd: 1 });
-      useWalletStore.getState().setTokenPrices({ ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1 } });
+      useWalletStore
+        .getState()
+        .setTokenPrices({ ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1, kind: 'market' as const } });
       expect(useWalletStore.getState().tokenPrices.ETH?.price).toBe(3000);
     });
 
@@ -2509,7 +2538,7 @@ describe('useWalletStore', () => {
   // Price helpers read the switch outside React, so a memo keyed on tokenPrices recomputes only when
   // the switch hands it a new object.
   describe('nominal unquoted price switch', () => {
-    const prices = { ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1 } };
+    const prices = { ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1, kind: 'market' as const } };
 
     beforeEach(() => {
       useWalletStore.getState().setTokenPrices(prices);

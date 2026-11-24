@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: 22
       - name: Verify CLI kernel pin preparation
-        run: node --test scripts/install-pinned-miden-cli.test.cjs
+        run: node --test scripts/install-pinned-miden-cli.test.cjs packages/native-prover/scripts/build-scripts.test.mjs packages/native-prover/scripts/verify-release-lock.test.mjs
       - name: Check native-prover miden-client pin
         run: |
           node scripts/check-native-prover-pin.mjs --self-test
@@ -171,6 +171,14 @@ jobs:
         with:
           node-version: 22
 
+      - name: Check Android gesture reply classifier
+        timeout-minutes: 1
+        run: node --test playwright/e2e/android/tests/dapp-browser.gesture.android.test.mjs
+
+      - name: Check Android gesture runner verdicts
+        timeout-minutes: 1
+        run: node --test .github/scripts/run-dapp-presentation-gesture-api36.test.mjs
+
       # comment=false (default): translations is the designated
       # comment-poster - see its `Inject` step for rationale. Other
       # jobs just need the package.json mutation, not the comment.
@@ -181,6 +189,12 @@ jobs:
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
+
+      - name: Check mainnet harness
+        run: |
+          yarn jest scripts/mainnet-*.test.ts playwright/e2e/config/mainnet-nightly.test.ts playwright/e2e/harness/spec-selection.test.ts --maxWorkers=2 --watch=false
+          yarn lint:e2e
+          E2E_NETWORK=mainnet yarn playwright test --config playwright.mainnet.config.ts --list --reporter list
 
       - name: Run ESLint
         uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
@@ -270,6 +284,9 @@ jobs:
       - name: Verify the built extension manifest
         run: node -e "const fs = require('node:fs'); const path = 'dist/chrome_unpacked/manifest.json'; if (!fs.statSync(path).isFile()) process.exit(1); JSON.parse(fs.readFileSync(path, 'utf8'));"
 
+      - name: Verify emitted platform startup barriers
+        run: node --experimental-vm-modules --test scripts/platform-startup-artifact.test.mjs
+
       - name: Drop apt repositories this repo never installs from
         uses: ./.github/actions/apt-drop-unused-repos
 
@@ -279,8 +296,30 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Check Unlock responsive layout
+        timeout-minutes: 5
+        run: yarn playwright test --config playwright.unlock-visual.config.ts
+
+      - name: Upload Unlock layout screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unlock-layout
+          path: test-results/unlock-visual/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Run Playwright E2E
         run: xvfb-run -a yarn test:e2e
+
+      - name: Upload Command wallet screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: command-wallet-screenshots
+          path: test-results/**/command-*.png
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Upload wallet access screenshots
         if: always()

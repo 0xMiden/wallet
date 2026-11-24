@@ -2,16 +2,20 @@
 import { createSwapOrder } from './swap';
 import type { ChromeWalletPageApi } from './wallet-page';
 
-interface Input {
-  inputValue(): Promise<string>;
+interface LocatorValue {
+  inputValue?(): Promise<string>;
+  count?(): Promise<number>;
 }
 
 jest.mock('@playwright/test', () => ({
   expect: Object.assign(
-    (input: Input) => ({
+    (input: LocatorValue) => ({
       toBeVisible: async () => {},
       toHaveValue: async (expected: string) => {
-        expect(await input.inputValue()).toBe(expected);
+        expect(await input.inputValue?.()).toBe(expected);
+      },
+      toHaveCount: async (expected: number) => {
+        expect(await input.count?.()).toBe(expected);
       }
     }),
     {
@@ -35,6 +39,9 @@ function wallet(payLoading = false) {
   const submitted: Array<{ pay: string; receive: string }> = [];
   let pay = '';
   let receive = '';
+  let requestedSymbol = '';
+  let selectingReceive = false;
+  let reviewOpen = false;
   let reads = 0;
   const amount = (side: number) => ({
     fill: async (value: string) => {
@@ -42,21 +49,40 @@ function wallet(payLoading = false) {
       payLoading = false;
       if (side === 0) {
         pay = value;
-        receive = '9.995';
+        receive = value === '9.00450226' ? '9' : '9.995';
       } else {
-        receive = value;
-        pay = value === '9' ? '9.00450226' : '10';
+        throw new Error('Command receive has no editable amount');
       }
     },
     inputValue: async () => (side === 0 ? pay : receive)
   });
   const selector = {
     click: async () => {},
+    getByTestId(id: string) {
+      if (id === 'send-amount-input') return amount(0);
+      if (id === 'swap-review-submit')
+        return {
+          click: async () => {
+            reviewOpen = true;
+          }
+        };
+      if (id === 'swap-submit')
+        return {
+          click: async () => {
+            if (!reviewOpen) throw new Error('Order signed without Command review');
+            submitted.push({ pay, receive });
+          }
+        };
+      return this;
+    },
+    getByText(text: string, options: { exact: boolean }) {
+      return { count: async () => Number(options.exact && reviewOpen && text === `≈ ${receive} ${requestedSymbol}`) };
+    },
     first() {
       return this;
     },
     nth() {
-      return this;
+      throw new Error('Command receive has no second token selector');
     }
   };
   const page = {
@@ -67,12 +93,29 @@ function wallet(payLoading = false) {
       if (id === 'send-amount-input') {
         return { first: () => amount(payLoading ? 1 : 0), nth: (side: number) => amount(side) };
       }
-      if (id === 'swap-pay-side') return { getByTestId: () => amount(0) };
-      if (id === 'swap-receive-side') return { getByTestId: () => amount(1) };
-      if (id === 'swap-submit')
+      if (id === 'swap-pay-side' || id === 'swap-receive-side')
+        throw new Error('Command composer has no legacy swap amount sides');
+      if (id === 'command-swap-receive')
+        return {
+          getByRole: (role: string, options: { name: string }) => {
+            expect(role).toBe('button');
+            expect(options.name).toBe('You Receive');
+            return {
+              click: async () => {
+                selectingReceive = true;
+              }
+            };
+          },
+          getByText: (text: string, options: { exact: boolean }) => {
+            expect(options.exact).toBe(true);
+            return { textContent: async () => receive, count: async () => (receive === text ? 1 : 0) };
+          },
+          getByTestId: () => ({ count: async () => 0 })
+        };
+      if (id.startsWith('swap-token-'))
         return {
           click: async () => {
-            submitted.push({ pay, receive });
+            if (selectingReceive) requestedSymbol = id.slice('swap-token-'.length);
           }
         };
       return selector;
@@ -86,7 +129,6 @@ it('anchors pay once and checks its quoted receive before signing', async () => 
   const options = {
     offerSymbol: 'A',
     requestSymbol: 'B',
-    amountAnchor: 'pay' as const,
     payAmount: '10',
     receiveAmount: '9.995'
   };
@@ -95,26 +137,24 @@ it('anchors pay once and checks its quoted receive before signing', async () => 
   expect(w.submitted).toEqual([{ pay: '10', receive: '9.995' }]);
 });
 
-it('anchors receive once and checks the hand-derived required pay before signing', async () => {
+it('types the exact pay for a requested receive and checks its readonly quoted amount before signing', async () => {
   const w = wallet();
   const options = {
     offerSymbol: 'B',
     requestSymbol: 'A',
-    amountAnchor: 'receive' as const,
     payAmount: '9.00450226',
     receiveAmount: '9'
   };
   await expect(createSwapOrder(w.maker, options)).resolves.toBe('123');
-  expect(w.fills).toEqual(['receive']);
+  expect(w.fills).toEqual(['pay']);
   expect(w.submitted).toEqual([{ pay: '9.00450226', receive: '9' }]);
 });
 
-it('refuses to sign when the quoted opposite amount disagrees with the scenario', async () => {
+it('refuses to sign when the Command readonly receive quote disagrees with the scenario', async () => {
   const w = wallet();
   const options = {
     offerSymbol: 'A',
     requestSymbol: 'B',
-    amountAnchor: 'receive' as const,
     payAmount: '10',
     receiveAmount: '9'
   };
@@ -122,12 +162,11 @@ it('refuses to sign when the quoted opposite amount disagrees with the scenario'
   expect(w.submitted).toEqual([]);
 });
 
-it('keeps a pay edit on its side when the pay input is temporarily replaced by a loading skeleton', async () => {
+it('scopes the pay edit to Command when another page input appears first', async () => {
   const w = wallet(true);
   const options = {
     offerSymbol: 'A',
     requestSymbol: 'B',
-    amountAnchor: 'pay' as const,
     payAmount: '10',
     receiveAmount: '9.995'
   };

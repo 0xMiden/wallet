@@ -90,7 +90,7 @@ jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
   bridgeRowDisplay: jest.fn(),
   bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
+  hasOwnBridgeBadge: jest.requireActual('./transactionUtils').hasOwnBridgeBadge,
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
@@ -470,6 +470,15 @@ describe('HistoryItem', () => {
     render(<HistoryItem entry={makeEntry({ txType: 'earn-deposit', message: 'Depositing' })} />);
     expect(screen.getByTestId('earn-deposit-status')).toHaveTextContent('t:pending');
   });
+
+  it.each(['Deposited to lending', 'Deposited to Earn'])(
+    'localizes the completed Earn deposit label stored as %s',
+    message => {
+      render(<HistoryItem entry={makeEntry({ txType: 'earn-deposit', message, earnDepositStatus: 'confirmed' })} />);
+      expect(screen.getByText('t:earnDepositRowTitle')).toBeInTheDocument();
+      expect(screen.queryByText(message)).toBeNull();
+    }
+  );
 
   it('shows a failed lending leg', () => {
     const entry = makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed', message: 'Depositing' });

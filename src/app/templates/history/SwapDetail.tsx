@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
@@ -287,6 +288,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   onRetryPayback
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const progressTransition = useMotion(springs.standard);
   // An unknown fill (no lineage and no settlement consume in the requested
   // token) is not a zero fill, and neither is an unknown requested total.
@@ -330,7 +332,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
   return (
     <div data-testid="swap-order-card" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto pb-4">
+      <div className={command ? 'flex-1 pb-4' : 'flex-1 overflow-y-auto pb-4'}>
         <section className="flex flex-col items-center pt-4">
           <div className="[&>div]:rounded-full">
             <TransactionIcon entry={entry} size="lg" />

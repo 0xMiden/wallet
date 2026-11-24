@@ -29,6 +29,9 @@ function holdsExecutableMessage(inputs: IBridgedReceiveExtraInputs): boolean {
  */
 function cutoffStart(row: Pick<ITransaction, 'initiatedAt'>, inputs: IBridgedReceiveExtraInputs): number {
   if (inputs.phase === 'ready') return inputs.readyAt ?? row.initiatedAt;
+  // A locked Epoch deposit that a retry registered again gets a week from the retry.
+  const reallocatedAt = inputs.epochLockedDeposit?.reallocatedAt;
+  if (reallocatedAt !== undefined) return reallocatedAt;
   const leg = inputs.cctp;
   if (leg?.executeTxHash !== undefined) return leg.executeSavedAt ?? row.initiatedAt;
   return leg?.revertedAt ?? row.initiatedAt;

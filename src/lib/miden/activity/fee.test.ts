@@ -1,3 +1,5 @@
+import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+
 import {
   TX_FEE_NOTE_TAG,
   feeFieldsFromResult,
@@ -8,6 +10,8 @@ import {
 } from './fee';
 import { splitLandedOutputNotes } from './fee-notes';
 import { FEE_RESERVE_MULTIPLE } from '../fees/spendable';
+import { canonicalFeeSponsorshipNoteId } from '../sdk/fee-sponsorship';
+import { installLandedTrapRetirement } from '../sdk/landed-trap-retirement';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The fee note is corroborated against the chain's NATIVE faucet, so the suite has to
@@ -18,6 +22,8 @@ let mockVerificationBaseFee: number | null = 10000;
 const CHARGING = 10000;
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => mockNativeAssetId,
+  getSdkSyncedNativeAssetIdSync: () => mockNativeAssetId,
+  cacheScope: () => 'rpc-a|testnet',
   // A fee note only EXISTS on a chain that charges, so the split reads the base fee too.
   getVerificationBaseFeeSync: () => mockVerificationBaseFee
 }));
@@ -34,8 +40,10 @@ jest.mock('lib/shared/format', () => ({
 // suppressed the fee line entirely. The prefix makes the encoding visible in the
 // assertions below -- an id that arrived unencoded would not carry it.
 jest.mock('../sdk/helpers', () => ({
-  getBech32AddressFromAccountId: (id: unknown) => `bech32-${String(id)}`
+  getBech32AddressFromAccountId: (id: unknown) => `bech32-${String(id)}`,
+  canonicalWalletAccountId: (id: string) => id
 }));
+jest.mock('../sdk/fee-sponsorship', () => ({ canonicalFeeSponsorshipNoteId: jest.fn(() => 'sponsor') }));
 
 const asset = (amount: bigint, faucet: string) => ({
   amount: () => amount.toString(),
@@ -52,23 +60,34 @@ const result = (notes: ReturnType<typeof outputNote>[]) =>
     executedTransaction: () => ({ outputNotes: () => ({ notes: () => notes }) })
   }) as any;
 
+// The leaf's state is module scope and shared by every test in this file, so each read names its own landing.
 describe('feePaidFromResult', () => {
+  let retire: jest.Mock;
+  let restore: () => void;
+  beforeEach(() => {
+    retire = jest.fn();
+    restore = installLandedTrapRetirement(retire);
+  });
+  afterEach(() => restore());
+
   it('reads the fee from the TX_FEE output note', () => {
     const fee = feePaidFromResult(
-      result([outputNote(0x0, [asset(500n, 'tkn-faucet')]), outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])])
+      result([outputNote(0x0, [asset(500n, 'tkn-faucet')]), outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]),
+      'fee-read'
     );
     expect(fee).toEqual({ amount: 163840n, faucetId: 'bech32-native' });
   });
 
   it('returns undefined when the transaction created no fee note', () => {
     // A zero-fee chain creates none at all, so absence is normal, not an error.
-    expect(feePaidFromResult(result([outputNote(0x0, [asset(500n, 'tkn-faucet')])]))).toBeUndefined();
+    expect(feePaidFromResult(result([outputNote(0x0, [asset(500n, 'tkn-faucet')])]), 'fee-none')).toBeUndefined();
   });
 
   it('survives a note whose metadata is unavailable', () => {
     // Reading the fee must never break the caller that is recording the row.
     const broken = { metadata: () => undefined, assets: () => ({ fungibleAssets: () => [] }) };
-    expect(() => feePaidFromResult(result([broken as any]))).not.toThrow();
+    expect(() => feePaidFromResult(result([broken as any]), 'fee-broken')).not.toThrow();
+    expect(retire).not.toHaveBeenCalled();
   });
 
   it('reads the fee past a note whose tag read traps, since it runs past submit', () => {
@@ -81,7 +100,10 @@ describe('feePaidFromResult', () => {
       assets: () => ({ fungibleAssets: () => [asset(500n, 'tkn-faucet')], nonFungibleAssets: () => [] })
     };
     expect(
-      feePaidFromResult(result([unreadable as any, outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]))
+      feePaidFromResult(
+        result([unreadable as any, outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]),
+        'fee-past-tag'
+      )
     ).toEqual({ amount: 163840n, faucetId: 'bech32-native' });
     warn.mockRestore();
   });
@@ -98,7 +120,56 @@ describe('feePaidFromResult', () => {
       },
       assets: () => ({ fungibleAssets: () => [] })
     };
-    expect(() => feePaidFromResult(result([evicted as any]))).toThrow(WasmClientPoisonedError);
+    expect(() => feePaidFromResult(result([evicted as any]), 'fee-evicted')).toThrow(WasmClientPoisonedError);
+    expect(retire).not.toHaveBeenCalled();
+  });
+
+  it('feePaidFromResult answers a trap in a fee check with no fee and retires under its row', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const read = landed(
+      executed([fee], () => {
+        throw trap;
+      })
+    );
+    expect(feePaidFromResult(read, 'fee-paid')).toBeUndefined();
+    expect(retire.mock.calls).toEqual([[trap, 'fee-paid']]);
+  });
+
+  it('feePaidFromResult answers a trap in a read after the split with no fee and retires under its row', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let amountReads = 0;
+    // The split's ceiling check reads the amount once, so only the fee figure's own read traps.
+    const fee = {
+      metadata: () => ({ tag: () => ({ asU32: () => TX_FEE_NOTE_TAG }) }),
+      assets: () => ({
+        fungibleAssets: () => [
+          {
+            amount: () => {
+              amountReads += 1;
+              if (amountReads > 1) throw trap;
+              return '163840';
+            },
+            faucetId: () => 'native'
+          }
+        ],
+        nonFungibleAssets: () => []
+      })
+    };
+    expect(feePaidFromResult(result([fee as any]), 'fee-after-split')).toBeUndefined();
+    expect(retire.mock.calls).toEqual([[trap, 'fee-after-split']]);
+  });
+
+  it('feeFieldsFromResult retires under the row it records', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const read = landed(
+      executed([fee], () => {
+        throw trap;
+      })
+    );
+    expect(feeFieldsFromResult(read, 'fee-fields')).toEqual({});
+    expect(retire.mock.calls).toEqual([[trap, 'fee-fields']]);
   });
 });
 
@@ -241,7 +312,10 @@ describe('partitionFeeNote', () => {
 
 describe('feeFieldsFromResult', () => {
   it('produces the transaction-row fields when a fee was paid', () => {
-    const fields = feeFieldsFromResult(result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]));
+    const fields = feeFieldsFromResult(
+      result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]),
+      'fields-paid'
+    );
     // Bech32, so `assetsMetadata` (keyed by bech32) can resolve the fee token and the
     // receipt renders a fee line at all.
     expect(fields).toEqual({ feeAmount: 163840n, feeFaucetId: 'bech32-native' });
@@ -249,13 +323,13 @@ describe('feeFieldsFromResult', () => {
 
   it('produces no fields when there is no result at all', () => {
     // Some completion paths finish without a TransactionResult in hand.
-    expect(feeFieldsFromResult(undefined)).toEqual({});
+    expect(feeFieldsFromResult(undefined, 'fields-no-result')).toEqual({});
   });
 
   it('produces no fields at all when no fee was paid', () => {
     // Spread into an update object, so it must add nothing rather than write
     // undefined keys over values another writer may have set.
-    expect(feeFieldsFromResult(result([outputNote(0x0, [asset(1n, 'tkn')])]))).toEqual({});
+    expect(feeFieldsFromResult(result([outputNote(0x0, [asset(1n, 'tkn')])]), 'fields-no-fee')).toEqual({});
   });
 });
 
@@ -368,6 +442,8 @@ const trapping = (where: FeeRead, failure: unknown) => {
 const executed = (notes: unknown[], blockHeader?: () => { verificationBaseFee: () => number }) =>
   ({ outputNotes: () => ({ notes: () => notes }), ...(blockHeader ? { blockHeader } : {}) }) as any;
 
+const landed = (e: unknown) => ({ executedTransaction: () => e }) as any;
+
 const thrownBy = (fn: () => unknown): unknown => {
   try {
     fn();
@@ -412,38 +488,68 @@ describe('a trap or a kill in a fee check', () => {
 
 describe('splitLandedOutputNotes', () => {
   const trap = new WebAssembly.RuntimeError('unreachable');
-
-  it.each(FEE_READS)('identifies no fee note when the %s read traps, and keeps every note', where => {
-    const trapped = trapping(where, trap);
-    expect(splitLandedOutputNotes(executed([user, trapped]))).toEqual({
-      feeNote: undefined,
-      userNotes: [user, trapped]
-    });
+  let retire: jest.Mock;
+  let restore: () => void;
+  beforeEach(() => {
+    retire = jest.fn();
+    restore = installLandedTrapRetirement(retire);
   });
+  afterEach(() => restore());
+
+  it.each(FEE_READS)(
+    'identifies no fee note when the %s read traps, keeps every note, and retires under its row',
+    where => {
+      const trapped = trapping(where, trap);
+      expect(splitLandedOutputNotes(landed(executed([user, trapped])), `split-${where}`)).toEqual({
+        feeNote: undefined,
+        userNotes: [user, trapped],
+        verificationFeeKnown: false
+      });
+      expect(retire).toHaveBeenCalledTimes(1);
+      expect(retire).toHaveBeenCalledWith(trap, `split-${where}`);
+    }
+  );
 
   it('identifies no fee note when the header read traps', () => {
     const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
     const { feeNote, userNotes } = splitLandedOutputNotes(
-      executed([user, fee], () => {
-        throw trap;
-      })
+      landed(
+        executed([user, fee], () => {
+          throw trap;
+        })
+      ),
+      'split-header'
     );
     expect(feeNote).toBeUndefined();
     expect(userNotes).toEqual([user, fee]);
+    expect(retire.mock.calls).toEqual([[trap, 'split-header']]);
+  });
+
+  it('retires once per row however many reads of it trap', () => {
+    // Every read of a landed result builds its objects again, so each read traps with a new object.
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const freshHeaderTrap = () => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    };
+    splitLandedOutputNotes(landed(executed([user, fee], freshHeaderTrap)), 'split-twice');
+    splitLandedOutputNotes(landed(executed([user, fee], freshHeaderTrap)), 'split-twice');
+    expect(retire).toHaveBeenCalledTimes(1);
   });
 
   it('separates the fee note as splitExecutedOutputNotes does when nothing traps', () => {
     const same = executed([user, outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])], () => ({
       verificationBaseFee: () => CHARGING
     }));
-    const landed = splitLandedOutputNotes(same);
-    expect(landed).toEqual(splitExecutedOutputNotes(same));
-    expect(landed.feeNote).toBeDefined();
+    const split = splitLandedOutputNotes(landed(same), 'split-clean');
+    expect(split).toEqual({ ...splitExecutedOutputNotes(same), verificationFeeKnown: true });
+    expect(split.feeNote).toBeDefined();
+    expect(retire).not.toHaveBeenCalled();
   });
 
   it('lets the eviction a wrapped failure carries through', () => {
     const wrapped = trapping('tag', new Error('wrapped', { cause: poison }));
-    expect(thrownBy(() => splitLandedOutputNotes(executed([user, wrapped])))).toBe(poison);
+    expect(thrownBy(() => splitLandedOutputNotes(landed(executed([user, wrapped])), 'split-evicted'))).toBe(poison);
+    expect(retire).not.toHaveBeenCalled();
   });
 
   it('lets a trap from the output-note read itself through', () => {
@@ -452,7 +558,18 @@ describe('splitLandedOutputNotes', () => {
         throw trap;
       }
     };
-    expect(thrownBy(() => splitLandedOutputNotes(unreadable))).toBe(trap);
+    expect(thrownBy(() => splitLandedOutputNotes(landed(unreadable), 'split-unreadable'))).toBe(trap);
+    expect(retire).not.toHaveBeenCalled();
+  });
+
+  it('lets a trap from the executed-transaction read itself through', () => {
+    const undecodable = {
+      executedTransaction: () => {
+        throw trap;
+      }
+    };
+    expect(thrownBy(() => splitLandedOutputNotes(undecodable as any, 'split-undecodable'))).toBe(trap);
+    expect(retire).not.toHaveBeenCalled();
   });
 
   // A trap answers only the check that threw it, so a fee note the other checks identified is still split out (it would
@@ -478,7 +595,11 @@ describe('splitLandedOutputNotes', () => {
       const fee = kernelFee();
       const trapped = untagged(trap);
       const notes = order === 'before' ? [trapped, fee] : [fee, trapped];
-      expect(splitLandedOutputNotes(executed(notes))).toEqual({ feeNote: fee, userNotes: [trapped] });
+      expect(splitLandedOutputNotes(landed(executed(notes)), `per-check-tag-${order}`)).toEqual({
+        feeNote: fee,
+        userNotes: [trapped],
+        verificationFeeKnown: false
+      });
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(expect.any(String), [trap]);
     });
@@ -488,9 +609,10 @@ describe('splitLandedOutputNotes', () => {
       const fee = kernelFee();
       const first = untagged(trap);
       const second = untagged(other);
-      expect(splitLandedOutputNotes(executed([first, fee, second]))).toEqual({
+      expect(splitLandedOutputNotes(landed(executed([first, fee, second])), 'per-check-two-traps')).toEqual({
         feeNote: fee,
-        userNotes: [first, second]
+        userNotes: [first, second],
+        verificationFeeKnown: false
       });
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(expect.any(String), [trap, other]);
@@ -502,15 +624,19 @@ describe('splitLandedOutputNotes', () => {
       where => {
         const fee = kernelFee();
         const second = trapping(where, trap);
-        expect(splitLandedOutputNotes(executed([fee, second]))).toEqual({
+        expect(splitLandedOutputNotes(landed(executed([fee, second])), `per-check-second-${where}`)).toEqual({
           feeNote: undefined,
-          userNotes: [fee, second]
+          userNotes: [fee, second],
+          verificationFeeKnown: false
         });
       }
     );
 
     it('logs nothing when no check traps', () => {
-      splitLandedOutputNotes(executed([user, untagged(new TypeError('no accessor')), kernelFee()]));
+      splitLandedOutputNotes(
+        landed(executed([user, untagged(new TypeError('no accessor')), kernelFee()])),
+        'per-check-none'
+      );
       expect(warn).not.toHaveBeenCalled();
     });
 
@@ -521,7 +647,11 @@ describe('splitLandedOutputNotes', () => {
         const fee = kernelFee();
         const unknownTag = trapping('tag', trap);
         const notes = order === 'before' ? [unknownTag, fee] : [fee, unknownTag];
-        expect(splitLandedOutputNotes(executed(notes))).toEqual({ feeNote: undefined, userNotes: notes });
+        expect(splitLandedOutputNotes(landed(executed(notes)), `per-check-unknown-tag-${order}`)).toEqual({
+          feeNote: undefined,
+          userNotes: notes,
+          verificationFeeKnown: false
+        });
         expect(warn).toHaveBeenCalledTimes(1);
         expect(warn).toHaveBeenCalledWith(expect.any(String), [trap]);
       }
@@ -547,7 +677,11 @@ describe('splitLandedOutputNotes', () => {
             nonFungibleAssets: () => []
           })
         };
-        expect(splitLandedOutputNotes(executed([twice, fee]))).toEqual({ feeNote: undefined, userNotes: [twice, fee] });
+        expect(splitLandedOutputNotes(landed(executed([twice, fee])), `per-check-tag-then-${second}`)).toEqual({
+          feeNote: undefined,
+          userNotes: [twice, fee],
+          verificationFeeKnown: false
+        });
         expect(warn).toHaveBeenCalledTimes(1);
       }
     );
@@ -565,8 +699,100 @@ describe('splitLandedOutputNotes', () => {
           nonFungibleAssets: () => []
         })
       };
-      expect(splitLandedOutputNotes(executed([overCeiling, fee]))).toEqual({ feeNote: fee, userNotes: [overCeiling] });
+      expect(splitLandedOutputNotes(landed(executed([overCeiling, fee])), 'per-check-over-ceiling')).toEqual({
+        feeNote: fee,
+        userNotes: [overCeiling],
+        verificationFeeKnown: false
+      });
       expect(warn).toHaveBeenCalledWith(expect.any(String), [trap]);
     });
+  });
+});
+
+describe('reviewed USDCx completed fee total', () => {
+  const tx = (maximum = '300'): ITransaction => ({
+    id: 'usdcx-row',
+    type: 'bridged-send',
+    accountId: 'acct',
+    amount: 100n,
+    faucetId: 'bech32-native',
+    approvedOutputNoteIds: ['burn'],
+    status: ITransactionStatus.GeneratingTransaction,
+    initiatedAt: 0,
+    displayIcon: 'DEFAULT',
+    extraInputs: {
+      provider: 'usdcx',
+      usdcxBurn: {
+        noteId: 'burn',
+        destinationDomain: 6,
+        phase: 'pending',
+        networkFeeBudget: {
+          faucetId: 'bech32-native',
+          maxAmount: maximum,
+          scope: '0eab4363008ac48565a556005f9429c4a85838ec79dc00c463d15dcbb4c14c5c'
+        }
+      }
+    }
+  });
+  const named = (id: string, amount: bigint, tag = 0) => ({
+    ...outputNote(tag, [asset(amount, 'native')]),
+    id: () => ({ toString: () => id })
+  });
+  const burn = named('burn', 100n);
+  const companion = named('sponsor', 119n);
+  const kernel = named('kernel', 119n, TX_FEE_NOTE_TAG);
+  beforeEach(() => {
+    mockNativeAssetId = 'bech32-native';
+    mockVerificationBaseFee = 7;
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockReset().mockReturnValue('sponsor');
+  });
+
+  it('records the actually paid verification plus canonical sponsorship fee', () => {
+    expect(feeFieldsFromResult(result([burn, companion, kernel]), 'total', tx())).toEqual({
+      feeAmount: 238n,
+      feeFaucetId: 'bech32-native'
+    });
+  });
+
+  it('records a companion alone only when the kernel fee is known zero', () => {
+    mockVerificationBaseFee = 0;
+    expect(feePaidFromResult(result([burn, companion]), 'zero-kernel', tx())).toEqual({
+      amount: 119n,
+      faucetId: 'bech32-native'
+    });
+  });
+
+  it('does not report a partial total when the ordinary fee is ambiguous', () => {
+    const ambiguous = result([burn, companion, kernel, named('kernel-two', 126n, TX_FEE_NOTE_TAG)]);
+    expect(feeFieldsFromResult(ambiguous, 'unknown-total', tx())).toEqual({});
+    expect(canonicalFeeSponsorshipNoteId).not.toHaveBeenCalled();
+  });
+
+  it.each(['237', '0002'])('omits an unvalidated landed total for budget %s without failing the row', maximum => {
+    expect(feeFieldsFromResult(result([burn, companion, kernel]), `budget-${maximum}`, tx(maximum))).toEqual({});
+  });
+
+  it('retires a companion reconstruction trap once and leaves completed bookkeeping non-replayable', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const retire = jest.fn();
+    const restore = installLandedTrapRetirement(retire);
+    const execution = result([burn, companion, kernel]);
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => {
+      throw trap;
+    });
+    try {
+      expect(feeFieldsFromResult(execution, 'total-trap', tx())).toEqual({});
+      expect(feeFieldsFromResult(execution, 'total-trap', tx())).toEqual({});
+      expect(retire.mock.calls).toEqual([[trap, 'total-trap']]);
+    } finally {
+      restore();
+    }
+  });
+
+  it('still propagates eviction instead of answering for a stopped pipeline', () => {
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation(() => {
+      throw poison;
+    });
+    expect(thrownBy(() => feePaidFromResult(result([burn, companion, kernel]), 'total-evicted', tx()))).toBe(poison);
   });
 });

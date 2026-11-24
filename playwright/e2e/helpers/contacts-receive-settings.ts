@@ -47,6 +47,7 @@
  */
 import type { Locator, Page } from '@playwright/test';
 
+import { commandSendForm, confirmCommandSendReview } from './command-send';
 import { selectContactNetwork } from './contact-network';
 import type { ChromeWalletPageApi } from './wallet-page';
 
@@ -94,7 +95,7 @@ export async function openSettingsDrawer(
 ): Promise<Locator> {
   const buttonTestId = SETTINGS_TAB_BUTTON[drawer];
   await wallet.navigateTo('/');
-  await wallet.page.getByTestId('explore-page').waitFor({ state: 'visible', timeout: timeoutMs });
+  await wallet.page.getByTestId('command-shell').waitFor({ state: 'visible', timeout: timeoutMs });
   await wallet.navigateTo('/settings');
 
   const button = wallet.page.getByTestId(buttonTestId);
@@ -314,8 +315,7 @@ export interface PickerContact {
  */
 export async function openSendContactPicker(wallet: ChromeWalletPageApi, timeoutMs = 30_000): Promise<Locator> {
   await wallet.navigateTo('/send');
-  const sendFlow = wallet.page.getByTestId('send-flow');
-  await sendFlow.waitFor({ state: 'visible', timeout: timeoutMs });
+  const sendFlow = await commandSendForm(wallet.page, timeoutMs);
 
   const addressBookButton = sendFlow.getByTestId('send-address-book-icon');
   try {
@@ -364,15 +364,7 @@ export async function addContactFromSend(
 ): Promise<void> {
   const step = `addContactFromSend("${contact.name}")`;
   await wallet.navigateTo('/send');
-  const sendFlow = wallet.page.getByTestId('send-flow');
-  try {
-    await sendFlow.waitFor({ state: 'visible', timeout: timeoutMs });
-  } catch {
-    throw new Error(
-      `${step}: /send never showed the send flow ([data-testid="send-flow"]) within ${timeoutMs}ms. ` +
-        `URL: ${wallet.page.url()}`
-    );
-  }
+  const sendFlow = await commandSendForm(wallet.page, timeoutMs);
   try {
     await sendFlow.getByTestId('send-recipient-input').fill(contact.address, { timeout: timeoutMs });
   } catch {
@@ -593,9 +585,7 @@ export async function advanceToSendReview(
 ): Promise<SendReviewState> {
   const STEP_TIMEOUT_MS = 30_000;
   const page = wallet.page;
-  const sendFlow = page.getByTestId('send-flow');
-
-  await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
+  const sendFlow = await commandSendForm(page, STEP_TIMEOUT_MS);
 
   // Token picker: a bottom sheet portaled outside the send-flow container.
   await sendFlow.getByTestId('send-token-selector').click({ timeout: STEP_TIMEOUT_MS });
@@ -614,7 +604,7 @@ export async function advanceToSendReview(
   }
 
   await sendFlow.getByTestId('send-amount-input').fill(params.amount);
-  await sendFlow.getByTestId('send-amount-confirm').click({ timeout: STEP_TIMEOUT_MS });
+  await confirmCommandSendReview(page, STEP_TIMEOUT_MS);
 
   // Review is a routed full-screen page that installs this hook on mount; the
   // public/private choice has no UI control any more.

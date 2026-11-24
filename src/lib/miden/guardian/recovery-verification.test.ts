@@ -119,6 +119,38 @@ describe('recovery verification', () => {
       expect(freed.commitment).toHaveBeenCalledTimes(1);
     });
 
+    const failingAccount = (read: keyof typeof freed, error: Error) => {
+      const fail = (): never => {
+        throw error;
+      };
+      return {
+        id: () => ({ toString: read === 'id' ? fail : () => '0xid', free: freed.id }),
+        nonce: () => ({ asInt: read === 'nonce' ? fail : () => 7n, free: freed.nonce }),
+        isNew: () => false,
+        to_commitment: () => ({ toHex: read === 'commitment' ? fail : () => '0xABCD', free: freed.commitment })
+      } as never;
+    };
+
+    it.each(['id', 'nonce', 'commitment'] as const)(
+      'rejects with a trap from the %s read and frees nothing the trap left behind, even when a free would throw',
+      async read => {
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        signers.mockReturnValue(['aa', 'bb']);
+        freed[read].mockImplementation(() => {
+          throw new Error('freed after the trap');
+        });
+        await expect(readServedStateFacts(failingAccount(read, trap), new Uint8Array())).rejects.toBe(trap);
+        expect(freed[read]).not.toHaveBeenCalled();
+      }
+    );
+
+    it('still frees a handle whose read fails with an ordinary error', async () => {
+      const error = new Error('bad id');
+      signers.mockReturnValue(['aa', 'bb']);
+      await expect(readServedStateFacts(failingAccount('id', error), new Uint8Array())).rejects.toBe(error);
+      expect(freed.id).toHaveBeenCalledTimes(1);
+    });
+
     it('rethrows a WebAssembly trap from the signer read instead of treating the slot as unreadable', async () => {
       const trap = new WebAssembly.RuntimeError('unreachable');
       signers.mockImplementation(() => {

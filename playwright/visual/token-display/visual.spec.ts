@@ -2,6 +2,8 @@ import sharp from 'sharp';
 
 import { expect, test } from '@playwright/test';
 
+import { detailRowValue, enText } from '../../e2e/helpers/bridge';
+
 for (const width of [320, 360, 402]) {
   for (const dark of [false, true]) {
     test(`keeps token values and normalized USD amount legible at ${width}px, ${dark ? 'dark' : 'light'}`, async ({
@@ -32,6 +34,16 @@ for (const width of [320, 360, 402]) {
       await amount.fill('00.15');
       await expect(amount).toHaveValue('0.15');
       await expect(page.getByRole('button', { name: 'USD', exact: true })).toBeVisible();
+
+      // Production presentation primitives and translations, with synthetic data and no wallet/signer.
+      const feeRow = page.getByTestId('reviewed-native-fee');
+      const maximum = feeRow.getByText('0.000298 USDCX', { exact: true });
+      await expect(feeRow).toContainText('Max network fee');
+      const reviewedFee = detailRowValue(page, enText('networkFeeMax'));
+      await expect(reviewedFee).toContainText('Paid in USDCX, including faucet execution sponsorship');
+      await expect(reviewedFee.locator(':scope > div:first-child')).toHaveText('0.000298 USDCX');
+      await expect(maximum).toBeVisible();
+      expect(await maximum.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 
       const screenshotPath = test.info().outputPath(`token-display-${width}-${dark ? 'dark' : 'light'}.png`);
       const screenshot = await page.screenshot({ path: screenshotPath, animations: 'disabled', caret: 'hide' });

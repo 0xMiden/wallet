@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { WaveDots } from 'components/ui';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
@@ -19,7 +20,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { swapPayEstimate } from './amount-display';
-import { OneClickNetworkOption, OneClickNetworkPicker } from './OneClickPickers';
+import { CommandSwap } from './CommandSwap';
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
 
@@ -33,10 +34,12 @@ export interface SwapAmountsProps {
   offerAmount: string;
   onOfferAmountChange: (amount: string) => void;
   onSelectOfferToken: () => void;
+  offerTokenAnchorRef?: React.Ref<HTMLButtonElement>;
   requestToken: SwapToken;
   requestAmount: string;
   onRequestAmountChange: (amount: string) => void;
   onSelectRequestToken: () => void;
+  requestTokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Show a skeleton on the receive field while its quote is being computed. */
   requestLoading?: boolean;
   offerLoading?: boolean;
@@ -49,11 +52,6 @@ export interface SwapAmountsProps {
   statusMessage?: string;
   statusIsError?: boolean;
   statusErrorId?: UserErrorId | null;
-  oneClickNetworks?: readonly OneClickNetworkOption[];
-  offerNetwork?: OneClickNetworkOption;
-  requestNetwork?: OneClickNetworkOption;
-  onOfferNetworkChange?: (network: OneClickNetworkOption) => void;
-  onRequestNetworkChange?: (network: OneClickNetworkOption) => void;
 }
 
 /** SwapToken → the UIToken shape SelectAmount expects. `balance` feeds the
@@ -73,7 +71,11 @@ const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
  * First swap screen: two stacked SelectAmount fields (You Pay / You Receive)
  * with a swap-direction toggle between them and a single shared Confirm CTA.
  */
-export const SwapAmounts: React.FC<SwapAmountsProps> = ({
+export const SwapAmounts: React.FC<SwapAmountsProps> = props => {
+  return useFlowPresentation() === 'command' ? <CommandSwap {...props} /> : <CompactSwapAmounts {...props} />;
+};
+
+const CompactSwapAmounts: React.FC<SwapAmountsProps> = ({
   offerToken,
   offerBalance,
   offerExceedsBalance,
@@ -94,12 +96,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   statusMessage,
   statusIsError,
   statusErrorId,
-  feeAssetMissing = false,
-  oneClickNetworks,
-  offerNetwork,
-  requestNetwork,
-  onOfferNetworkChange,
-  onRequestNetworkChange
+  feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
   const prices = useWalletStore(state => state.tokenPrices);
@@ -161,16 +158,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
     >
       <div className="flex flex-col gap-5">
         <motion.div {...sideMotion(0, -24)} data-testid="swap-pay-side">
-          {oneClickNetworks && offerNetwork && onOfferNetworkChange && (
-            <div className="mb-3">
-              <OneClickNetworkPicker
-                side="pay"
-                network={offerNetwork}
-                networks={oneClickNetworks}
-                onSelect={onOfferNetworkChange}
-              />
-            </div>
-          )}
           <SelectAmount
             embedded
             showAmountShortcuts
@@ -237,16 +224,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         </div>
 
         <motion.div {...sideMotion(1, 24)} data-testid="swap-receive-side">
-          {oneClickNetworks && requestNetwork && onRequestNetworkChange && (
-            <div className="mb-3">
-              <OneClickNetworkPicker
-                side="receive"
-                network={requestNetwork}
-                networks={oneClickNetworks}
-                onSelect={onRequestNetworkChange}
-              />
-            </div>
-          )}
           <SelectAmount
             embedded
             // "You Receive" is the swap output — the user's balance of that token

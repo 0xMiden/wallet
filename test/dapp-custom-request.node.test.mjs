@@ -16,6 +16,33 @@ const globals = new Map(
 let api;
 let pageCommon;
 
+test('keeps measured leading reports bound to the real page invocation', async () => {
+  let reads = 0;
+  window.testSyncChain = async () => {
+    if (++reads <= 2) throw new Error('fixture node unavailable');
+  };
+  const reports = [[], []];
+  const input = { requestId: 'not-built', recipientAddress: '', importNotes: false };
+  try {
+    const commands = reports.map(events =>
+      api.call('submitCustomMeasured', input, Date.now() + 10_000, {
+        reportLeadingNode: async error => {
+          events.push(error?.name ?? 'recovered');
+          return true;
+        }
+      })
+    );
+    const results = await Promise.allSettled(commands);
+    assert.deepEqual(results.map(result => result.status), ['rejected', 'rejected']);
+    assert.deepEqual(reports, [
+      ['ChainUnavailableError', 'recovered'],
+      ['ChainUnavailableError', 'recovered']
+    ]);
+  } finally {
+    delete window.testSyncChain;
+  }
+});
+
 before(async () => {
   const imports = new Map([
     [
@@ -25,7 +52,7 @@ before(async () => {
         export * from ${JSON.stringify(sdkUrl)};
         export const MidenClient = {
           create: async () => ({
-            syncChain: async () => undefined,
+            syncChain: async () => globalThis.window.testSyncChain?.(),
             getSyncHeight: async () => 42,
             feeFaucetId: async () => sdk.AccountId.fromHex(${JSON.stringify(faucetHex)})
           })
@@ -67,7 +94,7 @@ before(async () => {
       dataModule(`
         import * as sdk from ${JSON.stringify(sdkUrl)};
         export const guardianRequestBuilder = async () => new sdk.TransactionRequestBuilder()
-          .withAuthArg(sdk.Word.fromHex('0x${'02'.repeat(32)}')).withBlockNumbers([42]);
+          .withAuthArgs(new sdk.FeltArray([1n, 2n, 3n, 4n].map(n => new sdk.Felt(n)))).withBlockNumbers([42]);
         export const previewTwinSummary = async () => { throw new Error('not used by request fixture tests'); };
       `)
     ]
@@ -102,6 +129,7 @@ before(async () => {
   pageCommon = await import(imports.get('./page-common.js'));
   imports.set('./custom-scripts.js', await pageModule('custom-scripts.ts'));
   imports.set('./script-request.js', await pageModule('script-request.ts'));
+  imports.set('./protocol.js', await pageModule('protocol.ts'));
   globalThis.window = { midenWallet: { on: () => undefined }, location: { host: 'fixture-unit' } };
   globalThis.document = { getElementById: () => null, querySelectorAll: () => [] };
   globalThis.fetch = async () => ({ json: async () => ({ version: '0.17.3' }) });
@@ -174,6 +202,8 @@ test('refuses the fee-salt flag on an authenticated twin request', async () => {
   );
   const built = await api.call('buildCustom', { shape: 'p2id', outputs: [output] });
   const request = sdk.TransactionRequest.deserialize(new Uint8Array(Buffer.from(built.requestB64, 'base64')));
-  assert.equal(request.authArg()?.toHex(), `0x${'02'.repeat(32)}`);
+  const preimage = [1n, 2n, 3n, 4n].map(n => new sdk.Felt(n));
+  assert.equal(request.authArg()?.toHex(), sdk.Poseidon2.hashElements(new sdk.FeltArray(preimage)).toHex());
+  assert.deepEqual(request.adviceMap().get(request.authArg()).map(n => n.asInt()), [1n, 2n, 3n, 4n]);
   assert.deepEqual(request.blockNumbers(), [42]);
 });

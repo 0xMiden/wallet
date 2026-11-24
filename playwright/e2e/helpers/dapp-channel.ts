@@ -1,5 +1,5 @@
 import { CellDeadlineExceeded, InfrastructureFault, type Deadline } from './dapp-cells';
-import type { DappCommandName, DappInput, DappOutput } from '../test-dapp/protocol';
+import { NODE_RETRY_MS, type DappCommandName, type DappInput, type DappOutput } from '../test-dapp/protocol';
 
 /**
  * How the driver reaches a test dApp page's `window.testDapp.call` (spec 3.3): `page.evaluate` on the extension
@@ -46,7 +46,6 @@ export const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
   'buildCustomScript',
   'makeNoteFile'
 ]);
-const NODE_RETRY_MS = 2_000;
 /** A channel's own timeout ends this far before the cell deadline, so its verdict, not the deadline race's, is recorded. */
 export const CHANNEL_MARGIN_MS = 1_000;
 

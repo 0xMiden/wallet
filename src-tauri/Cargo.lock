@@ -2194,7 +2194,7 @@ dependencies = [
 
 [[package]]
 name = "miden-wallet"
-version = "1.17.11"
+version = "1.18.1"
 dependencies = [
  "base64 0.22.1",
  "core-foundation 0.9.4",

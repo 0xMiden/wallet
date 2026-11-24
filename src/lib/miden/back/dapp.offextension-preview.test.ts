@@ -3,7 +3,7 @@
  * What the MOBILE and DESKTOP approval sheets say about the thing they are
  * approving. Both platforms render `DAppConfirmationRequest.transactionMessages`
  * as a plain list of strings (`DappConfirmationModal`, and the desktop overlay's
- * `escapeHtml`ed rows), so whatever `dapp.ts` puts in that array IS the sheet —
+ * `escapeHtml`ed rows), so whatever `dapp.ts` puts in that array IS the sheet -
  * there is no second decoder downstream, unlike the extension's `ConfirmPage`.
  *
  * Two blind-approval regressions are covered here:
@@ -15,7 +15,7 @@
  *    away the whole balance with nothing on screen about assets.
  *
  * 2. CUSTOM TRANSACTION. The sheet was four fixed strings plus `From` and a
- *    dApp-declared `Recipient`, none of it derived from `transactionRequest` —
+ *    dApp-declared `Recipient`, none of it derived from `transactionRequest` -
  *    the bytes the wallet then executes, proves and submits.
  *
  * Every test drives `dapp.ts` with `isExtension()` forced false, which is the
@@ -23,22 +23,28 @@
  * from the same decoders instead.
  */
 
+import type { SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 import fs from 'fs';
 import path from 'path';
 
 import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
 import { getMessage } from 'lib/i18n';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { WalletType } from 'screens/onboarding/types';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 // Mirrors the scaffold in `dapp.send-preview.test.ts`; `dapp.ts` pulls in the
 // vault, the transaction pipeline and the storage adapter at module scope.
 
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
+// The unlocked store's accounts: the sign gate reads the connected account's kind here. Empty reads as a single-key
+// account, as a locked store does.
+let mockAccounts: { publicKey: string; type: string }[] = [];
 
 jest.mock('lib/miden/back/store', () => ({
   store: {
-    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' } })
+    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, accounts: mockAccounts })
   },
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
@@ -97,7 +103,7 @@ jest.mock('lib/miden/metadata/utils', () => ({
 
 /**
  * The bech32 derivation in the real helper runs `Address.fromAccountId` on a WASM
- * AccountId, which the SDK stub cannot produce — the faucet stubs below carry
+ * AccountId, which the SDK stub cannot produce - the faucet stubs below carry
  * their address directly. Everything else (notably `sameWalletAccountId`, which
  * gates the custom-transaction path) stays REAL.
  */
@@ -131,22 +137,28 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 
 /** The dry run itself is covered by `simulate-custom-tx.test.ts`; here it gives the view the sheet must show. */
 const mockSimulate = jest.fn();
-jest.mock('./simulate-custom-tx', () => ({
-  simulateCustomTransaction: (...args: unknown[]) => mockSimulate(...args)
-}));
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return {
+    simulateCustomTransaction: async (...args: unknown[]) => measureApprovalDryRun(await mockSimulate(...args))
+  };
+});
 
 // A summary's approval, custom or signBytes, reads the chain fee before it decodes and refuses when that read is
 // unknown. A signBytes summary is then measured on the fee and native faucet that read cached.
 const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
 const mockFeeKnownAbsent = jest.fn(() => false);
-let mockSyncFee: number | null = null;
+const mockCacheScope = jest.fn(() => 'rpc|testnet');
+let mockSyncFee: number | null = 2;
 let mockNativeFaucetId: string | null = null;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee(),
   isVerificationBaseFeeKnownAbsent: () => mockFeeKnownAbsent(),
   getVerificationBaseFeeSync: () => mockSyncFee,
-  getNativeAssetIdSync: () => mockNativeFaucetId
+  getNativeAssetIdSync: () => mockNativeFaucetId,
+  cacheScope: () => mockCacheScope()
 }));
 
 /** The decoded view of the dry run. The real decoders stay in place for the sign tests. */
@@ -231,6 +243,9 @@ const expectWarningThenLine = (rows: string[]) => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAccounts = [];
+  mockCacheScope.mockReset();
+  mockCacheScope.mockImplementation(() => 'rpc|testnet');
   mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: {} }));
   // Declining short-circuits right after the sheet is built and shown, which is
   // the state every test here inspects.
@@ -240,7 +255,7 @@ beforeEach(() => {
   mockRefreshVerificationBaseFee.mockResolvedValue(2);
   mockFeeKnownAbsent.mockReset();
   mockFeeKnownAbsent.mockReturnValue(false);
-  mockSyncFee = null;
+  mockSyncFee = 2;
   mockNativeFaucetId = null;
   mockSimulate.mockResolvedValue({ summaryBytes: 'sumB64' });
   mockSimulatedView.mockReturnValue({
@@ -380,7 +395,18 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 
+  it('refuses a summary before any prompt when the fee its decode reads was cleared after the fee read', async () => {
+    mockSyncFee = null;
+    sdk.SigningInputs = { deserialize: () => summarySigningInputs([]) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(`${DECLINED}: ${getMessage('chainFeeUnknown')}`)
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
   it('still shows a summary when the fee read finds the fee absent', async () => {
+    mockSyncFee = null;
     mockRefreshVerificationBaseFee.mockResolvedValue(null);
     mockFeeKnownAbsent.mockReturnValue(true);
     sdk.SigningInputs = { deserialize: () => summarySigningInputs([]) };
@@ -487,6 +513,100 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
     expectWarningThenLine(sheetRows());
   });
 
+  it('still prompts for an Arbitrary payload when the fee read throws', async () => {
+    const readFailure = new Error('storage unavailable');
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockRefreshVerificationBaseFee.mockRejectedValue(readFailure);
+    sdk.SigningInputs = { deserialize: () => ({ variantType: 1 }) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(DECLINED)
+    );
+
+    expectWarningThenLine(sheetRows());
+    expect(warnSpy).toHaveBeenCalledWith(expect.any(String), readFailure);
+    warnSpy.mockRestore();
+  });
+
+  it('still prompts for an Arbitrary payload when the endpoint scope changes after the fee read', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    sdk.SigningInputs = {
+      deserialize: () => {
+        scope = 'rpc-new|testnet';
+        return { variantType: 1 };
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(DECLINED)
+    );
+
+    expectWarningThenLine(sheetRows());
+  });
+
+  it('refuses a summary before any prompt when the fee read throws', async () => {
+    const readFailure = new Error('storage unavailable');
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockRefreshVerificationBaseFee.mockRejectedValue(readFailure);
+    sdk.SigningInputs = { deserialize: () => summarySigningInputs([]) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(`${DECLINED}: ${getMessage('chainFeeUnknown')}`)
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.any(String), readFailure);
+    warnSpy.mockRestore();
+  });
+
+  it('refuses a summary before any prompt when the endpoint scope changes after the fee read', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockSyncFee = 2;
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    sdk.SigningInputs = {
+      deserialize: () => {
+        scope = 'rpc-new|testnet';
+        return summarySigningInputs([]);
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(`${DECLINED}: ${getMessage('chainFeeUnknown')}`)
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('refuses a summary before any prompt when the new endpoint has no fee', async () => {
+    let scope = 'rpc-new|testnet';
+    mockCacheScope.mockImplementation(() => scope);
+    mockSyncFee = null;
+    mockFeeKnownAbsent.mockReturnValue(true);
+    mockRefreshVerificationBaseFee.mockImplementation(async () => {
+      scope = 'rpc-answered|testnet';
+      return 2;
+    });
+    sdk.SigningInputs = {
+      deserialize: () => {
+        scope = 'rpc-new|testnet';
+        return summarySigningInputs([]);
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(
+      new Error(`${DECLINED}: ${getMessage('chainFeeUnknown')}`)
+    );
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
   it('still prompts for a payload that does not decode when the fee read does not know the fee', async () => {
     mockRefreshVerificationBaseFee.mockResolvedValue(null);
     sdk.SigningInputs = {
@@ -507,6 +627,150 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
 
     expectWarningThenLine(sheetRows());
     expect(mockRefreshVerificationBaseFee).not.toHaveBeenCalled();
+  });
+});
+
+// ── 1b. A Guardian account signs only arbitrary signing inputs; a single-key account is unchanged ──
+
+describe('dApp sign approval on mobile and desktop for a Guardian account', () => {
+  const signRequest = (kind: SignKind, payload = 'c2lnbmluZy1pbnB1dHM='): Parameters<typeof requestSign>[1] => ({
+    type: MidenDAppMessageType.SignRequest,
+    sourceAccountId: 'miden-account-1',
+    sourcePublicKey: 'miden-account-1',
+    payload,
+    kind
+  });
+
+  /** `SigningInputs` of `variantType` whose preimage is `values`. */
+  const signingInputs = (variantType: number, values: readonly bigint[] = []) => ({
+    variantType,
+    toElements: () => ({
+      length: () => values.length,
+      get: (index: number) => ({ asInt: () => values[index], free: () => undefined }),
+      free: () => undefined
+    }),
+    free: () => undefined
+  });
+
+  beforeEach(() => {
+    mockAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+  });
+
+  it('shows an arbitrary message with its element count and its elements', async () => {
+    sdk.SigningInputs = { deserialize: () => signingInputs(1, [4n, 5n, 6n, 7n]) };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
+
+    expect(sheetRows()).toEqual([
+      'Kind, signingInputs',
+      'Account, miden-account-1',
+      getMessage('signMessageWarning', { count: 4 }),
+      'Message, 4, 5, 6, 7'
+    ]);
+  });
+
+  it('refuses a raw word before it loads the WASM module', async () => {
+    const getWasm = sdk.getWasmOrThrow as jest.Mock;
+    getWasm.mockClear();
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('word'), 'session-1')).rejects.toThrow(DAPP_SIGN_RULE);
+
+    expect(getWasm).not.toHaveBeenCalled();
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('rejects with the WASM trap, not the sign rule, when the payload decode traps', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    sdk.SigningInputs = {
+      deserialize: () => {
+        throw trap;
+      }
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toBe(trap);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, SignKind, () => unknown]>([
+    ['a raw word', 'word', () => signingInputs(1, [1n])],
+    ['transaction summary signing inputs', 'signingInputs', () => signingInputs(0)],
+    ['blind signing inputs', 'signingInputs', () => signingInputs(2)],
+    [
+      'an arbitrary preimage with the transaction summary layout',
+      'signingInputs',
+      () => signingInputs(1, [1n, ...Array<bigint>(23).fill(9n)])
+    ],
+    ['an arbitrary preimage of 257 elements', 'signingInputs', () => signingInputs(1, Array<bigint>(257).fill(9n))],
+    [
+      'bytes that do not decode',
+      'signingInputs',
+      () => {
+        throw new Error('not signing inputs');
+      }
+    ]
+  ])('refuses %s with the sign rule before the sheet opens', async (_case, kind, deserialize) => {
+    sdk.SigningInputs = { deserialize };
+
+    const refusal = requestSign(DAPP_ORIGIN, signRequest(kind), 'session-1');
+    await expect(refusal).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+    await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe('dApp sign approval on mobile and desktop for a single-key account', () => {
+  const signRequest = (kind: SignKind): Parameters<typeof requestSign>[1] => ({
+    type: MidenDAppMessageType.SignRequest,
+    sourceAccountId: 'miden-account-1',
+    sourcePublicKey: 'miden-account-1',
+    payload: 'c2lnbmluZy1pbnB1dHM=',
+    kind
+  });
+
+  beforeEach(() => {
+    mockAccounts = [{ publicKey: 'miden-account-1', type: WalletType.OnChain }];
+  });
+
+  it.each<[string, SignKind, number | undefined]>([
+    ['a raw word', 'word', undefined],
+    ['blind signing inputs', 'signingInputs', 2],
+    ['arbitrary signing inputs', 'signingInputs', 1]
+  ])('still prompts for %s with the opaque-signature warning, as before', async (_case, kind, variantType) => {
+    if (variantType !== undefined) {
+      sdk.SigningInputs = { deserialize: () => ({ variantType, free: () => undefined }) };
+    }
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest(kind), 'session-1')).rejects.toThrow(DECLINED);
+
+    const rows = sheetRows();
+    expect(rows.slice(0, 2)).toEqual([`Kind, ${kind}`, 'Account, miden-account-1']);
+    expect(rows).toContain(OPAQUE_WARNING);
+    expect(rows.some(row => row.startsWith('Message, '))).toBe(false);
+  });
+
+  it('still prompts for a transaction summary with its asset movement', async () => {
+    sdk.SigningInputs = {
+      deserialize: () => ({
+        variantType: 0,
+        transactionSummaryPayload: () => ({
+          accountDelta: () => ({
+            id: () => ({ __faucet: 'miden-account-1' }),
+            vault: () => ({
+              removedFungibleAssets: () => [fungibleAsset('faucet-usdc', 1500000n)],
+              addedFungibleAssets: () => [],
+              numAssets: () => 1
+            }),
+            storage: () => ({ isEmpty: () => true })
+          }),
+          inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+          outputNotes: () => ({ numNotes: () => 0, notes: () => [] })
+        })
+      })
+    };
+
+    await expect(requestSign(DAPP_ORIGIN, signRequest('signingInputs'), 'session-1')).rejects.toThrow(DECLINED);
+
+    expect(sheetRows()).toContain('Sending, -1.5 USDC');
   });
 });
 

@@ -901,6 +901,8 @@ body[data-home-band]::before {
     /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
      * Prefixed so a copied shadcn primitive can never redefine them. */
     --ds-page: #ffffff;
+    --ds-launcher-fill: #e77537;
+    --ds-launcher-ink: #191919;
     /* The scrim behind a sheet or an overlay. One value in both themes: the sheet sits on its own
      * surface, so what the scrim has to do is dim the page behind it, and that job does not change
      * with the theme. Plain black at 55% — no blur, no gloss. */
@@ -1029,6 +1031,8 @@ body[data-home-band]::before {
     --card-purple: #beacd2;
 
     --ds-page: #191919;
+    --ds-launcher-fill: #e77537;
+    --ds-launcher-ink: #191919;
     --ds-fill: #262422;
     --ds-fill-pressed: #33302d;
     --ds-action-bar: #1e1e1e;
@@ -1142,6 +1146,7 @@ body[data-home-band]::before {
 .tx-story {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -1149,6 +1154,7 @@ body[data-home-band]::before {
 .tx-story-summary {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 8px;
   border-radius: 16px;
   background: var(--ds-fill);
@@ -1157,6 +1163,8 @@ body[data-home-band]::before {
 }
 
 .tx-story-total {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--font-heading);
   font-size: 16px;
   font-weight: 800;
@@ -1291,6 +1299,8 @@ body[data-home-band]::before {
 }
 
 .tx-story-party {
+  min-width: 0;
+  overflow-wrap: anywhere;
   border-radius: 16px;
   background: var(--ds-fill);
   color: var(--ds-ink);
@@ -1298,6 +1308,8 @@ body[data-home-band]::before {
 }
 
 .tx-originator {
+  min-width: 0;
+  overflow-wrap: anywhere;
   border-radius: 16px;
   background: var(--ds-accent-tint);
   color: var(--ds-ink);
@@ -1350,6 +1362,8 @@ body[data-home-band]::before {
 
 .tx-story-amount {
   max-width: 70%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   border-radius: 999px;
   background: var(--ds-accent-tint);
   color: var(--ds-accent-tint-ink);

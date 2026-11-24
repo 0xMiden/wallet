@@ -4,6 +4,46 @@ import { backfillWalletBadges, badgesFromHistory, type BadgeBackfillSource } fro
 import { ISSUABLE_BADGES } from './evidence';
 import type { BadgeId } from './types';
 
+const CANONICAL_FAUCETS = [
+  {
+    hex: '0x817edea77acc5d71616e493afecea3',
+    bech32: 'mm1azqhah480tx96utpdeyn4lkw5v5fsdmw',
+    canonical: '0x817edea77acc5d71616e493afecea3'
+  },
+  {
+    hex: '0x111111111111111111111111111111',
+    bech32: 'mm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2v',
+    canonical: '0x111111111111111111111111111111'
+  }
+];
+
+jest.mock('@miden-sdk/miden-sdk/lazy', () => {
+  const actual = jest.requireActual<typeof import('@miden-sdk/miden-sdk/lazy')>('@miden-sdk/miden-sdk/lazy');
+  const fromHex = jest.fn((hex: string) => {
+    const match = CANONICAL_FAUCETS.find(item => item.hex === hex.toLowerCase());
+    if (!match) throw new Error(`invalid hex account id: ${hex}`);
+    return { toString: () => match.canonical };
+  });
+  return {
+    ...actual,
+    AccountId: Object.assign(actual.AccountId, { fromHex }),
+    Address: {
+      ...actual.Address,
+      fromBech32: jest.fn((address: string): unknown => {
+        const match = CANONICAL_FAUCETS.find(item => item.bech32 === address);
+        if (match) {
+          return {
+            accountId: () => ({ toString: () => match.canonical }),
+            interface: () => 'BasicWallet',
+            toNoteTag: jest.fn()
+          };
+        }
+        return actual.Address.fromBech32(address);
+      })
+    }
+  };
+});
+
 const row = (patch: Partial<ITransaction> = {}): ITransaction => ({
   id: 'send',
   type: 'send',
@@ -152,4 +192,47 @@ it('does not save an award if the page closes during the history read', async ()
   };
   await backfillWalletBadges(testSource);
   expect(testSource.mergeAwards).not.toHaveBeenCalled();
+});
+
+it('awards first-swap across hex and bech32 equivalent faucet IDs while preserving empty, different-faucet, and recovery safeguards', () => {
+  const hexFaucet = '0x817edea77acc5d71616e493afecea3';
+  const bech32Faucet = 'mm1azqhah480tx96utpdeyn4lkw5v5fsdmw';
+  const otherBech32Faucet = 'mm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2v';
+
+  const hexOrder = row({
+    id: 'swap',
+    type: 'swap',
+    extraInputs: { requestedAmount: 100n, requestedFaucetId: hexFaucet }
+  });
+  const bech32Settle = { ...claim('a', 100n), faucetId: bech32Faucet };
+  expect(badgesFromHistory([hexOrder, bech32Settle], ['account-a'], ['first-swap'])).toEqual(['first-swap']);
+
+  const bech32Order = row({
+    id: 'swap',
+    type: 'swap',
+    extraInputs: { requestedAmount: 100n, requestedFaucetId: bech32Faucet }
+  });
+  const hexSettle = { ...claim('a', 100n), faucetId: hexFaucet };
+  expect(badgesFromHistory([bech32Order, hexSettle], ['account-a'], ['first-swap'])).toEqual(['first-swap']);
+
+  expect(
+    badgesFromHistory([hexOrder, { ...claim('a', 100n), faucetId: otherBech32Faucet }], ['account-a'], ['first-swap'])
+  ).toEqual([]);
+  expect(
+    badgesFromHistory(
+      [
+        row({ id: 'swap', type: 'swap', extraInputs: { requestedAmount: 100n, requestedFaucetId: '' } }),
+        { ...claim('a', 100n), faucetId: '' }
+      ],
+      ['account-a'],
+      ['first-swap']
+    )
+  ).toEqual([]);
+  expect(
+    badgesFromHistory(
+      [hexOrder, { ...bech32Settle, recovered: true, badgeNetwork: undefined, recoveredBadgeNetwork: 'testnet' }],
+      ['account-a'],
+      ['first-swap']
+    )
+  ).toEqual([]);
 });

@@ -1,10 +1,13 @@
 import React, { memo, RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import { useTranslation } from 'react-i18next';
+
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
+  ClaimEvidenceLookup,
   getUncompletedTransactions,
   isCancellableTransaction,
   isUserCancelledTransaction,
@@ -44,7 +47,7 @@ import { useLastData } from 'lib/swr/last-data';
 import useSafeState from 'lib/ui/useSafeState';
 
 import { activityCategoryOf, isPendingActivityEntry } from './activityGroups';
-import { guardianHistoryIcon } from './guardianHistoryLabels';
+import { guardianHistoryIcon, historyEntryActionTitle } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -123,9 +126,9 @@ export interface HistoryEntriesView {
 }
 
 /** Whether an activity row answers a search; `query` is already lowercased. */
-export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): boolean {
+export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string, t: (key: string) => string): boolean {
   return Boolean(
-    entry.message?.toLowerCase().includes(query) ||
+    historyEntryActionTitle(entry, t).toLowerCase().includes(query) ||
     entry.token?.toLowerCase().includes(query) ||
     // A swap row shows the asset it asks for as well as the one it gives.
     entry.requestedToken?.toLowerCase().includes(query) ||
@@ -267,6 +270,7 @@ const History = memo<HistoryProps>(
     deferInitialLoad = false,
     hideLoadingSpinner = false
   }) => {
+    const { t } = useTranslation();
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const onScreen = usePageActive();
     const readingCompleted = onScreen && filter !== 'pending';
@@ -656,7 +660,7 @@ const History = memo<HistoryProps>(
     );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
-      entries = entries.filter(e => historyEntryMatchesSearch(e, query));
+      entries = entries.filter(e => historyEntryMatchesSearch(e, query, t));
     }
     if (filter && filter !== 'all') {
       // The categories read the tx type, so a failed row (FAILED icon) stays in its category.
@@ -824,7 +828,16 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeReclaimNoteId: bridge?.reclaimNoteId,
     bridgeSubmitClaimed: bridge?.submitClaimed,
     bridgeInPhase: bridgedReceive?.phase,
+    bridgeInStoppedBeforeSource:
+      !tx.restoredFromBackup &&
+      !tx.recovered &&
+      !bridgedReceive?.evmTxHash &&
+      !bridgedReceive?.intentNonce &&
+      !bridgedReceive?.bridgeOperation?.approvals?.length &&
+      bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
+    bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+    oneClickTracking: bridgedReceive?.oneClick,
     earnWithdrawPhase: earnWithdraw?.phase,
     earnDepositStatus: earnDeposit?.epochStatus
   };
@@ -849,6 +862,11 @@ export const patchLoadedActivityStatus = (
     const row = fresh.get(entry.txId);
     if (row === undefined) return entry;
     const fields = loadedActivityStatusFields(row);
+    // Every read gives a new tracking object. Every tracking write moves `updatedAt`, so an equal stamp keeps the
+    // shown object and the row does not render again.
+    if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
+      fields.oneClickTracking = entry.oneClickTracking;
+    }
     if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
       return entry;
     }
@@ -1065,6 +1083,8 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+      // A NEAR Intents deposit reads Expired from its tracking deadline (`bridgeBadgeStatusOf`).
+      oneClickTracking: bridgedReceive?.oneClick,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -1072,6 +1092,14 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInSourceToken: bridgedReceive?.agglayerDelivery?.originToken ?? bridgeIn?.sourceToken,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
+      bridgeInStoppedBeforeSource:
+        !tx.restoredFromBackup &&
+        !tx.recovered &&
+        !bridgedReceive?.evmTxHash &&
+        !bridgedReceive?.intentNonce &&
+        !bridgedReceive?.bridgeOperation?.approvals?.length &&
+        bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
+      bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
@@ -1240,10 +1268,13 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * fetches and the tab's unread mark (`useHasUnreadActivity`) reads through
  * this as well, so neither shows or counts a row this feed hides.
  */
-export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+export async function suppressLinkedConsumes<T extends ITransaction>(
+  transactions: T[],
+  lookup?: ClaimEvidenceLookup
+): Promise<T[]> {
   const [linked, superseded] = await Promise.all([
     suppressedLinkedConsumeIds(transactions),
-    supersededFailedConsumeIds(transactions)
+    supersededFailedConsumeIds(transactions, lookup)
   ]);
   return transactions.filter(tx => !linked.has(tx.id) && !superseded.has(tx.id));
 }

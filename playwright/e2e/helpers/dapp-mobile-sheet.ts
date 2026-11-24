@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 
-import { CellDeadlineExceeded, HarnessFault, type CellContext, type Deadline } from './dapp-cells';
+import { CellDeadlineExceeded, HarnessFault, InfrastructureFault, type CellContext, type Deadline } from './dapp-cells';
 import { callOn, type DappChannel } from './dapp-channel';
 import { evalOf } from './dapp-mobile-wallet';
 import type { DappDriverTarget } from '../harness/dapp-browser-driver';
@@ -359,15 +359,39 @@ export async function approveSheetIfShown<T>(
 // spans about a block of a 3 s chain on its own; a refusal after enqueue waits on a prove, many blocks.
 const REFUSAL_BLOCKS = 2;
 
+export function assertRefusalBlocks(timing: NonNullable<CellContext['evidence']['refusalTiming']>, ctx: CellContext): void {
+  ctx.evidence.refusalTiming = timing;
+  if (timing.trailingReadFailed) {
+    throw new InfrastructureFault('Trailing chain-height read failed; refusal timing could not be measured', {
+      abortsLeg: false
+    });
+  }
+  if (timing.afterHeight === undefined) throw new HarnessFault('Measured refusal has no trailing chain height');
+  expect(
+    timing.afterHeight - timing.beforeHeight,
+    'blocks the dApp saw while a refusal before enqueue was pending'
+  ).toBeLessThanOrEqual(REFUSAL_BLOCKS);
+}
+
 /** The positive control of spec section 5 for a refusal before enqueue: it answered within the blocks a sync spans. */
 async function withinRefusalBlocks<T>(host: SheetHost, start: () => Promise<T>, ctx: CellContext): Promise<T> {
+  const beforeStartedAt = Date.now();
   const before = (await callOn(host.channel, 'syncHeight', {}, ctx.deadline)).height;
+  const requestStartedAt = Date.now();
   const value = await start();
+  const afterStartedAt = Date.now();
   if (failedOutcome(value)) ctx.evidence.dappError = value.error;
   // Asked once: a repeat lands later and widens the difference.
   const after = (await callOn(host.channel, 'syncHeight', {}, ctx.deadline, { once: true })).height;
-  expect(after - before, 'blocks the dApp saw while a refusal before enqueue was pending').toBeLessThanOrEqual(
-    REFUSAL_BLOCKS
+  assertRefusalBlocks(
+    {
+      beforeHeight: before,
+      afterHeight: after,
+      beforeSyncMs: requestStartedAt - beforeStartedAt,
+      requestMs: afterStartedAt - requestStartedAt,
+      afterSyncMs: Date.now() - afterStartedAt
+    },
+    ctx
   );
   return value;
 }

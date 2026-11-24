@@ -4,6 +4,7 @@ import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { getNativeAssetIdSync, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { rethrowTrapOrKill } from '../sdk/sdk-error-code';
 
 /**
@@ -57,7 +58,7 @@ function answerLandedTrap(err: unknown, traps: WebAssembly.RuntimeError[] | unde
 }
 
 /**
- * Whether an output note carries the fee tag. NOT sufficient on its own — see below.
+ * Whether an output note carries the fee tag. NOT sufficient on its own - see below.
  *
  * Tolerates a missing accessor but lets a TRAP or a KILL through (`rethrowTrapOrKill`), as
  * every fee check below does unless the landed split passes `traps`, which records a trap
@@ -166,17 +167,17 @@ function unknownTagVerdict(
  *
  * The tag ALONE is not evidence. `0xfee` is a plain u32 that anything constructing a
  * `NoteMetadata` can set, and a dApp's `transactionRequest` reaches
- * `requestCustomTransaction` verbatim — so a website can add an output note carrying that
+ * `requestCustomTransaction` verbatim - so a website can add an output note carrying that
  * tag. Being identified as the fee is not a cosmetic relabel: the note is REMOVED from the
  * output-note list and its value is taken back out of the amounts, so this is how a
  * transfer disappears from a screen the user is approving. THIS MODULE IS THAT SCREEN'S
- * SPLIT — `decode.ts` calls it for both verified views — so the note is attacker-chosen and
+ * SPLIT - `decode.ts` calls it for both verified views - so the note is attacker-chosen and
  * the corroborations below are a security boundary, not tidiness.
  *
  * Every condition must hold, and each closes a way the tag alone was forgeable:
  *   - the CHAIN CHARGES. On a chain whose `verification_base_fee` is 0 the kernel emits no
  *     fee note at all, so any note wearing the tag is by construction not one. Without this
- *     a single native tagged note passes every other check on testnet — no race, no cold
+ *     a single native tagged note passes every other check on testnet - no race, no cold
  *     cache, just a dApp asking a fee-free chain to hide a transfer.
  *   - the note holds exactly ONE fungible asset, drawn on the chain's NATIVE faucet, which
  *     is the only asset the wallet ever commits a fee in (it always commits `one_to_one`).
@@ -193,10 +194,10 @@ function unknownTagVerdict(
  *
  * UNKNOWN FAILS CLOSED. When the base fee or the native faucet has not been discovered
  * yet, nothing is identified as the fee. The cost is that the kernel's real fee note is
- * briefly counted as user value — an inflated amount, in the same direction as the
+ * briefly counted as user value - an inflated amount, in the same direction as the
  * two-candidate case, and the direction a receipt should err. The alternative, trusting the
  * tag alone, is what let an attacker-chosen note erase itself from an approval sheet
- * whenever a realm had not primed its cache — and the confirm popup is a SEPARATE realm
+ * whenever a realm had not primed its cache - and the confirm popup is a SEPARATE realm
  * whose sync cache starts empty on every open.
  */
 export function partitionFeeNote(
@@ -282,21 +283,32 @@ export function splitExecutedOutputNotes(
  * offer a Retry that pays twice. The check that trapped does not take its note as the fee: a tag trap leaves the tag
  * unknown, the faucet and amount checks still run, a note they rule out is not a candidate, and one they cannot rule
  * out makes the split ambiguous, as a faucet or amount trap on a fee-tagged note does. A header trap identifies none,
- * and the split logs the trap. A kill and
- * a trap from the output-note read itself still propagate. No lock is held here, so the trapped client is not retired:
- * later calls run on it until one traps under a lock (a known limit, like the older catches CLAUDE.md lists).
+ * and the split logs the trap. A kill, and a trap from `executedTransaction()` or the output-note read itself, still
+ * propagate. A fee-check trap retires the realm client first, once per `landing`, the wallet row id
+ * (`sdk/landed-trap-retirement.ts`).
  */
-export function splitLandedOutputNotes(executed: ExecutedOutputs): {
+export function splitLandedOutputNotes(
+  result: { executedTransaction: () => ExecutedOutputs },
+  landing: string
+): {
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
+  verificationFeeKnown: boolean;
 } {
+  const executed = result.executedTransaction();
   const notes = readOutputNotes(executed);
   const traps: WebAssembly.RuntimeError[] = [];
-  const split = partitionNotes(notes, getNativeAssetIdSync(), executedBaseFee(executed, traps), 'kernel', traps);
+  const verificationBaseFee = executedBaseFee(executed, traps);
+  const split = partitionNotes(notes, getNativeAssetIdSync(), verificationBaseFee, 'kernel', traps);
   if (traps.length > 0) {
     console.warn('[fee-notes] landed fee split answered a trap', traps);
+    // No lock sees a trap past submit, so the split that answers it retires the client.
+    retireLandedTrap(traps[0], landing, result);
   }
-  return split;
+  return {
+    ...split,
+    verificationFeeKnown: traps.length === 0 && (verificationBaseFee === 0 || split.feeNote !== undefined)
+  };
 }
 
 /** Read before any fee check, so a split that answers a trap still has the notes. */

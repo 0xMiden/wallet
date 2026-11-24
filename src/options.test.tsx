@@ -63,6 +63,10 @@ jest.mock('lib/i18n', () => ({
 jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: (...args: unknown[]) => mockResetStorage(...args)
 }));
+const mockRequestReset = jest.fn(async (_options: { keepEndpointOverride: boolean }) => mockResetStorage());
+jest.mock('lib/miden/platform-reset', () => ({
+  requestExtensionReset: (options: { keepEndpointOverride: boolean }) => mockRequestReset(options)
+}));
 
 jest.mock('lib/ui/dialog', () => ({
   DialogsProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
@@ -117,6 +121,15 @@ afterEach(() => {
 const getResetButton = () => screen.getByRole('button', { name: 'resetExtension' });
 
 describe('src/options.tsx', () => {
+  it('routes its confirmed wipe through worker reset authority', async () => {
+    mockRequestReset.mockClear();
+    mockConfirm.mockResolvedValue(true);
+    mockResetStorage.mockResolvedValue(undefined);
+    await act(async () => {
+      fireEvent.click(getResetButton());
+    });
+    expect(mockRequestReset).toHaveBeenCalledWith({ keepEndpointOverride: true });
+  });
   it('mounts the Options page into #root with heading + reset button', () => {
     // OptionsWrapper -> Options JSX executed by the real createRoot render.
     expect(screen.getByRole('heading', { name: 'leoWalletOptions' })).toBeInTheDocument();

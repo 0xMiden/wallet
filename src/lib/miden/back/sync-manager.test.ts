@@ -469,7 +469,13 @@ describe('doSync', () => {
         miden_cached_consumable_notes: expect.any(Array),
         miden_sync_data: expect.objectContaining({
           accountPublicKey: 'pk-1',
-          balanceSnapshot: { network: 'testnet', accountNonce: '5' }
+          balanceSnapshot: expect.objectContaining({
+            network: 'testnet',
+            accountNonce: '5',
+            effectiveNetwork: 'testnet',
+            rpcUrl: expect.any(String),
+            capturedAt: expect.any(Number)
+          })
         })
       })
     );
@@ -1341,6 +1347,68 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       await Promise.all([active, forced]);
 
       expect(mockClient.syncState).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('a stalled-storage failure is no node outage: no failure streak, breaker window or banner, and nothing past it runs', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const { StorageStalledError } = jest.requireActual('lib/miden/storage-health');
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new StorageStalledError());
+
+      const { doSync: isolated } = await import('./sync-manager');
+      for (let i = 0; i < 5; i++) await isolated();
+
+      expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('circuit breaker open'));
+      expect(mockClient.getConsumableNoteDtos).not.toHaveBeenCalled();
+      expect(mockBroadcast).toHaveBeenCalledTimes(5);
+      warnSpy.mockRestore();
+    });
+  });
+
+  it('a watchdog eviction is probed afresh, and a stall is no node failure', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const probe = jest.fn(async () => true);
+      jest.doMock('lib/miden/storage-health', () => ({
+        ...jest.requireActual('lib/miden/storage-health'),
+        checkStorage: probe
+      }));
+      const { WasmClientPoisonedError } = jest.requireActual('../sdk/wasm-client-poison');
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      const { doSync: isolated } = await import('./sync-manager');
+      for (let i = 0; i < 4; i++) await isolated();
+
+      expect(probe).toHaveBeenCalledTimes(4);
+      expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('circuit breaker open'));
+      jest.dontMock('lib/miden/storage-health');
+      warnSpy.mockRestore();
+    });
+  });
+
+  it('while storage is stalled a lap neither reads the vault, syncs nor runs the reaper', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('lib/miden/storage-health', () => ({
+        ...jest.requireActual('lib/miden/storage-health'),
+        isStorageStalled: () => true,
+        isStorageStalledNow: async () => true,
+        checkStorage: async () => true
+      }));
+      mockClient.syncState.mockReset();
+
+      const { doSync: isolated } = await import('./sync-manager');
+      await isolated();
+
+      expect(mockIsExist).not.toHaveBeenCalled();
+      expect(mockClient.syncState).not.toHaveBeenCalled();
+      expect(mockTrimResultBytes).not.toHaveBeenCalled();
+      expect(mockBroadcast).toHaveBeenCalledTimes(1);
+      jest.dontMock('lib/miden/storage-health');
     });
   });
 

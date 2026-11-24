@@ -189,6 +189,13 @@ describe('SendAmount', () => {
     expect(props.onAmountChange).toHaveBeenCalledWith('12.345678');
   });
 
+  it('fills Max with a small balance in full, not cut to its first two significant digits (#2157)', () => {
+    const props = renderAmount({ token: { ...TOKEN, decimals: 8, balance: 0.00123456 } });
+
+    fireEvent.click(screen.getByTestId('send-amount-max'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('0.00123456');
+  });
+
   it('fills a percentage shortcut from the spendable balance', () => {
     const onAmountChange = jest.fn();
     renderAmount({ onAmountChange });

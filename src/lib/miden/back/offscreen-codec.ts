@@ -40,6 +40,8 @@ export const OFFSCREEN_URL = 'offscreen.html';
  * picking it up (issue #260, slice 5, design §2.3). */
 export const SW_TARGET = 'sw' as const;
 
+export const OFFSCREEN_TEST_AUTHORIZATION_STORAGE = 'OFFSCREEN_TEST_AUTHORIZATION_STORAGE';
+
 /** Message family for a generalized WASM-client method call. Distinct from the
  * existing `OFFSCREEN_PROVE` family, which keeps working unchanged. */
 export const OFFSCREEN_CALL = 'OFFSCREEN_CALL' as const;
@@ -114,6 +116,7 @@ export interface OffscreenSendDto {
   delegateTransaction?: boolean;
   extraInputs: {
     recallBlocks?: number;
+    calendarRecallTarget?: string;
     oneClick?: {
       fundingDeadline?: string;
       request: { deadline: string };
@@ -168,6 +171,8 @@ export const OFFSCREEN_PROVE_MARKER = 'OFFSCREEN_PROVE_MARKER' as const;
  * the per-op deadline the SW enforces; `null` means "no deadline". `endpoints`
  * is the SW's endpoint state when the call is sent: this realm has no extension
  * storage, so it runs every call on the network the call names (#1482).
+ * `submitGated` says the SW registered a submit gate for the op, which a
+ * single-key write then asks for its 'submitting' stamp (#1081).
  */
 export interface OffscreenCallRequest {
   target: typeof OFFSCREEN_TARGET;
@@ -177,6 +182,7 @@ export interface OffscreenCallRequest {
   argsB64: string[];
   deadline_ms: number | null;
   endpoints: EndpointState;
+  submitGated?: true;
 }
 
 /**
@@ -201,8 +207,9 @@ export interface OffscreenCallRequest {
  * `errorReason` carries that error's own discriminant alongside it, so the
  * rebuilt error names the mechanism that actually fired rather than guessing.
  * `errorLanded` carries what an `ApplyAfterSubmitError` could read about the executed
- * transaction, its id and private output note count, so a landed row the service
- * worker completes still records both (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
+ * transaction, its id, private output note count and the swap order it opened (the
+ * order id as decimal text), and whether its local apply completed, so a landed row
+ * the service worker completes still records them (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
  * before its submit call (#1081).
  */
 export type OffscreenCallResponse =
@@ -437,7 +444,7 @@ export function encodeArg(value: unknown): string {
  * leaves the tail `undefined` (only hand-built test envelopes do that today),
  * which is why the leaf tests `delegateTransaction` for truthiness rather than
  * for `null`. The anchor slot has no receiver, and the deadline is only read
- * for a 1Click send.
+ * for a 1Click send. The seventh slot routes an explicitly armed E2E native byte authority.
  *
  * `trBytes` MUST stay a top-level element — {@link encodeArg} only recognizes a
  * `Uint8Array` at the top level, and a nested one would be JSON-mangled,
@@ -449,7 +456,8 @@ export type GuardianPipelineArgs = [
   delegateTransaction: boolean | null,
   chainAnchorB64: string | null,
   oneClickDeadline: string | null,
-  oneClickRequired: boolean | null
+  oneClickRequired: boolean | null,
+  testAuthorizationKind?: 'send' | 'consume' | null
 ];
 
 /** Inverse of {@link encodeArg}. */

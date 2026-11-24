@@ -88,7 +88,8 @@ export const FAILURE_REASONS = [
   'consume_landed_external',
   'note_invalid',
   'never_committed',
-  'stale_proof'
+  'stale_proof',
+  'proof_freshness_unknown'
 ] as const;
 
 /** A failure the wallet itself decided, named by the caller because its stored text is never sent. */
@@ -368,7 +369,7 @@ export const FAILURE_POINTS = [
   'node_verdict'
 ] as const;
 
-export const FAILURE_OUTCOMES = ['failed', 'unconfirmed'] as const;
+export const FAILURE_OUTCOMES = ['failed', 'unconfirmed', 'landed'] as const;
 
 export const EXECUTION_REALMS = ['offscreen', 'unknown'] as const;
 
@@ -981,7 +982,8 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const confirmingStep = CONFIRMING_STEP_BY_STAGE.get(failure.stage);
     const stage = confirmingStep === undefined ? stepName : `${stepName}; confirming step ${confirmingStep}`;
     const signingStep = SIGNING_STEP_BY_STAGE.get(failure.stage);
-    const outcome: (typeof FAILURE_OUTCOMES)[number] = failure.outcome === 'unconfirmed' ? 'unconfirmed' : 'failed';
+    const outcome: (typeof FAILURE_OUTCOMES)[number] =
+      failure.outcome === 'unconfirmed' || failure.outcome === 'landed' ? failure.outcome : 'failed';
     const point = diagnostic(failure.point, FAILURE_POINTS, 'pipeline');
     const message =
       typeof failure.error === 'string' ? failure.error : failure.error instanceof Error ? failure.error.message : '';
@@ -1137,11 +1139,12 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     // A queued row with no stage expired untried (the loop's requeues stamp one, and every requeue clears `attemptId`):
     // whatever held the queue has its own report, and each row behind it would otherwise add another error.
     const neverStarted = reason === 'queued_expired' && failure.stage === undefined;
-    // An unknown outcome waits for the node's verdict, which is the error if it never landed; a failure already reported
-    // already has its error, so a later report on it is evidence for that one.
+    // An unknown outcome waits for the node's verdict, which is the error if it never landed; a landed row succeeded, so
+    // the step that failed after it is evidence; a failure already reported already has its error, so a later report
+    // on it is evidence for that one.
     captureCrash(report, 'manual', {
       initializeIfNeeded: true,
-      level: outcome === 'unconfirmed' || failure.alreadyReported === true || neverStarted ? 'warning' : 'error',
+      level: outcome !== 'failed' || failure.alreadyReported === true || neverStarted ? 'warning' : 'error',
       closedNames: CLOSED_NAMES
     });
   } catch {

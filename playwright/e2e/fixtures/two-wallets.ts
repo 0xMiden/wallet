@@ -2,7 +2,7 @@
    resolve its fixture dependencies, and rejects anything but a destructuring pattern in the
    first argument: `async (_, use)` fails at runtime with "First argument must use the object
    destructuring pattern". `async ({}, use)` is the required idiom, not a style choice. */
-import { chromium, test as base, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, test as base, type BrowserContext, type Page, type Worker } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -34,6 +34,7 @@ import {
   type NetworkOrigins
 } from '../harness/network-faults';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
+import { reloadUnpackedExtension } from '../harness/reload-unpacked-extension';
 import {
   BLANK_FRAME_WAIT_MS,
   SCREEN_CHANGE_BINDING,
@@ -371,7 +372,16 @@ async function launchWalletInstance(
   // target it.
   let context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
 
-  const serviceWorker = await waitForExtensionServiceWorker(context);
+  let serviceWorker: Worker;
+  try {
+    serviceWorker = await waitForExtensionServiceWorker(context);
+    if (suppliedProfile !== undefined) {
+      serviceWorker = await reloadUnpackedExtension(context, serviceWorker, extensionPath);
+    }
+  } catch (error) {
+    await context.close().catch(() => {});
+    throw error;
+  }
   const extensionId = new URL(serviceWorker.url()).host;
 
   if (feeFaucetId) {
@@ -504,13 +514,7 @@ async function launchWalletInstance(
   // (relaunch swaps it), and a getter body can't carry the control-flow
   // narrowing an inline `return` would, so the variable itself must be `Page`.
   const existingPage = context.pages().find(p => p.url().includes(extensionId));
-  let page: Page;
-  if (existingPage) {
-    page = existingPage;
-  } else {
-    page = await context.newPage();
-    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
-  }
+  let page: Page = existingPage ?? (await context.newPage());
 
   // Close any other pages (about:blank, etc.)
   for (const p of context.pages()) {
@@ -528,6 +532,10 @@ async function launchWalletInstance(
     if (msg.type() === 'error') earlyErrors.push(msg.text());
   });
 
+  if (!existingPage) {
+    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
+  }
+
   // The service worker loads a ~14MB WASM binary on first run. Until it finishes,
   // the frontend's useIntercomSync fetch times out and the app stays on the
   // loading screen. We reload to give the frontend a fresh retry window.
@@ -543,10 +551,10 @@ async function launchWalletInstance(
     });
 
     try {
-      // Wait for either the onboarding welcome screen OR the main Explore page.
+      // Wait for onboarding, the ready FullPage Command shell, unlock, or telemetry consent.
       await page
         .locator('[data-testid="onboarding-welcome"]')
-        .or(page.locator('[data-testid="explore-page"]'))
+        .or(page.locator('[data-testid="command-shell"]'))
         .or(page.locator('[data-testid="unlock-password"]'))
         .or(page.locator('[data-testid="onboarding-help-improve-wallet"]'))
         .first()
