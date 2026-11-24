@@ -11,6 +11,8 @@ import { ListRow } from 'components/ui/ListRow';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupAvatar } from './ActivityGroupAvatar';
@@ -27,6 +29,7 @@ import { historyEntryMatchesSearch } from './History';
 import { HistoryLoadErrorCard, HistoryLoadErrorNotice, shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
 import { isActivityClaimWaiting, type PendingActivityItem } from './PendingActivityCard';
+import { activityClaimMatchesSearch } from './useActivityClaimList';
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -99,14 +102,20 @@ export interface ActivityGroupListProps {
 }
 
 /**
- * A group answers a search by what its row shows (the name, the address, the category's label) or by any of its
- * entries, the way the List view's rows would.
+ * A group answers a search by what its row shows (the name, the address, the category's label), by any of its
+ * entries, or by a claim the cards would match: note symbol, resolved token label, asset name, and sender.
  */
-function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): boolean {
+function groupMatchesSearch(
+  group: ActivityGroup,
+  query: string,
+  t: Translate,
+  bridgeConfig: BridgeConfigSnapshot
+): boolean {
   const addresses = group.kind === 'address' ? [group.id, shortAddr(group.id)] : [];
   const shown = [activityGroupTitle(group, t), group.name, ...addresses];
   if (shown.some(value => value?.toLowerCase().includes(query))) return true;
-  return group.entries.some(entry => historyEntryMatchesSearch(entry, query, t));
+  if (group.entries.some(entry => historyEntryMatchesSearch(entry, query, t))) return true;
+  return group.claims.some(claim => activityClaimMatchesSearch(claim, query, bridgeConfig));
 }
 
 /**
@@ -133,11 +142,12 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
   }) => {
     const { t } = useTranslation();
     const readState = useActivityReadState();
+    const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     const query = searchQuery?.trim().toLowerCase() ?? '';
     const groups = useMemo(() => {
       const all = groupActivityEntries(entries, nameOf, claims);
-      return query ? all.filter(group => groupMatchesSearch(group, query, t)) : all;
-    }, [entries, claims, nameOf, query, t]);
+      return query ? all.filter(group => groupMatchesSearch(group, query, t, bridgeConfig)) : all;
+    }, [entries, claims, nameOf, query, t, bridgeConfig]);
 
     if (groups.length === 0) {
       // As in the List view, a failed read outranks one still loading and never reads as "no activity".
