@@ -19,7 +19,7 @@ import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TokenAmount } from 'components/ui/TokenAmount';
-import { formatWithdrawCountdown, secondsUntilWithdrawable } from 'lib/epoch/bridge-in-lock';
+import { formatWithdrawCountdown, nowSec, secondsUntilWithdrawable } from 'lib/epoch/bridge-in-lock';
 import {
   compactLockToken,
   type CompactLockState,
