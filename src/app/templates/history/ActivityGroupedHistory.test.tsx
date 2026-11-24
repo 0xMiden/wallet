@@ -13,7 +13,7 @@ import {
   ACTIVITY_COUNTERPARTY_HEX,
   ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
   mockActivityCounterpartyDecode
-} from './activityGroupTestFixtures';
+} from './testing/activity-group-fixtures';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 

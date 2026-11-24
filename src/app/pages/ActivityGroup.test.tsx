@@ -7,7 +7,7 @@ import {
   ACTIVITY_COUNTERPARTY_HEX,
   ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
   mockActivityCounterpartyDecode
-} from 'app/templates/history/activityGroupTestFixtures';
+} from 'app/templates/history/testing/activity-group-fixtures';
 import { HistoryEntryType, IHistoryEntry } from 'app/templates/history/IHistoryEntry';
 import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 

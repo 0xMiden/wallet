@@ -40,6 +40,7 @@ jest.mock('lib/explore-config/runtime', () => ({
 jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: () => undefined }));
 
 jest.mock('components/DeadletteredNotesNotice', () => ({ DeadletteredNotesNotice: () => null }));
+jest.mock('app/templates/history/ActivityGroupedHistory', () => ({ ActivityGroupedHistory: () => null }));
 jest.mock('app/templates/history/ActivityPendingHistory', () => ({ ActivityPendingHistory: () => null }));
 jest.mock('lib/miden/front', () => ({ useAccount: () => ({ publicKey: 'test-public-key' }) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -59,6 +60,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  localStorage.removeItem('activity_view_setting');
   HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
 });
 
@@ -110,6 +112,7 @@ it('draws Activity, Explore and the shared component as one band, class for clas
   };
   explore.unmount();
 
+  localStorage.setItem('activity_view_setting', 'list');
   const activity = render(<AllHistory />);
   const activityBand = band(activity.container);
   const activityClasses = {
