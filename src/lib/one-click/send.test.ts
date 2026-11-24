@@ -251,6 +251,27 @@ describe('buildNearIntentsSendRequest', () => {
       slippageTolerance: 100
     });
   });
+
+  it('normalizes an uppercase Bitcoin bech32 recipient into lowercase', () => {
+    const now = Date.parse('2026-11-11T12:00:00.000Z');
+    const btcAsset: OneClickAsset = { assetId: 'nep141:btc.omft.near', blockchain: 'btc', symbol: 'BTC', decimals: 8 };
+    const btcPair: NearIntentsSendPair = {
+      chain: { id: 'btc', name: 'Bitcoin', addressKind: 'bitcoin', tokens: [] },
+      origin: usdcx,
+      destination: btcAsset
+    };
+    const request = buildNearIntentsSendRequest(
+      {
+        pair: btcPair,
+        amount: 2_500_000n,
+        recipient: ' BC1QAR0SRRR7XFKVY5L643LYDNW9RE59GTZZWF5MDQ ',
+        refundTo: WALLET_ADDRESS
+      },
+      now
+    );
+
+    expect(request.recipient).toBe('bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq');
+  });
 });
 
 describe('requestNearIntentsSendPreview', () => {
@@ -376,5 +397,28 @@ describe('startNearIntentsSend', () => {
       'not in the configuration'
     );
     expect(requestQuote).not.toHaveBeenCalled();
+  });
+
+  it('normalizes uppercase Bitcoin bech32 recipients across preview and wet send requests', async () => {
+    const btcAsset: OneClickAsset = { assetId: 'nep141:btc.omft.near', blockchain: 'btc', symbol: 'BTC', decimals: 8 };
+    const btcPair: NearIntentsSendPair = {
+      chain: { id: 'btc', name: 'Bitcoin', addressKind: 'bitcoin', tokens: [] },
+      origin: usdcx,
+      destination: btcAsset
+    };
+    const uppercaseBtc = ' BC1QAR0SRRR7XFKVY5L643LYDNW9RE59GTZZWF5MDQ ';
+    const expectedBtc = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+
+    const preview = await requestNearIntentsSendPreview(config, {
+      pair: btcPair,
+      amount: 1_000_000n,
+      recipient: uppercaseBtc,
+      refundTo: WALLET_ADDRESS
+    });
+    expect(preview.request.recipient).toBe(expectedBtc);
+
+    await startNearIntentsSend(startInput({ pair: btcPair, recipient: uppercaseBtc }));
+    expect(requestQuote.mock.calls[1]?.[1]).toMatchObject({ recipient: expectedBtc });
+    expect(initiateDeposit.mock.calls[0]?.[0].request.recipient).toBe(expectedBtc);
   });
 });
