@@ -28,8 +28,8 @@ interface ActivityGroupedHistoryProps {
  * field is on screen while it does, but to the groups rather than the entries, so a group can be
  * found by the name or category label its row shows.
  *
- * Incoming transfers waiting for a claim have no group to live in, so their cards sit above the
- * groups, as actionable here as in the List view.
+ * The claim cards above the list offer the same actions as in the List view. Their transfers also
+ * give the corresponding group a waiting count and a route into that group's activity.
  */
 export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
   search,
@@ -81,6 +81,7 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
               <ActivityGroupsBoundary onReturnToList={onReturnToList}>
                 <ActivityGroupList
                   entries={view.entries}
+                  claims={representedItems}
                   nameOf={nameOf}
                   initialLoading={view.initialLoading}
                   loadError={view.loadError}

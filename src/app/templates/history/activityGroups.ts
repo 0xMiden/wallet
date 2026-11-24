@@ -13,6 +13,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import { isFaucetRequest, networkHasFaucetClaims } from './transactionUtils';
 
 /**
@@ -99,9 +100,11 @@ export interface ActivityGroup extends ActivityGroupKey {
   count: number;
   /** How many of them are still in flight, which is what the row's pending badge reports. */
   pendingCount: number;
-  /** The newest entry, which the row renders as its subtitle. */
-  latest: IHistoryEntry;
-  /** `latest`'s timestamp, or `-Infinity` when no entry in the group carries a usable one. */
+  /** The newest transaction when it is newer than or tied with the visible claims. */
+  latest?: IHistoryEntry;
+  /** Visible claim cards that represent an incoming transfer until the claim settles. */
+  claims: PendingActivityItem[];
+  /** The latest activity timestamp, or `-Infinity` when none is available. */
   latestTimestamp: number;
   /** The contact's or account's name, when the address matches one. `address` groups only. */
   name?: string;
@@ -116,8 +119,8 @@ export function isPendingActivityEntry(entry: IHistoryEntry): boolean {
 }
 
 /** A timestamp a `Date` can be built from; `-Infinity` for anything else, so it never wins a max. */
-function usableTimestamp(entry: IHistoryEntry): number {
-  return Number.isFinite(entry.timestamp) ? entry.timestamp : -Infinity;
+function usableTimestamp(timestamp = -Infinity): number {
+  return Number.isFinite(timestamp) ? timestamp : -Infinity;
 }
 
 /**
@@ -131,7 +134,11 @@ export function activityGroupKeyOf(entry: IHistoryEntry): ActivityGroupKey {
   }
   if (entry.txType === 'swap') return { kind: 'swap', id: 'swap' };
   if (isFaucetRequest(entry)) return { kind: 'faucet', id: 'faucet' };
-  const address = entry.secondaryAddress?.trim();
+  return activityAddressGroupKey(entry.secondaryAddress);
+}
+
+function activityAddressGroupKey(counterparty?: string): ActivityGroupKey {
+  const address = counterparty?.trim();
   if (address) return { kind: 'address', id: address };
   return { kind: 'other', id: 'other' };
 }
@@ -152,38 +159,51 @@ function addressBucket(key: ActivityGroupKey): string {
  */
 export function groupActivityEntries(
   entries: readonly IHistoryEntry[],
-  nameOf: ActivityCounterpartyName = () => undefined
+  nameOf: ActivityCounterpartyName = () => undefined,
+  claims: readonly PendingActivityItem[] = []
 ): ActivityGroup[] {
   const groups = new Map<string, ActivityGroup>();
 
-  for (const entry of entries) {
-    const key = activityGroupKeyOf(entry);
+  const getGroup = (key: ActivityGroupKey): ActivityGroup => {
     const bucket = addressBucket(key);
-    const timestamp = usableTimestamp(entry);
     const existing = groups.get(bucket);
+    if (existing) return existing;
 
-    if (!existing) {
-      groups.set(bucket, {
-        ...key,
-        entries: [entry],
-        count: 1,
-        pendingCount: isPendingActivityEntry(entry) ? 1 : 0,
-        latest: entry,
-        latestTimestamp: timestamp,
-        name: key.kind === 'address' ? nameOf(key.id) : undefined
-      });
-      continue;
-    }
+    const group: ActivityGroup = {
+      ...key,
+      entries: [],
+      count: 0,
+      pendingCount: 0,
+      claims: [],
+      latestTimestamp: -Infinity,
+      name: key.kind === 'address' ? nameOf(key.id) : undefined
+    };
+    groups.set(bucket, group);
+    return group;
+  };
 
-    existing.entries.push(entry);
-    existing.count += 1;
-    if (isPendingActivityEntry(entry)) existing.pendingCount += 1;
+  for (const entry of entries) {
+    const group = getGroup(activityGroupKeyOf(entry));
+    const timestamp = usableTimestamp(entry.timestamp);
+    group.entries.push(entry);
+    group.count += 1;
+    if (isPendingActivityEntry(entry)) group.pendingCount += 1;
     // `>`, not `>=`: the feed hands entries over newest first, so the first entry at a given
     // timestamp is the one the feed itself treats as newest (its secondary sort is the entry
     // type), and a later one must not displace it.
-    if (timestamp > existing.latestTimestamp) {
-      existing.latest = entry;
-      existing.latestTimestamp = timestamp;
+    if (!group.latest || timestamp > group.latestTimestamp) {
+      group.latest = entry;
+      group.latestTimestamp = timestamp;
+    }
+  }
+
+  for (const claim of claims) {
+    const group = getGroup(activityClaimGroupKeyOf(claim.note));
+    const timestamp = usableTimestamp(claim.note.receivedAt);
+    group.claims.push(claim);
+    if (timestamp > group.latestTimestamp) {
+      group.latest = undefined;
+      group.latestTimestamp = timestamp;
     }
   }
 
@@ -202,9 +222,7 @@ export function activityGroupMatcher(kind: ActivityGroupKind, id?: string): (ent
 
 /** The group a claim card belongs to: the one its consume row joins (see `isFaucetClaimNote`). */
 export function activityClaimGroupKeyOf(note: { faucetId: string; senderAddress: string }): ActivityGroupKey {
-  return isFaucetClaimNote(note)
-    ? { kind: 'faucet', id: 'faucet' }
-    : { kind: 'address', id: note.senderAddress.trim() };
+  return isFaucetClaimNote(note) ? { kind: 'faucet', id: 'faucet' } : activityAddressGroupKey(note.senderAddress);
 }
 
 /** `activityGroupMatcher` for claim cards, which have no history entry yet. */

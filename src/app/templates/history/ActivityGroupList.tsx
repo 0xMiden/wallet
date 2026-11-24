@@ -26,6 +26,7 @@ import { historyEntryActionTitle } from './guardianHistoryLabels';
 import { historyEntryMatchesSearch } from './History';
 import { HistoryLoadErrorCard, HistoryLoadErrorNotice, shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
+import { isActivityClaimWaiting, type PendingActivityItem } from './PendingActivityCard';
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -50,6 +51,7 @@ export function activityGroupSubtitle(group: ActivityGroup, t: Translate): strin
 
 function latestEvent(group: ActivityGroup, t: Translate): string {
   const entry = group.latest;
+  if (!entry) return t('received');
   if (entry.isUnconfirmed) return t('notConfirmed');
   if (entry.isCancelled) return t('cancelled');
   if (group.kind === 'faucet') return t('faucetRequestTitle');
@@ -82,6 +84,7 @@ function relativeTime(timestamp: number): string | undefined {
 
 export interface ActivityGroupListProps {
   entries: IHistoryEntry[];
+  claims?: readonly PendingActivityItem[];
   /** Resolves a counterparty to a contact's or an own account's name. */
   nameOf: ActivityCounterpartyName;
   initialLoading: boolean;
@@ -116,14 +119,25 @@ function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): 
  * exhausted (`hasMore` false) the `+` goes and the number is final.
  */
 export const ActivityGroupList = memo<ActivityGroupListProps>(
-  ({ entries, nameOf, initialLoading, loadError, onRetry, hasMore, loadMore, scrollParentRef, searchQuery }) => {
+  ({
+    entries,
+    claims,
+    nameOf,
+    initialLoading,
+    loadError,
+    onRetry,
+    hasMore,
+    loadMore,
+    scrollParentRef,
+    searchQuery
+  }) => {
     const { t } = useTranslation();
     const readState = useActivityReadState();
     const query = searchQuery?.trim().toLowerCase() ?? '';
     const groups = useMemo(() => {
-      const all = groupActivityEntries(entries, nameOf);
+      const all = groupActivityEntries(entries, nameOf, claims);
       return query ? all.filter(group => groupMatchesSearch(group, query, t)) : all;
-    }, [entries, nameOf, query, t]);
+    }, [entries, claims, nameOf, query, t]);
 
     if (groups.length === 0) {
       // As in the List view, a failed read outranks one still loading and never reads as "no activity".
@@ -156,40 +170,50 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
       // list surfaces exist to stop. It also starts right under the header's own gap: a chat list
       // has no block of air between the rule and the first conversation.
       <ListGroup surface="plain" data-testid="activity-group-list">
-        {groups.map(group => (
-          <ListRow
-            key={`${group.kind}:${group.id}`}
-            to={activityGroupPath(group)}
-            // Every kind takes the same 40px round mark, so the title column starts at one x
-            // down the whole list. See `ActivityGroupAvatar`.
-            avatar={<ActivityGroupAvatar kind={group.kind} id={group.id} name={group.name} />}
-            // Opening a group does not read what is inside it — the dot goes out when the last
-            // unread child has been opened. See `isActivityGroupUnread`.
-            unread={isActivityGroupUnread(readState, group)}
-            unreadLabel={t('activityUnread')}
-            title={activityGroupTitle(group, t)}
-            subtitle={activityGroupSubtitle(group, t)}
-            trailing={
-              <span className="flex items-center gap-2">
-                {/* In flight rows stay visible as a badge on the group rather than dropping out
-                    of a view that only counts settled history. */}
-                {group.pendingCount > 0 && (
-                  <StatusBadge status="pending" size="sm" data-testid="activity-group-pending" />
-                )}
-                <span className="text-body-sm text-muted tabular-nums">
-                  {hasMore ? t('activityGroupPartialCount', { count: group.count }) : String(group.count)}
+        {groups.map(group => {
+          const waitingCount = group.claims.filter(isActivityClaimWaiting).length;
+          return (
+            <ListRow
+              key={`${group.kind}:${group.id}`}
+              to={activityGroupPath(group)}
+              // Every kind takes the same 40px round mark, so the title column starts at one x
+              // down the whole list. See `ActivityGroupAvatar`.
+              avatar={<ActivityGroupAvatar kind={group.kind} id={group.id} name={group.name} />}
+              // Opening a group does not read what is inside it — the dot goes out when the last
+              // unread child has been opened. See `isActivityGroupUnread`.
+              unread={isActivityGroupUnread(readState, group)}
+              unreadLabel={t('activityUnread')}
+              title={activityGroupTitle(group, t)}
+              subtitle={activityGroupSubtitle(group, t)}
+              trailing={
+                <span className="flex items-center gap-2">
+                  {/* In flight rows stay visible as a badge on the group rather than dropping out
+                      of a view that only counts settled history. */}
+                  {group.pendingCount > 0 && (
+                    <StatusBadge status="pending" size="sm" data-testid="activity-group-pending" />
+                  )}
+                  {waitingCount > 0 && (
+                    <span className="text-body-sm font-medium text-ink">
+                      {t('activityPendingWaiting', { count: waitingCount })}
+                    </span>
+                  )}
+                  {group.count > 0 && (
+                    <span className="text-body-sm text-muted tabular-nums">
+                      {hasMore ? t('activityGroupPartialCount', { count: group.count }) : String(group.count)}
+                    </span>
+                  )}
                 </span>
-              </span>
-            }
-            data-testid="activity-group-row"
-            dataAttributes={{
-              'data-group-kind': group.kind,
-              'data-group-id': group.id,
-              'data-group-count': String(group.count),
-              'data-group-pending': String(group.pendingCount)
-            }}
-          />
-        ))}
+              }
+              data-testid="activity-group-row"
+              dataAttributes={{
+                'data-group-kind': group.kind,
+                'data-group-id': group.id,
+                'data-group-count': String(group.count),
+                'data-group-pending': String(group.pendingCount)
+              }}
+            />
+          );
+        })}
       </ListGroup>
     );
 

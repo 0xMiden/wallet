@@ -58,6 +58,19 @@ interface PendingActivityCardProps {
   initiallyExpanded?: boolean;
 }
 
+function claimActionState(item: PendingActivityItem) {
+  // A cached note must wait for the live read; a fee shortfall does not prevent Decline.
+  const canAccept = (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true;
+  const feeBlocked = canAccept && item.cannotPayFee === true;
+  const held = item.status === 'claiming' && item.held === true;
+  return { canAccept, feeBlocked, held };
+}
+
+export function isActivityClaimWaiting(item: PendingActivityItem): boolean {
+  const { canAccept, feeBlocked, held } = claimActionState(item);
+  return item.holdUntil === undefined && ((canAccept && !feeBlocked) || held);
+}
+
 function formatDateTime(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleString(undefined, {
     month: 'short',
@@ -111,11 +124,7 @@ export const PendingActivityCard = ({
     : undefined;
   const tokenLabel = midenTokenLabel(bridgeConfig, note.faucetId, note.metadata.symbol);
   const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
-  // A note served from the cache waits for the live read before it can be accepted.
-  const canAccept = (status === 'pending' || status === 'failed') && note.fromCache !== true;
-  // Separate from `canAccept`: Decline costs no fee, so it stays.
-  const feeBlocked = canAccept && item.cannotPayFee === true;
-  const held = status === 'claiming' && item.held === true;
+  const { canAccept, feeBlocked, held } = claimActionState(item);
   const submission = item.retryError === undefined ? item.submission : undefined;
   // Retry runs only for a held claim (`onRetryHeld`). A claim still in flight keeps its spinner even
   // with a stored submit outcome, and the notice below explains it.
