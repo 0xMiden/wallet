@@ -132,13 +132,16 @@ describe('ActivityGroupPage', () => {
     expect(screen.getByTestId('contact-avatar')).toBeTruthy();
   });
 
-  it('opens the same named group for equivalent hex and Bech32 counterparties', () => {
+  it.each([
+    ['bare', ACTIVITY_COUNTERPARTY_HEX],
+    ['tagged', `${ACTIVITY_COUNTERPARTY_HEX}_qr7qqq9wr6w`]
+  ])('opens the same named group for a %s hex route and Bech32 counterparties', (_kind, routeId) => {
     const restoreDecoder = mockActivityCounterpartyDecode();
     const savedContacts = contacts.value;
     try {
       contacts.value = [{ address: ACTIVITY_COUNTERPARTY_PUBLIC_KEY, name: 'Saved counterparty' }];
       mockClaims.items = [{ note: claimNote('incoming-bech32', ACTIVITY_COUNTERPARTY_BECH32), status: 'pending' }];
-      render(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_HEX} />);
+      render(<ActivityGroupPage kind="address" id={routeId} />);
 
       expect(predicate()(entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 }))).toBe(true);
       expect(screen.getByRole('heading', { name: 'Saved counterparty' })).toBeInTheDocument();
