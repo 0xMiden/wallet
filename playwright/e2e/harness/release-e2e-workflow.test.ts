@@ -40,6 +40,7 @@ const listed = SUITES.split('\n')
   .filter(Boolean);
 
 const RELEASE_SUITES = [
+  'bread-connect-sdks.yml',
   'e2e-android.yml',
   'e2e-blockchain.yml',
   'e2e-bridge.yml',
@@ -51,6 +52,7 @@ const RELEASE_SUITES = [
   'e2e-upgrade.yml',
   'e2e-usdcx.yml',
   'e2e-usdcx-live.yml',
+  'pr-compile-surfaces.yml',
   'pr-e2e-bridge-guardian.yml',
   'pr-e2e-earn.yml',
   'pr-e2e-guardian-lifecycle.yml',
@@ -67,7 +69,7 @@ describe('Release E2E', () => {
     expect(RELEASE).toContain("REF: ${{ github.event.release.tag_name || inputs.ref || 'main' }}");
   });
 
-  it('dispatches each of the fifteen release suites once, on the ref, and fails naming one it could not start', () => {
+  it('dispatches each of the seventeen release suites once, on the ref, and fails naming one it could not start', () => {
     expect(listed.map(line => line.split(' ')[0])).toEqual(RELEASE_SUITES);
     expect(RELEASE).toContain('gh workflow run "$file" --repo "$GITHUB_REPOSITORY" --ref "$REF" $args');
     expect(RELEASE).toMatch(/::error title=Release E2E::could not dispatch \$\{file\} on \$\{REF\}/);
