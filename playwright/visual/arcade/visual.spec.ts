@@ -1,32 +1,21 @@
 import { expect, test } from '@playwright/test';
 
-for (const width of [320, 360, 402, 440, 768]) {
-  for (const dark of [false, true]) {
-    for (const long of [false, true]) {
-      test(`centers capped CTA at ${width}px, ${dark ? 'dark' : 'light'}, ${long ? 'long' : 'short'} content`, async ({
-        page
-      }) => {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/?${dark ? 'dark&' : ''}${long ? 'long' : ''}`);
-        await page.getByRole('button', { name: 'Details', exact: true }).click();
-        const sheet = page.getByRole('dialog');
-        const button = sheet.getByRole('button', { name: 'Open game', exact: true });
-        await expect(button).toBeVisible();
-        await expect
-          .poll(async () => {
-            const [s, b] = await Promise.all([sheet.boundingBox(), button.boundingBox()]);
-            return s && b ? Math.abs(b.x - s.x - (s.x + s.width - b.x - b.width)) : Infinity;
-          })
-          .toBeLessThan(1);
-        const [s, b] = await Promise.all([sheet.boundingBox(), button.boundingBox()]);
-        expect(s).not.toBeNull();
-        expect(b).not.toBeNull();
-        expect(b!.width).toBeCloseTo(Math.min(370, s!.width - 32), 0);
-        expect(b!.height).toBeCloseTo(48, 3);
-        expect(b!.y).toBeGreaterThan(s!.y);
-        expect(b!.y + b!.height).toBeLessThanOrEqual(s!.y + s!.height - 16);
-        await page.screenshot({ path: test.info().outputPath('arcade-sheet.png') });
-      });
-    }
-  }
+for (const theme of ['light', 'dark']) {
+  test(`reviews one fixed GC package in ${theme}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.route(/^https?:/, route => {
+      const host = new URL(route.request().url()).hostname;
+      return host === '127.0.0.1' || host === 'localhost' ? route.continue() : route.abort();
+    });
+    await page.goto(theme === 'dark' ? '/?dark' : '/');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('textbox')).toHaveCount(0);
+    await expect(dialog.getByTestId('arcade-gc-purchase-confirm')).toBeEnabled();
+    await expect(dialog).toContainText(/1(?:\.[0-9]+)?\s*USDCx/i);
+    await expect(dialog).toContainText(/1[,.\u00a0]?000(?:\.[0-9]+)?\s*GC/i);
+    await expect(dialog).toContainText(/network fee/i);
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: info.outputPath(`gc-package-${theme}.png`), animations: 'disabled' });
+  });
 }
