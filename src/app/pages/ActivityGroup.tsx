@@ -8,6 +8,7 @@ import { ActivityGroupAvatar } from 'app/templates/history/ActivityGroupAvatar';
 import {
   ACTIVITY_GROUP_LABELS,
   activityClaimMatcher,
+  activityCounterpartyNames,
   activityGroupMatcher,
   isActivityGroupKind
 } from 'app/templates/history/activityGroups';
@@ -44,11 +45,8 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const address = kind === 'address' ? id?.trim() : undefined;
-  const contactName = useMemo(() => {
-    if (!address) return undefined;
-    const wanted = address.toLowerCase();
-    return allContacts.find(contact => contact.address.trim().toLowerCase() === wanted)?.name?.trim() || undefined;
-  }, [allContacts, address]);
+  const nameOf = useMemo(() => activityCounterpartyNames(allContacts), [allContacts]);
+  const contactName = address && nameOf(address);
 
   const predicate = useMemo(() => (isActivityGroupKind(kind) ? activityGroupMatcher(kind, id) : undefined), [kind, id]);
   // Claims are drawn as the Activity views draw them: every represented claim keeps its consume row out, and

@@ -8,6 +8,12 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
 
 import { ActivityGroupedHistory } from './ActivityGroupedHistory';
+import {
+  ACTIVITY_COUNTERPARTY_BECH32,
+  ACTIVITY_COUNTERPARTY_HEX,
+  ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
+  mockActivityCounterpartyDecode
+} from './activityGroupTestFixtures';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 
@@ -347,6 +353,28 @@ describe('ActivityGroupedHistory', () => {
     const sender = screen.getByRole('link', { name: /mtst1sender/ });
     expect(sender).toHaveAttribute('href', '/activity/group/address/mtst1sender');
     expect(within(sender).getByText('1 waiting')).toBeInTheDocument();
+  });
+
+  it('groups equivalent hex and Bech32 counterparties under the saved contact name', () => {
+    const restoreDecoder = mockActivityCounterpartyDecode();
+    const savedContacts = contacts.value;
+    try {
+      mockRealGroupList = true;
+      contacts.value = [{ address: ACTIVITY_COUNTERPARTY_PUBLIC_KEY, name: 'Saved counterparty' }];
+      loaded.push(
+        entry({ key: 'hex-transfer', secondaryAddress: ACTIVITY_COUNTERPARTY_HEX }),
+        entry({ key: 'bech32-transfer', secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 })
+      );
+      render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+      expect(screen.getAllByTestId('activity-group-row')).toHaveLength(1);
+      const group = screen.getByRole('link', { name: /Saved counterparty/ });
+      expect(group).toHaveAttribute('data-group-count', '2');
+      expect(group).toHaveAttribute('href', `/activity/group/address/${ACTIVITY_COUNTERPARTY_BECH32}`);
+    } finally {
+      contacts.value = savedContacts;
+      restoreDecoder();
+    }
   });
 
   it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {

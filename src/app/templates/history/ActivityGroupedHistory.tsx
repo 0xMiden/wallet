@@ -1,10 +1,11 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 
 import { ClaimsLoadingBar, RestoreDeclinedTransfers } from './ActivityClaimsStatus';
 import { ActivityGroupList } from './ActivityGroupList';
 import { ActivityGroupsBoundary } from './ActivityGroupsBoundary';
+import { activityCounterpartyNames } from './activityGroups';
 import History from './History';
 import { useActivityClaimList } from './useActivityClaimList';
 
@@ -42,16 +43,7 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
   const { allContacts } = useFilteredContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const namesByAddress = useMemo(() => {
-    const names = new Map<string, string>();
-    for (const contact of allContacts) {
-      const name = contact.name?.trim();
-      if (name) names.set(contact.address.trim().toLowerCase(), name);
-    }
-    return names;
-  }, [allContacts]);
-
-  const nameOf = useCallback((address: string) => namesByAddress.get(address.trim().toLowerCase()), [namesByAddress]);
+  const nameOf = useMemo(() => activityCounterpartyNames(allContacts), [allContacts]);
 
   return (
     <>
