@@ -703,7 +703,57 @@ describe('1Click durable tracking', () => {
     await reconcileOneClickSwaps();
 
     expect(submitDeposit).toHaveBeenCalledTimes(1);
+    expect(fetchStatus).not.toHaveBeenCalled();
     expect(outboundRow.extraInputs.oneClick.phase).toBe('refunded');
+  });
+
+  it('ends a Miden send as failed with its reason when deposit submission reports FAILED without polling status', async () => {
+    const outboundRow = {
+      id: 'outbound-submit-failed-row',
+      type: 'send',
+      accountId: 'miden-account-id',
+      initiatedAt: Date.now(),
+      status: ITransactionStatus.Completed,
+      transactionId: `0x${'ce'.repeat(32)}`,
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request,
+          quote,
+          config,
+          network: 'mainnet',
+          accountId: 'miden-account-id',
+          accountAddress: 'miden-account',
+          originAsset,
+          destinationAsset,
+          faucetId: 'miden-faucet',
+          amount: request.amount,
+          phase: 'depositing',
+          depositAddress: 'miden-deposit-address',
+          providerSubmitted: false
+        }
+      }
+    };
+    storedRows.push(outboundRow);
+    submitDeposit.mockResolvedValue({ status: 'FAILED', swapDetails: { refundReason: 'Slippage exceeded.' } });
+
+    await reconcileOneClickSwaps();
+
+    expect(submitDeposit).toHaveBeenCalledTimes(1);
+    expect(fetchStatus).not.toHaveBeenCalled();
+    expect(outboundRow.extraInputs.oneClick.phase).toBe('failed');
+    expect((outboundRow.extraInputs.oneClick as { error?: string }).error).toBe('Slippage exceeded.');
+
+    outboundRow.extraInputs.oneClick.phase = 'depositing';
+    outboundRow.extraInputs.oneClick.providerSubmitted = false;
+    delete (outboundRow.extraInputs.oneClick as { error?: string }).error;
+    submitDeposit.mockResolvedValue({ status: 'FAILED', swapDetails: {} });
+
+    await reconcileOneClickSwaps();
+
+    expect(fetchStatus).not.toHaveBeenCalled();
+    expect(outboundRow.extraInputs.oneClick.phase).toBe('failed');
+    expect((outboundRow.extraInputs.oneClick as { error?: string }).error).toBe('The 1Click swap failed.');
   });
 
   it('queues a NEAR Intents bridged-send of the account-bound amount to the signed deposit address', async () => {

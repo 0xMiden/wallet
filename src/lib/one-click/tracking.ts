@@ -24,7 +24,16 @@ import {
   hasOneClickDeliveryArrivedByAmount
 } from './delivery';
 import { isNearIntentsDepositExpired, isOneClickTerminalPhase as isTerminal } from './expiry';
-import type { NearIntentsConfig, OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
+import type {
+  NearIntentsConfig,
+  OneClickAsset,
+  OneClickQuoteRequest,
+  OneClickQuoteResponse,
+  OneClickStatusResponse
+} from './types';
+
+const oneClickFailureError = (status: OneClickStatusResponse): string | undefined =>
+  status.status === 'FAILED' ? (status.swapDetails.refundReason ?? 'The 1Click swap failed.') : undefined;
 
 export { NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS, isNearIntentsDepositExpired } from './expiry';
 /**
@@ -275,12 +284,14 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
         submitted.status === 'SUCCESS' && tracking.direction === 'miden-to-evm'
           ? 'delivered'
           : phaseForProviderStatus(submitted.status);
+      const submittedError = oneClickFailureError(submitted);
       updated = {
         ...updated,
         providerSubmitted: true,
         providerStatus: submitted.status,
         statusResponse: submitted,
         phase: submittedPhase,
+        ...(submittedError !== undefined ? { error: submittedError } : {}),
         updatedAt: Date.now()
       };
       await updateTracking(transaction.id, {
@@ -288,9 +299,10 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
         providerStatus: submitted.status,
         statusResponse: submitted,
         phase: submittedPhase,
+        error: submittedError,
         updatedAt: updated.updatedAt
       });
-      if (submittedPhase === 'delivered') return;
+      if (isTerminal(submittedPhase)) return;
     } catch (error) {
       console.warn('[one-click-tracking] deposit submission failed', transaction.id, error);
     }
@@ -385,6 +397,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
     } else if (status.status === 'SUCCESS' && tracking.direction === 'miden-to-evm') {
       phase = 'delivered';
     }
+    const statusError = oneClickFailureError(status);
     updated = {
       ...updated,
       ...(actualOutputAmount !== undefined ? { amount: actualOutputAmount.toString() } : {}),
@@ -392,7 +405,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
       providerStatus: status.status,
       statusResponse: status,
       ...(destinationNoteIds !== undefined ? { destinationNoteIds } : {}),
-      ...(status.status === 'FAILED' ? { error: status.swapDetails.refundReason ?? 'The 1Click swap failed.' } : {}),
+      ...(statusError !== undefined ? { error: statusError } : {}),
       updatedAt: Date.now()
     };
     await updateTracking(transaction.id, {
@@ -401,7 +414,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
       providerStatus: status.status,
       statusResponse: status,
       ...(destinationNoteIds !== undefined ? { destinationNoteIds } : {}),
-      error: status.status === 'FAILED' ? (status.swapDetails.refundReason ?? 'The 1Click swap failed.') : undefined,
+      error: statusError,
       updatedAt: updated.updatedAt
     });
   } catch (error) {
