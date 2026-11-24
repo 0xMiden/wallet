@@ -13,10 +13,10 @@ export default defineConfig({
       use: { viewport: { width, height: 720 }, deviceScaleFactor: 1 }
     }))
   ),
-  use: { baseURL: 'http://127.0.0.1:5192', headless: true },
+  use: { baseURL: 'http://127.0.0.1:5194', headless: true },
   webServer: {
     command: 'yarn vite --config playwright/visual/unlock/vite.config.mts',
-    url: 'http://127.0.0.1:5192',
+    url: 'http://127.0.0.1:5194',
     reuseExistingServer: !process.env.CI
   }
 });
