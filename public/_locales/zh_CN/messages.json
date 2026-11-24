@@ -4558,6 +4558,14 @@
     "message": "付款已发送！",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "提现成功",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "返回锁定资金页面",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "来源：Epoch",
     "englishSource": "Via Epoch"
@@ -6792,6 +6800,10 @@
   "redeemIntentLabel": {
     "message": "兑换意图",
     "englishSource": "Redeem intent"
+  },
+  "earnDepositRowTitle": {
+    "message": "已存入 Earn",
+    "englishSource": "Deposited to Earn"
   },
   "earnWithdrawRowTitle": {
     "message": "从“Earn”中提现",
