@@ -1,8 +1,10 @@
 import React from 'react';
 
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { render, screen, within } from '@testing-library/react';
 
 import { recoveredHistoryRecord } from 'lib/miden/guardian/history';
+import { _resetCanonicalWalletAccountIdsForTest } from 'lib/miden/sdk/helpers';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupList } from './ActivityGroupList';
@@ -175,6 +177,48 @@ describe('ActivityGroupList — unread', () => {
 });
 
 describe('ActivityGroupList', () => {
+  it('reuses decoded counterparties when appending a page to a large history', () => {
+    const counterparties = Array.from({ length: 258 }, (_, index) => ({
+      address: `mtst1${index.toString(36).padStart(26, 'q')}`,
+      accountId: `0x${index.toString(16).padStart(30, '0')}`
+    }));
+    const ids = new Map(counterparties.map(({ address, accountId }) => [address, accountId]));
+    const firstPage = counterparties.slice(0, -1).map(({ address }) => entry({ secondaryAddress: address }));
+    const existingAddress = counterparties[0]!.address;
+    const newAddress = counterparties.at(-1)!.address;
+    const decode = jest.mocked(Address.fromBech32);
+    const originalDecode = decode.getMockImplementation();
+    if (!originalDecode) throw new Error('The Jest SDK address decoder is unavailable');
+    const firstCall = decode.mock.calls.length;
+    const props = { nameOf: () => undefined, initialLoading: false, loadMore: jest.fn() };
+
+    _resetCanonicalWalletAccountIdsForTest();
+    decode.mockImplementation(address => {
+      const accountId = ids.get(address);
+      return accountId === undefined
+        ? originalDecode(address)
+        : ({ accountId: () => ({ toString: () => accountId }) } as ReturnType<typeof Address.fromBech32>);
+    });
+    try {
+      const { rerender } = render(<ActivityGroupList {...props} entries={firstPage} hasMore />);
+      expect(rows()).toHaveLength(firstPage.length);
+      expect(decode.mock.calls.slice(firstCall)).toHaveLength(firstPage.length);
+      const firstAppendCall = decode.mock.calls.length;
+
+      const nextPage = [entry({ secondaryAddress: existingAddress }), entry({ secondaryAddress: newAddress })];
+      rerender(<ActivityGroupList {...props} entries={[...firstPage, ...nextPage]} hasMore={false} />);
+
+      expect(rows()).toHaveLength(counterparties.length);
+      expect(rows().find(row => row.dataset.groupId === existingAddress)).toHaveAttribute('data-group-count', '2');
+      expect(rows().find(row => row.dataset.groupId === newAddress)).toHaveAttribute('data-group-count', '1');
+      expect(decode.mock.calls.length - firstAppendCall).toBe(1);
+      expect(decode).toHaveBeenLastCalledWith(newAddress);
+    } finally {
+      decode.mockImplementation(originalDecode);
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
   it('spins while the first page is still loading', () => {
     const { container } = renderList([], { initialLoading: true });
     expect(screen.queryByTestId('activity-group-list')).toBeNull();
