@@ -15,9 +15,10 @@ const mockSale: GcSale = {
   fillFloor: 0n
 };
 let mockSales: GcSale[] = [];
+let mockError: Error | undefined;
 const mockMutate = jest.fn(async () => mockSales);
 
-jest.mock('swr', () => () => ({ data: mockSales, mutate: mockMutate }));
+jest.mock('swr', () => () => ({ data: mockSales, error: mockError, mutate: mockMutate }));
 jest.mock('app/layouts/page-active', () => ({ usePageActive: () => true }));
 jest.mock('lib/miden/arcade/gc-sale', () => ({
   ...jest.requireActual('lib/miden/arcade/gc-sale'),
@@ -27,14 +28,18 @@ jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: 
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => 'usdcx' }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => null }));
 
-function renderQuote(sales: GcSale[]) {
+function renderQuote(sales: GcSale[], error?: Error) {
   mockSales = sales;
+  mockError = error;
   return renderHook(() => useGcPurchaseQuote(MIDEN_NETWORK_NAME.MAINNET, 'buyer')).result.current;
 }
 
 it('keeps the entry unavailable when separate sales cannot back one atomic package', async () => {
   const half: GcSale = { ...mockSale, offeredAmount: 500_000_000n, requestedAmount: 500_000n };
-  const quote = renderQuote([{ ...half, saleNoteId: 'half-one' }, { ...half, saleNoteId: 'half-two' }]);
+  const quote = renderQuote([
+    { ...half, saleNoteId: 'half-one' },
+    { ...half, saleNoteId: 'half-two' }
+  ]);
 
   expect(quote.state).toBe('unavailable');
   expect(quote.sale).toBeNull();
@@ -54,4 +59,19 @@ it('opens the entry for an exact backed package', async () => {
   expect(quote.state).toBe('ready');
   expect(quote.sale).toBe(mockSale);
   await expect(quote.refresh()).resolves.toBe(mockSale);
+});
+
+it('drops the previous package after a failed inventory refresh', () => {
+  const quote = renderQuote([mockSale], new Error('Sale read failed'));
+
+  expect(quote.state).toBe('unavailable');
+  expect(quote.sale).toBeNull();
+  expect(quote.sales).toEqual([]);
+});
+
+it('refuses a fill that costs one USDCx but pays extra GC after PSWAP rounding', () => {
+  const quote = renderQuote([{ ...mockSale, offeredAmount: 2_000_000_002n, requestedAmount: 2_000_000n }]);
+
+  expect(quote.state).toBe('unavailable');
+  expect(quote.sale).toBeNull();
 });

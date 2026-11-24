@@ -8,8 +8,8 @@ import { ArcadeGcPurchaseDrawer } from './ArcadeGcPurchaseDrawer';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { amount?: string }) =>
-      options?.amount === undefined ? key : `${key} ${options.amount}`
+    t: (key: string, options?: { amount?: string; balance?: string }) =>
+      [key, options?.amount ?? options?.balance].filter(Boolean).join(' ')
   })
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
@@ -62,6 +62,8 @@ function showDrawer(sales: GcSale[], payBalance: bigint = 10_000_000n) {
 it('confirms exactly one USDCx principal for one thousand GC with a separate network fee', () => {
   const onConfirm = showDrawer([packageSale]);
 
+  expect(screen.getByText('arcadeGcPurchaseUsdcx 1')).toBeInTheDocument();
+  expect(screen.getByText('arcadeBalance 1,000')).toBeInTheDocument();
   expect(screen.getByText('arcadeGcPurchaseFeeSeparate')).toBeInTheDocument();
   fireEvent.click(screen.getByTestId('arcade-gc-purchase-confirm'));
 
@@ -74,12 +76,13 @@ it('confirms exactly one USDCx principal for one thousand GC with a separate net
 it('does not offer an editable purchase amount', () => {
   showDrawer([packageSale]);
 
-  expect(screen.queryByTestId('arcade-gc-purchase-amount')).toBeNull();
+  expect(screen.queryByRole('textbox')).toBeNull();
 });
 
 it('disables confirmation when the available sale cannot back the whole package', () => {
   const onConfirm = showDrawer([smallSale]);
 
+  expect(screen.getByText('arcadeGcPurchaseUnavailable')).toBeInTheDocument();
   expect(screen.getByTestId('arcade-gc-purchase-confirm')).toBeDisabled();
   expect(onConfirm).not.toHaveBeenCalled();
 });
