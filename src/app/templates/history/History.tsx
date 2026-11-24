@@ -781,6 +781,7 @@ const loadedMutableActivityTxIds = (entries: readonly IHistoryEntry[]): string[]
       entry.txType === 'bridged-receive' ||
       entry.txType === 'earn-deposit' ||
       entry.txType === 'earn-withdraw' ||
+      entry.oneClickTracking !== undefined ||
       (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
     if (!mutable || entry.txId === undefined || seen.has(entry.txId)) continue;
     seen.add(entry.txId);

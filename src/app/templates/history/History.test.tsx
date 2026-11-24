@@ -4238,6 +4238,65 @@ describe('History on the real SWR cache', () => {
     }
   }, 15_000);
 
+  it('refreshes oneClickTracking on an older completed legacy send row after a head refresh', async () => {
+    await Repo.transactions.clear();
+
+    const head: ITransaction = {
+      id: 'HEAD-ROW-LEGACY',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const initialTracking = { updatedAt: 1000, phase: 'processing' };
+    const deliveredTracking = { updatedAt: 2000, phase: 'delivered' };
+    const older: ITransaction = {
+      id: 'OLDER-LEGACY-ONECLICK',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'send',
+      initiatedAt: 4000,
+      completedAt: 4000,
+      displayMessage: 'Sent',
+      displayIcon: 'SEND',
+      extraInputs: { oneClick: initialTracking }
+    };
+    const cursorFor = (tx: ITransaction): CompletedHistoryCursor => ({
+      effectiveTimestamp: tx.completedAt ?? tx.initiatedAt ?? 0,
+      transactionId: tx.id,
+      status: tx.status,
+      initiatedAt: tx.initiatedAt
+    });
+    await Repo.transactions.put(older);
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursorFor(head) }
+        : { transactions: [older], rawCount: 1, hasMore: false, nextCursor: cursorFor(older) }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const entryFor = (id: string) => visibleView().entries.find((entry: any) => entry.txId === id);
+      await waitFor(() => expect(entryFor(older.id)?.oneClickTracking).toEqual(initialTracking));
+
+      await Repo.transactions.put({
+        ...older,
+        extraInputs: { oneClick: deliveredTracking }
+      });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+
+      await waitFor(() => expect(entryFor(older.id)?.oneClickTracking).toEqual(deliveredTracking));
+    } finally {
+      await Repo.transactions.clear();
+    }
+  }, 15_000);
+
   it('refreshes older swaps after an equal SWR head and retries a failed row read', async () => {
     await Repo.transactions.clear();
 
