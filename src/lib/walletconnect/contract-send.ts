@@ -24,7 +24,10 @@ export interface SendEvmContractTransactionOptions<
   abi: TAbi;
   functionName: TFunctionName;
   args: ContractFunctionArgs<TAbi, 'nonpayable' | 'payable', TFunctionName>;
-  /** Runs after pre-send fee reads succeed and right before invoking the signer. */
+  /**
+   * Runs after calldata encoding and applicable pre-send fee reads succeed, right before invoking
+   * the signer.
+   */
   beforeSend?: () => Promise<void>;
 }
 
@@ -46,15 +49,16 @@ export async function sendEvmContractTransaction<
   args,
   beforeSend
 }: SendEvmContractTransactionOptions<TAbi, TFunctionName>): Promise<Hash> {
+  // Encode upfront across both transports so ABI errors throw before fee reads or beforeSend.
+  const data = encodeFunctionData({
+    abi: abi as Abi,
+    functionName: functionName as string,
+    args: args as readonly unknown[]
+  });
   let hash: unknown;
   if (nativeReownAvailable) {
     const feeFields = await readNativeFeeFields(chainId);
     await beforeSend?.();
-    const data = encodeFunctionData({
-      abi: abi as Abi,
-      functionName: functionName as string,
-      args: args as readonly unknown[]
-    });
     const result = await NativeReown.sendTransaction({
       chainId,
       ...(from !== undefined ? { from } : {}),

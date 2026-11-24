@@ -102,9 +102,12 @@ describe('sendEvmContractTransaction', () => {
     });
 
     expect(order).toEqual(['fees', 'beforeSend', 'send']);
+  });
 
+  it('skips beforeSend and both signers when native fee reads fail', async () => {
     jest.mocked(readNativeFeeFields).mockRejectedValueOnce(new Error('rpc down'));
     const skippedBeforeSend = jest.fn();
+
     await expect(
       sendEvmContractTransaction({
         nativeReownAvailable: true,
@@ -117,7 +120,10 @@ describe('sendEvmContractTransaction', () => {
         beforeSend: skippedBeforeSend
       })
     ).rejects.toThrow('rpc down');
+
     expect(skippedBeforeSend).not.toHaveBeenCalled();
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(writeContract).not.toHaveBeenCalled();
   });
 
   it('uses wagmi writeContract without reading native fees when native Reown is unavailable', async () => {
@@ -154,12 +160,76 @@ describe('sendEvmContractTransaction', () => {
     });
   });
 
+  it.each([true, false])(
+    'propagates beforeSend rejection without invoking either signer (native=%s)',
+    async nativeReownAvailable => {
+      const refusal = new Error('reserve failed');
+      const beforeSend = jest.fn().mockRejectedValueOnce(refusal);
+
+      const thrown: unknown = await sendEvmContractTransaction({
+        nativeReownAvailable,
+        writeContract,
+        chainId: 84532,
+        address: CONTRACT,
+        abi: TEST_ABI,
+        functionName: 'transfer',
+        args: [RECIPIENT, 5n],
+        beforeSend
+      }).catch(error => error);
+
+      expect(thrown).toBe(refusal);
+      expect(beforeSend).toHaveBeenCalledTimes(1);
+      expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+      expect(writeContract).not.toHaveBeenCalled();
+      expect(readNativeFeeFields).toHaveBeenCalledTimes(nativeReownAvailable ? 1 : 0);
+    }
+  );
+
+  it.each([
+    { nativeReownAvailable: true, label: 'invalid uint256', recipient: RECIPIENT, amount: -1n },
+    { nativeReownAvailable: false, label: 'invalid uint256', recipient: RECIPIENT, amount: -1n },
+    { nativeReownAvailable: true, label: 'invalid address', recipient: '0x1234' as const, amount: 1n },
+    { nativeReownAvailable: false, label: 'invalid address', recipient: '0x1234' as const, amount: 1n }
+  ])(
+    'rejects $label encoding errors before fee reads, beforeSend, or signers (native=$nativeReownAvailable)',
+    async ({ nativeReownAvailable, recipient, amount }) => {
+      const beforeSend = jest.fn();
+
+      const thrown: unknown = await sendEvmContractTransaction({
+        nativeReownAvailable,
+        writeContract,
+        chainId: 84532,
+        address: CONTRACT,
+        abi: TEST_ABI,
+        functionName: 'transfer',
+        args: [recipient, amount],
+        beforeSend
+      }).catch(error => error);
+
+      if (!(thrown instanceof Error)) throw new Error('Expected Error instance');
+      expect(Reflect.get(thrown, WALLET_RAISED)).toBeUndefined();
+      expect(readNativeFeeFields).not.toHaveBeenCalled();
+      expect(beforeSend).not.toHaveBeenCalled();
+      expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+      expect(writeContract).not.toHaveBeenCalled();
+    }
+  );
+
   it.each([
     { native: true, returned: 'not-a-hash' },
     { native: true, returned: '' },
-    { native: false, returned: 'not-a-hash' }
+    { native: true, returned: '123' },
+    { native: true, returned: JSON.stringify('123') },
+    { native: true, returned: 'null' },
+    { native: true, returned: JSON.stringify('null') },
+    { native: false, returned: 'not-a-hash' },
+    { native: false, returned: '' },
+    { native: false, returned: undefined },
+    { native: false, returned: null },
+    { native: false, returned: 123 }
   ])('throws a wallet-raised error when signer returns an invalid hash ($#)', async ({ native, returned }) => {
     if (native) {
+      if (typeof returned !== 'string') throw new Error('Expected string mock hash for native case');
       jest.mocked(NativeReown.sendTransaction).mockResolvedValueOnce({ hash: returned });
     } else {
       writeContract.mockResolvedValueOnce(returned);
