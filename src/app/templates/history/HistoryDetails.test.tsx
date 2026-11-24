@@ -18,7 +18,7 @@ import {
   PREPARED_OWNER,
   PREPARED_RECIPIENT
 } from 'lib/epoch/testing/earn-prepared';
-import type { IOneClickPhase } from 'lib/miden/db/types';
+import type { IOneClickPhase, IOneClickTrackingData, ITransactionType } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
@@ -40,8 +40,8 @@ import { CommandOperation } from 'screens/command/CommandOperation';
 import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 
 // Imported after the mocks so the module graph is wired to the stubs.
-import { HistoryDetails } from './HistoryDetails';
-import { IHistoryEntry } from './IHistoryEntry';
+import { getHistoryDetailsSectionPolicy, HistoryDetails } from './HistoryDetails';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { TRANSACTION_COLORS } from './transactionUtils';
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
@@ -598,6 +598,257 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  const policyOneClickTracking: IOneClickTrackingData = {
+    direction: 'evm-to-miden',
+    request: {
+      amount: '1000000',
+      originAsset: { assetId: 'usdc', blockchain: 'eth', symbol: 'USDC', decimals: 6 },
+      destinationAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+      refundTo: 'refund',
+      recipient: 'account',
+      deadline: '2026-10-22T12:00:00.000Z',
+      slippageTolerance: 100
+    },
+    quote: {
+      correlationId: 'correlation',
+      timestamp: '2026-10-22T11:00:00.000Z',
+      signature: 'signature',
+      quoteRequest: {
+        dry: false,
+        swapType: 'EXACT_INPUT',
+        slippageTolerance: 100,
+        originAsset: 'usdc',
+        depositType: 'ORIGIN_CHAIN',
+        destinationAsset: 'miden-usdc',
+        amount: '1000000',
+        refundTo: 'refund',
+        refundType: 'ORIGIN_CHAIN',
+        recipient: 'account',
+        recipientType: 'DESTINATION_CHAIN',
+        deadline: '2026-10-22T12:00:00.000Z'
+      },
+      quote: {
+        amountIn: '1000000',
+        amountInFormatted: '1',
+        amountInUsd: '1',
+        minAmountIn: '1000000',
+        amountOut: '250000000',
+        amountOutFormatted: '250',
+        amountOutUsd: '250',
+        minAmountOut: '240000000',
+        depositAddress: 'deposit',
+        deadline: '2026-10-22T12:00:00.000Z',
+        timeEstimate: 30
+      }
+    },
+    config: {
+      serviceUrl: 'https://service.example',
+      chains: [],
+      midenAssets: [{ id: 'usdc', assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+    },
+    network: 'mainnet',
+    accountId: 'account',
+    accountAddress: 'account',
+    originAsset: { assetId: 'usdc', blockchain: 'eth', symbol: 'USDC', decimals: 6 },
+    destinationAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+    faucetId: 'faucet',
+    amount: '245000000',
+    phase: 'arriving'
+  };
+
+  it.each<{
+    label: string;
+    type: ITransactionType;
+    bridgeInProvider?: 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
+    hasOneClick?: boolean;
+    isCancelled?: boolean;
+    isUnconfirmed?: boolean;
+    guardianRecovered?: boolean;
+    expected: ReturnType<typeof getHistoryDetailsSectionPolicy>;
+  }>([
+    {
+      label: 'send',
+      type: 'send',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'send with 1Click tracking',
+      type: 'send',
+      hasOneClick: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'consume (plain receive)',
+      type: 'consume',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'secondary', to: 'account' }
+    },
+    {
+      label: 'consume (epoch)',
+      type: 'consume',
+      bridgeInProvider: 'epoch',
+      expected: { bridgeClaim: false, inboundBridge: true, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'consume (agglayer)',
+      type: 'consume',
+      bridgeInProvider: 'agglayer',
+      expected: { bridgeClaim: false, inboundBridge: true, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'consume (usdcx)',
+      type: 'consume',
+      bridgeInProvider: 'usdcx',
+      expected: { bridgeClaim: false, inboundBridge: true, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'consume (near-intents with 1Click)',
+      type: 'consume',
+      bridgeInProvider: 'near-intents',
+      hasOneClick: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'none', to: 'account' }
+    },
+    {
+      label: 'consume (near-intents without 1Click)',
+      type: 'consume',
+      bridgeInProvider: 'near-intents',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'execute',
+      type: 'execute',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'secondary', to: 'account' }
+    },
+    {
+      label: 'bridged-send (active)',
+      type: 'bridged-send',
+      expected: { bridgeClaim: true, inboundBridge: false, oneClick: false, from: 'account', to: 'none' }
+    },
+    {
+      label: 'bridged-send (stamped cancel)',
+      type: 'bridged-send',
+      isCancelled: true,
+      isUnconfirmed: true,
+      expected: { bridgeClaim: true, inboundBridge: false, oneClick: false, from: 'account', to: 'none' }
+    },
+    {
+      label: 'bridged-send (unstamped cancel)',
+      type: 'bridged-send',
+      isCancelled: true,
+      isUnconfirmed: false,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'bridged-send (recovered)',
+      type: 'bridged-send',
+      guardianRecovered: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'bridged-receive (legacy undefined provider)',
+      type: 'bridged-receive',
+      expected: { bridgeClaim: false, inboundBridge: true, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'bridged-receive (epoch)',
+      type: 'bridged-receive',
+      bridgeInProvider: 'epoch',
+      expected: { bridgeClaim: false, inboundBridge: true, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'bridged-receive (agglayer)',
+      type: 'bridged-receive',
+      bridgeInProvider: 'agglayer',
+      expected: { bridgeClaim: false, inboundBridge: true, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'bridged-receive (usdcx)',
+      type: 'bridged-receive',
+      bridgeInProvider: 'usdcx',
+      expected: { bridgeClaim: false, inboundBridge: true, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'bridged-receive (near-intents with 1Click)',
+      type: 'bridged-receive',
+      bridgeInProvider: 'near-intents',
+      hasOneClick: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'none', to: 'account' }
+    },
+    {
+      label: 'bridged-receive (near-intents without 1Click)',
+      type: 'bridged-receive',
+      bridgeInProvider: 'near-intents',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'none', to: 'account' }
+    },
+    {
+      label: 'earn-deposit',
+      type: 'earn-deposit',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'earn-withdraw',
+      type: 'earn-withdraw',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'secondary', to: 'account' }
+    },
+    {
+      label: 'switch-guardian',
+      type: 'switch-guardian',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'none', to: 'none' }
+    },
+    {
+      label: 'replace-hot-key',
+      type: 'replace-hot-key',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'none', to: 'none' }
+    },
+    {
+      label: 'swap',
+      type: 'swap',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'secondary', to: 'account' }
+    },
+    {
+      label: 'update-procedure-threshold',
+      type: 'update-procedure-threshold',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'none', to: 'none' }
+    }
+  ])(
+    'selects explicit sections and address roles for $label',
+    ({ type, bridgeInProvider, hasOneClick, isCancelled, isUnconfirmed, guardianRecovered, expected }) => {
+      const entry: IHistoryEntry = {
+        key: 'policy-entry',
+        address: 'account',
+        timestamp: 0,
+        type: HistoryEntryType.CompletedTransaction,
+        txType: type,
+        bridgeInProvider,
+        isCancelled,
+        isUnconfirmed,
+        guardianRecovered,
+        oneClickTracking: hasOneClick ? policyOneClickTracking : undefined
+      };
+
+      expect(getHistoryDetailsSectionPolicy(entry)).toEqual(expected);
+    }
+  );
+
+  it('falls back to outbound transfer details when a persisted row has no txType and message is Sent', async () => {
+    setMockRow({ ...baseSendTx, type: undefined, displayMessage: 'Sent' });
+    await renderAndLoad();
+
+    expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-A');
+    expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
+    expect(sectionByTitle('bridgeDetails')).toBeUndefined();
+    expect(screen.queryByTestId('one-click-history-details')).not.toBeInTheDocument();
+  });
+
+  it('falls back to inbound transfer details when a persisted row has no txType and message is not Sent', async () => {
+    setMockRow({ ...baseSendTx, type: undefined, displayMessage: 'Received' });
+    await renderAndLoad();
+
+    expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
+    expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-A');
+    expect(sectionByTitle('bridgeDetails')).toBeUndefined();
+    expect(screen.queryByTestId('one-click-history-details')).not.toBeInTheDocument();
+  });
+
   it('uses only the Command workbench header when reopening the original receipt', async () => {
     setMockRow(baseSendTx);
     render(
@@ -668,6 +919,8 @@ describe('HistoryDetails', () => {
       type: outbound ? 'send' : 'bridged-receive',
       extraInputs: {
         provider: 'near-intents',
+        sourceAddress: '0xrefund-address',
+        sourceChainId: 1,
         phase: 'submitting',
         oneClick: {
           direction,
@@ -763,6 +1016,16 @@ describe('HistoryDetails', () => {
     await renderAndLoad({ transactionId: 'one-click-history' });
 
     expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+    expect(sectionByTitle('bridgeDetails')).toBeUndefined();
+    expect(rowByLabel('route')).toBeUndefined();
+    expect(rowByLabel('noteId')).toBeUndefined();
+    expect(rowByLabel('from')).toBeUndefined();
+    const linkHosts = screen
+      .getAllByRole('link')
+      .map(link => link.getAttribute('href'))
+      .filter((href): href is string => href !== null)
+      .map(href => new URL(href, 'https://wallet.invalid').hostname);
+    expect(linkHosts.some(host => host === 'etherscan.io' || host.endsWith('.etherscan.io'))).toBe(false);
     const details = screen.getAllByTestId('detail-row');
     expect(details.find(row => row.getAttribute('data-label') === 'oneClickOriginNetwork')).toHaveTextContent(
       'Ethereum'
