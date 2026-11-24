@@ -61,7 +61,10 @@ const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransacti
   send: approvedTransfer,
   swap: approvedTransfer,
   'earn-deposit': approvedPrebuiltTransfer,
-  'bridged-send': approvedPrebuiltTransfer,
+  'bridged-send': transaction =>
+    transaction.extraInputs?.provider === 'near-intents'
+      ? approvedTransfer(transaction)
+      : approvedPrebuiltTransfer(transaction),
   // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
   consume: transaction => {
     const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;

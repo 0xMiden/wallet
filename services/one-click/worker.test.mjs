@@ -48,7 +48,7 @@ test('accepts a partner key the length of a signed token and refuses an oversize
   assert.equal(seen.length, 1);
 });
 
-test('names a missing-liquidity refusal and hides every other provider reason', async () => {
+test('names a missing-liquidity or invalid-recipient refusal and hides every other provider reason', async () => {
   const refusal = message =>
     createService({
       fetchImpl: async () => new Response(JSON.stringify({ message, correlationId: 'provider-id' }), { status: 400 })
@@ -56,9 +56,17 @@ test('names a missing-liquidity refusal and hides every other provider reason', 
   const noLiquidity = await refusal('No liquidity available');
   assert.equal(noLiquidity.status, 400);
   assert.deepEqual(await noLiquidity.json(), { error: 'no_liquidity' });
-  const other = await refusal('recipient is not valid');
-  assert.equal(other.status, 400);
+  const badRecipient = await refusal('recipient is not valid');
+  assert.equal(badRecipient.status, 400);
+  assert.deepEqual(await badRecipient.json(), { error: 'invalid_recipient' });
+  // A NEAR account that does not exist gives this text. It names no reason the wallet can show.
+  const internal = await refusal('Internal server error');
+  assert.equal(internal.status, 400);
+  assert.deepEqual(await internal.json(), { error: 'upstream_request_failed' });
+  const other = await refusal('amount is too low');
   assert.deepEqual(await other.json(), { error: 'upstream_request_failed' });
+  const notText = await refusal(42);
+  assert.deepEqual(await notText.json(), { error: 'upstream_request_failed' });
 });
 
 test('requires an exact allowed origin before calling the provider', async () => {
