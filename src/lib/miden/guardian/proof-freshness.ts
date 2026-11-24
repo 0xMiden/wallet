@@ -129,7 +129,7 @@ const buildProofFreshnessUnknownError = (
  * failed read gets one more inside the same bound, because the first request after a resume is the one likely to fail.
  * Check running time when accepting a response as well as when the timer fires: its callback can be delayed.
  */
-const readTipInTime = (readTip: () => Promise<number>): Promise<number | undefined> =>
+const readTipInTime = (readTip: () => Promise<number>): Promise<TipReadOutcome> =>
   new Promise(resolve => {
     const startedAt = runningNow();
     let settled = false;
