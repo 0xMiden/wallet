@@ -25,32 +25,32 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
-const small: GcSale = {
-  saleNoteId: 'cheap-small',
-  sellerAccountId: 'seller-small',
+const packageSale: GcSale = {
+  saleNoteId: 'exact-package',
+  sellerAccountId: 'seller',
   gcFaucetId: 'gc',
   payFaucetId: 'usdcx',
-  offeredAmount: 2_000_000n,
-  requestedAmount: 1_000n,
+  offeredAmount: 1_000_000_000n,
+  requestedAmount: 1_000_000n,
   fillFloor: 0n
 };
-const large: GcSale = {
-  ...small,
-  saleNoteId: 'large',
-  sellerAccountId: 'seller-large',
-  offeredAmount: 100_000_000n,
-  requestedAmount: 100_000n
+
+const smallSale: GcSale = {
+  ...packageSale,
+  saleNoteId: 'small-sale',
+  offeredAmount: 500_000_000n,
+  requestedAmount: 500_000n
 };
 
-function showDrawer() {
+function showDrawer(sales: GcSale[], payBalance: bigint = 10_000_000n) {
   const onConfirm = jest.fn();
   render(
     <ArcadeGcPurchaseDrawer
       open
       onOpenChange={jest.fn()}
-      sale={small}
-      sales={[large, small]}
-      payBalance={1_000_000n}
+      sale={sales[0] ?? null}
+      sales={sales}
+      payBalance={payBalance}
       submitting={false}
       error={null}
       onConfirm={onConfirm}
@@ -59,52 +59,45 @@ function showDrawer() {
   return onConfirm;
 }
 
-it('selects the cheapest sale, then changes the seller when the entered amount needs more inventory', () => {
-  const onConfirm = showDrawer();
+it('confirms exactly one USDCx principal for one thousand GC with a separate network fee', () => {
+  const onConfirm = showDrawer([packageSale]);
+
+  expect(screen.getByText('arcadeGcPurchaseFeeSeparate')).toBeInTheDocument();
   fireEvent.click(screen.getByTestId('arcade-gc-purchase-confirm'));
-  expect(onConfirm).toHaveBeenLastCalledWith(expect.objectContaining({ saleNoteId: 'cheap-small', fillAmount: 500n }));
-  fireEvent.change(screen.getByTestId('arcade-gc-purchase-amount'), { target: { value: '10' } });
-  fireEvent.click(screen.getByTestId('arcade-gc-purchase-confirm'));
-  expect(onConfirm).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      saleNoteId: 'large',
-      sellerAccountId: 'seller-large',
-      fillAmount: 10_000n,
-      expectedAmount: 10_000_000n
-    })
+
+  expect(onConfirm).toHaveBeenCalledTimes(1);
+  expect(onConfirm).toHaveBeenCalledWith(
+    expect.objectContaining({ saleNoteId: 'exact-package', fillAmount: 1_000_000n, expectedAmount: 1_000_000_000n })
   );
 });
 
-it('disables confirmation for invalid amounts or when no single sale can supply the amount', () => {
-  const onConfirm = showDrawer();
-  for (const value of ['0', '0.0000001', '101']) {
-    fireEvent.change(screen.getByTestId('arcade-gc-purchase-amount'), { target: { value } });
-    expect(screen.getByTestId('arcade-gc-purchase-confirm')).toBeDisabled();
-  }
+it('does not offer an editable purchase amount', () => {
+  showDrawer([packageSale]);
+
+  expect(screen.queryByTestId('arcade-gc-purchase-amount')).toBeNull();
+});
+
+it('disables confirmation when the available sale cannot back the whole package', () => {
+  const onConfirm = showDrawer([smallSale]);
+
+  expect(screen.getByTestId('arcade-gc-purchase-confirm')).toBeDisabled();
   expect(onConfirm).not.toHaveBeenCalled();
 });
 
-it('shows the quoted payment it confirms with every digit', () => {
-  const fractional: GcSale = {
-    ...small,
-    saleNoteId: 'fractional',
-    offeredAmount: 1_000_000n,
-    requestedAmount: 1_234_567n
-  };
-  const onConfirm = jest.fn();
-  render(
-    <ArcadeGcPurchaseDrawer
-      open
-      onOpenChange={jest.fn()}
-      sale={fractional}
-      sales={[fractional]}
-      payBalance={10_000_000n}
-      submitting={false}
-      error={null}
-      onConfirm={onConfirm}
-    />
-  );
-  expect(screen.getByText('arcadeGcPurchaseUsdcx 1.234567')).toBeInTheDocument();
+it('selects an exact package instead of a differently priced sale', () => {
+  const lowerPrice: GcSale = { ...packageSale, saleNoteId: 'lower-price', requestedAmount: 999_999n };
+  const onConfirm = showDrawer([lowerPrice, packageSale]);
+
   fireEvent.click(screen.getByTestId('arcade-gc-purchase-confirm'));
-  expect(onConfirm).toHaveBeenLastCalledWith(expect.objectContaining({ fillAmount: 1_234_567n }));
+
+  expect(onConfirm).toHaveBeenCalledWith(
+    expect.objectContaining({ saleNoteId: 'exact-package', fillAmount: 1_000_000n, expectedAmount: 1_000_000_000n })
+  );
+});
+
+it('disables confirmation when the balance cannot cover the package principal', () => {
+  const onConfirm = showDrawer([packageSale], 999_999n);
+
+  expect(screen.getByTestId('arcade-gc-purchase-confirm')).toBeDisabled();
+  expect(onConfirm).not.toHaveBeenCalled();
 });
