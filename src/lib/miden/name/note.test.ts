@@ -189,6 +189,15 @@ describe('buildRegisterNameRequest', () => {
     expect(mockTip).not.toHaveBeenCalled();
   });
 
+  it.each([0n, -1n])('refuses non-positive priceBaseUnits (%s) before any read or lock', async priceBaseUnits => {
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits })
+    ).rejects.toThrow(RangeError);
+    expect(mockTip).not.toHaveBeenCalled();
+    expect(mockLock).not.toHaveBeenCalled();
+    expect(mockResolveAsset).not.toHaveBeenCalled();
+  });
+
   it('validates invalid label once and before network-config checks', async () => {
     const mockValidate = jest.mocked(validateMidenLabel);
     const mockEncode = jest.mocked(encodeDomainFelts);

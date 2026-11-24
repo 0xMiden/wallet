@@ -49,8 +49,10 @@ const MAX_DELIVERY_SCAN_ROUNDS = 200;
 
 export interface MidenNameQuote {
   label: string;
-  /** True when `asset_status` felt 0 is 0 (no one has the name). */
+  /** True when `asset_status` felt 0 is 0 (no one has the name) and the length is priced. */
   available: boolean;
+  /** True when `prices` configures a positive price for this label length. */
+  priced: boolean;
   /** Price of the name in base units of the payment token. */
   priceBaseUnits: bigint;
   /** Network (sponsorship) fee per network note, from `fee_schedule[root]`. */
@@ -206,10 +208,12 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
   // The contract writes a fee entry as [fee, 0, 0, 1]. Any other layout means
   // that the fee policy changed, so this wallet does not submit.
   const feeWellFormed = fee[1] === 0n && fee[2] === 0n && fee[3] === MIDEN_NAME_FEE_ENTRY_MARKER;
+  const priced = price[0] > 0n;
 
   const quote: MidenNameQuote = {
     label,
-    available: status[0] === 0n,
+    available: status[0] === 0n && priced,
+    priced,
     priceBaseUnits: price[0],
     networkFeeBaseUnits: feeWellFormed ? fee[0] : 0n,
     scriptAllowed: allowed && feeWellFormed,

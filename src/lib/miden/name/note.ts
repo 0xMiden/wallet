@@ -116,6 +116,9 @@ export function randomSerialWord(): Word {
  */
 export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): Promise<RegisterNameRequest> {
   const domainWord = encodeDomainFelts(args.label);
+  if (args.priceBaseUnits <= 0n) {
+    throw new RangeError('Miden Name priceBaseUnits must be positive');
+  }
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
 

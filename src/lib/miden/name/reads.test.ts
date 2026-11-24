@@ -123,6 +123,7 @@ describe('fetchMidenNameQuote', () => {
     expect(quote).toEqual({
       label: 'zzqxjv9q1kk',
       available: true,
+      priced: true,
       priceBaseUnits: 1000n,
       networkFeeBaseUnits: 210n,
       scriptAllowed: true,
@@ -147,9 +148,18 @@ describe('fetchMidenNameQuote', () => {
     expect(quote.priceBaseUnits).toBe(120_000_000n);
   });
 
-  it('reads a missing price entry as 0', async () => {
-    const quote = await fetchMidenNameQuote('ab');
-    expect(quote.priceBaseUnits).toBe(0n);
+  it('marks missing and zero price entries as unpriced and unavailable', async () => {
+    const missing = await fetchMidenNameQuote('ab');
+    expect(missing.priceBaseUnits).toBe(0n);
+    expect(missing.priced).toBe(false);
+    expect(missing.available).toBe(false);
+
+    setEntry(MIDEN_NAME_SLOTS.prices, priceKeyFelts(2, TOKEN), [0n, 0n, 0n, 0n]);
+    clearMidenNameQuoteCache();
+    const zero = await fetchMidenNameQuote('ab');
+    expect(zero.priceBaseUnits).toBe(0n);
+    expect(zero.priced).toBe(false);
+    expect(zero.available).toBe(false);
   });
 
   it('marks the script not allowed when the registration root is missing', async () => {
