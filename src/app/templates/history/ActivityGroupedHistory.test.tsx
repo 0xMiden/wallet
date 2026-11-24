@@ -101,8 +101,24 @@ const contacts = {
     { address: 'mtst1blank', name: '   ' }
   ] as Array<{ address: string; name: string }>
 };
+const mockUpdateSettings = jest.fn();
+let mockRealContacts = false;
+const mockOwnAccount = { publicKey: 'mtst1own', name: 'My account', isPublic: false };
+
+jest.mock('lib/miden/front/client', () => ({
+  ...jest.requireActual('lib/miden/front/client'),
+  useMidenContext: () => ({ updateSettings: mockUpdateSettings })
+}));
+jest.mock('lib/miden/front/ready', () => ({
+  ...jest.requireActual('lib/miden/front/ready'),
+  useSettings: () => ({ contacts: contacts.value }),
+  useAllAccounts: () => [mockOwnAccount]
+}));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
-  useFilteredContacts: () => ({ allContacts: contacts.value, contacts: contacts.value })
+  useFilteredContacts: () =>
+    mockRealContacts
+      ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useFilteredContacts()
+      : { allContacts: contacts.value, contacts: contacts.value }
 }));
 
 jest.mock('lib/swr', () => ({
@@ -291,6 +307,7 @@ describe('ActivityGroupedHistory', () => {
     mockView.hasMore = false;
     mockRunFetcher = false;
     mockRealGroupList = false;
+    mockRealContacts = false;
     mockScroller.props = undefined;
     for (const key of Object.keys(mockReads)) delete mockReads[key];
     mockClaims.items = [];
@@ -386,6 +403,43 @@ describe('ActivityGroupedHistory', () => {
       contacts.value = savedContacts;
       restoreDecoder();
     }
+  });
+
+  it('opens Groups without writing saved contacts that overlap with own accounts', () => {
+    const savedContacts = contacts.value;
+    try {
+      mockRealContacts = true;
+      contacts.value = [{ address: mockOwnAccount.publicKey, name: 'Saved alias' }];
+
+      render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+      expect(screen.getByTestId('activity-groups')).toBeInTheDocument();
+      expect(mockUpdateSettings).not.toHaveBeenCalled();
+    } finally {
+      contacts.value = savedContacts;
+    }
+  });
+
+  it('counts a transfer that can be declined even when the fee blocks acceptance', () => {
+    mockRealGroupList = true;
+    mockClaims.items = [{ ...claim('no-fee', 'pending'), cannotPayFee: true }];
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeEnabled();
+    expect(within(screen.getByRole('link', { name: /mtst1sender/ })).getByText('1 waiting')).toBeInTheDocument();
+  });
+
+  it('groups a tagged hex reference with the equivalent bare account ID', () => {
+    mockRealGroupList = true;
+    loaded.push(
+      entry({ key: 'tagged', secondaryAddress: `${ACTIVITY_COUNTERPARTY_HEX}_qr7qqq9wr6w` }),
+      entry({ key: 'bare', secondaryAddress: ACTIVITY_COUNTERPARTY_HEX })
+    );
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    expect(screen.getAllByTestId('activity-group-row')).toHaveLength(1);
   });
 
   it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {
