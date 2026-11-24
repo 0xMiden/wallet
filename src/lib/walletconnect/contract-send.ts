@@ -6,6 +6,12 @@ import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import { readNativeFeeFields } from './fees';
 import { NativeReown, unwrapNativeResult } from './native';
 
+/**
+ * Options for encoding and dispatching an EVM contract call over NativeReown or wagmi.
+ *
+ * Always sends zero native value (`0n`), including when invoking `payable` ABI functions such as
+ * `depositForBurnWithHookAndFees`; no `value` option is exposed because all callers are zero-value.
+ */
 export interface SendEvmContractTransactionOptions<
   TAbi extends Abi | readonly unknown[],
   TFunctionName extends ContractFunctionName<TAbi, 'nonpayable' | 'payable'>
@@ -32,8 +38,11 @@ export interface SendEvmContractTransactionOptions<
 }
 
 /**
- * Encodes and dispatches an EVM contract transaction over either NativeReown (adding EIP-1559 fee
- * headroom) or wagmi's writeContract, validating that the wallet returns a transaction hash.
+ * Encodes and dispatches an EVM contract transaction over either NativeReown (sending `value: '0x0'`
+ * with EIP-1559 fee headroom) or wagmi's writeContract (omitting `value`, defaulting to `0n`),
+ * including for `payable` ABI functions invoked with zero value, and validates that the wallet
+ * returns a transaction hash. Calldata is encoded upfront on both transports before fee reads or
+ * `beforeSend`.
  */
 export async function sendEvmContractTransaction<
   const TAbi extends Abi | readonly unknown[],

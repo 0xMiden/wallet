@@ -158,6 +158,7 @@ describe('sendEvmContractTransaction', () => {
       functionName: 'transfer',
       args: [RECIPIENT, 99n]
     });
+    expect(writeContract.mock.calls[0]?.[0]).not.toHaveProperty('value');
   });
 
   it.each([true, false])(
