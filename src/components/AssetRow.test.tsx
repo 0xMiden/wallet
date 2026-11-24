@@ -168,6 +168,7 @@ beforeEach(() => {
   // Sensible defaults; individual tests override as needed.
   tokenPrices = { BTC: priceInfo() };
   mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
+  mockUseBasketSparkline.mockReturnValue([]);
   mockVerify.mockReturnValue('unknown');
 });
 
@@ -573,7 +574,7 @@ it("shows a basket's net asset value with its tokens' weighted move and line", (
   mockUseBasketSparkline.mockReturnValue([1.6, 1.55, 1.5]);
   render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} />);
   expect(screen.getByTestId('row-price')).toHaveTextContent('$3.00');
-  expect(screen.getByTestId('row-delta')).toHaveTextContent('-');
+  expect(screen.getByTestId('row-delta')).toHaveTextContent('-8.06%');
   const spark = screen.getByTestId('sparkline');
   expect(spark).toHaveAttribute('data-color', 'var(--status-negative)');
   expect(spark).toHaveAttribute('data-points', JSON.stringify([1.6, 1.55, 1.5]));
@@ -581,7 +582,7 @@ it("shows a basket's net asset value with its tokens' weighted move and line", (
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });
 
-it('keeps a basket whose tokens are not quoted flat, with no move', () => {
+it('draws a flat grey line with no move while a basket sparkline is empty or loading', () => {
   const composition = [{ faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 1 }];
   const basketQuote = priceInfo({
     price: 1.5,
@@ -590,9 +591,50 @@ it('keeps a basket whose tokens are not quoted flat, with no move', () => {
     kind: 'basket' as const,
     composition
   });
-  mockUseBasketSparkline.mockReturnValue([]);
-  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={{ BTC: basketQuote }} />);
+  const prices = { BTC: basketQuote };
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} />);
   expect(screen.queryByTestId('row-delta')).toBeNull();
-  expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+  const spark = screen.getByTestId('sparkline');
+  expect(spark).toHaveAttribute('data-points', JSON.stringify([1, 1]));
+  expect(spark).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(basketQuote, prices);
+  expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
+});
+
+it('draws a loaded basket line in neutral grey with no move while its tokens lack market quotes', () => {
+  const composition = [{ faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 1 }];
+  const basketQuote = priceInfo({
+    price: 1.5,
+    change24h: 0,
+    percentageChange24h: 0,
+    kind: 'basket' as const,
+    composition
+  });
+  const prices = { BTC: basketQuote };
+  mockUseBasketSparkline.mockReturnValue([1.6, 1.55, 1.5]);
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} />);
+  expect(screen.queryByTestId('row-delta')).toBeNull();
+  const spark = screen.getByTestId('sparkline');
+  expect(spark).toHaveAttribute('data-points', JSON.stringify([1.6, 1.55, 1.5]));
+  expect(spark).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(basketQuote, prices);
+});
+
+it('draws no sparkline and fetches none for a basket when sparkline is false', () => {
+  const composition = [{ faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 1 }];
+  const basketQuote = priceInfo({
+    price: 1.5,
+    change24h: 0,
+    percentageChange24h: 0,
+    kind: 'basket' as const,
+    composition
+  });
+  const prices = {
+    BTC: basketQuote,
+    ETH: priceInfo({ price: 2000, percentageChange24h: 3 })
+  };
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} sparkline={false} />);
+  expect(screen.queryByTestId('sparkline')).toBeNull();
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(undefined, prices);
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });
