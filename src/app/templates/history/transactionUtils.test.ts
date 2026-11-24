@@ -532,6 +532,12 @@ describe('formatDate', () => {
     expect(formatDate('not-a-real-date')).toBe('Invalid Date');
     expect(formatDate('1000abc')).toBe('Invalid Date');
     expect(formatDate('1700000000ms')).toBe('Invalid Date');
+    expect(formatDate('0x65f00000')).toBe('Invalid Date');
+    expect(formatDate('0X65F00000')).toBe('Invalid Date');
+    expect(formatDate('0b1010')).toBe('Invalid Date');
+    expect(formatDate('0B1010')).toBe('Invalid Date');
+    expect(formatDate('0o777')).toBe('Invalid Date');
+    expect(formatDate('0O777')).toBe('Invalid Date');
     expect(formatDate('')).toBe('Invalid Date');
     expect(formatDate('   ')).toBe('Invalid Date');
     expect(formatDate('Infinity')).toBe('Invalid Date');
