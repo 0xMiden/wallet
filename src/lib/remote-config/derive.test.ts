@@ -1463,17 +1463,40 @@ describe('deriveBridgeConfig default I/O', () => {
     });
   });
 
-  it.each([
-    ['missing slots', undefined],
-    ['invalid decimals', [1000n, 1000000n, 13n, 8765514n]]
-  ])('rejects %s instead of returning display metadata', async (_label, word) => {
+  it.each<[string, Readonly<Record<string, readonly [bigint, bigint, bigint, bigint] | undefined>>, string]>([
+    [
+      'missing token_config',
+      { 'miden::standards::faucets::fungible::token_config': undefined },
+      'Missing faucet metadata slot: fungible::token_config'
+    ],
+    [
+      'invalid decimals',
+      { 'miden::standards::faucets::fungible::token_config': [1000n, 1000000n, 13n, 8765514n] },
+      'Invalid faucet decimals'
+    ],
+    [
+      'missing token_name_0',
+      { 'miden::standards::faucets::token_name_0': undefined },
+      'Missing faucet metadata slot: token_name_0'
+    ],
+    [
+      'invalid mutability_config',
+      { 'miden::standards::faucets::mutability_config': [0n, 0n, 0n, 2n] },
+      'Invalid faucet mutability flag'
+    ]
+  ])('rejects %s instead of returning display metadata', async (_label, overrides, expectedMessage) => {
     mockGetAccountProof.mockResolvedValue({
       accountHeader: () => ({}),
-      getStorageSlotValue: () => (word ? { toU64s: () => word } : undefined)
+      getStorageSlotValue: (slot: string) => {
+        const word = slot in overrides ? overrides[slot] : FAUCET_PROOF_WORDS[slot];
+        return word ? { toU64s: () => word } : undefined;
+      }
     });
-    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toBeInstanceOf(
-      NotAFaucetError
+    const rejection = await readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC).catch(
+      (err: unknown) => err
     );
+    expect(rejection).toBeInstanceOf(NotAFaucetError);
+    expect((rejection as Error).message).toContain(expectedMessage);
   });
 
   it('filters private and invalid faucets but preserves WASM failures', async () => {
