@@ -270,3 +270,12 @@ it('keeps the send-step Add Contact picker on Mainnet and normalizes a stale tes
   await act(async () => fireEvent.click(screen.getByTestId('address-book-add-contact')));
   expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ network: 'base' }));
 });
+
+it('saves the normalized Mainnet default when a stale test-chain draft is submitted unchanged', async () => {
+  mockNetworkName = 'mainnet';
+  renderSheet(EVM, 'sepolia');
+  expect(screen.getByTestId('add-contact-network-picker')).toHaveTextContent('Ethereum');
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Direct Mainnet' } });
+  await act(async () => fireEvent.click(screen.getByTestId('address-book-add-contact')));
+  expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ address: EVM, network: 'ethereum' }));
+});
