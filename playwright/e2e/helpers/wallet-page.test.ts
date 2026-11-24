@@ -508,7 +508,12 @@ describe('ChromeWalletPage exact token selection', () => {
     });
     const wallet = new ChromeWalletPage(page, 'test');
 
-    await wallet.prepareSendReview({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenSymbol: 'TST' });
+    await wallet.prepareSendReview({
+      recipientAddress: 'account-b',
+      amount: '1',
+      isPrivate: false,
+      tokenSymbol: 'TST'
+    });
     expect(clickedTokenIds).toEqual(['faucet-b']);
   });
 
