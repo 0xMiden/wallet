@@ -4123,11 +4123,11 @@ describe('generateTransaction - Guardian routing', () => {
     // Completion must route to completeEarnDepositTransaction, NOT the generic custom-tx
     // completion - otherwise the row finishes without the collateral note id that
     // createEarnP2IDENote reads back for the Epoch handoff (stranding the deposit).
-    // 'Deposited to lending' is set only by completeEarnDepositTransaction, so it pins
+    // 'Deposited to Earn' is set only by completeEarnDepositTransaction, so it pins
     // the routing: deleting the completion case fails this assertion.
     const completed = txStore.find(row => row.id === txId);
     expect(completed?.status).toBe(ITransactionStatus.Completed);
-    expect(completed?.displayMessage).toBe('Deposited to lending');
+    expect(completed?.displayMessage).toBe('Deposited to Earn');
   });
 
   it('Guardian Epoch bridged-send with no request of its own never reads a sync height', async () => {
@@ -4801,7 +4801,7 @@ describe('generateTransaction - Guardian routing', () => {
     const row = txStore.find(r => r.id === txId);
     expect(row?.status).toBe(ITransactionStatus.Failed);
     // Never a Completed-branch success message.
-    expect(row?.displayMessage).not.toBe('Deposited to lending');
+    expect(row?.displayMessage).not.toBe('Deposited to Earn');
     expect(row?.displayMessage).not.toBe('Sent');
   });
 
@@ -16661,7 +16661,7 @@ describe('generateTransaction - Guardian routing', () => {
 
       expect(row).toMatchObject({
         ...landedFields(replaceable.nativeFaucet),
-        displayMessage: 'Deposited to lending',
+        displayMessage: 'Deposited to Earn',
         outputNoteIds: ['note-collateral']
       });
       expect(replaceable.lateReads).toEqual([]);

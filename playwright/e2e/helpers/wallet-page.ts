@@ -252,7 +252,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * specs run on device.
    */
   getEvmAddress(): Promise<string>;
-  sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void>;
+  sendTokens(params: SendTokensParams & { tokenId?: string }, onRow?: (rowId: string) => void): Promise<void>;
   /**
    * Complete the create-wallet flow choosing the Guardian recovery method,
    * pointing the account at `guardianUrl` (a locally-spawned guardian). The
@@ -3154,7 +3154,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('send-review-submit').click({ timeout: 30_000 });
   }
 
-  async waitForSendSubmissionAccepted(timeoutMs = 120_000): Promise<void> {
+  async waitForSendSubmissionAccepted(timeoutMs = 120_000, onRow?: (rowId: string) => void): Promise<void> {
     const submitAccepted = await this.page
       .getByTestId('send-review-submit')
       .waitFor({ state: 'detached', timeout: timeoutMs })
@@ -3164,9 +3164,24 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // A successful submit routes to /generating-transaction/:txId. Wait for that
     // hash rather than sleeping, so the body-text scrape below reads the settled
     // screen. Capped at the 2s it replaced.
-    await this.page
-      .waitForFunction(() => window.location.hash.includes('generating-transaction'), undefined, { timeout: 2_000 })
-      .catch(() => {});
+    const route = await this.page
+      .waitForFunction(
+        () =>
+          window.location.hash.match(/^#\/generating-transaction(?:-full)?\/([A-Za-z0-9_-]+)(?:\?.*)?$/)?.[1] || false,
+        undefined,
+        { timeout: 2_000 }
+      )
+      .catch(() => undefined);
+    if (route && onRow) {
+      try {
+        const rowId = await route.jsonValue().catch(() => undefined);
+        if (typeof rowId === 'string') onRow(rowId);
+      } finally {
+        await route.dispose().catch(() => {});
+      }
+    } else if (route) {
+      await route.dispose().catch(() => {});
+    }
 
     // Fail HERE, at the real failure point. Both of these used to be swallowed:
     // the detach timeout by a bare `.catch(() => {})`, and a rendered error
@@ -3214,10 +3229,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   /**
    * Execute the full send flow and require the review submission to be accepted.
    */
-  async sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void> {
+  async sendTokens(params: SendTokensParams & { tokenId?: string }, onRow?: (rowId: string) => void): Promise<void> {
     await this.prepareSendReview(params);
     await this.submitSendReview();
-    await this.waitForSendSubmissionAccepted();
+    await this.waitForSendSubmissionAccepted(undefined, onRow);
   }
 
   /**

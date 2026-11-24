@@ -9,6 +9,7 @@ import { useContacts } from 'lib/miden/front';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
+import { useContactBridgeNetworks } from 'screens/contacts/contact-network';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { BridgeNetworkId, defaultBridgeNetwork } from './bridge-networks';
@@ -46,6 +47,8 @@ const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialNetwork, on
   const isEvm = detectAddressChain(address) === 'ethereum';
   const [name, setName] = useState('');
   const [network, setNetwork] = useState<BridgeNetworkId>(() => initialNetwork ?? defaultBridgeNetwork().id);
+  const networks = useContactBridgeNetworks();
+  const selectedNetwork = networks.find(option => option.id === network)?.id ?? defaultBridgeNetwork().id;
   const [error, setError] = useState<string>();
   const [errorId, setErrorId] = useState<UserErrorId>();
   const [saving, setSaving] = useState(false);
@@ -68,7 +71,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialNetwork, on
         address,
         name: trimmedName,
         addedAt: Date.now(),
-        ...(isEvm ? { network } : {})
+        ...(isEvm ? { network: selectedNetwork } : {})
       });
       // Raise and lower in the same function. `onSaved` closes the sheet through the raw prop, and
       // the flag lives in the PARENT, which outlives this body and survives close/reopen - so a
@@ -105,7 +108,8 @@ const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialNetwork, on
 
       <NetworkField
         chain={isEvm ? 'ethereum' : 'miden'}
-        network={network}
+        network={selectedNetwork}
+        networks={networks}
         onSelect={setNetwork}
         testIdPrefix="add-contact"
       />
