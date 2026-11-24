@@ -14,6 +14,12 @@ jest.mock('react-i18next', () => ({
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+let mockBaseFee = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+
+beforeEach(() => {
+  mockBaseFee = 0;
+});
 
 // Keep the real fields and actions. Replace only the native sheet boundary.
 jest.mock('lib/ui/drawer', () => ({
@@ -103,4 +109,21 @@ it('disables confirmation when the balance cannot cover the package principal', 
 
   expect(screen.getByTestId('arcade-gc-purchase-confirm')).toBeDisabled();
   expect(onConfirm).not.toHaveBeenCalled();
+});
+
+it('disables confirmation when the balance covers the principal but cannot cover a positive network fee', () => {
+  mockBaseFee = 10_000;
+  const onConfirm = showDrawer([packageSale], 1_000_000n);
+
+  const confirm = screen.getByTestId('arcade-gc-purchase-confirm');
+  expect(confirm).toBeDisabled();
+  fireEvent.click(confirm);
+  expect(onConfirm).not.toHaveBeenCalled();
+});
+
+it('allows the exact principal when the known network fee is zero', () => {
+  const onConfirm = showDrawer([packageSale], 1_000_000n);
+
+  fireEvent.click(screen.getByTestId('arcade-gc-purchase-confirm'));
+  expect(onConfirm).toHaveBeenCalledTimes(1);
 });
