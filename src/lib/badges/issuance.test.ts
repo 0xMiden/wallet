@@ -5,6 +5,46 @@ import { badgeCandidates } from './evidence';
 import { createBadgeIssuer, type BadgeIssuanceSource } from './issuance';
 import { readEarnedBadges, type BadgeId } from './types';
 
+const CANONICAL_FAUCETS = [
+  {
+    hex: '0x817edea77acc5d71616e493afecea3',
+    bech32: 'mm1azqhah480tx96utpdeyn4lkw5v5fsdmw',
+    canonical: '0x817edea77acc5d71616e493afecea3'
+  },
+  {
+    hex: '0x111111111111111111111111111111',
+    bech32: 'mm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2v',
+    canonical: '0x111111111111111111111111111111'
+  }
+];
+
+jest.mock('@miden-sdk/miden-sdk/lazy', () => {
+  const actual = jest.requireActual<typeof import('@miden-sdk/miden-sdk/lazy')>('@miden-sdk/miden-sdk/lazy');
+  const fromHex = jest.fn((hex: string) => {
+    const match = CANONICAL_FAUCETS.find(item => item.hex === hex.toLowerCase());
+    if (!match) throw new Error(`invalid hex account id: ${hex}`);
+    return { toString: () => match.canonical };
+  });
+  return {
+    ...actual,
+    AccountId: Object.assign(actual.AccountId, { fromHex }),
+    Address: {
+      ...actual.Address,
+      fromBech32: jest.fn((address: string): unknown => {
+        const match = CANONICAL_FAUCETS.find(item => item.bech32 === address);
+        if (match) {
+          return {
+            accountId: () => ({ toString: () => match.canonical }),
+            interface: () => 'BasicWallet',
+            toNoteTag: jest.fn()
+          };
+        }
+        return actual.Address.fromBech32(address);
+      })
+    }
+  };
+});
+
 jest.mock('lib/miden/activity/utils', () => {
   const actual = jest.requireActual<typeof import('lib/miden/activity/utils')>('lib/miden/activity/utils');
   return { ...actual, compareAccountIds: jest.fn(actual.compareAccountIds) };
@@ -565,5 +605,61 @@ describe('fully settled swap evidence', () => {
     const h = harness([base({ type: 'consume' }), base({ type: 'execute' })]);
     await h.issuer.refresh();
     expect(h.awards()).toEqual([]);
+  });
+
+  it('matches hex and bech32 equivalent faucet IDs for first-swap and first-deposit evidence while preserving safeguards', () => {
+    const hexFaucet = '0x817edea77acc5d71616e493afecea3';
+    const bech32Faucet = 'mm1azqhah480tx96utpdeyn4lkw5v5fsdmw';
+    const otherBech32Faucet = 'mm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2v';
+
+    const hexSwap = {
+      ...swap(),
+      extraInputs: { requestedAmount: 100n, requestedFaucetId: hexFaucet, orderId: '7' }
+    };
+    const bech32Fill = { ...fill(1, 100n), faucetId: bech32Faucet };
+    expect(badgeCandidates([hexSwap, bech32Fill], ['account-a'], ['first-swap']).map(c => c.badge)).toEqual([
+      'first-swap'
+    ]);
+
+    const bech32Swap = {
+      ...swap(),
+      extraInputs: { requestedAmount: 100n, requestedFaucetId: bech32Faucet, orderId: '7' }
+    };
+    const hexFill = { ...fill(1, 100n), faucetId: hexFaucet };
+    expect(badgeCandidates([bech32Swap, hexFill], ['account-a'], ['first-swap']).map(c => c.badge)).toEqual([
+      'first-swap'
+    ]);
+
+    expect(
+      badgeCandidates([hexSwap, { ...fill(1, 100n), faucetId: otherBech32Faucet }], ['account-a'], ['first-swap'])
+    ).toEqual([]);
+    expect(
+      badgeCandidates(
+        [
+          { ...swap(), extraInputs: { requestedAmount: 100n, requestedFaucetId: '', orderId: '7' } },
+          { ...fill(1, 100n), faucetId: '' }
+        ],
+        ['account-a'],
+        ['first-swap']
+      )
+    ).toEqual([]);
+
+    const hexDeposit = { ...deposit(), faucetId: hexFaucet };
+    const bech32DepositClaim = {
+      ...depositClaim(),
+      faucetId: bech32Faucet,
+      consumedNotes: [{ id: 'note-deposit', senderAddress: 'bridge', faucetId: bech32Faucet, amount: 10n }],
+      assetTotals: [{ faucetId: bech32Faucet, amount: 10n }]
+    };
+    expect(
+      badgeCandidates([hexDeposit, bech32DepositClaim], ['account-a'], ['first-deposit']).map(c => c.badge)
+    ).toEqual(['first-deposit']);
+    expect(
+      badgeCandidates(
+        [hexDeposit, { ...bech32DepositClaim, assetTotals: undefined }],
+        ['account-a'],
+        ['first-deposit']
+      ).map(c => c.badge)
+    ).toEqual(['first-deposit']);
   });
 });

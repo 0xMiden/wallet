@@ -42,10 +42,7 @@ import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { basketChange24h, basketKlines } from 'lib/prices/basket';
-import { isBasketQuote } from 'lib/prices/basket-nav';
-import { isNominalQuote } from 'lib/prices/binance';
 import { fetchKlineSeries } from 'lib/prices/feed';
-import { isFixedQuote } from 'lib/prices/fixed';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
@@ -226,7 +223,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               Its move and line follow its tokens. */}
           <SectionDivider />
 
-          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && !isBasketQuote(quote) && priceSymbol && (
+          {quote?.kind === 'market' && priceSymbol && (
             <>
               <PriceChart symbol={priceSymbol} priceInfo={quote} />
               <SectionDivider />
@@ -235,7 +232,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
           {/* A basket priced from its vault: its line and move are its tokens', weighted by the vault's mix, and the
               mix itself follows. */}
-          {quote && isBasketQuote(quote) && quote.composition && priceSymbol && (
+          {quote?.kind === 'basket' && quote.composition && priceSymbol && (
             <>
               <BasketPriceChart
                 symbol={priceSymbol}

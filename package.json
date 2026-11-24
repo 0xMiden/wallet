@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.18.0",
+  "version": "1.18.1",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -156,13 +156,13 @@
     "test:e2e:android:dapp:run": "playwright test --config playwright.android.dapp.config.ts"
   },
   "dependencies": {
-    "@capacitor/android": "8.4.3",
+    "@capacitor/android": "8.6.2",
     "@capacitor/app": "^8.0.0",
     "@capacitor/clipboard": "^8.0.0",
-    "@capacitor/core": "8.4.3",
+    "@capacitor/core": "8.6.2",
     "@capacitor/filesystem": "^8.0.0",
     "@capacitor/haptics": "^8.0.0",
-    "@capacitor/ios": "8.4.3",
+    "@capacitor/ios": "8.6.2",
     "@capacitor/keyboard": "^8.0.0",
     "@capacitor/local-notifications": "^8.0.0",
     "@capacitor/preferences": "^8.0.0",
@@ -274,7 +274,7 @@
     "postcss": "8.5.32"
   },
   "devDependencies": {
-    "@capacitor/cli": "8.4.3",
+    "@capacitor/cli": "8.6.2",
     "@chromatic-com/storybook": "^1.5.0",
     "@miden-sdk/miden-wallet-adapter-react": "0.18.0",
     "@miden-sdk/react": "0.18.0",

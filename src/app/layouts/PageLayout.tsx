@@ -19,6 +19,8 @@ import { useSetOnboardingCompleted } from '../hooks/useOnboardingProgress';
 import { ChangelogOverlay } from './PageLayout/ChangelogOverlay/ChangelogOverlay';
 
 interface PageLayoutProps extends PropsWithChildren, ToolbarProps {
+  /** The enclosing workbench owns the viewport, scroll and header. */
+  embedded?: boolean;
   contentContainerStyle?: React.CSSProperties;
   hideToolbar?: boolean;
   showBottomBorder?: boolean;
@@ -26,12 +28,20 @@ interface PageLayoutProps extends PropsWithChildren, ToolbarProps {
 
 const PageLayout: FC<PageLayoutProps> = ({
   children,
+  embedded,
   contentContainerStyle,
   hideToolbar,
   showBottomBorder = true,
   ...toolbarProps
 }) => {
   const { fullPage, sidePanel } = useAppEnv();
+  const content = (
+    <ErrorBoundary whileMessage="displaying this page">
+      <Suspense fallback={<SpinnerSection />}>{children}</Suspense>
+    </ErrorBoundary>
+  );
+
+  if (embedded) return content;
 
   // Platform-specific sizing:
   // - Mobile: 100% to inherit from parent chain (body has safe area padding)
@@ -59,9 +69,7 @@ const PageLayout: FC<PageLayoutProps> = ({
           {!hideToolbar && <Toolbar {...toolbarProps} />}
 
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden" style={contentContainerStyle}>
-            <ErrorBoundary whileMessage="displaying this page">
-              <Suspense fallback={<SpinnerSection />}>{children}</Suspense>
-            </ErrorBoundary>
+            {content}
           </div>
         </ContentPaper>
       </div>

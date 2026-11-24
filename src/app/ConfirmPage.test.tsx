@@ -979,6 +979,42 @@ describe('privateNotes payload', () => {
 // sign payload (word and signing-inputs signatures)
 // ---------------------------------------------------------------------------
 
+describe('sign payload — Guardian message', () => {
+  it('renders the elements the background accepted, open, with the message headline', () => {
+    setPayload({
+      type: 'sign',
+      ...baseFields(),
+      sourcePublicKey: 'src',
+      payload: b64('signing-inputs'),
+      kind: 'signingInputs',
+      preview: {},
+      messageElements: ['1', '2', '3']
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('confirm-sign-message')).toHaveTextContent('signMessageTitle');
+    expect(screen.getByText('signMessageWarning')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-sign-raw-value')).toHaveTextContent('1, 2, 3');
+    expect(screen.queryByTestId('confirm-sign-opaque')).toBeNull();
+  });
+
+  it('keeps the opaque-signature body for a payload with no message elements (a single-key account)', () => {
+    mockWord.deserialize.mockReturnValue({ toHex: () => '0xdeadbeefcafe' });
+    setPayload({
+      type: 'sign',
+      ...baseFields(),
+      sourcePublicKey: 'src',
+      payload: b64('word-bytes'),
+      kind: 'word',
+      preview: {}
+    });
+    render(<ConfirmPage />);
+
+    expect(screen.queryByTestId('confirm-sign-message')).toBeNull();
+    expect(screen.getByTestId('confirm-sign-opaque')).toBeInTheDocument();
+  });
+});
+
 describe('sign payload — word', () => {
   const wordPayload = () => ({
     type: 'sign',

@@ -100,7 +100,7 @@ test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 test('cold FullPage history opens the original failed Earn withdrawal with Retry delivery enabled', async ({
   extensionContext,
   extensionId
-}) => {
+}, info) => {
   test.setTimeout(300_000);
   await extensionContext.route(/^https?:\/\//, route => {
     const { hostname } = new URL(route.request().url());
@@ -128,7 +128,10 @@ test('cold FullPage history opens the original failed Earn withdrawal with Retry
     .getByTestId('command-workbench')
     .getByText('Failed to load transaction')
     .waitFor({ state: 'visible', timeout: 10_000 })
-    .then(() => true, () => false);
+    .then(
+      () => true,
+      () => false
+    );
   await empty.close();
   const emptyOutcome = emptyReact185 ? 'React #185' : missing ? 'missing row' : 'not ready';
 
@@ -168,4 +171,19 @@ test('cold FullPage history opens the original failed Earn withdrawal with Retry
   await expect(retry).toBeEnabled();
   expect(react185).toBe(false);
   expect(emptyOutcome, 'the cold empty receipt should show the missing row without crashing').toBe('missing row');
+
+  for (const { width, height } of [
+    { width: 1440, height: 1000 },
+    { width: 390, height: 844 }
+  ]) {
+    await cold.setViewportSize({ width, height });
+    await retry.scrollIntoViewIfNeeded();
+    await expect(retry).toBeInViewport({ ratio: 1 });
+    const scrollOwners = await receipt.evaluate(
+      el =>
+        [...el.querySelectorAll('*')].filter(child => /^(auto|scroll)$/.test(getComputedStyle(child).overflowY)).length
+    );
+    expect(scrollOwners).toBe(1);
+    await receipt.screenshot({ path: info.outputPath(`command-earn-receipt-${width}x${height}.png`) });
+  }
 });

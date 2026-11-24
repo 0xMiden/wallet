@@ -158,7 +158,7 @@ function makeAsset(overrides: Partial<{ symbol: string; name: string; balance: n
 }
 
 function priceInfo(overrides: Partial<TokenPriceInfo> = {}): TokenPriceInfo {
-  return { price: 100, change24h: 0, percentageChange24h: 5, ...overrides };
+  return { kind: 'market' as const, price: 100, change24h: 0, percentageChange24h: 5, ...overrides };
 }
 
 beforeEach(() => {
@@ -558,7 +558,13 @@ it("shows a basket's net asset value with its tokens' weighted move and line", (
     { faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 0.6 },
     { faucetId: 'f-sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.4 }
   ];
-  const basketQuote = priceInfo({ price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket', composition });
+  const basketQuote = priceInfo({
+    price: 1.5,
+    change24h: 0,
+    percentageChange24h: 0,
+    kind: 'basket' as const,
+    composition
+  });
   const prices = {
     BTC: basketQuote,
     ETH: priceInfo({ price: 2000, percentageChange24h: -10 }),
@@ -577,7 +583,13 @@ it("shows a basket's net asset value with its tokens' weighted move and line", (
 
 it('keeps a basket whose tokens are not quoted flat, with no move', () => {
   const composition = [{ faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 1 }];
-  const basketQuote = priceInfo({ price: 1.5, change24h: 0, percentageChange24h: 0, source: 'basket', composition });
+  const basketQuote = priceInfo({
+    price: 1.5,
+    change24h: 0,
+    percentageChange24h: 0,
+    kind: 'basket' as const,
+    composition
+  });
   mockUseBasketSparkline.mockReturnValue([]);
   render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={{ BTC: basketQuote }} />);
   expect(screen.queryByTestId('row-delta')).toBeNull();

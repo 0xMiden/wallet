@@ -138,9 +138,16 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
         'Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in.'
       )
     ).toBeVisible();
-    await expect(workbench.getByTestId('command-footer').getByRole('button', { name: 'Review Details' })).toBeDisabled();
+    await expect(
+      workbench.getByTestId('command-footer').getByRole('button', { name: 'Review Details' })
+    ).toBeDisabled();
     await bridge.getByRole('radio', { name: 'Bridge out', exact: true }).click();
-    await bridge.getByRole('radio', { name: new RegExp(`${TOKEN_SYMBOL} to USDC`) }).click();
+    await bridge.getByRole('combobox', { name: 'From', exact: true }).selectOption({
+      label: `${TOKEN_SYMBOL} · miden-localnet`
+    });
+    await bridge.getByRole('combobox', { name: 'To', exact: true }).selectOption({
+      label: 'USDC · sepolia · Epoch'
+    });
     const amount = bridge.getByRole('textbox', { name: 'Amount', exact: true });
     await amount.fill(BRIDGE_AMOUNT);
     await bridge.getByRole('textbox', { name: 'External account', exact: true }).fill(destination);

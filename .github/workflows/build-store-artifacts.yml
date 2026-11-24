@@ -338,7 +338,10 @@ jobs:
   ios:
     needs: prepare
     if: ${{ needs.prepare.outputs.build_ios == 'true' }}
-    runs-on: macos-26
+    # xcode-27 gives Xcode 27 and the iOS 27 SDK. From April 2027 App Store
+    # Connect refuses a build made with an older SDK (ITMS-90725). The compile
+    # gate in pr-compile-surfaces.yml uses the same toolchain.
+    runs-on: xcode-27
     environment: wallet-store-signing
     timeout-minutes: 120
     env:

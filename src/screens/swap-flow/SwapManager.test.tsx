@@ -12,8 +12,7 @@ import { SwapPair } from 'lib/miden/swap/tokens';
 import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { TokenPrices } from 'lib/prices/binance';
 import type { GeoLookup } from 'lib/remote-config/geo';
-import { parseBridgeConfig, type BridgeConfig } from 'lib/remote-config/schema';
-import testnet from 'lib/remote-config/testing/testnet.json';
+import { type BridgeConfig } from 'lib/remote-config/schema';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { CommandDraftProvider } from 'screens/command/command-drafts';
@@ -110,7 +109,6 @@ const mockRequestSWProcessing = jest.fn();
 const mockIsExtension = jest.fn(() => true);
 const mockIsDelegateProof = jest.fn(() => false);
 const mockNavigate = jest.fn();
-const mockFetchOneClickAssets = jest.fn();
 let mockBridgeConfig: BridgeConfig | null;
 let mockGeo: GeoLookup | undefined;
 let mockSwapAvailabilityResult: { state: 'unavailable'; reason: string; detail: string } | undefined;
@@ -179,9 +177,6 @@ jest.mock('./SwapAmounts', () => {
           <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
           <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
           <span data-testid="sa-offer-loading">{String(props.offerLoading)}</span>
-          <span data-testid="sa-one-click-networks">
-            {(props.oneClickNetworks ?? []).map(network => network.id).join(',')}
-          </span>
           <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
           <AmountInput
             data-testid="sa-request-input"
@@ -367,24 +362,6 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
     geo: mockGeo
   })
 }));
-jest.mock('lib/one-click/config', () => {
-  const actual = jest.requireActual<typeof import('lib/one-click/config')>('lib/one-click/config');
-  return {
-    ...actual,
-    useOneClickConfig: () =>
-      actual.getOneClickConfig({
-        network: 'mainnet',
-        status: 'ready',
-        config: mockBridgeConfig,
-        derived: null,
-        lastFetch: null
-      })
-  };
-});
-jest.mock('lib/one-click/client', () => ({
-  ...jest.requireActual<typeof import('lib/one-click/client')>('lib/one-click/client'),
-  fetchOneClickAssets: (...args: unknown[]) => mockFetchOneClickAssets(...args)
-}));
 
 jest.mock('./useSwapQuote', () => ({
   useSwapQuote: (...args: unknown[]) => mockUseSwapQuote(...args)
@@ -538,7 +515,9 @@ beforeEach(() => {
   mockDefaultPairOverride = undefined;
   mockQuotesBySymbol = undefined;
   mockWalletState = {
-    tokenPrices: { AAA: { price: 1, change24h: 0, percentageChange24h: 0, observedAt: Date.now() } },
+    tokenPrices: {
+      AAA: { price: 1, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
+    },
     isTransactionModalOpen: false,
     lastCompletedTxHash: null,
     closeTransactionModal: jest.fn(),
@@ -561,7 +540,6 @@ beforeEach(() => {
   mockBridgeConfig = null;
   mockGeo = undefined;
   mockSwapAvailabilityResult = undefined;
-  mockFetchOneClickAssets.mockReset();
 
   mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenB, mockTokenC]);
   mockSolverPairs = undefined;
@@ -993,7 +971,7 @@ describe('SwapFlow / SwapManager', () => {
     const view = renderFlow();
     setOffer('10');
     mockWalletState.tokenPrices = {
-      AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+      AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
     };
     view.rerender(<SwapFlow />);
     await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
@@ -1069,117 +1047,39 @@ describe('SwapFlow / SwapManager', () => {
     expect(drawer).toHaveAttribute('data-current', 'faucet-A');
   });
 
-  it('keeps configured 1Click networks hidden and does not fetch its catalog while the rollout switch is off', () => {
-    mockBridgeConfig = parseBridgeConfig(
-      {
-        ...testnet,
-        network: 'mainnet',
-        features: { ...testnet.features, nearIntents: false },
-        swap: {
-          ...testnet.swap,
-          oneClick: {
-            serviceUrl: 'https://one-click.example',
-            midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
-          }
-        }
-      },
-      'mainnet'
-    );
-    if (!mockBridgeConfig) throw new Error('The disabled-feature fixture must remain a valid wallet config');
+  it('shows no network picker on the amounts step', () => {
     mockRealSwapAmounts = true;
     renderFlow();
 
-    expect(screen.queryByTestId('one-click-pay-network-picker')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('one-click-receive-network-picker')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('one-click-connect-origin-wallet')).not.toBeInTheDocument();
-    expect(mockFetchOneClickAssets).not.toHaveBeenCalled();
+    expect(screen.getByTestId('swap-pay-side')).toBeInTheDocument();
+    expect(screen.getByTestId('swap-receive-side')).toBeInTheDocument();
   });
 
-  it('keeps one-click routes available from the surviving provider catalog mappings', async () => {
-    mockBridgeConfig = parseBridgeConfig(
-      {
-        ...testnet,
-        network: 'mainnet',
-        features: { ...testnet.features, nearIntents: true },
-        swap: {
-          ...testnet.swap,
-          oneClick: {
-            serviceUrl: 'https://one-click.example',
-            midenAssets: [
-              { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 },
-              { assetId: 'miden:other', faucetId: '0x637c15a622074e91188aa894456c52', decimals: 6 }
-            ]
-          }
-        }
-      },
-      'mainnet'
-    );
-    if (!mockBridgeConfig) throw new Error('The enabled-feature fixture must remain a valid wallet config');
-    mockFetchOneClickAssets.mockResolvedValue([
-      {
-        assetId: 'miden:usdc',
-        blockchain: 'miden',
-        symbol: 'USDC',
-        decimals: 6,
-        faucetId: '0x537c15a622074e91188aa894456c52'
-      },
-      { assetId: 'eth:token', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
-    ]);
-
+  it('keeps Swap closed when the DEX has no pair to offer', async () => {
+    mockGetSwapTokens.mockReturnValue([]);
     renderFlow();
+    await act(async () => undefined);
 
-    await waitFor(() => expect(screen.getByTestId('sa-one-click-networks')).toHaveTextContent('miden,eth'));
-    expect(mockFetchOneClickAssets).toHaveBeenCalledTimes(1);
+    // The registry stand-in reads as loading without a pair, so the frame shows no form.
+    expect(screen.getByTestId('swap-flow')).toBeInTheDocument();
+    expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
   });
 
-  describe('startup eligibility on the 1Click route', () => {
+  describe('startup eligibility', () => {
     const decision = (swap: boolean): GeoLookup => ({
       state: 'ready',
       network: 'mainnet',
       version: 1,
       allowed: { wallet: true, earn: true, swap }
     });
-    // A 1Click catalog with a Miden and an EVM asset, and no solver pair: the route that used to open the form alone.
-    const withOneClickRouteOnly = () => {
-      mockGetSwapTokens.mockReturnValue([]);
-      mockBridgeConfig = parseBridgeConfig(
-        {
-          ...testnet,
-          network: 'mainnet',
-          features: { ...testnet.features, nearIntents: true },
-          swap: {
-            ...testnet.swap,
-            oneClick: {
-              serviceUrl: 'https://one-click.example',
-              midenAssets: [{ assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }]
-            }
-          }
-        },
-        'mainnet'
-      );
-      if (!mockBridgeConfig) throw new Error('The 1Click fixture must remain a valid wallet config');
-      mockFetchOneClickAssets.mockResolvedValue([
-        {
-          assetId: 'miden:usdc',
-          blockchain: 'miden',
-          symbol: 'USDC',
-          decimals: 6,
-          faucetId: '0x537c15a622074e91188aa894456c52'
-        },
-        { assetId: 'eth:token', blockchain: 'eth', symbol: 'ETH', decimals: 18 }
-      ]);
-    };
 
     it.each<[string, GeoLookup, string, string, string]>([
       ['pending', { state: 'loading' }, 'pending', 'bridgeFeatureUnavailableTitle', 'bridgeFeatureUnavailableBody'],
       ['failed', { state: 'failed' }, 'service-down', 'bridgeFeatureUnavailableTitle', 'bridgeFeatureUnavailableBody'],
       ['restricted', decision(false), 'restricted', 'geoRestrictedTitle', 'geoRestrictedBody']
-    ])('keeps the form closed while the decision is %s', async (_label, geo, reason, title, body) => {
-      withOneClickRouteOnly();
+    ])('keeps the form closed while the decision is %s', (_label, geo, reason, title, body) => {
       mockGeo = geo;
       renderFlow();
-      await waitFor(() => expect(mockFetchOneClickAssets).toHaveBeenCalledTimes(1));
-      await act(async () => undefined);
       const notice = screen.getByTestId('swap-unavailable-notice');
       expect(notice).toHaveAttribute('data-reason', reason);
       expect(notice).toHaveTextContent(title);
@@ -1211,18 +1111,10 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
     });
 
-    it('closes a solver-pair form too while the decision is pending', () => {
-      mockGeo = { state: 'loading' };
-      renderFlow();
-      expect(screen.getByTestId('swap-unavailable-notice')).toHaveAttribute('data-reason', 'pending');
-      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
-    });
-
-    it('opens the 1Click form once the decision allows Swap', async () => {
-      withOneClickRouteOnly();
+    it('opens the solver-pair form once the decision allows Swap', () => {
       mockGeo = decision(true);
       renderFlow();
-      await waitFor(() => expect(screen.getByTestId('sa-one-click-networks')).toHaveTextContent('miden,eth'));
+      expect(screen.getByTestId('swap-amounts')).toBeInTheDocument();
       expect(screen.queryByTestId('swap-unavailable-notice')).not.toBeInTheDocument();
     });
   });
@@ -1588,7 +1480,7 @@ describe('SwapFlow / SwapManager', () => {
       const lowPrecisionRequest = { ...mockTokenC, decimals: 2 };
       mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, lowPrecisionRequest]);
       mockWalletState.tokenPrices = {
-        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
       };
       mockSwapQuoteResult = {
         loading: false,
@@ -2245,7 +2137,7 @@ describe('SwapFlow / SwapManager', () => {
       mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 20n, {}, { offeredAmount: 5n }) };
       mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 1 }, { ...mockTokenB, decimals: 1 }, mockTokenC]);
       mockWalletState.tokenPrices = {
-        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+        AAA: { price: 2, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
       };
       renderFlow();
       setOffer('0.5');
@@ -3200,7 +3092,7 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
 
       mockWalletState.tokenPrices = {
-        AAA: { price, change24h: 0, percentageChange24h: 0, observedAt }
+        AAA: { price, change24h: 0, percentageChange24h: 0, observedAt, kind: 'market' as const }
       };
       await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
 
@@ -3455,7 +3347,7 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockInitiateSwap).not.toHaveBeenCalled();
       expect(screen.getByTestId('rs-submit-error')).toBeEmptyDOMElement();
       mockWalletState.tokenPrices = {
-        AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now() }
+        AAA: { price: 0.09, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
       };
 
       await act(async () => resolveQuote(mockSwapQuoteResult.quote!));

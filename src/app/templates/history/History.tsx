@@ -5,6 +5,7 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
+  ClaimEvidenceLookup,
   getUncompletedTransactions,
   isCancellableTransaction,
   isUserCancelledTransaction,
@@ -833,6 +834,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
       bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
     bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+    oneClickTracking: bridgedReceive?.oneClick,
     earnWithdrawPhase: earnWithdraw?.phase,
     earnDepositStatus: earnDeposit?.epochStatus
   };
@@ -857,6 +859,11 @@ export const patchLoadedActivityStatus = (
     const row = fresh.get(entry.txId);
     if (row === undefined) return entry;
     const fields = loadedActivityStatusFields(row);
+    // Every read gives a new tracking object. Every tracking write moves `updatedAt`, so an equal stamp keeps the
+    // shown object and the row does not render again.
+    if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
+      fields.oneClickTracking = entry.oneClickTracking;
+    }
     if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
       return entry;
     }
@@ -1073,6 +1080,8 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+      // A NEAR Intents deposit reads Expired from its tracking deadline (`bridgeBadgeStatusOf`).
+      oneClickTracking: bridgedReceive?.oneClick,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -1256,10 +1265,13 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * fetches and the tab's unread mark (`useHasUnreadActivity`) reads through
  * this as well, so neither shows or counts a row this feed hides.
  */
-export async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
+export async function suppressLinkedConsumes<T extends ITransaction>(
+  transactions: T[],
+  lookup?: ClaimEvidenceLookup
+): Promise<T[]> {
   const [linked, superseded] = await Promise.all([
     suppressedLinkedConsumeIds(transactions),
-    supersededFailedConsumeIds(transactions)
+    supersededFailedConsumeIds(transactions, lookup)
   ]);
   return transactions.filter(tx => !linked.has(tx.id) && !superseded.has(tx.id));
 }

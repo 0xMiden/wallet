@@ -51,7 +51,7 @@ export function useBasketSparkline(
   prices: TokenPrices,
   timeframe: Timeframe = '1D'
 ): number[] {
-  const composition = quote?.source === 'basket' ? quote.composition : undefined;
+  const composition = quote?.kind === 'basket' ? quote.composition : undefined;
   const price = quote?.price;
   const symbols = composition?.map(c => c.priceSymbol).join(',');
   const { data: candles } = useRetryableSWR(
@@ -149,7 +149,7 @@ export function PriceProvider() {
       setTokenPrices({ ...prices.basketPrices, ...prices.prices });
       // The enforcement path runs in the backend realm and cannot see this store. Writing through
       // is what keeps the cache warm enough that the backend rarely fetches on the send path.
-      // Exchange quotes only: a basket's value is for display and never values a spend.
+      // The cache keeps `market` quotes only: a basket's value is for display and never values a spend.
       writeUsdPriceCache(prices.prices).catch(() => undefined);
     }
   }, [enabled, network, assetKey, listKey, prices, setTokenPrices]);

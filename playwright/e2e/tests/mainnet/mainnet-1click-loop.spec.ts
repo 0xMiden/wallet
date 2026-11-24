@@ -8,10 +8,10 @@ test.skip(
   'NEAR is selected only by the staged nightly workflow'
 );
 
-test('mainnet NEAR staged round trip', async ({ walletB }) => {
+test('mainnet NEAR staged round trip', async ({ walletB }, info) => {
   if (process.env.MAINNET_NEAR_MODE === undefined)
     throw new Error(
       'Legacy 1Click v1 execution is read-only; retain its original checkpoint for recovery review, never reinterpret it as native NEAR v2'
     );
-  await runMainnetNearStage(walletB, process.env.MAINNET_NEAR_MODE);
+  await runMainnetNearStage(walletB, process.env.MAINNET_NEAR_MODE, info);
 });

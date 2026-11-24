@@ -11,9 +11,7 @@ import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useBasketSparkline, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { basketChange24h } from 'lib/prices/basket';
-import { isBasketQuote } from 'lib/prices/basket-nav';
-import { isNominalQuote, listedFiatValue } from 'lib/prices/binance';
-import { isFixedQuote } from 'lib/prices/fixed';
+import { listedFiatValue } from 'lib/prices/binance';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
@@ -91,8 +89,8 @@ export const AssetRow: FC<AssetRowProps> = ({
   // A fixed quote (USDCX at $1) keeps its row's line and pill: a flat grey line and a grey
   // +0.00%, since its move is always zero. A basket moves with its tokens: its pill is their 24h moves weighted by
   // the vault's mix, and its line their candles (useBasketSparkline), as on its token page.
-  const basket = isBasketQuote(quote);
-  const feedQuote = quote && !isNominalQuote(quote) && !basket ? quote : undefined;
+  const basket = quote?.kind === 'basket';
+  const feedQuote = quote && quote.kind !== 'nominal' && !basket ? quote : undefined;
   const move = basket
     ? quote?.composition
       ? basketChange24h(quote.composition, tokenPrices)
@@ -115,7 +113,7 @@ export const AssetRow: FC<AssetRowProps> = ({
         : undefined;
 
   // An empty symbol is the hook's "fetch nothing".
-  const tokenPoints = useTokenSparkline(sparkline && !isFixedQuote(quote) && !basket ? priceSymbol : '', '1D');
+  const tokenPoints = useTokenSparkline(sparkline && quote?.kind !== 'fixed' && !basket ? priceSymbol : '', '1D');
   const basketPoints = useBasketSparkline(sparkline && basket ? quote : undefined, tokenPrices, '1D');
   const points = basket ? basketPoints : tokenPoints;
   const hasRealPoints = points.length > 1;

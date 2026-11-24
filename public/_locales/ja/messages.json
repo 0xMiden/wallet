@@ -3614,6 +3614,14 @@
     "message": "一部の間隔や評価範囲が欠落しています",
     "englishSource": "Some intervals or valuation coverage are missing"
   },
+  "commandHistoryObservationsOnly": {
+    "message": "記録された観察事項のみ",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "「Earn」への新規入金は一時停止されています。既存のポジションの確認および引き出しは引き続き可能です。",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
   "commandInspectHistory": {
     "message": "観測された履歴を検査する",
     "englishSource": "Inspect observed history"
@@ -4218,6 +4226,14 @@
   "connectivityGuardianCta": {
     "message": "Guardian を切り替える",
     "englishSource": "Switch Guardian"
+  },
+  "storageStalledTitle": {
+    "message": "ブラウザのストレージが応答しません",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "ウォレットのデータが失われたわけではありませんが、ブラウザがそのデータに対するリクエストに応答しなくなっています。ブラウザを完全に終了してから再起動することで復旧します。",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
   },
   "revealHotKey": {
     "message": "日常キーを公開する",
@@ -4960,6 +4976,19 @@
   "signBlindCommitment": {
     "message": "「ブラインド・コミットメント」に署名しますか？",
     "englishSource": "Sign the Blind commitment?"
+  },
+  "signMessageTitle": {
+    "message": "メッセージ署名リクエスト",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "このサイトは、$count$個のフィールド要素からなるメッセージへの署名を求めました。ウォレットでは、そのメッセージの意味を表示することはできません。このサイトを完全に信頼している場合にのみ、続行してください。",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "connectToWebsite": {
     "message": "ウェブサイトに接続する",
@@ -6157,6 +6186,10 @@
   "reclaimed": {
     "message": "再生された",
     "englishSource": "Reclaimed"
+  },
+  "statusExpired": {
+    "message": "期限切れ",
+    "englishSource": "Expired"
   },
   "faucetRequestTitle": {
     "message": "Faucet リクエスト",
@@ -8063,6 +8096,10 @@
     "message": "ウォレットを接続する",
     "englishSource": "Connect wallet"
   },
+  "bridgeConnectPickerFailed": {
+    "message": "ウォレットピッカーを開くことができませんでした。もう一度お試しください。",
+    "englishSource": "The wallet picker could not open. Try again."
+  },
   "bridgeConnectSource": {
     "message": "ウォレット",
     "englishSource": "Your wallet"
@@ -8695,6 +8732,343 @@
   "oneClickNetworkArc": {
     "message": "Arc",
     "englishSource": "Arc"
+  },
+  "receiveMethod": {
+    "message": "受信方法",
+    "englishSource": "Receive method"
+  },
+  "nearIntentsTab": {
+    "message": "近似の意図",
+    "englishSource": "Near Intents"
+  },
+  "nearIntentsBeta": {
+    "message": "BETA",
+    "englishSource": "BETA"
+  },
+  "nearIntentsYouSend": {
+    "message": "送信する",
+    "englishSource": "You send"
+  },
+  "nearIntentsYouReceive": {
+    "message": "受け取る",
+    "englishSource": "You receive"
+  },
+  "nearIntentsOnChain": {
+    "message": "$chain$上で",
+    "englishSource": "on $chain$",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseSendToken": {
+    "message": "送信するトークンを選択してください（$symbol$）",
+    "englishSource": "Choose the token to send ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsChooseReceiveToken": {
+    "message": "受け取るトークンを選択してください（$symbol$）",
+    "englishSource": "Choose the token to receive ($symbol$)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundAddress": {
+    "message": "払い戻しアドレス",
+    "englishSource": "Refund address"
+  },
+  "nearIntentsRefundPlaceholder": {
+    "message": "あなたの$chain$アドレス",
+    "englishSource": "Your $chain$ address",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundHint": {
+    "message": "送金が失敗した場合、$symbol$はこのアドレスに戻ります。",
+    "englishSource": "If the transfer fails, your $symbol$ returns to this address.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRefundInvalid": {
+    "message": "有効な$chain$アドレスを入力してください。",
+    "englishSource": "Enter a valid $chain$ address.",
+    "placeholders": {
+      "chain": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsRate": {
+    "message": "1 $from$ ≈ $rate$ $to$",
+    "englishSource": "1 $from$ ≈ $rate$ $to$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "rate": {
+        "content": "$2"
+      },
+      "to": {
+        "content": "$3"
+      }
+    }
+  },
+  "nearIntentsTimeEstimate": {
+    "message": "約$minutes$分",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsGetDepositAddress": {
+    "message": "入金アドレスを取得する",
+    "englishSource": "Get deposit address"
+  },
+  "nearIntentsSendFromAnyWallet": {
+    "message": "ご自身のウォレットから送信してください。",
+    "englishSource": "Send from your own wallet."
+  },
+  "nearIntentsDepositAddressFailedTitle": {
+    "message": "入金アドレスなし",
+    "englishSource": "No deposit address"
+  },
+  "nearIntentsDepositAddressFailed": {
+    "message": "ウォレットが入金アドレスを取得できませんでした。もう一度お試しください。",
+    "englishSource": "The wallet could not get a deposit address. Try again."
+  },
+  "nearIntentsUnavailableTitle": {
+    "message": "Near Intentsは利用できません",
+    "englishSource": "Near Intents is unavailable"
+  },
+  "nearIntentsUnavailableBody": {
+    "message": "ウォレットは、送信可能なトークンを読み込めませんでした。後ほど再度お試しください。",
+    "englishSource": "The wallet could not load the tokens you can send. Try again later."
+  },
+  "nearIntentsSendTokenTitle": {
+    "message": "送信するトークン",
+    "englishSource": "Token to send"
+  },
+  "nearIntentsFindToken": {
+    "message": "送金するトークンを探す",
+    "englishSource": "Find a token to send"
+  },
+  "nearIntentsFilterByNetwork": {
+    "message": "ネットワークでフィルタリング",
+    "englishSource": "Filter by network"
+  },
+  "nearIntentsNoTokensFound": {
+    "message": "検索条件に一致するトークンはありません。",
+    "englishSource": "No token matches your search."
+  },
+  "nearIntentsReceiveOnMiden": {
+    "message": "Midenで受け取る",
+    "englishSource": "You receive on Miden"
+  },
+  "nearIntentsAvailableFor": {
+    "message": "$symbol$で$chain$上で利用可能",
+    "englishSource": "Available for $symbol$ on $chain$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsDepositTitle": {
+    "message": "預入",
+    "englishSource": "Deposit"
+  },
+  "depositPayDirectlyFrom": {
+    "message": "直接支払う",
+    "englishSource": "Pay directly from"
+  },
+  "depositPayWithWallet": {
+    "message": "$wallet$で支払う",
+    "englishSource": "Pay with $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletOpenFailed": {
+    "message": "ウォレットを開くことができませんでした。入金するには、アドレスと金額をコピーしてください。",
+    "englishSource": "Could not open the wallet. Copy the address and amount to send your deposit."
+  },
+  "paymentWalletTrust": {
+    "message": "Trust Wallet",
+    "englishSource": "Trust Wallet"
+  },
+  "paymentWalletMetamask": {
+    "message": "MetaMask",
+    "englishSource": "MetaMask"
+  },
+  "paymentWalletRainbow": {
+    "message": "レインボー",
+    "englishSource": "Rainbow"
+  },
+  "paymentWalletPhantom": {
+    "message": "ファントム",
+    "englishSource": "Phantom"
+  },
+  "nearIntentsSendExactly": {
+    "message": "正確に送信する",
+    "englishSource": "Send exactly"
+  },
+  "nearIntentsCopyAmount": {
+    "message": "コピー金額",
+    "englishSource": "Copy amount"
+  },
+  "nearIntentsDepositAddress": {
+    "message": "入金アドレス",
+    "englishSource": "Deposit address"
+  },
+  "nearIntentsCopyDepositAddress": {
+    "message": "預入アドレスをコピーする",
+    "englishSource": "Copy deposit address"
+  },
+  "nearIntentsDepositMemo": {
+    "message": "備考",
+    "englishSource": "Memo"
+  },
+  "nearIntentsCopyMemo": {
+    "message": "メモをコピー",
+    "englishSource": "Copy memo"
+  },
+  "nearIntentsMemoWarning": {
+    "message": "このメモを入金時に同封してください。メモが同封されていない入金は紛失する可能性があります。",
+    "englishSource": "Include this memo with your deposit. A deposit without the memo can be lost."
+  },
+  "nearIntentsReceiveValue": {
+    "message": "≈ Miden上の$amount$ $symbol$",
+    "englishSource": "≈ $amount$ $symbol$ on Miden",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendBefore": {
+    "message": "送信する",
+    "englishSource": "Send before"
+  },
+  "nearIntentsSendBeforeValue": {
+    "message": "$time$ · 残り$countdown$",
+    "englishSource": "$time$ · $countdown$ left",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      },
+      "countdown": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsRefundTo": {
+    "message": "返金先：",
+    "englishSource": "Refund to"
+  },
+  "nearIntentsExpiredBody": {
+    "message": "「受信」に戻り、新しい入金アドレスを取得してください。",
+    "englishSource": "Go back to Receive to get a new deposit address."
+  },
+  "nearIntentsDepositCaption": {
+    "message": "$chain$上で$symbol$のみを送信してください。このページを閉じて構いません。送金は「アクティビティ」に表示されます。",
+    "englishSource": "Send only $symbol$ on $chain$. You can close this page; the transfer shows in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "chain": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsStatusWaiting": {
+    "message": "ご入金をお待ちしております",
+    "englishSource": "Waiting for your deposit"
+  },
+  "nearIntentsStatusIncomplete": {
+    "message": "預入額は金額より少ない",
+    "englishSource": "Deposit is less than the amount"
+  },
+  "nearIntentsStatusProcessing": {
+    "message": "入金の処理",
+    "englishSource": "Processing your deposit"
+  },
+  "nearIntentsStatusArriving": {
+    "message": "Midenにて配信",
+    "englishSource": "Delivered on Miden"
+  },
+  "nearIntentsHintProcessing": {
+    "message": "ご入金を確認しました。Midenへの送金が進行中です。このページを閉じていただいて結構です。",
+    "englishSource": "Your deposit is confirmed. The transfer to Miden is in progress. You can close this page."
+  },
+  "nearIntentsHintArriving": {
+    "message": "$symbol$はMiden上にあります。次の同期後に、noteがウォレットに届きます。「アクティビティ」から受け取ってください。",
+    "englishSource": "Your $symbol$ is on Miden. The note arrives in your wallet after the next sync. Claim it in Activity.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsHintReceived": {
+    "message": "あなたの$symbol$はウォレット内にあります。",
+    "englishSource": "Your $symbol$ is in your wallet.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsStatusReceived": {
+    "message": "受信済み",
+    "englishSource": "Received"
+  },
+  "nearIntentsStatusRefunded": {
+    "message": "返金された",
+    "englishSource": "Refunded"
+  },
+  "nearIntentsStatusFailed": {
+    "message": "転送に失敗しました",
+    "englishSource": "Transfer failed"
+  },
+  "nearIntentsStatusExpired": {
+    "message": "このアドレスは有効期限が切れています。資金を送金しないでください。",
+    "englishSource": "This address has expired. Do not send funds."
+  },
+  "nearIntentsOpenDeposit": {
+    "message": "入金アドレスを表示",
+    "englishSource": "Show deposit address"
+  },
+  "nearIntentsDestinationTransaction": {
+    "message": "宛先取引",
+    "englishSource": "Destination transaction"
+  },
+  "nearIntentsNoLiquidity": {
+    "message": "この金額には十分な流動性がありません。別の金額をお試しください。",
+    "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
   "availableAmount": {
     "message": "利用可能：$amount$ $symbol$",

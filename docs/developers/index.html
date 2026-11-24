@@ -1160,6 +1160,7 @@ const signature = await adapter.signBytes(word.serialize(), 'word');
             <tr><td><code>'signingInputs'</code> holding Blind or Arbitrary</td><td>Signs the domain-separated commitment of that payload and cannot authorize a transaction.</td></tr>
           </tbody>
         </table></div>
+        <p>A Guardian account is stricter: it signs only <code>'signingInputs'</code> holding Arbitrary whose preimage is at most 256 elements, is not 24 elements long (the length of a transaction summary) and does not have the layout of a Guardian lookup. It refuses <code>'word'</code>, a transaction summary and Blind before the user can approve them, and the approval lists the elements being signed. Other accounts are unchanged.</p>
         <p>To verify, take the word Bread signed and check <code>publicKey.verify(word, Signature.deserialize(signature))</code>. For a word, Blind, or Arbitrary payload, compute that word with <code>domainSeparatedSignCommitment(data, kind)</code> from <code>@miden-sdk/miden-sdk</code> 0.17.10; for a transaction summary it is <code>signingInputs.toCommitment()</code>. A page that calls the injected provider directly also gets the word back as <code>signedCommitment</code>. A word, Blind, or Arbitrary signature does not verify against the raw payload.</p>
         <p>To sign people in, use the login key below instead: it is separate from the account's transaction keys.</p>
       </section>

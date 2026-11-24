@@ -1,6 +1,9 @@
 /**
  * @jest-environment node
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { defineChain, encodeAbiParameters, getAddress, isHex, toEventSelector, type Hex } from 'viem';
 
 import type { AgglayerDeposit } from '../../../src/lib/agglayer/status';
@@ -10,6 +13,7 @@ import {
   exitCursor,
   exitStep,
   fetchIndexedDeposits,
+  rejectUnreadableClaimHash,
   SELF_CLAIM_GRACE_MS,
   tonightsExit,
   type ClaimReceipt,
@@ -154,6 +158,29 @@ describe('when an AggLayer exit is settled', () => {
       kind: 'wait',
       readySince: start
     });
+  });
+
+  it('settles on a claim hash that is not hex, so the caller must refuse it with a failed finality', () => {
+    expect(exitStep(exit({ ready_for_claim: true, claim_tx_hash: '0xzzzz' }), undefined, start)).toEqual({
+      kind: 'settled',
+      claimTxHash: '0xzzzz'
+    });
+  });
+
+  it('records the failed finality before refusing an unreadable claim hash, and passes a hex one', () => {
+    const observed: string[] = [];
+    expect(() => rejectUnreadableClaimHash('0xzzzz', 7, reason => observed.push(reason))).toThrow(
+      'exit 7 has a claim hash that is not hex'
+    );
+    expect(observed).toEqual(['exit 7 has a claim hash that is not hex']);
+    rejectUnreadableClaimHash(CLAIM, 7, reason => observed.push(reason));
+    expect(observed).toHaveLength(1);
+  });
+
+  it('guards both settled paths of the loop spec through the helper', () => {
+    const spec = readFileSync(join(__dirname, '../tests/mainnet/mainnet-agglayer-loop.spec.ts'), 'utf8');
+    expect(spec.split('rejectUnreadableClaimHash(').length - 1).toBe(2);
+    expect(spec).not.toContain('claim hash that is not hex');
   });
 
   it('keeps waiting for the claim hash when the indexer says claimed without one', () => {

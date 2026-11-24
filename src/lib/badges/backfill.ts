@@ -45,7 +45,11 @@ export function badgesFromHistory(
           if (claims.some(claim => claim.extraInputs?.swapSettleKind === 'reclaim')) return false;
           const notes = new Set<string>();
           const received = claims.reduce((total, claim) => {
-            if (claim.extraInputs?.swapSettleKind !== 'settle' || claim.faucetId !== faucet || !claim.amount)
+            if (
+              claim.extraInputs?.swapSettleKind !== 'settle' ||
+              !compareAccountIds(claim.faucetId ?? '', faucet) ||
+              !claim.amount
+            )
               return total;
             const ids = (claim.noteIds ?? (claim.noteId ? [claim.noteId] : [])).map(id =>
               id.toLowerCase().replace(/^0x/, '')
