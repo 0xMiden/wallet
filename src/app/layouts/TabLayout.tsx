@@ -191,7 +191,11 @@ const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(
     return (
       <div
         data-navbar-presentation={mobile ? presentation : undefined}
-        className={classNames('pointer-events-none flex-1 min-w-0 flex justify-center px-4', !isIOS() && 'pb-2')}
+        className={classNames(
+          'pointer-events-none flex-1 min-w-0 flex justify-center px-4',
+          !isIOS() && 'pb-2',
+          mobile && 'items-end'
+        )}
       >
         <BottomNav
           items={items}
