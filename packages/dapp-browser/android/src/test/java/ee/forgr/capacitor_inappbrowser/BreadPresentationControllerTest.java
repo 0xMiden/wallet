@@ -3343,6 +3343,43 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void morphWarmExpandKeepsDialogShowingViaPlugin() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard card = card();
+        park(card);
+        dialog.prepareMorph(600);
+        assertTrue(dialog.isShowing());
+        assertEquals(View.INVISIBLE, dialog.getWindow().getDecorView().getVisibility());
+        WebViewRegistry.getShared().register("warm-expand", dialog);
+        InAppBrowserPlugin plugin = morphPlugin();
+        PluginCall call = morphCall("warm-expand", null, nextSequence(), "expanded",
+            cardJson(hostCardInside(0.7f, 0.7f, 0.95f, 0.92f)));
+        plugin.morph(call);
+        assertTrue(accepted(call));
+        assertTrue(dialog.isShowing());
+        assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void morphRejectsExpandWhenRootHasZeroSizeViaPlugin() throws Exception {
+        openMorph(false);
+        reveal();
+        BreadMorphCard hostCard = hostCardInside(0.7f, 0.7f, 0.95f, 0.92f);
+        park(card());
+        root.layout(0, 0, 0, 0);
+        WebViewRegistry.getShared().register("zero-root", dialog);
+        InAppBrowserPlugin plugin = morphPlugin();
+        PluginCall call = morphCall("zero-root", null, nextSequence(), "expanded", cardJson(hostCard));
+
+        plugin.morph(call);
+
+        assertFalse(accepted(call));
+        assertTrue(dialog.isShowing());
+        assertEquals(BreadPresentationState.Motion.NONE, controller.state.motion());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void setMorphTargetIsReadByTheNativeCollapse() throws Exception {
         openMorph(true);
         reveal();
