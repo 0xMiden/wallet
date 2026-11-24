@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import { createPublicClient, TransactionReceiptNotFoundError, type Hash } from 'viem';
+import { createPublicClient, encodeFunctionData, TransactionReceiptNotFoundError, type Hash } from 'viem';
 
 import { bridgeOperationOf, recordBridgeSourceAttempt } from 'lib/bridge/operation';
 import { assertCctpSourceMessage, sourceMessageFromReceipt } from 'lib/bridge/providers/xreserve/cctp-message';
@@ -26,7 +26,11 @@ import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnec
 
 import { useCctpExecute } from './useCctpExecute';
 
-jest.mock('viem', () => ({ ...jest.requireActual('viem'), createPublicClient: jest.fn() }));
+jest.mock('viem', () => ({
+  ...jest.requireActual('viem'),
+  createPublicClient: jest.fn(),
+  encodeFunctionData: jest.fn()
+}));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
   AccountId: { fromHex: (hex: string) => ({ toString: () => hex.toLowerCase() }) }
@@ -87,6 +91,9 @@ afterAll(() => {
 });
 beforeEach(async () => {
   jest.resetAllMocks();
+  jest
+    .mocked(encodeFunctionData)
+    .mockImplementation(jest.requireActual<typeof import('viem')>('viem').encodeFunctionData);
   native = false;
   jest.spyOn(Date, 'now').mockReturnValue(now);
   jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://wallet-rpc.example/private');
@@ -193,6 +200,37 @@ it.each([false, true])(
       expect(row?.extraInputs.cctp?.executeTxHash).toBe(FORWARD_HASH);
       expect(bridgeOperationOf(row!)?.sourceAttempt?.hash).toBe(sourceHash);
       expect(useNative ? nativeWrite : write).toHaveBeenCalledTimes(1);
+    } finally {
+      root.unmount();
+    }
+  }
+);
+it.each([false, true])(
+  'reserves no execute attempt when execute calldata cannot be encoded (native=%s)',
+  async useNative => {
+    const { id, leg } = await funded();
+    native = useNative;
+    const actualEncode = jest.requireActual<typeof import('viem')>('viem').encodeFunctionData;
+    jest.mocked(encodeFunctionData).mockImplementation(parameters => {
+      if (parameters.functionName === 'execute') throw new Error('synthetic execute encoding failure');
+      return actualEncode(parameters);
+    });
+    const root = renderHook(useCctpExecute);
+    try {
+      const outcome: unknown = await root.result.current(id, 11155111, leg).catch(error => error);
+      expect(outcome).toBeInstanceOf(Error);
+      expect(fees).not.toHaveBeenCalled();
+      expect(nativeWrite).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+      expect((await Repo.transactions.get(id))?.extraInputs.cctp?.executeAttempt).toBeUndefined();
+
+      jest.mocked(encodeFunctionData).mockImplementation(actualEncode);
+      expect(await root.result.current(id, 11155111, leg)).toBe(FORWARD_HASH);
+      expect(useNative ? nativeWrite : write).toHaveBeenCalledTimes(1);
+      expect((await Repo.transactions.get(id))?.extraInputs.cctp?.executeAttempt).toMatchObject({
+        phase: 'known',
+        hash: FORWARD_HASH
+      });
     } finally {
       root.unmount();
     }

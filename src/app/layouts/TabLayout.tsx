@@ -2,6 +2,7 @@ import React, {
   FC,
   forwardRef,
   ReactNode,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -123,10 +124,9 @@ function activeActionFromPath(pathname: string): string {
   return 'overview';
 }
 
-// Hide-on-scroll (mobile): a downward scroll past this many px hides the bar; it
-// returns once no scroll event has fired for SCROLL_IDLE_MS, or as soon as the scroll reverses.
-const SCROLL_HIDE_THRESHOLD_PX = 4;
-const SCROLL_IDLE_MS = 250;
+const CONDENSE_SCROLL_PX = 32;
+const EXPAND_SCROLL_PX = 24;
+const NEAR_SCROLL_TOP_PX = 8;
 
 export interface FloatingNavBarHandle {
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
@@ -135,55 +135,82 @@ export interface FloatingNavBarHandle {
 interface FloatingNavBarProps {
   items: BottomNavItem[];
   activeId: string;
+  pathname: string;
   onChange: (id: string) => void;
 }
 
-/**
- * The bottom nav plus its own hide-on-scroll state. A leaf on purpose: while this state lived in
- * TabLayout, every hide, show and idle reset re-rendered the whole home carousel and made Framer
- * re-measure the action bar's layout nodes, in the middle of the scroll that triggered it.
- *
- * Scroll events do not bubble, so TabLayout listens in the capture phase and forwards them here
- * through this handle, which keeps the pages unaware of the bar.
- */
-const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(({ items, activeId, onChange }, ref) => {
-  const [scrollHidden, setScrollHidden] = useState(false);
-  const lastScroll = useRef<{ target: EventTarget | null; top: number }>({ target: null, top: 0 });
-  const scrollIdleTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(scrollIdleTimer.current), []);
+// Keep scroll-driven renders in the footer so the carousel and its action bar never remeasure mid-swipe.
+const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(
+  ({ items, activeId, pathname, onChange }, ref) => {
+    const [condensed, setCondensed] = useState(false);
+    const scroll = useRef<{ target: HTMLElement; edge: number; condensed: boolean } | null>(null);
+    const reset = useCallback(() => {
+      scroll.current = null;
+      setCondensed(false);
+    }, []);
+    useLayoutEffect(reset, [pathname, reset]);
 
-  useImperativeHandle(ref, () => ({
-    handleScroll: event => {
-      const { target } = event;
-      // The Home pager scrolls sideways on every frame of a swipe; it is never a vertical scroll.
-      if (!(target instanceof HTMLElement) || target.hasAttribute('data-home-pager')) return;
-      const top = target.scrollTop;
-      const previous = lastScroll.current.target === target ? lastScroll.current.top : top;
-      lastScroll.current = { target, top };
-      const delta = top - previous;
-      if (delta > SCROLL_HIDE_THRESHOLD_PX && top > SCROLL_HIDE_THRESHOLD_PX) setScrollHidden(true);
-      else if (delta < -SCROLL_HIDE_THRESHOLD_PX) setScrollHidden(false);
-      window.clearTimeout(scrollIdleTimer.current);
-      scrollIdleTimer.current = window.setTimeout(() => setScrollHidden(false), SCROLL_IDLE_MS);
-    }
-  }));
+    useImperativeHandle(ref, () => ({
+      handleScroll: event => {
+        const { target, currentTarget } = event;
+        if (
+          !(target instanceof HTMLElement) ||
+          !currentTarget.contains(target) ||
+          target.closest('[data-tab-pane]')?.getAttribute('data-tab-pane') !== activeId ||
+          target.hasAttribute('data-home-pager') ||
+          document.body.hasAttribute('data-hide-navbar')
+        ) {
+          return;
+        }
 
-  /* The footer reserves iOS gesture clearance internally while its canvas reaches the screen edge.
-     Other platforms keep the pill's 8px lift. Only the pill takes pointer events; its wrapper keeps
-     adjacent content scrollable and lets a hidden pill move past its shadow and safe-area floor. */
-  return (
-    <div
-      className={classNames(
-        'pointer-events-none flex-1 min-w-0 flex justify-center px-4',
-        !isIOS() && 'pb-2',
-        isMobile() && 'transition-transform duration-300 ease-out motion-reduce:transition-none',
-        scrollHidden && 'translate-y-[calc(100%+2rem+var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom))))]'
-      )}
-    >
-      <BottomNav items={items} activeId={activeId} onChange={onChange} className="pointer-events-auto" />
-    </div>
-  );
-});
+        const max = target.scrollHeight - target.clientHeight;
+        if (max <= 0 && scroll.current?.target !== target) return;
+        const top = Math.max(0, Math.min(max, target.scrollTop));
+        if (scroll.current?.target !== target) {
+          scroll.current = { target, edge: top, condensed: false };
+          setCondensed(false);
+          return;
+        }
+
+        // Measure from the directional extreme so small reversals neither toggle the bar nor hide real travel.
+        const track = scroll.current;
+        track.edge = track.condensed ? Math.max(track.edge, top) : Math.min(track.edge, top);
+        const next =
+          top > NEAR_SCROLL_TOP_PX &&
+          (track.condensed ? track.edge - top < EXPAND_SCROLL_PX : top - track.edge >= CONDENSE_SCROLL_PX);
+        if (next !== track.condensed) {
+          track.condensed = next;
+          track.edge = top;
+          setCondensed(next);
+        }
+      }
+    }));
+
+    const presentation = condensed ? 'condensed' : 'expanded';
+    const mobile = isMobile();
+    return (
+      <div
+        data-navbar-presentation={mobile ? presentation : undefined}
+        className={classNames(
+          'pointer-events-none flex-1 min-w-0 flex justify-center px-4',
+          !isIOS() && 'pb-2',
+          mobile && 'items-end'
+        )}
+      >
+        <BottomNav
+          items={items}
+          activeId={activeId}
+          presentation={mobile ? presentation : undefined}
+          onChange={id => {
+            reset();
+            onChange(id);
+          }}
+          className="pointer-events-auto"
+        />
+      </div>
+    );
+  }
+);
 
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
@@ -367,7 +394,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         isMobile() ? 'overflow-x-clip' : 'overflow-hidden'
       )}
       style={containerStyles}
-      onScrollCapture={isMobile() ? event => navBar.current?.handleScroll(event) : undefined}
+      onScrollCapture={isMobile() && onScreen ? event => navBar.current?.handleScroll(event) : undefined}
     >
       {/* Every visited tab keeps its pane mounted under the same key, so a tab
           change is one visibility swap with no remount and no animation. */}
@@ -386,7 +413,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
       {/* Bottom nav — overlays content as a floating pill on every platform.
           The data attribute lets the dApp peek tray read the footer's top
-          edge, so hiding never moves this box: only the pill inside it slides.
+          edge, which stays stable as the pill condenses.
           Forced `display:flex !important` + `z-[60]` guard against legacy
           CSS or stale compiled bundles that try to hide `[data-tabbar-footer]`
           or stack a higher z-index over it. */}
@@ -395,7 +422,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         data-tabbar-footer="true"
         style={{ display: 'flex' }}
       >
-        <FloatingNavBar ref={navBar} items={tabs} activeId={activeTab} onChange={handleTabChange} />
+        <FloatingNavBar ref={navBar} items={tabs} activeId={activeTab} pathname={pathname} onChange={handleTabChange} />
       </div>
     </div>
   );

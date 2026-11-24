@@ -14,7 +14,8 @@ it('announces the message as a 13px negative line, inset like a section label an
   const line = screen.getByRole('alert');
   expect(line).toHaveTextContent('Could not save');
   expect(line).toHaveAttribute('data-testid', 'error');
-  expect(line).toHaveClass('px-1', 'text-caption', 'text-negative-ink', 'select-text');
+  expect(line).toHaveClass('px-1', 'text-caption', 'wrap-anywhere', 'text-negative-ink', 'select-text');
+  expect(line).not.toHaveClass('wrap-break-word');
 });
 
 it('renders nothing without a message, so a caller can pass its error state straight in', () => {
@@ -24,7 +25,7 @@ it('renders nothing without a message, so a caller can pass its error state stra
 
 it('takes layout classes from the caller', () => {
   render(<ErrorLine className="mt-3">Nope</ErrorLine>);
-  expect(screen.getByRole('alert')).toHaveClass('mt-3');
+  expect(screen.getByRole('alert')).toHaveClass('mt-3', 'wrap-anywhere');
 });
 
 it('can be a standing note rather than an alert', () => {
