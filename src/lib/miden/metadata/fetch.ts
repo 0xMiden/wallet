@@ -5,6 +5,7 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { isWasmTrap } from 'lib/miden/sdk/wasm-handle';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
 import { fetchFaucetProof, readFaucetProofMetadata } from './faucet-proof';
@@ -58,10 +59,12 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
     // gets blacklisted via `autoFetchMetadataFails`, and the token displays
     // with default metadata for the rest of the session.
     await ensureSdkWasmReady();
+    const accountId = accountRefToSdk(assetId);
     const endpoint = getRpcEndpoint();
     const rpcClient = new RpcClient(endpoint);
-    const accountId = accountRefToSdk(assetId);
-    const proof = await fetchFaucetProof(rpcClient, accountId);
+    const proof = await withRpcTimeout(() => fetchFaucetProof(rpcClient, accountId), 'faucet-metadata-proof', {
+      retries: 0
+    });
     if (!proof.accountHeader()) {
       if (accountId.isPublic()) {
         // if the account was public and we couldn't fetch metadata it should not happen in first place

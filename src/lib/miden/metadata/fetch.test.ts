@@ -695,8 +695,23 @@ describe('metadata/fetch', () => {
         throw new Error('Invalid address');
       });
       await expect(fetchTokenMetadata('invalid-address')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(mockRpcClient).not.toHaveBeenCalled();
       expect(mockGetAccountProof).not.toHaveBeenCalled();
       expect(mockPutToStorage).not.toHaveBeenCalled();
+    });
+
+    it('times out a hung getAccountProof call without retrying or caching', async () => {
+      jest.useFakeTimers();
+      try {
+        mockGetAccountProof.mockImplementation(() => new Promise(() => {}));
+        const settled = fetchTokenMetadata('hung-rpc-asset').catch((err: unknown) => err);
+        await jest.advanceTimersByTimeAsync(15_000);
+        expect(await settled).toBeInstanceOf(NotFoundTokenMetadata);
+        expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+        expect(mockPutToStorage).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it.each(['getStorageSlotValue', 'toU64s'] as const)(
