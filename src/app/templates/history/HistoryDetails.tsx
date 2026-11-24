@@ -218,10 +218,7 @@ export interface HistoryDetailsSectionPolicy {
   to: HistoryAddressRole;
 }
 
-const legacyTransferFallbackPolicy = (
-  entry: IHistoryEntry,
-  _exhaustiveCheck: never
-): HistoryDetailsSectionPolicy => {
+const legacyTransferFallbackPolicy = (entry: IHistoryEntry, _exhaustiveCheck: never): HistoryDetailsSectionPolicy => {
   // Persisted/imported rows created before `txType` existed (or from a newer schema) fall back
   // to standard transfer rows instead of crashing React render.
   const isOutbound = entry.message === 'Sent';
