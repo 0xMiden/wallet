@@ -1009,6 +1009,8 @@
   "transactionErrorDescription": "Bei der Bearbeitung Ihrer Transaktion ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.",
   "transactionRoute": "Route",
   "paymentSent": "Zahlung gesendet!",
+  "bridgeWithdrawalSuccessful": "Auszahlung erfolgreich",
+  "returnToLockedFunds": "Zurück zu gesperrten Guthaben",
   "bridgeRouteViaEpoch": "Über Epoch",
   "bridgeRouteViaAgglayer": "Über Agglayer",
   "bridgeSpeedFast": "Schnell",

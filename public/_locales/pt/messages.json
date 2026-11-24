@@ -4558,6 +4558,14 @@
     "message": "Pagamento enviado!",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "Retirada bem-sucedida",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "Retornar aos fundos bloqueados",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "Via Epoch",
     "englishSource": "Via Epoch"

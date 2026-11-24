@@ -1,7 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
-import { isStaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { isProofFreshnessUnknownError, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
@@ -105,7 +105,8 @@ const SWAP_END_BY_REASON = new Map<TransactionFailureReason, DiagnosticEndOutcom
   ['interrupted_on_startup', 'interrupted'],
   ['stuck_reaped', 'timeout'],
   ['queued_expired', 'timeout'],
-  ['stale_proof', 'timeout']
+  ['stale_proof', 'timeout'],
+  ['proof_freshness_unknown', 'timeout']
 ]);
 
 const swapEndOutcome = (reason: TransactionFailureReason | undefined, errorChain: string): DiagnosticEndOutcome =>
@@ -117,9 +118,11 @@ const reportedWalletReason = (error: unknown): TransactionFailureReason | undefi
     ? (REPORTED_ROTATION_REFUSALS.get(error.message) ?? 'rotation_gate_refusal')
     : isStaleProofError(error)
       ? 'stale_proof'
-      : error instanceof ProposalEffectRefusedError
-        ? 'proposal_effect_refused'
-        : REPORTED_WALLET_REASONS.get(error);
+      : isProofFreshnessUnknownError(error)
+        ? 'proof_freshness_unknown'
+        : error instanceof ProposalEffectRefusedError
+          ? 'proposal_effect_refused'
+          : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)

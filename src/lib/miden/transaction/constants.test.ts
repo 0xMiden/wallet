@@ -1,7 +1,7 @@
 import { OffscreenAbortFacts, OffscreenDeadlineTimer, OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { ProposalChainSyncError } from 'lib/miden/guardian';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
-import { markFailedReexecution, StaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { markFailedReexecution, ProofFreshnessUnknownError, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { annotateOffscreenDeadline } from 'lib/telemetry/offscreen-deadline-diagnostics';
@@ -38,6 +38,7 @@ import {
   PROVER_PROCEDURE_MISMATCH_ERROR,
   ProposalEffectRefusedError,
   ProposalFeeUnknownError,
+  PROOF_FRESHNESS_UNKNOWN_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
@@ -627,6 +628,49 @@ describe('a proof that kept going stale (#2060)', () => {
     expect(isUnconfirmedFailure({ type: 'send', status: ITransactionStatus.Failed, error: STALE_PROOF_ERROR })).toBe(
       false
     );
+  });
+});
+
+describe('an unreadable chain tip (#2193)', () => {
+  it.each([
+    ['at the stage that reads as a prover failure, delegated', 'proving', true],
+    ['at the stage that reads as a prover failure, local', 'proving', false],
+    ['on an extension row, whose stage stays at sending', 'sending', true]
+  ] as const)('never blames the prover %s', (_label, stage, delegated) => {
+    expect(resolveTransactionErrorMessage(new ProofFreshnessUnknownError(), stage, delegated)).toBe(
+      PROOF_FRESHNESS_UNKNOWN_ERROR
+    );
+  });
+
+  it('reads the same through a wrapper', () => {
+    const wrapped = new Error('wrapped', { cause: new ProofFreshnessUnknownError() });
+    expect(resolveTransactionErrorMessage(wrapped, 'proving', true)).toBe(PROOF_FRESHNESS_UNKNOWN_ERROR);
+  });
+
+  it('keeps the user copy while preserving rawError when caused by a network TypeError', () => {
+    const networkFailure = new TypeError('Failed to fetch');
+    const error = new ProofFreshnessUnknownError('Could not establish proof freshness: TypeError: Failed to fetch', {
+      cause: networkFailure
+    });
+    expect(resolveTransactionErrorMessage(error, 'proving', false)).toBe(PROOF_FRESHNESS_UNKNOWN_ERROR);
+    expect(formatRawTransactionError(error)).toContain('ProofFreshnessUnknownError:');
+    expect(formatRawTransactionError(error)).toContain('TypeError: Failed to fetch');
+  });
+
+  it('lets a kill in the chain win, since that pipeline may still submit', () => {
+    const killed = new WasmClientPoisonedError('watchdog', new ProofFreshnessUnknownError());
+    expect(resolveTransactionErrorMessage(killed, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('tells the user nothing went out and to try again', () => {
+    expect(PROOF_FRESHNESS_UNKNOWN_ERROR).toMatch(/nothing was sent and no funds moved/);
+    expect(PROOF_FRESHNESS_UNKNOWN_ERROR).toMatch(/try again/);
+  });
+
+  it('reads as Failed, not Not confirmed', () => {
+    expect(
+      isUnconfirmedFailure({ type: 'send', status: ITransactionStatus.Failed, error: PROOF_FRESHNESS_UNKNOWN_ERROR })
+    ).toBe(false);
   });
 });
 
