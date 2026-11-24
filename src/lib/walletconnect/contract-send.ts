@@ -17,15 +17,13 @@ export interface SendEvmContractTransactionOptions<
     address: Address;
     functionName: TFunctionName;
     args: ContractFunctionArgs<TAbi, 'nonpayable' | 'payable', TFunctionName>;
-    value?: bigint;
   }) => Promise<Hash>;
   chainId: number;
-  from?: Address;
+  from?: string;
   address: Address;
   abi: TAbi;
   functionName: TFunctionName;
   args: ContractFunctionArgs<TAbi, 'nonpayable' | 'payable', TFunctionName>;
-  value?: bigint;
   /** Runs after pre-send fee reads succeed and right before invoking the signer. */
   beforeSend?: () => Promise<void>;
 }
@@ -46,7 +44,6 @@ export async function sendEvmContractTransaction<
   abi,
   functionName,
   args,
-  value,
   beforeSend
 }: SendEvmContractTransactionOptions<TAbi, TFunctionName>): Promise<Hash> {
   let hash: unknown;
@@ -62,7 +59,7 @@ export async function sendEvmContractTransaction<
       chainId,
       ...(from !== undefined ? { from } : {}),
       to: address,
-      value: toHex(value ?? 0n),
+      value: toHex(0n),
       data,
       ...feeFields
     });
@@ -74,11 +71,10 @@ export async function sendEvmContractTransaction<
       abi,
       address,
       functionName,
-      args,
-      ...(value !== undefined ? { value } : {})
+      args
     });
   }
-  if (!isHash(hash)) {
+  if (typeof hash !== 'string' || !isHash(hash)) {
     throw walletRaised(new Error('The wallet returned no transaction hash.'));
   }
   return hash;

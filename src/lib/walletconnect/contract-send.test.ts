@@ -61,7 +61,7 @@ describe('sendEvmContractTransaction', () => {
     });
   });
 
-  it('omits from when undefined and encodes nonzero value on native Reown', async () => {
+  it('omits from when undefined and encodes zero value on native Reown', async () => {
     await sendEvmContractTransaction({
       nativeReownAvailable: true,
       writeContract,
@@ -69,13 +69,12 @@ describe('sendEvmContractTransaction', () => {
       address: CONTRACT,
       abi: TEST_ABI,
       functionName: 'transfer',
-      args: [RECIPIENT, 10n],
-      value: 255n
+      args: [RECIPIENT, 10n]
     });
 
     const sentPayload = jest.mocked(NativeReown.sendTransaction).mock.calls[0]![0];
     expect(sentPayload).not.toHaveProperty('from');
-    expect(sentPayload.value).toBe('0xff');
+    expect(sentPayload.value).toBe('0x0');
   });
 
   it('runs beforeSend after fee reads and skips NativeReown if fee reads fail', async () => {
