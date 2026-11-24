@@ -500,7 +500,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const oneClickTracking: IOneClickTrackingData | undefined = tx.extraInputs?.oneClick;
         const consumeExtra: IConsumeBridgeInExtraInputs | undefined =
           tx.type === 'consume' ? tx.extraInputs : undefined;
-        const consumedBridge = consumeExtra?.bridgeIn;
+        const consumedBridge = consumeExtra?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn;
         const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
           tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
         const earnDepositExtra: IEarnDepositExtraInputs | undefined =
@@ -526,7 +526,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment
                 })
               )
-            : (tx.displayMessage ?? ''),
+            : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,
           transactionIcon: tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,

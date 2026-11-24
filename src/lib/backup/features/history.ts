@@ -21,6 +21,7 @@
  * `waitForTransaction` and every reconciler. Restore accepts only receipt statuses.
  */
 import {
+  type IBridgeInInfo,
   type IConsumedAssetTotal,
   ITransaction,
   ITransactionIcon,
@@ -582,10 +583,37 @@ async function findGuardianReceipt(restored: ITransaction): Promise<ITransaction
     .first();
 }
 
+function hasSameClaimNotes(first: ITransaction, second: ITransaction): boolean {
+  const noteKeys = (tx: ITransaction) =>
+    new Set((tx.noteIds ?? tx.inputNoteIds ?? (tx.noteId ? [tx.noteId] : [])).map(normalizedCommitment));
+  const expected = noteKeys(first);
+  const actual = noteKeys(second);
+  return expected.size > 0 && expected.size === actual.size && [...expected].every(id => actual.has(id));
+}
+
+async function addBackupBridgeReceipt(existing: ITransaction, restored: ITransaction): Promise<boolean> {
+  const bridgeIn: IBridgeInInfo | undefined = restored.extraInputs?.bridgeIn;
+  if (
+    existing.type !== 'consume' ||
+    restored.type !== 'consume' ||
+    existing.status !== ITransactionStatus.Completed ||
+    restored.status !== ITransactionStatus.Completed ||
+    existing.extraInputs?.bridgeIn ||
+    !bridgeIn ||
+    !hasSameClaimNotes(existing, restored)
+  ) {
+    return false;
+  }
+  await Repo.transactions.update(existing.id, {
+    backupBridgeReceipt: { bridgeIn, displayMessage: restored.displayMessage }
+  });
+  return true;
+}
+
 /**
  * Write peer rows into the local table. A row this device holds as its own is
- * never touched. A row restored before is replaced by the newer projection. A
- * second receipt of the same type and on-chain transaction is skipped.
+ * keeps its local transaction state. A matching claim can gain peer bridge details.
+ * A row restored before is replaced by the newer projection.
  */
 export async function applyHistoryRows(rows: readonly HistoryRow[]): Promise<number> {
   if (rows.length === 0) return 0;
@@ -596,14 +624,20 @@ export async function applyHistoryRows(rows: readonly HistoryRow[]): Promise<num
       const existing = await Repo.transactions.get(row.id);
       if (existing !== undefined) {
         if (existing.restoredFromBackup && !existing.recovered && !isLiveTransaction(existing)) {
+          if (!restored.extraInputs?.bridgeIn) restored.backupBridgeReceipt = existing.backupBridgeReceipt;
           await Repo.transactions.put(restored);
+          written += 1;
+        } else if (
+          sameWalletAccountId(existing.accountId, restored.accountId) &&
+          (await addBackupBridgeReceipt(existing, restored))
+        ) {
           written += 1;
         }
         continue;
       }
       if (row.tx !== undefined) {
         const matches = await Repo.transactions.where('transactionId').equals(row.tx).toArray();
-        const duplicate = matches.some(match => {
+        const duplicate = matches.find(match => {
           if (match.type !== restored.type || !sameWalletAccountId(match.accountId, restored.accountId)) return false;
           if (restored.type !== 'bridged-receive') return true;
           const savedNote = match.extraInputs?.midenNoteId;
@@ -611,7 +645,23 @@ export async function applyHistoryRows(rows: readonly HistoryRow[]): Promise<num
           if (typeof savedNote !== 'string' || typeof restoredNote !== 'string') return true;
           return normalizedCommitment(savedNote) === normalizedCommitment(restoredNote);
         });
-        if (duplicate) continue;
+        if (duplicate) {
+          if (
+            duplicate.recovered &&
+            restored.type === 'consume' &&
+            restored.status === ITransactionStatus.Completed &&
+            restored.extraInputs?.bridgeIn &&
+            hasSameClaimNotes(duplicate, restored)
+          ) {
+            restored.recovery = duplicate.recovery;
+            await Repo.transactions.delete(duplicate.id);
+            await Repo.transactions.add(restored);
+            written += 1;
+          } else if (await addBackupBridgeReceipt(duplicate, restored)) {
+            written += 1;
+          }
+          continue;
+        }
       }
       // Guardian recovery may run before this peer uploads the detailed receipt.
       const matchingGuardianRow = await findGuardianReceipt(restored);
@@ -809,12 +859,15 @@ export async function peerHistoryChunkCount(session: BackupSession): Promise<num
  */
 export async function readHistory(session: BackupSession, since: boolean): Promise<boolean> {
   const ownHashedKeys = await ownChunkKeys(session);
+  const replay = session.state.history.bridgeReceiptsReplayed !== true;
   const outcome = await readFeature(session, 'history', {
     since,
+    replay,
     ownHashedKeys,
     apply: async (entries: IncomingEntry[]) => {
       const rows = entries.flatMap(entry => parseHistoryChunk(entry.plaintext));
       await applyHistoryRows(rows);
+      session.state.history.bridgeReceiptsReplayed = true;
     }
   });
   return outcome === 'applied';

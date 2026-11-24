@@ -63,6 +63,8 @@ export interface HistoryChunk {
 }
 
 export interface HistoryState {
+  /** True after this device has checked older chunks for missed bridge receipts. */
+  bridgeReceiptsReplayed?: true;
   chunks: HistoryChunk[];
   /** Transaction row id to its chunk and the digest of its last uploaded projection. */
   assigned: Record<string, { n: number; digest: string }>;
@@ -215,7 +217,7 @@ function readHistory(value: unknown): HistoryState | null {
     if (!isNonNegativeInteger(n)) return null;
     dirty.push(n);
   }
-  return { chunks, assigned, dirty };
+  return { chunks, assigned, dirty, ...(value.bridgeReceiptsReplayed === true && { bridgeReceiptsReplayed: true }) };
 }
 
 /** Parse a stored state. Null for a state of another shape; the caller starts again from empty. */

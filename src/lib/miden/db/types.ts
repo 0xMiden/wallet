@@ -1172,6 +1172,8 @@ export interface ITransaction {
    * `Failed`; this flag is what keeps them there.
    */
   restoredFromBackup?: boolean;
+  /** Bridge details from a peer for a claim this device already recorded. */
+  backupBridgeReceipt?: { bridgeIn: IBridgeInInfo; displayMessage?: string };
   resultBytes?: Uint8Array;
   /**
    * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row

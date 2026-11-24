@@ -2,7 +2,7 @@
 
 ## 1.18.2 (TBD)
 
-- [FIX][all] Preserve transaction receipts and their delivery links when restoring Activity from encrypted backup and Guardian history.
+- [FIX][all] Preserve transaction receipts and their delivery links when restoring Activity from encrypted backup and Guardian history, including bridge details for a note already claimed on the backup device.
 - [FIX][mobile] Wrap long transaction details, warnings, and errors inside the dApp confirmation dialog so long identifiers stay within narrow screens (#2045).
 - [FIX][all] Stop Guardian submission when proof freshness cannot be established before the chain-tip deadline.
 - [FIX][all] Completing a locked bridge funds withdrawal displays a confirmation page with actions to return to Recover locked bridge funds or Home (#2146).

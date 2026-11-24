@@ -433,6 +433,32 @@ describe('applyHistoryRows', () => {
     expect(await Repo.transactions.get('peer-claim')).toMatchObject({ displayMessage: 'Bridged from EVM' });
   });
 
+  it('adds peer bridge details to the same local claim without altering its transaction state', async () => {
+    const local = row('local-claim', {
+      type: 'consume',
+      transactionId: 'claim-on-chain',
+      noteIds: ['0xAB'],
+      displayMessage: 'Received'
+    });
+    await Repo.transactions.add(local);
+    const bridgeIn = { provider: 'usdcx', evmTxHash: '0xabc', midenNoteId: 'ab' };
+    const receipt = row('peer-claim', {
+      type: 'consume',
+      transactionId: 'claim-on-chain',
+      noteIds: ['ab'],
+      displayMessage: 'Bridged from EVM',
+      extraInputs: { bridgeIn }
+    });
+    const unrelated = projectTransaction({ ...receipt, noteIds: ['another-note'] });
+    await expect(applyHistoryRows([unrelated])).resolves.toBe(0);
+    expect(await Repo.transactions.toArray()).toEqual([local]);
+
+    await expect(applyHistoryRows([projectTransaction(receipt)])).resolves.toBe(1);
+    expect(await Repo.transactions.toArray()).toEqual([
+      { ...local, backupBridgeReceipt: { bridgeIn, displayMessage: 'Bridged from EVM' } }
+    ]);
+  });
+
   it("never touches this device's own row, a recovered row or a row with the same on-chain id", async () => {
     await Repo.transactions.bulkAdd([
       row('own'),
@@ -699,6 +725,36 @@ describe('history sync', () => {
     await expect(flushHistory(session)).resolves.toBe(0);
     expect(session.state.history.assigned.huge).toBeUndefined();
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('replays an unchanged chunk once to repair an existing plain claim', async () => {
+    const local = row('mine', {
+      type: 'consume',
+      transactionId: 'deposit-claim',
+      noteIds: ['note'],
+      displayMessage: 'Received'
+    });
+    const peer = {
+      ...local,
+      id: 'peer',
+      displayMessage: 'Bridged from EVM',
+      extraInputs: { bridgeIn: { provider: 'epoch', midenNoteId: 'note' } }
+    };
+    await insertPeerChunk('peer-device', 0, [projectTransaction(peer)]);
+    await expect(readHistory(session, true)).resolves.toBe(true);
+
+    // Reproduce a device that marked the chunk applied but only kept its local claim.
+    await Repo.transactions.delete('peer');
+    await Repo.transactions.add(local);
+    await expect(readHistory(session, true)).resolves.toBe(false);
+    delete session.state.history.bridgeReceiptsReplayed;
+
+    await expect(readHistory(session, true)).resolves.toBe(true);
+    expect((await Repo.transactions.get('mine'))?.backupBridgeReceipt).toMatchObject({
+      displayMessage: 'Bridged from EVM',
+      bridgeIn: { provider: 'epoch', midenNoteId: 'note' }
+    });
+    await expect(readHistory(session, true)).resolves.toBe(false);
   });
 
   it("applies a peer's chunk as restored rows and counts it, but never its own chunks", async () => {

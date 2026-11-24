@@ -112,6 +112,8 @@ function enqueue<T>(chain: 'read' | 'upload', task: () => Promise<T>): Promise<T
 export interface ReadFeatureOptions {
   /** Ask only for entries written at or after the cursor of the last applied read. */
   since: boolean;
+  /** Reread entries that this device already applied. */
+  replay?: boolean;
   /** Hashed keys this device writes itself (its own history chunks); never applied from the server. */
   ownHashedKeys?: ReadonlySet<string>;
   /**
@@ -163,8 +165,8 @@ export function readFeature(
 ): Promise<ReadOutcome> {
   return enqueue('read', async () => {
     const featureState = session.state.features[feature];
-    const since = options.since ? featureState.cursor : null;
-    const read = await readPages(session, feature, featureState.etag, since);
+    const since = options.since && !options.replay ? featureState.cursor : null;
+    const read = await readPages(session, feature, options.replay ? null : featureState.etag, since);
     if (read === null) return 'not-modified';
 
     const incoming: IncomingEntry[] = [];
@@ -173,7 +175,7 @@ export function readFeature(
       cursor = Math.max(cursor, stored.updatedAt);
       if (options.ownHashedKeys?.has(stored.hashedKey)) continue;
       const mark = featureState.entries[stored.hashedKey];
-      if (mark !== undefined && mark.revision >= stored.revision) continue;
+      if (!options.replay && mark !== undefined && mark.revision >= stored.revision) continue;
       const plaintext = await openEntry(session, feature, stored.entry);
       if (plaintext === null) continue;
       incoming.push({ hashedKey: stored.hashedKey, revision: stored.revision, updatedAt: stored.updatedAt, plaintext });

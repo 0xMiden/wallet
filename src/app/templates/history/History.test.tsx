@@ -3035,6 +3035,35 @@ describe('History', () => {
     });
   });
 
+  it('shows peer bridge details for a claim recorded as a plain receive', async () => {
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'LOCAL-CLAIM',
+        status: STATUS.Completed,
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        type: 'consume',
+        completedAt: 4000,
+        backupBridgeReceipt: {
+          displayMessage: 'Bridged from EVM',
+          bridgeIn: { provider: 'usdcx', evmTxHash: '0xdeposit', midenNoteId: '0xnote' }
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() =>
+      expect(mockHistoryViewProps.entries).toContainEqual(
+        expect.objectContaining({
+          key: 'completed-LOCAL-CLAIM',
+          message: 'Bridged from EVM',
+          bridgeInProvider: 'usdcx',
+          bridgeInEvmTxHash: '0xdeposit'
+        })
+      )
+    );
+  });
+
   it('drops a failed claim row the superseded lookup names (#771)', async () => {
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
       offset === undefined

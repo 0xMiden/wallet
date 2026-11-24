@@ -1,6 +1,7 @@
 import { isHash } from 'viem';
 
 import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { routeMatchesRecovery } from 'lib/bridge/core/routes';
 import { bridgeOperationOf, findAdmittedBridgeOperation, hasBridgeOperation } from 'lib/bridge/operation';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
@@ -124,12 +125,17 @@ export async function applyBridgeInToConsumeRow(consumeId: string, info: IBridge
   await Repo.transactions.where({ id: consumeId }).modify(tx => {
     if (tx.type !== 'consume' || tx.status !== ITransactionStatus.Completed || tx.restoredFromBackup) return;
     tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn: info };
+    delete tx.backupBridgeReceipt;
     tx.displayMessage = 'Bridged from EVM';
     delivered = { amount: tx.amount, faucetId: tx.faucetId, transactionId: tx.transactionId };
     applied = true;
   });
   if (!applied) throw new Error('Bridge receipt requires a completed local consume');
-  await settleLinkedRows(info, delivered);
+  try {
+    await settleLinkedRows(info, delivered);
+  } finally {
+    signalTransactionCompleted();
+  }
 }
 
 /**
@@ -851,7 +857,12 @@ export async function findPendingBridgeInByEarnWithdrawTxId(
 
 async function restoredDeliveryConsumeIds(transactions: ITransaction[]): Promise<Set<string>> {
   const consumes = transactions.flatMap(tx => {
-    if (tx.type !== 'consume' || !tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed) return [];
+    if (
+      tx.type !== 'consume' ||
+      tx.status !== ITransactionStatus.Completed ||
+      (!tx.restoredFromBackup && !tx.backupBridgeReceipt)
+    )
+      return [];
     const notes = new Set(
       [...(tx.noteIds ?? []), ...(tx.inputNoteIds ?? []), tx.noteId]
         .filter((id): id is string => Boolean(id))
@@ -887,10 +898,8 @@ async function restoredDeliveryConsumeIds(transactions: ITransaction[]): Promise
 export async function suppressedLinkedConsumeIds(transactions: ITransaction[]): Promise<Set<string>> {
   const linked = transactions.flatMap(tx => {
     if (tx.type !== 'consume') return [];
-    const id: string | undefined =
-      tx.extraInputs?.swapOrderTxId ??
-      tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
-      tx.extraInputs?.bridgeIn?.bridgeReceiveTxId;
+    const info: IBridgeInInfo | undefined = tx.extraInputs?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn;
+    const id: string | undefined = tx.extraInputs?.swapOrderTxId ?? info?.earnWithdrawTxId ?? info?.bridgeReceiveTxId;
     return id ? [{ tx, id }] : [];
   });
   const [suppressed, rows] = await Promise.all([
@@ -905,10 +914,14 @@ export async function suppressedLinkedConsumeIds(transactions: ITransaction[]): 
   const primaries = new Map(rows.map(row => [row.id, row]));
   for (const { tx, id } of linked) {
     const row = primaries.get(id);
-    if (!row || (tx.restoredFromBackup && !sameWalletAccountId(row.accountId, tx.accountId))) continue;
+    if (
+      !row ||
+      ((tx.restoredFromBackup || tx.backupBridgeReceipt) && !sameWalletAccountId(row.accountId, tx.accountId))
+    )
+      continue;
     if (row.type === 'earn-withdraw') {
       const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
-      const info: IBridgeInInfo | undefined = tx.extraInputs?.bridgeIn;
+      const info: IBridgeInInfo | undefined = tx.extraInputs?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn;
       const owner = info?.intentOwner ?? inputs?.evmOwner;
       if (
         inputs?.phase === 'failed' ||
