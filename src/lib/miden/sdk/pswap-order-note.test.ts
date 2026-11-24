@@ -1,12 +1,22 @@
 import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import {
+  CHAIN_TIP_READ_TIMEOUT_MS,
+  OFFSCREEN_PROOF_BUDGET_MS,
+  ProofFreshnessUnknownError,
+  SUBMIT_EXPIRY_MARGIN_BLOCKS,
+  withFreshProof
+} from 'lib/miden/guardian/proof-freshness';
+
+import {
   GC_SALE_SCRIPT_ROOT,
+  readChainTip,
   readPublicPswapNote,
   readPswapOrderLineage,
   readPswapOrderNote
 } from './pswap-order-note';
 
+const mockGetBlockHeaderByNumber = jest.fn();
 const mockGetNotesById = jest.fn();
 const mockGetNullifierCommitHeight = jest.fn();
 const mockSyncNotes = jest.fn();
@@ -40,6 +50,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   },
   NoteTag: { withAccountTarget: (accountId: { toString: () => string }) => ({ accountTarget: accountId.toString() }) },
   RpcClient: jest.fn(() => ({
+    getBlockHeaderByNumber: mockGetBlockHeaderByNumber,
     getNotesById: mockGetNotesById,
     getNullifierCommitHeight: mockGetNullifierCommitHeight,
     syncNotes: mockSyncNotes,
@@ -848,6 +859,131 @@ describe('overlapping public sale note reads', () => {
       commit(note, 120);
       await expect(readPublicPswapNote('hung-public-sale')).resolves.toMatchObject({ kind: 'open', note });
       expect(RpcClient).toHaveBeenLastCalledWith('https://node-b');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('readChainTip', () => {
+  it('permits a fresh tip read after a prior call timed out on an unresolved RPC (#2193)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetBlockHeaderByNumber
+        .mockImplementationOnce(() => new Promise(() => undefined))
+        .mockResolvedValueOnce({ blockNum: () => 456 });
+
+      const first = readChainTip().catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(await first).toBeInstanceOf(Error);
+
+      await expect(readChainTip()).resolves.toBe(456);
+      expect(mockGetBlockHeaderByNumber).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('allows concurrent tip reads without blocking each other on a shared slot', async () => {
+    let releaseFirst!: (header: { blockNum: () => number }) => void;
+    mockGetBlockHeaderByNumber
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseFirst = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ blockNum: () => 789 });
+
+    const first = readChainTip();
+    const second = readChainTip();
+    await expect(second).resolves.toBe(789);
+    releaseFirst({ blockNum: () => 788 });
+    await expect(first).resolves.toBe(788);
+  });
+
+  it('allows an immediate withFreshProof retry after a prior attempt abandoned a hung tip read at 3,000 ms', async () => {
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const tip = 1_000;
+      const fresh = tip + SUBMIT_EXPIRY_MARGIN_BLOCKS + 1;
+      mockGetBlockHeaderByNumber
+        .mockImplementationOnce(() => new Promise(() => undefined))
+        .mockResolvedValueOnce({ blockNum: () => tip });
+
+      const first = withFreshProof({
+        executeAndProve: async () => ({ expirationBlock: fresh }),
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: readChainTip,
+        assertLive: () => {},
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS
+      }).catch((error: unknown) => error);
+
+      await jest.advanceTimersByTimeAsync(CHAIN_TIP_READ_TIMEOUT_MS);
+      expect(await first).toBeInstanceOf(ProofFreshnessUnknownError);
+
+      await expect(
+        withFreshProof({
+          executeAndProve: async () => ({ expirationBlock: fresh }),
+          expirationBlockOf: proof => proof.expirationBlock,
+          readTip: readChainTip,
+          assertLive: () => {},
+          budgetMs: OFFSCREEN_PROOF_BUDGET_MS
+        })
+      ).resolves.toEqual({ expirationBlock: fresh });
+      expect(mockGetBlockHeaderByNumber).toHaveBeenCalledTimes(2);
+    } finally {
+      warnSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('bounds unsettled tip reads per node while still permitting retries after timeout and node switches', async () => {
+    jest.useFakeTimers();
+    try {
+      mockRpcUrl = 'https://node-tip-cap';
+      const releases: Array<(header: { blockNum: () => number }) => void> = [];
+      for (let i = 0; i < 4; i++) {
+        mockGetBlockHeaderByNumber.mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              releases.push(resolve);
+            })
+        );
+      }
+      mockGetBlockHeaderByNumber.mockResolvedValueOnce({ blockNum: () => 999 });
+
+      for (let i = 0; i < 4; i++) {
+        const attempt = readChainTip().catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(5_000);
+        expect(await attempt).toBeInstanceOf(Error);
+      }
+
+      await expect(readChainTip()).rejects.toThrow('too many unsettled node reads');
+      expect(mockGetBlockHeaderByNumber).toHaveBeenCalledTimes(4);
+      expect(RpcClient).toHaveBeenCalledTimes(4);
+
+      mockRpcUrl = 'https://node-tip-other';
+      await expect(readChainTip()).resolves.toBe(999);
+
+      mockRpcUrl = 'https://node-tip-cap';
+      releases.shift()!({ blockNum: () => 900 });
+      await Promise.resolve();
+      await Promise.resolve();
+      mockGetBlockHeaderByNumber.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releases.push(resolve);
+          })
+      );
+      const refilled = readChainTip();
+      await expect(readChainTip()).rejects.toThrow('too many unsettled node reads');
+
+      releases.forEach((resolve, index) => resolve({ blockNum: () => 901 + index }));
+      await expect(refilled).resolves.toBe(904);
+      mockGetBlockHeaderByNumber.mockResolvedValueOnce({ blockNum: () => 1_000 });
+      await expect(readChainTip()).resolves.toBe(1_000);
     } finally {
       jest.useRealTimers();
     }

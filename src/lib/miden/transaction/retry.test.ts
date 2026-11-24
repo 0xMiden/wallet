@@ -1,6 +1,7 @@
 import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
+  PROOF_FRESHNESS_UNKNOWN_ERROR,
   STALE_PROOF_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
@@ -678,12 +679,14 @@ describe('requeueFailedTransaction - a pinned-bytes send, swap or bridge send th
   it.each(PINNED)(
     'a pinned-bytes %s that provably ended before its submit requeues with no refusal',
     async (_label, overrides) => {
-      const row = pinned({ ...overrides, stage: 'proving', error: STALE_PROOF_ERROR });
-      wireRow(row);
+      for (const error of [STALE_PROOF_ERROR, PROOF_FRESHNESS_UNKNOWN_ERROR]) {
+        const row = pinned({ ...overrides, stage: 'proving', error });
+        wireRow(row);
 
-      await requeueFailedTransaction('tx-1');
+        await requeueFailedTransaction('tx-1');
 
-      expect(row.status).toBe(ITransactionStatus.Queued);
+        expect(row.status).toBe(ITransactionStatus.Queued);
+      }
     }
   );
 

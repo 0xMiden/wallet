@@ -8,8 +8,9 @@ import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
-import { quotedPrice, useTokenSparkline } from 'lib/prices';
+import { quotedPrice, useBasketSparkline, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { basketChange24h } from 'lib/prices/basket';
 import { listedFiatValue } from 'lib/prices/binance';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -86,16 +87,17 @@ export const AssetRow: FC<AssetRowProps> = ({
   // Only a feed quote has a 24h move. The nominal rate is a dollar figure with no market behind it,
   // so it has no direction to colour anything by, like no quote at all.
   // A fixed quote (USDCX at $1) keeps its row's line and pill: a flat grey line and a grey
-  // +0.00%, since its move is always zero. A basket's net asset value has no market behind it either, so no
-  // pill and a flat grey line.
-  const feedQuote = quote && quote.kind !== 'nominal' && quote.kind !== 'basket' ? quote : undefined;
-  const direction: 'positive' | 'negative' | 'neutral' | null = feedQuote
-    ? Math.abs(feedQuote.percentageChange24h) < FLAT_MOVE_PERCENT
-      ? 'neutral'
-      : feedQuote.percentageChange24h >= 0
-        ? 'positive'
-        : 'negative'
-    : null;
+  // +0.00%, since its move is always zero. A basket moves with its tokens: its pill is their 24h moves weighted by
+  // the vault's mix, and its line their candles (useBasketSparkline), as on its token page.
+  const basket = quote?.kind === 'basket';
+  const feedQuote = quote && quote.kind !== 'nominal' && !basket ? quote : undefined;
+  const move = basket
+    ? quote?.composition
+      ? basketChange24h(quote.composition, tokenPrices)
+      : undefined
+    : feedQuote?.percentageChange24h;
+  const direction: 'positive' | 'negative' | 'neutral' | null =
+    move !== undefined ? (Math.abs(move) < FLAT_MOVE_PERCENT ? 'neutral' : move >= 0 ? 'positive' : 'negative') : null;
   // TokenAmount keeps the final precision during each animation.
   const fiatValue = quote ? listedFiatValue(tokenPrices, priceSymbol, balance, scaleIsKnown) : undefined;
   const priceStatus = !scaleIsKnown
@@ -111,10 +113,9 @@ export const AssetRow: FC<AssetRowProps> = ({
         : undefined;
 
   // An empty symbol is the hook's "fetch nothing".
-  const points = useTokenSparkline(
-    sparkline && quote?.kind !== 'fixed' && quote?.kind !== 'basket' ? priceSymbol : '',
-    '1D'
-  );
+  const tokenPoints = useTokenSparkline(sparkline && quote?.kind !== 'fixed' && !basket ? priceSymbol : '', '1D');
+  const basketPoints = useBasketSparkline(sparkline && basket ? quote : undefined, tokenPrices);
+  const points = basket ? basketPoints : tokenPoints;
   const hasRealPoints = points.length > 1;
   // Keyed on the hook's array so a re-render with the same series keeps Sparkline's path memo.
   const sparkPoints = useMemo(
@@ -169,8 +170,8 @@ export const AssetRow: FC<AssetRowProps> = ({
       price={fiatValue !== undefined ? <UsdAmount amount={fiatValue} animated grouping={false} /> : undefined}
       priceStatus={priceStatus}
       delta={
-        feedQuote && direction
-          ? { value: <AnimatedNumber value={feedQuote.percentageChange24h} format={formatPercent} />, direction }
+        move !== undefined && direction
+          ? { value: <AnimatedNumber value={move} format={formatPercent} />, direction }
           : undefined
       }
       // A soft grey tag rather than the warning tint, which read like a button.
