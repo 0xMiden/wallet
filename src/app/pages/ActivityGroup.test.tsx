@@ -2,6 +2,12 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import {
+  ACTIVITY_COUNTERPARTY_BECH32,
+  ACTIVITY_COUNTERPARTY_HEX,
+  ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
+  mockActivityCounterpartyDecode
+} from 'app/templates/history/activityGroupTestFixtures';
 import { HistoryEntryType, IHistoryEntry } from 'app/templates/history/IHistoryEntry';
 import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 
@@ -124,6 +130,23 @@ describe('ActivityGroupPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Alice' })).toBeTruthy();
     expect(screen.getByTestId('contact-avatar')).toBeTruthy();
+  });
+
+  it('opens the same named group for equivalent hex and Bech32 counterparties', () => {
+    const restoreDecoder = mockActivityCounterpartyDecode();
+    const savedContacts = contacts.value;
+    try {
+      contacts.value = [{ address: ACTIVITY_COUNTERPARTY_PUBLIC_KEY, name: 'Saved counterparty' }];
+      mockClaims.items = [{ note: claimNote('incoming-bech32', ACTIVITY_COUNTERPARTY_BECH32), status: 'pending' }];
+      render(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_HEX} />);
+
+      expect(predicate()(entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 }))).toBe(true);
+      expect(screen.getByRole('heading', { name: 'Saved counterparty' })).toBeInTheDocument();
+      expect(historyProps.drawnPendingItems).toEqual(mockClaims.items);
+    } finally {
+      contacts.value = savedContacts;
+      restoreDecoder();
+    }
   });
 
   it('falls back to the ellipsised address for a counterparty nobody has named', () => {
