@@ -2096,17 +2096,9 @@ public class WebViewDialog extends Dialog {
                 setBrowserDecorFitsSystemWindows(false);
             }
 
-            // Miden patch: the Dialog Window frame extends BELOW the
-            // slot rect (see `applyDimensions` comment) so the
-            // floating navbar can sit at the screen bottom. The
-            // inner WebView is pinned to the slot height via
-            // `applyInnerWebViewSlotHeight`, so the ~34dp strip
-            // between the WebView bottom and the Dialog bottom is
-            // empty space that needs to be TRANSPARENT — otherwise
-            // the Dialog decor's background color (previously white/
-            // black depending on theme) shows as a solid band below
-            // the WebView, creating the exact "white bar at bottom"
-            // bug this architecture was meant to solve.
+            // Miden patch: keep the Dialog decor and window background
+            // transparent so the host wallet view shows through any area
+            // outside the positioned WebView rect.
             //
             // Mirrors iOS's setup: the dApp UIWindow has a clear
             // backgroundColor so the Capacitor host window beneath
@@ -3471,12 +3463,6 @@ public class WebViewDialog extends Dialog {
         // slot rect and then hands off to the native WebView, the
         // handoff lands at the same y/height so there's no visible
         // jump or pop at the end of the animation.
-        //
-        // The floating navbar pill is positioned via NavbarView's
-        // own inset logic — which detects whether its host window
-        // extends to the screen bottom (Activity) or stops at the
-        // slot bottom (this Dialog) and picks the right bottom
-        // margin for each case. See NavbarView's applyRootInsets.
 
         // If both width and height are specified, use custom dimensions
         if (width != null && height != null) {

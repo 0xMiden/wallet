@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
 - [FIX][mobile] Wrap long transaction details, warnings, and errors inside the dApp confirmation dialog so long identifiers stay within narrow screens (#2045).
 - [FIX][all] Stop Guardian submission when proof freshness cannot be established before the chain-tip deadline.
 - [FIX][all] Completing a locked bridge funds withdrawal displays a confirmation page with actions to return to Recover locked bridge funds or Home (#2146).
