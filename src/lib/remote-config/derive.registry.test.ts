@@ -197,6 +197,22 @@ describe('readBridgeRegistry', () => {
     expect(mockSyncStorageMaps).toHaveBeenCalledWith(0, undefined, { id: BRIDGE });
   });
 
+  it('does not retry syncStorageMaps after a WebAssembly.RuntimeError', async () => {
+    mockGetAccountProof.mockResolvedValue(proof({ tooMany: [REGISTRY] }));
+    mockSyncStorageMaps
+      .mockRejectedValueOnce(new WebAssembly.RuntimeError('unreachable'))
+      .mockResolvedValueOnce({ updates: () => [] });
+    await expect(readBridgeRegistry(BRIDGE, RPC)).rejects.toThrow(WebAssembly.RuntimeError);
+    expect(mockSyncStorageMaps).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries syncStorageMaps once on a transient failure', async () => {
+    mockGetAccountProof.mockResolvedValue(proof({ tooMany: [REGISTRY] }));
+    mockSyncStorageMaps.mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce({ updates: () => [] });
+    await expect(readBridgeRegistry(BRIDGE, RPC)).resolves.toEqual({ rollupId: 86, tokens: [] });
+    expect(mockSyncStorageMaps).toHaveBeenCalledTimes(2);
+  });
+
   it('skips a faucet whose metadata does not fit its types', async () => {
     const [usdcLo, ...rest] = TESTNET_METADATA.filter(item => item.key[3] === 0x36bb3163d7ef0ad1n);
     const others = TESTNET_METADATA.filter(item => item.key[3] !== 0x36bb3163d7ef0ad1n);

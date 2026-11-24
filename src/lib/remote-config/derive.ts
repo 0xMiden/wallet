@@ -300,9 +300,8 @@ export async function readBridgeRegistry(
 
   // syncStorageMaps returns every map slot of the account (on testnet that is about 1,700 entries,
   // most of them ger_map), so it is the fallback, not the default. The client pages it to the tip.
-  const synced = await withRpcTimeout(
-    () => rpc.syncStorageMaps(0, undefined, AccountId.fromHex(midenBridge)),
-    'agglayer bridge storage maps'
+  const synced = await readAccount(midenBridge, 'agglayer bridge storage maps', () =>
+    rpc.syncStorageMaps(0, undefined, AccountId.fromHex(midenBridge))
   );
   const updates = synced.updates().map(update => ({
     slot: update.slotName(),
