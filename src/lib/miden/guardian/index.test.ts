@@ -2125,6 +2125,122 @@ describe('MultisigService', () => {
     });
   });
 
+  describe('claims that another device makes (multi-device)', () => {
+    const OWN = '0xaa11';
+    const pendingClaim = (proposerId: string, noteIds: string[], ageMs = 1_000) => ({
+      accountId: 'acc-id',
+      nonce: 8,
+      prevCommitment: '0xprev',
+      deltaPayload: {
+        txSummary: { data: 'c3VtbWFyeQ==' },
+        signatures: [],
+        metadata: { proposalType: 'consume_notes', noteIds }
+      },
+      status: {
+        status: 'pending',
+        timestamp: new Date(Date.now() - ageMs).toISOString(),
+        proposerId,
+        cosignerSigs: []
+      }
+    });
+    const serviceWith = (guardianClient: Record<string, jest.Mock>, multisig = makeMultisig(), signer = true) =>
+      new MultisigService(
+        multisig as never,
+        { guardianClient } as never,
+        'https://g.test',
+        (signer ? { commitment: OWN } : undefined) as never
+      );
+
+    it('claimStartedElsewhere is true for a recent pending claim of the note by another signer', async () => {
+      const getDeltaProposals = jest.fn(async () => [pendingClaim('0xbb22', ['0xN1'])]);
+
+      await expect(serviceWith({ getDeltaProposals }).claimStartedElsewhere(['n1'])).resolves.toBe(true);
+      expect(getDeltaProposals).toHaveBeenCalledWith('acc-id');
+    });
+
+    it.each([
+      ["this device's own proposal", [pendingClaim(OWN, ['n1'])]],
+      ['a claim of another note', [pendingClaim('0xbb22', ['n2'])]],
+      ['a proposal older than the window', [pendingClaim('0xbb22', ['n1'], 10 * 60_000)]],
+      ['no proposal', []]
+    ])('claimStartedElsewhere is false for %s', async (_name, proposals) => {
+      const getDeltaProposals = jest.fn(async () => proposals);
+
+      await expect(serviceWith({ getDeltaProposals }).claimStartedElsewhere(['n1'])).resolves.toBe(false);
+    });
+
+    it('claimStartedElsewhere is false, and never rejects, when the Guardian read fails', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const getDeltaProposals = jest.fn(async () => {
+        throw new Error('guardian down');
+      });
+
+      await expect(serviceWith({ getDeltaProposals }).claimStartedElsewhere(['n1'])).resolves.toBe(false);
+      warn.mockRestore();
+    });
+
+    it('claimStartedElsewhere asks nothing for a service that cannot name its own signer', async () => {
+      const getDeltaProposals = jest.fn(async () => [pendingClaim('0xbb22', ['n1'])]);
+      const service = serviceWith({ getDeltaProposals }, makeMultisig(), false);
+
+      await expect(service.claimStartedElsewhere(['n1'])).resolves.toBe(false);
+      expect(getDeltaProposals).not.toHaveBeenCalled();
+    });
+
+    it('createConsumeNotesProposal with the gate stops before any proposal work', async () => {
+      const multisig = makeMultisig();
+      const getDeltaProposals = jest.fn(async () => [pendingClaim('0xbb22', ['n1'])]);
+      const service = serviceWith({ getDeltaProposals }, multisig);
+
+      await expect(service.createConsumeNotesProposal(['n1'], { stopIfStartedElsewhere: true })).rejects.toMatchObject({
+        name: 'ClaimStartedElsewhereError',
+        noteIds: ['n1']
+      });
+      expect(multisig.createConsumeNotesProposal).not.toHaveBeenCalled();
+    });
+
+    it('createConsumeNotesProposal with the gate proposes when no other device has the claim', async () => {
+      const multisig = makeMultisig();
+      const service = serviceWith({ getDeltaProposals: jest.fn(async () => []) }, multisig);
+
+      await expect(service.createConsumeNotesProposal(['n1'], { stopIfStartedElsewhere: true })).resolves.toEqual({
+        kind: 'consume'
+      });
+      expect(multisig.createConsumeNotesProposal).toHaveBeenCalledWith(['n1']);
+    });
+
+    it('createConsumeNotesProposal without the gate asks the Guardian nothing', async () => {
+      const getDeltaProposals = jest.fn(async () => [pendingClaim('0xbb22', ['n1'])]);
+
+      await serviceWith({ getDeltaProposals }).createConsumeNotesProposal(['n1']);
+      expect(getDeltaProposals).not.toHaveBeenCalled();
+    });
+
+    it('notesClaimedByAccount lists the input notes of the newest canonical deltas', async () => {
+      const getDeltaHistory = jest.fn(async () => ({
+        entries: [
+          { nonce: 9, status: 'canonical', timestamp: 't', inputNotes: [{ noteId: '0xAB' }], outputNotes: [] },
+          { nonce: 8, status: 'canonical', timestamp: 't', inputNotes: [{ noteId: 'cd' }], outputNotes: [] }
+        ]
+      }));
+
+      const claimed = await serviceWith({ getDeltaHistory }).notesClaimedByAccount();
+
+      expect([...(claimed ?? [])].sort()).toEqual(['ab', 'cd']);
+      expect(getDeltaHistory).toHaveBeenCalledWith('acc-id', { limit: 50 });
+    });
+
+    it('notesClaimedByAccount is undefined, and never rejects, when the Guardian read fails', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const getDeltaHistory = jest.fn(async () => {
+        throw new Error('guardian down');
+      });
+
+      await expect(serviceWith({ getDeltaHistory }).notesClaimedByAccount()).resolves.toBeUndefined();
+      warn.mockRestore();
+    });
+  });
+
   describe('sync retry logic', () => {
     it('resets retry count after a successful sync', async () => {
       const multisig = makeMultisig();

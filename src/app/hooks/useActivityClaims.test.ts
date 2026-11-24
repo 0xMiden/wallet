@@ -525,7 +525,10 @@ it('marks every batch note as claiming at once, queues the native faucet group f
 
   // A row still being generated settles nothing.
   const unsettled = result.current.items;
-  settle([{ id: 'tx-native', status: 1 }]);
+  settle([
+    { id: 'tx-native', status: 1 },
+    { id: 'tx-token', status: 0 }
+  ]);
   expect(result.current.items).toBe(unsettled);
 
   settle([
@@ -608,6 +611,24 @@ it('records a failed transaction and lets the note be retried', async () => {
   });
   settle([{ id: 'tx-one', status: 3, completedAt: 321 }]);
   expect(result.current.items[0]).toMatchObject({ status: 'failed', claimedAt: 321 });
+  await act(async () => {
+    await result.current.accept(note);
+  });
+  expect(mockQueue).toHaveBeenCalledTimes(2);
+});
+
+it('ends a claiming attempt when the queue removed its row, so the note can be accepted again', async () => {
+  const { result } = renderHook(() => useActivityClaims());
+  await act(async () => {
+    await result.current.accept(note);
+  });
+  settle([{ id: 'tx-one', status: 1 }]);
+  expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-one' });
+
+  // Another device of the account has the claim: the queue removed the row with no failure.
+  settle([]);
+  expect(result.current.items[0]).toMatchObject({ status: 'pending' });
+  expect(result.current.items[0]?.txId).toBeUndefined();
   await act(async () => {
     await result.current.accept(note);
   });

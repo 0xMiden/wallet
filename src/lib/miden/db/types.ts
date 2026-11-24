@@ -1236,6 +1236,14 @@ export interface ITransaction {
    */
   unauthorizedRetryUntil?: number;
   /**
+   * Whole seconds until which a claim whose note the chain shows consumed stays in the queue for the Guardian's
+   * history to name that note (multi-device). The claim of another device lands on the chain some seconds before
+   * the Guardian makes its delta canonical, and only the canonical delta shows that this account holds the note.
+   * Past this time the claim fails with its own error. An absolute time for the reason `unauthorizedRetryUntil`
+   * gives. Absent: the claim did not wait for this.
+   */
+  claimedElsewhereCheckUntil?: number;
+  /**
    * The backing-off arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
    * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian or node that fails every
    * attempt slowly would otherwise keep one of its rows eligible, and oldest, at every lap, and another account's

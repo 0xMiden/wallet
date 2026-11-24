@@ -27,6 +27,7 @@ import {
   type AbandonTicket,
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
+import { ClaimStartedElsewhereError, claimNoteKeys } from 'lib/miden/guardian/claims-elsewhere';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
@@ -67,6 +68,7 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
+import { classifyProposalCreateRejection } from 'lib/miden/sdk/proposal-create-error-family';
 import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } from 'lib/miden/swap/balance';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
@@ -116,6 +118,13 @@ import {
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
+import {
+  CLAIMED_ELSEWHERE_CHECK_SEC,
+  claimNoteIdsOf,
+  isRemovableClaim,
+  notesConsumedOutsideClient,
+  removeClaimMadeElsewhere
+} from './claim-made-elsewhere';
 import {
   completeBridgedSendTransaction,
   completeConsumeTransaction,
@@ -1066,7 +1075,12 @@ function scheduleRequeueWake(
 }
 
 /** What an arm stamps on the row it requeues, on top of the requeue itself. */
-type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak; guardianBusy?: true };
+type RequeueExtraValues = {
+  unauthorizedRetryUntil?: number;
+  claimedElsewhereCheckUntil?: number;
+  requeueStreak?: IRequeueStreak;
+  guardianBusy?: true;
+};
 
 /**
  * Return a tx to the Queued state for a later generateTransactionsLoop cycle
@@ -2175,6 +2189,15 @@ const generateTransactionWithProvider = async (
         attemptMayHaveCrossed(currentRow, transaction.attemptId);
       // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
+      // Another device of the account has this claim (multi-device): the row is removed with no failure, or waits for
+      // the Guardian's history to name its notes. Before the arms below, each of which would requeue or fail the row.
+      if (
+        !abandonedWrite &&
+        failedAtProposal &&
+        (await settleClaimMadeElsewhere(transaction, error, currentRow, signCallback, guardianProvider))
+      ) {
+        return;
+      }
       if (!abandonedWrite && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
@@ -3926,6 +3949,81 @@ const assertPriorCandidateSettled = async (transaction: ITransaction, service: M
 };
 
 /**
+ * Settle a claim that failed at its proposal because another device of the account has the note (multi-device).
+ * Returns true when the row is settled here: removed, or put back in the queue to ask again. False leaves the row
+ * to the arms after this one, with its own error.
+ *
+ * Two failures arrive here:
+ *
+ * - `ClaimStartedElsewhereError`: the gate saw the pending claim of another device. The row is removed.
+ * - The multisig client's `ConsumeNoteNotAuthenticatedError`: it cannot authenticate a note that is consumed. The
+ *   local store does not say who consumed it (a sender can take a note back), so the row is removed only when the
+ *   Guardian's canonical history names every such note as an input of this account, which shows that the account
+ *   holds the assets. The Guardian makes a delta canonical some seconds after its transaction lands, so a claim with
+ *   no such evidence waits in the queue until `claimedElsewhereCheckUntil` and then fails with its own error.
+ *
+ * Every read here can fail, and a failed read settles nothing.
+ */
+const settleClaimMadeElsewhere = async (
+  transaction: ITransaction,
+  error: unknown,
+  currentRow: ITransaction | undefined,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider
+): Promise<boolean> => {
+  if (!isRemovableClaim(transaction)) return false;
+  if (error instanceof ClaimStartedElsewhereError) {
+    const removed = await removeClaimMadeElsewhere(transaction.id, transaction.attemptId);
+    if (removed) console.warn(`[Guardian] removed claim ${transaction.id}: another device started it`);
+    return removed;
+  }
+  if (classifyProposalCreateRejection(error) !== 'consume_note_authentication') return false;
+  let evidence: 'none' | 'claimed' | 'not-named-yet' = 'none';
+  try {
+    const consumed = await notesConsumedOutsideClient(claimNoteIdsOf(transaction));
+    if (consumed.length > 0) {
+      const service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      const claimed = await service.notesClaimedByAccount();
+      const named = claimed !== undefined && [...claimNoteKeys(consumed)].every(noteKey => claimed.has(noteKey));
+      evidence = named ? 'claimed' : 'not-named-yet';
+    }
+  } catch (readError) {
+    // The lock retired a trap in the note read before it came here. Nothing below calls the client again.
+    console.warn(`[Guardian] could not check whether another device made claim ${transaction.id}`, readError);
+    return false;
+  }
+  switch (evidence) {
+    case 'none':
+      return false;
+    case 'claimed': {
+      const removed = await removeClaimMadeElsewhere(transaction.id, transaction.attemptId);
+      if (removed) console.warn(`[Guardian] removed claim ${transaction.id}: another device claimed its notes`);
+      return removed;
+    }
+    case 'not-named-yet': {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const deadline = currentRow?.claimedElsewhereCheckUntil ?? nowSec + CLAIMED_ELSEWHERE_CHECK_SEC;
+      // Room for the next attempt to run before the deadline, as the unauthorized arm requires.
+      if (nowSec + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC >= deadline) return false;
+      console.warn(
+        `[Guardian] the notes of claim ${transaction.id} are consumed and the Guardian's history does not name ` +
+          `them yet - asking again in ${PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC}s`
+      );
+      await requeueWithWake(
+        transaction.id,
+        transaction.type,
+        PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC,
+        signCallback,
+        guardianProvider,
+        'guardian_backpressure',
+        { claimedElsewhereCheckUntil: deadline, guardianBusy: true }
+      );
+      return true;
+    }
+  }
+};
+
+/**
  * Remember the candidate a Guardian write left on its Guardian, for the next proposal's settlement gate (#312): one
  * whose submit resolved, or one the leaf kept for the node's verdict, whose release reads these stamps (#1081). Every
  * Guardian write whose submit resolved records, structural ones included, so a send after a rotation waits for the
@@ -4297,7 +4395,11 @@ const generateGuardianTransaction = async (
         service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
         await releaseUnabandonedCandidate(transaction, service);
         await assertPriorCandidateSettled(transaction, service);
-        proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+        // A claim that may be removed asks the Guardian first whether another device of the account already has it
+        // (multi-device). The loop's catch removes the row on the gate's refusal (`settleClaimMadeElsewhere`).
+        proposalResult = isRemovableClaim(transaction)
+          ? await service.createConsumeNotesProposal(consumeNoteIds, { stopIfStartedElsewhere: true })
+          : await service.createConsumeNotesProposal(consumeNoteIds);
       }
       break;
     }

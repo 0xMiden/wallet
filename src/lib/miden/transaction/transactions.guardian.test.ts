@@ -11414,7 +11414,10 @@ describe('generateTransaction - Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    expect(multisigService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-xyz']);
+    // A claim asks the Guardian first whether another device of the account already has it (multi-device).
+    expect(multisigService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-xyz'], {
+      stopIfStartedElsewhere: true
+    });
     // Every consume is hot-bound - no cold service built. The former
     // background→cold-key routing existed only to dodge the iOS `.userPresence`
     // Face ID gate on the hot key, which has since been removed.
@@ -11444,7 +11447,9 @@ describe('generateTransaction - Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    expect(multisigService.createConsumeNotesProposal).toHaveBeenLastCalledWith(['note-a', 'note-b']);
+    expect(multisigService.createConsumeNotesProposal).toHaveBeenLastCalledWith(['note-a', 'note-b'], {
+      stopIfStartedElsewhere: true
+    });
   });
 
   it('Guardian zero-fill PSWAP reclaim: rebuilds the cancel in each proposal hold and signs the bytes it proposed', async () => {
@@ -20498,7 +20503,7 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
     await run(row, { ...recovered, hotPublicKey: 'hot-pub' });
 
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
-    expect(hotService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+    expect(hotService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1'], { stopIfStartedElsewhere: true });
   });
 
   it('requeues a flagged claim when the guardian cannot be reached, still flagged (#779)', async () => {
@@ -20717,7 +20722,9 @@ describe('Guardian proposal effect check', () => {
 
       const row = await run({ id: 'claim-fill', type: 'consume', accountId: 'guardian-acc', noteId: 'pswap-order' });
 
-      expect(service.createConsumeNotesProposal).toHaveBeenCalledWith(['pswap-order']);
+      expect(service.createConsumeNotesProposal).toHaveBeenCalledWith(['pswap-order'], {
+        stopIfStartedElsewhere: true
+      });
       expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
       expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop-fill');
       expect(row.status).toBe(ITransactionStatus.Failed);

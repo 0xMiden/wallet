@@ -35,6 +35,7 @@ import {
   resolveGuardianEndpoint
 } from './account';
 import { readGuardianAuthFacts, withGuardianAuthFacts, type GuardianAuthFacts } from './auth-facts';
+import { ClaimStartedElsewhereError, claimNoteKeys, isClaimStartedElsewhere, notesClaimedIn } from './claims-elsewhere';
 import { configureGuardianAccount, ecdsaCosigners, type GuardianRegistration } from './configure';
 import { deviceSignersAfterRevocation } from './device-signers';
 import { waitForStateOnChain } from './direct-switch';
@@ -317,6 +318,12 @@ export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
  * own 409 if the previous delta is still settling.
  */
 export const PRIOR_CANDIDATE_CHECK_TIMEOUT_MS = 10_000;
+
+/**
+ * How many of the newest canonical deltas `notesClaimedByAccount` reads. The claim it looks for landed a short time
+ * before the read, so it is near the top of the history.
+ */
+const CLAIMED_NOTES_HISTORY_PAGE = 50;
 
 /**
  * The Guardian's own hold on a candidate that never settles: past it the Guardian has released it (#1317). The
@@ -636,8 +643,16 @@ export class MultisigService {
 
   /**
    * Create a consume notes transaction proposal.
+   *
+   * `stopIfStartedElsewhere` is the multi-device gate. Each device of an account sees the same note, and the Guardian
+   * accepts a proposal from each. With the gate on, a recent pending claim of one of `noteIds` by another device
+   * stops this claim with `ClaimStartedElsewhereError` before the hold and before any proposal work
+   * (`claimStartedElsewhere`). No answer from the Guardian lets the claim go ahead.
    */
-  async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
+  async createConsumeNotesProposal(noteIds: string[], gate?: { stopIfStartedElsewhere: boolean }): Promise<Proposal> {
+    if (gate?.stopIfStartedElsewhere === true && (await this.claimStartedElsewhere(noteIds))) {
+      throw new ClaimStartedElsewhereError(noteIds);
+    }
     return this.withChainSyncedHold('consume proposal', () =>
       this.proposalStep(
         'proposal_create',
@@ -1176,6 +1191,50 @@ export class MultisigService {
       if (isGuardianDeltaNotFound(error)) return 'settled';
       console.warn(`[Guardian] could not read candidate ${nonce}; the proposal goes ahead`, error);
       return 'unknown';
+    }
+  }
+
+  /**
+   * True when another device of this account has a recent pending claim of one of `noteIds` on this service's
+   * Guardian (multi-device). HTTP only, never under the WASM lock, and never rejects: a failed read, no answer
+   * within PRIOR_CANDIDATE_CHECK_TIMEOUT_MS, or a service with no request signer answers false, and the claim
+   * goes ahead as it did before this check.
+   */
+  async claimStartedElsewhere(noteIds: readonly string[]): Promise<boolean> {
+    const ownCommitment = this.requestSigner?.commitment;
+    if (ownCommitment === undefined) return false;
+    try {
+      const proposals = await withTimeout(
+        this.client.guardianClient.getDeltaProposals(this.accountId),
+        PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+        'reading the pending guardian proposals'
+      );
+      const noteKeys = claimNoteKeys(noteIds);
+      const nowMs = Date.now();
+      return proposals.some(proposal => isClaimStartedElsewhere(proposal, ownCommitment, noteKeys, nowMs));
+    } catch (error) {
+      console.warn('[Guardian] could not read the pending proposals; the claim goes ahead', error);
+      return false;
+    }
+  }
+
+  /**
+   * The notes that the newest canonical deltas of this account consumed, from one page of the Guardian's history
+   * (multi-device). A note in this set is in the account's vault: a device of the account claimed it. Undefined
+   * when the Guardian gave no answer within PRIOR_CANDIDATE_CHECK_TIMEOUT_MS. HTTP only, never under the WASM
+   * lock, and never rejects.
+   */
+  async notesClaimedByAccount(): Promise<ReadonlySet<string> | undefined> {
+    try {
+      const page = await withTimeout(
+        this.client.guardianClient.getDeltaHistory(this.accountId, { limit: CLAIMED_NOTES_HISTORY_PAGE }),
+        PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+        'reading the guardian delta history'
+      );
+      return notesClaimedIn(page.entries);
+    } catch (error) {
+      console.warn('[Guardian] could not read the delta history for the claimed notes', error);
+      return undefined;
     }
   }
 

@@ -85,6 +85,22 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
   return rows.filter((tx): tx is SwapOrder => isSwapTransaction(tx) && isSwapOrder(tx));
 }
 
+/** The order ids of `orders`, as a payback attachment spells them. */
+export const swapOrderIdsOf = (orders: readonly SwapOrder[]): Set<string> =>
+  new Set(orders.map(order => orderIdString(order.extraInputs.orderId)));
+
+/**
+ * True when `note` carries the payback attachment of a PSWAP order that is not one of `ownOrderIds`, the orders this
+ * device placed (`localSwapOrders`). On a second device of the account that is the payback of an order the first
+ * device placed. Only the placing device claims a payback unattended, so two devices do not claim the same one
+ * (multi-device). Anyone can put this attachment on a note, so the flag only withholds the unattended claim: the
+ * user can still accept the note by hand.
+ */
+export const isPeerSwapPayback = (
+  note: Pick<ConsumableNoteDto, 'swapAttachment'>,
+  ownOrderIds: ReadonlySet<string>
+): boolean => Boolean(note.swapAttachment) && !ownOrderIds.has(note.swapAttachment?.orderId ?? '');
+
 /**
  * Classify notes belonging to this wallet's orders using one synced lineage snapshot.
  * Reuse preloadedOrders to avoid another transactions-table scan in the same tick.
