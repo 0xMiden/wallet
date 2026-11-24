@@ -118,7 +118,8 @@ const MIDEN_ACCOUNT_HEX = /^0x[0-9a-f]{30}$/i;
 
 function activityCounterpartyKey(address: string): string {
   const fallback = address.trim().toLowerCase();
-  if (fallback.startsWith('0x')) return fallback;
+  const suffix = fallback.indexOf('_');
+  if (fallback.startsWith('0x') && (suffix < 0 || !MIDEN_ACCOUNT_HEX.test(fallback.slice(0, suffix)))) return fallback;
   const canonical = canonicalWalletAccountId(fallback);
   // The SDK helper can fall back to a tag-stripped string when parsing fails.
   return MIDEN_ACCOUNT_HEX.test(canonical) ? canonical.toLowerCase() : fallback;
