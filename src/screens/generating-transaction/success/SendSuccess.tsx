@@ -2,7 +2,6 @@ import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ButtonVariant } from 'components/Button';
@@ -33,9 +32,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
   const { t } = useTranslation();
   const { amountText, feeText } = useReceiptAmount(transaction);
   const nativeFaucetId = useMidenFaucetId();
-  const returnToLockedFunds = useBackWithFallback('/history');
   const isConsume = transaction?.type === 'consume';
-  const isBridgeReclaim = isConsume && transaction?.consumeEntryPoint === 'bridge_reclaim';
   const destinationAddress = transaction?.secondaryAccountId;
   const recipient = destinationAddress ? truncateAddress(destinationAddress, false, 8, 8) : undefined;
   const noteIds = useMemo(() => {
@@ -60,9 +57,8 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
   );
 
   // "Payment Sent!" reads wrong for claim/guardian ops that fall through here.
-  const title = isBridgeReclaim
-    ? t('bridgeWithdrawalSuccessful')
-    : transaction?.type === 'send'
+  const title =
+    transaction?.type === 'send'
       ? t('paymentSent', { defaultValue: 'Payment Sent!' })
       : t('transactionComplete', { defaultValue: 'Transaction Complete!' });
 
@@ -71,14 +67,10 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       headerTitle=""
       accent={accentForTransactionType(transaction?.type)}
       title={title}
-      primaryAction={{
-        label: isBridgeReclaim ? t('home') : t('done'),
-        onClick: onDoneClick,
-        variant: ButtonVariant.Primary
-      }}
+      primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
-        label: isBridgeReclaim ? t('returnToLockedFunds') : t('viewInActivities'),
-        onClick: isBridgeReclaim ? returnToLockedFunds : () => navigate('/history'),
+        label: t('viewInActivities'),
+        onClick: () => navigate('/history'),
         variant: ButtonVariant.Secondary
       }}
       onClose={onDoneClick}

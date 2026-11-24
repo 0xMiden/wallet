@@ -19,7 +19,11 @@ const LOCK_ID = '42';
 const REF = { chainId: 11155111, lockId: LOCK_ID, sponsorAddress: SPONSOR };
 
 const mockLocation = { search: `?address=${SPONSOR}` };
-jest.mock('lib/woozie', () => ({ useLocation: () => mockLocation }));
+const mockNavigate = jest.fn();
+jest.mock('lib/woozie', () => ({
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  useLocation: () => mockLocation
+}));
 const mockBack = jest.fn();
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => mockBack }));
 
@@ -133,6 +137,7 @@ describe('RecoverLockedFundsLock', () => {
 
     expect(mockStart).toHaveBeenCalledWith(REF);
     expect(mockFinish).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
     // The action asks for a fresh read of the lock.
     expect(mockReadState).toHaveBeenCalledTimes(2);
   });
@@ -167,13 +172,24 @@ describe('RecoverLockedFundsLock', () => {
     expect(mockCancel).toHaveBeenCalledWith(REF);
   });
 
-  it('withdraws the whole lock once the withdrawal is due', async () => {
+  it('withdraws the whole lock once the withdrawal is due and shows the success confirmation', async () => {
     mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
     await renderLock();
 
     expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent('epochDepositWithdrawReady');
     await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+
     expect(mockFinish).toHaveBeenCalledWith(REF);
+    expect(screen.getByTestId('recover-funds-withdrawal-success')).toBeInTheDocument();
+    expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toHaveTextContent(
+      'bridgeWithdrawalSuccessful'
+    );
+
+    fireEvent.click(screen.getByTestId('recover-funds-return-to-list'));
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/recover-funds');
+
+    fireEvent.click(screen.getByTestId('recover-funds-return-home'));
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
   it('uses the recorded enable time when The Compact does not answer', async () => {
@@ -221,6 +237,7 @@ describe('RecoverLockedFundsLock', () => {
     await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
 
     expect(screen.getByTestId('recover-funds-lock-error')).toHaveTextContent('recoverFundsCouldNotCheckShort');
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
   });
 
   it('asks for the sponsor wallet when none is connected', async () => {

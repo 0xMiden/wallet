@@ -42,7 +42,7 @@ import { selectEpochTokens } from 'lib/remote-config/values';
 import { getChain } from 'lib/walletconnect/config';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { useEvmWalletPicker } from 'lib/walletconnect/useEvmWalletPicker';
-import { useLocation } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
 
 import { parseLockRoute, RECOVER_FUNDS_PATH, type RoutedLock } from './recover-funds-paths';
 
@@ -113,7 +113,7 @@ const RecoverLockedFundsLock: FC<RecoverLockedFundsLockProps> = ({ chainId, lock
       </SubPageLayout>
     );
   }
-  return <LockDetails lock={ref} onBack={handleBack} />;
+  return <LockDetails key={`${ref.chainId}:${ref.lockId}:${ref.sponsorAddress}`} lock={ref} onBack={handleBack} />;
 };
 
 const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBack }) => {
@@ -125,6 +125,7 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   const [state, setState] = useState<LockPageState>({ loaded: false, chain: {}, local: {} });
   const [busy, setBusy] = useState<LockAction>();
   const [error, setError] = useState<LockedDepositErrorDisplay>();
+  const [withdrawn, setWithdrawn] = useState(false);
 
   const network = getChain(lock.chainId)?.name ?? String(lock.chainId);
   const sponsor = shortenAddress(lock.sponsorAddress);
@@ -189,7 +190,15 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   );
 
   const handleWithdraw = useCallback(
-    () => run('withdraw', () => (phase === 'due' ? finishLockWithdrawal(lock) : startLockWithdrawal(lock))),
+    () =>
+      run('withdraw', async () => {
+        if (phase === 'due') {
+          await finishLockWithdrawal(lock);
+          setWithdrawn(true);
+          return;
+        }
+        await startLockWithdrawal(lock);
+      }),
     [lock, phase, run]
   );
   const handleCancel = useCallback(() => run('cancel', () => cancelLockWithdrawal(lock)), [lock, run]);
@@ -198,6 +207,41 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
     () => run('retry', async () => (retryTxId === undefined ? undefined : retryLockedDeposit(retryTxId))),
     [retryTxId, run]
   );
+
+  if (withdrawn) {
+    return (
+      <SubPageLayout
+        title={t('recoverFundsLockTitle')}
+        onBack={onBack}
+        footerLayout="stack"
+        data-testid="recover-funds-withdrawal-success"
+        footer={
+          <>
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('returnToLockedFunds')}
+              onClick={() => navigate(RECOVER_FUNDS_PATH)}
+              data-testid="recover-funds-return-to-list"
+              className="w-full max-w-none"
+            />
+            <Button
+              variant={ButtonVariant.Secondary}
+              title={t('home')}
+              onClick={() => navigate('/')}
+              data-testid="recover-funds-return-home"
+              className="w-full max-w-none"
+            />
+          </>
+        }
+      >
+        <EmptyState
+          icon={IconName.ShieldCheck}
+          title={t('bridgeWithdrawalSuccessful')}
+          data-testid="recover-funds-withdrawal-success-state"
+        />
+      </SubPageLayout>
+    );
+  }
 
   const balance = state.chain.balance;
   const balanceContent = (() => {
