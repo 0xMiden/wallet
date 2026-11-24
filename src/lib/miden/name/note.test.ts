@@ -2,7 +2,7 @@ import { getCurrentMidenBlock } from 'lib/epoch/chain';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
-import { encodeDomainFelts, registerNoteInputs } from './encoding';
+import { encodeDomainFelts, registerNoteInputs, validateMidenLabel } from './encoding';
 import { MidenNameInvalidLabelError, MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
 import { buildRegisterNameRequest, registerNameRowAccounts } from './note';
 import {
@@ -15,6 +15,14 @@ import {
   Word
 } from './test-support/fake-sdk';
 
+jest.mock('./encoding', () => {
+  const actual = jest.requireActual<typeof import('./encoding')>('./encoding');
+  return {
+    ...actual,
+    validateMidenLabel: jest.fn(actual.validateMidenLabel),
+    encodeDomainFelts: jest.fn(actual.encodeDomainFelts)
+  };
+});
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: jest.fn() }));
 jest.mock('lib/epoch/chain', () => ({ getCurrentMidenBlock: jest.fn() }));
@@ -178,6 +186,20 @@ describe('buildRegisterNameRequest', () => {
     await expect(
       buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'Alice!', priceBaseUnits: 1n })
     ).rejects.toBeInstanceOf(MidenNameInvalidLabelError);
+    expect(mockTip).not.toHaveBeenCalled();
+  });
+
+  it('validates invalid label once and before network-config checks', async () => {
+    const mockValidate = jest.mocked(validateMidenLabel);
+    const mockEncode = jest.mocked(encodeDomainFelts);
+    mockValidate.mockClear();
+    mockEncode.mockClear();
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.DEVNET);
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'Alice!', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameInvalidLabelError);
+    expect(mockValidate).not.toHaveBeenCalled();
+    expect(mockEncode).toHaveBeenCalledTimes(1);
     expect(mockTip).not.toHaveBeenCalled();
   });
 

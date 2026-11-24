@@ -31,8 +31,8 @@ import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-c
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { getMidenNameConfig, MIDEN_NAME_RECLAIM_BLOCKS } from './config';
-import { encodeDomainFelts, registerNoteInputs, validateMidenLabel } from './encoding';
-import { MidenNameInvalidLabelError, MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
+import { encodeDomainFelts, registerNoteInputs } from './encoding';
+import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
 import { loadRegisterDomainScript } from './script';
 import { idParts } from './sdk-words';
 
@@ -115,11 +115,9 @@ export function randomSerialWord(): Word {
  * adds the sponsorship note for the network note.
  */
 export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): Promise<RegisterNameRequest> {
-  const labelError = validateMidenLabel(args.label);
-  if (labelError) throw new MidenNameInvalidLabelError(args.label, labelError);
+  const domainWord = encodeDomainFelts(args.label);
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
-  const domainWord = encodeDomainFelts(args.label);
 
   // A fresh RPC head, not the local sync height. This call also loads the SDK
   // WASM before the code below makes SDK objects.
