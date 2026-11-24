@@ -8,7 +8,7 @@ import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
-import { fetchFaucetProof, readFaucetProofMetadata } from './faucet-proof';
+import { readFaucetProofMetadata } from './faucet-proof';
 import { getNativeDisplayMetadataSync } from './native';
 import { ensureTokensMetadataSchema, TOKENS_BASE_METADATA_STORAGE_KEY, updateTokensBaseMetadata } from './storage';
 import { AssetMetadata } from './types';
@@ -62,30 +62,74 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
     const accountId = accountRefToSdk(assetId);
     const endpoint = getRpcEndpoint();
     const rpcClient = new RpcClient(endpoint);
-    const proof = await withRpcTimeout(() => fetchFaucetProof(rpcClient, accountId), 'faucet-metadata-proof', {
-      retries: 0
-    });
-    if (!proof.accountHeader()) {
-      if (accountId.isPublic()) {
-        // if the account was public and we couldn't fetch metadata it should not happen in first place
-        // but in case it does we return unknown metadata without caching it so a later fetch can retry
-        console.warn('Failed to fetch metadata from chain for', assetId, 'Using default metadata');
-        return DEFAULT_TOKEN_METADATA;
-      }
-      // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
-      return cacheTokenMetadata(assetId, DEFAULT_TOKEN_METADATA);
-    }
-    let metadata: AssetMetadata;
+    let rpcAttempt: ReturnType<RpcClient['getAccountProof']> | undefined;
+    let proof: Awaited<ReturnType<RpcClient['getAccountProof']>> | undefined;
+    let trapped = false;
+    let rpcTrapped = false;
     try {
-      metadata = readFaucetProofMetadata(proof);
-    } catch (err) {
-      if (isWasmTrap(err)) throw err;
-      // A present public header with incompatible standard storage is deterministic.
-      console.warn('Invalid standard faucet metadata for', assetId, '- using default metadata', err);
-      return cacheTokenMetadata(assetId, DEFAULT_TOKEN_METADATA);
-    }
+      proof = await withRpcTimeout(
+        () => {
+          try {
+            rpcAttempt = rpcClient.getAccountProof(accountId);
+          } catch (err) {
+            if (isWasmTrap(err)) rpcTrapped = true;
+            throw err;
+          }
+          return rpcAttempt;
+        },
+        'faucet-metadata-proof',
+        { retries: 0 }
+      );
+      let hasHeader: ReturnType<NonNullable<typeof proof>['accountHeader']>;
+      let metadata: AssetMetadata | undefined;
+      try {
+        hasHeader = proof.accountHeader();
+        if (hasHeader) {
+          try {
+            metadata = readFaucetProofMetadata(proof);
+          } catch (err) {
+            if (isWasmTrap(err)) throw err;
+            // A present public header with incompatible standard storage is deterministic.
+            console.warn('Invalid standard faucet metadata for', assetId, '- using default metadata', err);
+          }
+        }
+      } catch (err) {
+        if (isWasmTrap(err)) trapped = true;
+        throw err;
+      } finally {
+        if (!trapped) proof.free?.();
+      }
 
-    return cacheTokenMetadata(assetId, metadata);
+      if (!hasHeader) {
+        if (accountId.isPublic()) {
+          // if the account was public and we couldn't fetch metadata it should not happen in first place
+          // but in case it does we return unknown metadata without caching it so a later fetch can retry
+          console.warn('Failed to fetch metadata from chain for', assetId, 'Using default metadata');
+          return DEFAULT_TOKEN_METADATA;
+        }
+        // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
+        return cacheTokenMetadata(assetId, DEFAULT_TOKEN_METADATA);
+      }
+
+      return cacheTokenMetadata(assetId, metadata ?? DEFAULT_TOKEN_METADATA);
+    } finally {
+      if (rpcAttempt) {
+        void rpcAttempt.then(
+          resolved => {
+            try {
+              if (resolved !== proof) resolved?.free?.();
+            } finally {
+              if (!rpcTrapped) rpcClient.free?.();
+            }
+          },
+          err => {
+            if (!rpcTrapped && !isWasmTrap(err)) rpcClient.free?.();
+          }
+        );
+      } else if (!rpcTrapped) {
+        rpcClient.free?.();
+      }
+    }
   } catch (err) {
     console.error(err);
 

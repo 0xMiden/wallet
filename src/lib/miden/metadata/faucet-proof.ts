@@ -1,4 +1,6 @@
-import type { AccountId, AccountProof, RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import type { AccountProof } from '@miden-sdk/miden-sdk/lazy';
+
+import { isWasmTrap } from 'lib/miden/sdk/wasm-handle';
 
 import type { AssetMetadata } from './types';
 
@@ -10,7 +12,14 @@ const MAX_SYMBOL = 2481152873203736562n;
 function readWord(proof: AccountProof, slot: string): readonly [bigint, bigint, bigint, bigint] {
   const word = proof.getStorageSlotValue(`${SLOT_PREFIX}${slot}`);
   if (!word) throw new Error(`Missing faucet metadata slot: ${slot}`);
-  const limbs = word.toU64s();
+  let limbs: BigUint64Array;
+  try {
+    limbs = word.toU64s();
+  } catch (err) {
+    if (!isWasmTrap(err)) word.free?.();
+    throw err;
+  }
+  word.free?.();
   return [limbs[0]!, limbs[1]!, limbs[2]!, limbs[3]!];
 }
 
@@ -80,9 +89,4 @@ export function readFaucetProofMetadata(proof: AccountProof): AssetMetadata {
     scaleIsUnknown: false,
     ...(description ? { description } : {})
   };
-}
-
-/** Reads the account header and storage values without fetching storage maps. */
-export function fetchFaucetProof(rpc: RpcClient, accountId: AccountId): Promise<AccountProof> {
-  return rpc.getAccountProof(accountId);
 }

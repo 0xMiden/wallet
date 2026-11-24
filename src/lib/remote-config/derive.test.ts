@@ -1511,6 +1511,157 @@ describe('deriveBridgeConfig default I/O', () => {
     expect(await pairs()).toEqual({ state: 'error', message: 'unreachable' });
   });
 
+  function trackedFaucetProof(words = FAUCET_PROOF_WORDS, hasHeader = true) {
+    const proofFree = jest.fn();
+    const wordFree = jest.fn();
+    return {
+      proofFree,
+      wordFree,
+      proof: {
+        accountHeader: () => (hasHeader ? {} : undefined),
+        getStorageSlotValue: (slot: string) => {
+          const word = words[slot];
+          return word ? { toU64s: () => word, free: wordFree } : undefined;
+        },
+        free: proofFree
+      }
+    };
+  }
+
+  function mockTrackedRpcClient() {
+    const rpcFree = jest.fn();
+    jest.requireMock('@miden-sdk/miden-sdk/lazy').RpcClient.mockImplementationOnce(() => ({
+      getAccountDetails: mockGetAccountDetails,
+      getAccountProof: mockGetAccountProof,
+      free: rpcFree
+    }));
+    return rpcFree;
+  }
+
+  it('frees Word (25x), AccountProof, and RpcClient handles in readMidenFaucetMetadata', async () => {
+    const ok = trackedFaucetProof();
+    const okRpcFree = mockTrackedRpcClient();
+    mockGetAccountProof.mockResolvedValueOnce(ok.proof);
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).resolves.toEqual({
+      symbol: 'TEST',
+      decimals: 8
+    });
+    expect(ok.wordFree).toHaveBeenCalledTimes(25);
+    expect(ok.proofFree).toHaveBeenCalledTimes(1);
+    expect(okRpcFree).toHaveBeenCalledTimes(1);
+
+    const noHeader = trackedFaucetProof(FAUCET_PROOF_WORDS, false);
+    const noHeaderRpcFree = mockTrackedRpcClient();
+    mockGetAccountProof.mockResolvedValueOnce(noHeader.proof);
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toBeInstanceOf(
+      NotAFaucetError
+    );
+    expect(noHeader.wordFree).not.toHaveBeenCalled();
+    expect(noHeader.proofFree).toHaveBeenCalledTimes(1);
+    expect(noHeaderRpcFree).toHaveBeenCalledTimes(1);
+
+    const invalid = trackedFaucetProof({
+      ...FAUCET_PROOF_WORDS,
+      'miden::standards::faucets::fungible::token_config': [1000n, 1000000n, 13n, 8765514n]
+    });
+    const invalidRpcFree = mockTrackedRpcClient();
+    mockGetAccountProof.mockResolvedValueOnce(invalid.proof);
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toBeInstanceOf(
+      NotAFaucetError
+    );
+    expect(invalid.wordFree).toHaveBeenCalledTimes(1);
+    expect(invalid.proofFree).toHaveBeenCalledTimes(1);
+    expect(invalidRpcFree).toHaveBeenCalledTimes(1);
+
+    const errRpcFree = mockTrackedRpcClient();
+    mockGetAccountProof.mockRejectedValue(
+      new Error('account 0x537c15a622074e91188aa894456c52 not found at block 693233')
+    );
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toBeInstanceOf(
+      NotDeployedError
+    );
+    expect(errRpcFree).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not free trapped AccountProof, Word, or RpcClient handles on WebAssembly.RuntimeError', async () => {
+    const slotProofFree = jest.fn();
+    const slotRpcFree = mockTrackedRpcClient();
+    mockGetAccountProof.mockResolvedValueOnce({
+      accountHeader: () => ({}),
+      getStorageSlotValue: () => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      },
+      free: slotProofFree
+    });
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toThrow(
+      WebAssembly.RuntimeError
+    );
+    expect(slotProofFree).not.toHaveBeenCalled();
+    expect(slotRpcFree).toHaveBeenCalledTimes(1);
+
+    const wordProofFree = jest.fn();
+    const trappedWordFree = jest.fn();
+    const wordRpcFree = mockTrackedRpcClient();
+    mockGetAccountProof.mockResolvedValueOnce({
+      accountHeader: () => ({}),
+      getStorageSlotValue: () => ({
+        toU64s: () => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        },
+        free: trappedWordFree
+      }),
+      free: wordProofFree
+    });
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toThrow(
+      WebAssembly.RuntimeError
+    );
+    expect(trappedWordFree).not.toHaveBeenCalled();
+    expect(wordProofFree).not.toHaveBeenCalled();
+    expect(wordRpcFree).toHaveBeenCalledTimes(1);
+
+    const rpcTrapFree = mockTrackedRpcClient();
+    mockGetAccountProof.mockRejectedValue(new WebAssembly.RuntimeError('unreachable'));
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toThrow(
+      WebAssembly.RuntimeError
+    );
+    expect(rpcTrapFree).not.toHaveBeenCalled();
+  });
+
+  it('defers freeing AccountProof and RpcClient on timed-out attempt until settled', async () => {
+    jest.useFakeTimers();
+    try {
+      let resolveAttempt0!: (proof: unknown) => void;
+      const late = trackedFaucetProof();
+      const ok = trackedFaucetProof();
+      const retryRpcFree = mockTrackedRpcClient();
+      mockGetAccountProof
+        .mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveAttempt0 = resolve;
+            })
+        )
+        .mockResolvedValueOnce(ok.proof);
+
+      const pending = readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC);
+      await jest.advanceTimersByTimeAsync(15_000);
+      await expect(pending).resolves.toEqual({ symbol: 'TEST', decimals: 8 });
+
+      expect(ok.wordFree).toHaveBeenCalledTimes(25);
+      expect(ok.proofFree).toHaveBeenCalledTimes(1);
+      expect(late.proofFree).not.toHaveBeenCalled();
+      expect(retryRpcFree).not.toHaveBeenCalled();
+
+      resolveAttempt0(late.proof);
+      await Promise.resolve();
+      expect(late.wordFree).not.toHaveBeenCalled();
+      expect(late.proofFree).toHaveBeenCalledTimes(1);
+      expect(retryRpcFree).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('reads Sepolia over the wallet RPC for the chain', async () => {
     mockPublicClient.getCode.mockResolvedValue('0x6080604052');
     mockPublicClient.readContract.mockImplementation(async ({ functionName }: { functionName: string }) =>

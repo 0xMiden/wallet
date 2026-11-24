@@ -10,8 +10,9 @@ import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { earnMarketForVault, type EarnVaultInfo, earnVaultTakesDeposits, readEarnVaults } from 'lib/epoch/pools-read';
-import { fetchFaucetProof, readFaucetProofMetadata } from 'lib/miden/metadata/faucet-proof';
+import { readFaucetProofMetadata } from 'lib/miden/metadata/faucet-proof';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { isWasmTrap } from 'lib/miden/sdk/wasm-handle';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -455,16 +456,82 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
   }
   await ensureSdkWasmReady();
   const rpc = new RpcClient(new Endpoint(rpcUrl));
-  const proof = await readAccount(faucetId, 'bridge config faucet', () =>
-    fetchFaucetProof(rpc, AccountId.fromHex(faucetId))
-  );
-  if (!proof.accountHeader()) throw new NotAFaucetError(`${faucetId} has no public state`);
+  const attempts: { proof?: AccountProof }[] = [];
+  let inFlight = 0;
+  let finished = false;
+  let rpcTrapped = false;
+  let rpcFreed = false;
+  let winningAttempt: { proof?: AccountProof } | undefined;
+  const freeRpcIfDone = () => {
+    if (finished && inFlight === 0 && !rpcTrapped && !rpcFreed) {
+      rpcFreed = true;
+      rpc.free?.();
+    }
+  };
   try {
-    const { symbol, decimals } = readFaucetProofMetadata(proof);
-    return { symbol, decimals };
-  } catch (err) {
-    if (err instanceof WebAssembly.RuntimeError) throw err;
-    throw new NotAFaucetError(`${faucetId} is not a basic fungible faucet: ${errorMessage(err)}`);
+    const proof = await readAccount(faucetId, 'bridge config faucet', () => {
+      const attempt: { proof?: AccountProof } = {};
+      attempts.push(attempt);
+      inFlight++;
+      let pending: Promise<AccountProof>;
+      try {
+        pending = rpc.getAccountProof(AccountId.fromHex(faucetId));
+      } catch (err) {
+        inFlight--;
+        if (isWasmTrap(err)) rpcTrapped = true;
+        throw err;
+      }
+      void pending.then(
+        resolved => {
+          inFlight--;
+          if (finished) {
+            try {
+              if (attempt !== winningAttempt) resolved?.free?.();
+            } finally {
+              freeRpcIfDone();
+            }
+          } else {
+            attempt.proof = resolved;
+          }
+        },
+        err => {
+          inFlight--;
+          if (isWasmTrap(err)) rpcTrapped = true;
+          if (finished) freeRpcIfDone();
+        }
+      );
+      return pending;
+    });
+    winningAttempt = attempts[attempts.length - 1];
+    let proofTrapped = false;
+    try {
+      if (!proof.accountHeader()) throw new NotAFaucetError(`${faucetId} has no public state`);
+      try {
+        const { symbol, decimals } = readFaucetProofMetadata(proof);
+        return { symbol, decimals };
+      } catch (err) {
+        if (isWasmTrap(err)) throw err;
+        throw new NotAFaucetError(`${faucetId} is not a basic fungible faucet: ${errorMessage(err)}`);
+      }
+    } catch (err) {
+      if (isWasmTrap(err)) proofTrapped = true;
+      throw err;
+    } finally {
+      if (!proofTrapped) proof.free?.();
+    }
+  } finally {
+    finished = true;
+    try {
+      for (const attempt of attempts) {
+        if (attempt !== winningAttempt && attempt.proof) {
+          const staleProof = attempt.proof;
+          attempt.proof = undefined;
+          staleProof.free?.();
+        }
+      }
+    } finally {
+      freeRpcIfDone();
+    }
   }
 }
 
