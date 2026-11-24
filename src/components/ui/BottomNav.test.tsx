@@ -568,6 +568,28 @@ describe('BottomNav — four destinations', () => {
     expect(buttons.map(b => b.getAttribute('aria-label'))).toEqual(['Home', 'Explore', 'Activity', 'Settings']);
     expect(buttons.filter(b => b.hasAttribute('aria-current'))).toEqual([getTab('Settings')]);
   });
+
+  it('fades mobile labels without changing the buttons or the active highlight', () => {
+    const onChange = jest.fn();
+    const { container, rerender } = render(
+      <BottomNav items={fourItems} activeId="activity" onChange={onChange} presentation="expanded" />
+    );
+    const activity = getTab('Activity');
+    const highlight = bubbleOf(container);
+    expect(screen.getByText('Activity')).not.toHaveClass('opacity-0');
+    expect(screen.getByRole('navigation')).toHaveClass('p-1');
+
+    rerender(<BottomNav items={fourItems} activeId="activity" onChange={onChange} presentation="condensed" />);
+
+    expect(screen.getByRole('navigation')).toHaveClass('p-0.5');
+    expect(screen.getByText('Activity')).toHaveClass('opacity-0');
+    expect(getTab('Activity')).toBe(activity);
+    expect(activity).toHaveClass('h-12', 'w-16');
+    expect(activity).toHaveAttribute('aria-current', 'page');
+    expect(bubbleOf(container)).toBe(highlight);
+    fireEvent.click(getTab('Settings'));
+    expect(onChange).toHaveBeenCalledWith('settings');
+  });
 });
 
 describe('BottomNav — selection behaviour', () => {
