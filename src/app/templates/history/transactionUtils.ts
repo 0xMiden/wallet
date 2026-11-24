@@ -2,8 +2,10 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import type { Status } from 'components/ui/StatusBadge';
+import { epochLockedDepositState, type EpochLockedDepositState } from 'lib/epoch/bridge-in-lock';
 import { getDateFnsLocale } from 'lib/i18n';
-import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
+import { isDisplayable } from 'lib/i18n/adaptive-precision';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -230,17 +232,6 @@ export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlemen
 export type MoneyKind = 'receives' | 'pays' | 'typed';
 
 /**
- * Minimum decimals by displayed symbol, for an asset whose amounts need more than the default two.
- * Six is the typed-amount input cap (`AmountInput`), so a Slow ETH amount reads the same in flight
- * and once credited. Metadata `decimals` is the on-chain scale, not a display precision.
- */
-const DISPLAY_PRECISION = new Map([
-  ['ETH', 6],
-  ['WETH', 6]
-]);
-const DEFAULT_DISPLAY_PRECISION = 2;
-
-/**
  * The decimal text of a stored amount. A restore keeps a row's `extraInputs` as the dump recorded
  * them, so a hand-edited backup can leave a number or a BigInt where a string is declared; any
  * other shape is not an amount.
@@ -265,13 +256,11 @@ export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, sy
   if (text === undefined) return kind === 'typed' ? '0' : value;
   if (kind === 'typed') {
     const typed = new BigNumber(text.replace(/,/g, ''));
-    return isDisplayable(typed) ? typed.toFixed() : '0';
+    return isDisplayable(typed) ? formatAmountDisplay(typed, { formatting: 'exact' }) : '0';
   }
   const amount = new BigNumber(text);
   if (!isDisplayable(amount)) return value;
-  const minimum = (symbol === undefined ? undefined : DISPLAY_PRECISION.get(symbol)) ?? DEFAULT_DISPLAY_PRECISION;
-  const places = getAdaptiveDecimalPlaces(amount, minimum);
-  return amount.decimalPlaces(places, kind === 'pays' ? BigNumber.ROUND_UP : BigNumber.ROUND_DOWN).toFixed();
+  return formatAmountDisplay(text, { symbol, rounding: kind === 'pays' ? 'up' : 'down' });
 }
 
 /**
@@ -377,13 +366,44 @@ export const bridgeStatusOf = (entry: IHistoryEntry, now = Date.now()): BridgeSt
 export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' | 'bridgeInProvider'>): boolean =>
   entry.bridgeProvider === 'usdcx' || entry.bridgeInProvider === 'usdcx';
 
+/** The state of an Epoch deposit in The Compact without an allocation, for a row that is not restored. */
+export const lockedDepositStateOf = (
+  entry: Pick<IHistoryEntry, 'bridgeInLockedDeposit' | 'bridgeInPhase' | 'restoredFromBackup'>
+): EpochLockedDepositState | undefined =>
+  epochLockedDepositState(entry.bridgeInLockedDeposit, entry.bridgeInPhase, entry.restoredFromBackup === true);
+
+/** A bridge row whose badge is `bridgeBadgeStatusOf` and not the plain Pending/Confirmed/Failed status. */
+export const hasOwnBridgeBadge = (entry: IHistoryEntry): boolean =>
+  isUsdcxBridgeEntry(entry) ||
+  entry.bridgeInProvider === 'near-intents' ||
+  entry.bridgeInStoppedBeforeSource === true ||
+  lockedDepositStateOf(entry) !== undefined;
+
 /**
  * The badge of a bridge row. An unpaid NEAR Intents deposit past its deadline reads Expired. A USDCx deposit reads Confirmed once Circle attested it and
  * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
  * as a confirmed destination payout: it reads Confirmed once the payout mint is recorded, and Payout delayed when
- * none arrives within 2 hours.
+ * none arrives within 2 hours. An Epoch deposit that is in The Compact without an allocation reads Deposit locked
+ * until a retry or a withdrawal recovers it.
  */
 export function bridgeBadgeStatusOf(entry: IHistoryEntry, now = Date.now()): Status {
+  if (
+    entry.txType === 'bridged-receive' &&
+    (entry.bridgeInProvider === 'agglayer' || entry.bridgeInProvider === 'usdcx') &&
+    entry.bridgeInPhase === 'submitting' &&
+    entry.bridgeInStoppedBeforeSource &&
+    !entry.restoredFromBackup &&
+    entry.status !== ITransactionStatus.Failed
+  )
+    return 'stoppedBeforeSource';
+  switch (lockedDepositStateOf(entry)) {
+    case 'locked':
+      return 'depositLocked';
+    case 'withdrawn':
+      return 'depositWithdrawn';
+    default:
+      break;
+  }
   if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
   if (entry.bridgeInProvider === 'usdcx') {
     const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';
@@ -689,8 +709,9 @@ export const formatDate = (timestamp: number | string): string => {
   if (typeof timestamp === 'number') {
     date = new Date(timestamp * 1000);
   } else if (typeof timestamp === 'string') {
-    const numericTimestamp = parseFloat(timestamp);
-    if (!isNaN(numericTimestamp)) {
+    const trimmed = timestamp.trim();
+    const numericTimestamp = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(trimmed) ? Number(trimmed) : NaN;
+    if (Number.isFinite(numericTimestamp)) {
       date = new Date(numericTimestamp * 1000);
     } else {
       date = new Date(timestamp);

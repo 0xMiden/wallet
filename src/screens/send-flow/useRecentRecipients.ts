@@ -20,7 +20,7 @@ const EMPTY_RECENTS: RecentRecipient[] = [];
  * whose `secondaryAccountId` is the bridge allocator, so the user-facing
  * recipient comes from `extraInputs.destinationAddress` instead.
  */
-const recipientOf = (row: ITransaction): { address: string; networkName?: string } | undefined => {
+export const recipientOf = (row: ITransaction): { address: string; networkName?: string } | undefined => {
   // A NEAR Intents send (a `bridged-send` row, or a `send` row of an older build) pays a 1Click deposit address on
   // Miden, which is used once and must never be offered again. The recipient the user chose is the quote's
   // `recipient`, on the chain the config names. A row whose two recipient fields disagree gives no entry.
@@ -37,7 +37,6 @@ const recipientOf = (row: ITransaction): { address: string; networkName?: string
     const chains = Array.isArray(oneClick.config.chains) ? oneClick.config.chains : [];
     return { address, networkName: chains.find(chain => chain.id === chainId)?.name };
   }
-
   if (row.type === 'send') {
     const address = row.secondaryAccountId?.trim();
     return address ? { address } : undefined;

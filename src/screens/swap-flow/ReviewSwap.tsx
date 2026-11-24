@@ -4,6 +4,7 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { ReviewLayout } from 'components/review';
 import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
@@ -18,7 +19,8 @@ import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { TextField } from 'components/ui/TextField';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { TokenAmount } from 'components/ui/TokenAmount';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { SWAP_VERDICT_LABEL_KEYS, swapEtaBlocksSubmit, SwapQuote, swapVerdict } from 'lib/miden/swap/quote';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
@@ -74,7 +76,7 @@ function expectedOverAsk(quote: SwapQuote, decimals: number): string | undefined
   const expected = quote.eta.expectedRequestedAmount;
   if (expected === null || !/^\d+$/.test(expected)) return undefined;
   const amount = BigInt(expected);
-  return amount > quote.requestedAmount ? formatBigInt(amount, decimals) : undefined;
+  return amount > quote.requestedAmount ? formatAmountDisplay(amount, { decimals, rounding: 'down' }) : undefined;
 }
 
 function fillWarningKey(quote?: SwapQuote): string | undefined {
@@ -122,6 +124,18 @@ function formatFillsIn(t: TFunction, quote?: SwapQuote): string {
   return seconds < 90
     ? t('swapEtaSeconds', { seconds: Math.round(seconds) })
     : t('swapEtaMinutes', { minutes: Math.round(seconds / 60) });
+}
+
+/** Compare only solver terms the review actually displays, at its precision and locale. */
+export function swapReviewTermsChanged(t: TFunction, reviewed: SwapQuote, fresh: SwapQuote, decimals: number): boolean {
+  const reviewedVerdict = swapVerdict(reviewed.eta);
+  const freshVerdict = swapVerdict(fresh.eta);
+  return (
+    reviewedVerdict !== freshVerdict ||
+    fillWarningKey(reviewed) !== fillWarningKey(fresh) ||
+    (freshVerdict === 'full' && expectedOverAsk(reviewed, decimals) !== expectedOverAsk(fresh, decimals)) ||
+    formatFillsIn(t, reviewed) !== formatFillsIn(t, fresh)
+  );
 }
 
 const SwapArrows: React.FC = () => (
@@ -172,6 +186,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   submitting = false
 }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const networkFeeDetails = useNetworkFeeEstimateDetails();
   const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
@@ -266,7 +281,12 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         }
         value={
           <span className="inline-flex items-center gap-1">
-            {`${requestAmount} ${requestLabel}`}
+            <TokenAmount
+              amount={requestAmount}
+              symbol={requestLabel}
+              formatting="exact"
+              renderText={amount => (command ? t('swapApproxAmount', { amount }) : amount)}
+            />
             <SwapTokenInfoButton faucetId={requestToken.faucetId} label={requestLabel} />
           </span>
         }
@@ -342,7 +362,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         {requestEdited && (
           <DetailRow label={t('swapExactPayAmount')} stacked data-testid="swap-exact-pay-row">
             <span className="break-all">
-              {offerAmount} {offerLabel}
+              <TokenAmount amount={offerAmount} symbol={offerLabel} formatting="exact" />
             </span>
           </DetailRow>
         )}

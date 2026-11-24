@@ -1,4 +1,4 @@
-import { CapacitorHttp } from '@capacitor/core';
+import { CapacitorHttp, registerPlugin } from '@capacitor/core';
 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
@@ -68,6 +68,30 @@ export class GuardianRequestTimeoutError extends Error {
 }
 
 type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type GuardianProbeRequestBudget = { timeoutMs: number; startedAt: number };
+const guardianProbeRequestBudgets = new WeakMap<AbortSignal, GuardianProbeRequestBudget>();
+const guardianNativeProbeSettlements = new WeakMap<AbortSignal, Promise<void>>();
+
+/** Keep a native Guardian probe read bounded by the deadline that owns its permit. */
+export function registerGuardianProbeRequestBudget(signal: AbortSignal, timeoutMs: number): () => void {
+  const budget: GuardianProbeRequestBudget = {
+    timeoutMs: Number.isFinite(timeoutMs) ? Math.max(1, Math.ceil(timeoutMs)) : GUARDIAN_REQUEST_TIMEOUT_MS,
+    startedAt: monotonicNowMs()
+  };
+  guardianProbeRequestBudgets.set(signal, budget);
+  return () => {
+    if (guardianProbeRequestBudgets.get(signal) === budget) guardianProbeRequestBudgets.delete(signal);
+  };
+}
+
+/**
+ * The native probe read started for this attempt signal. An attempt that never started one is already
+ * settled, so the permit wait does not hang. The entry stays after the read settles: both handlers
+ * swallow, and a late native settlement cannot escape as an unhandled rejection.
+ */
+export function guardianNativeProbeSettlement(signal: AbortSignal): Promise<void> {
+  return guardianNativeProbeSettlements.get(signal) ?? Promise.resolve();
+}
 
 // Routed for the session: the built-ins, and endpoints bound to an account or proved to be a Guardian.
 const guardianOrigins = new Set<string>();
@@ -296,6 +320,170 @@ function guardianWebFetch(
     .finally(deadline.release);
 }
 
+interface GuardianProbeHttpRequest {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  data?: string;
+  requestId: string;
+  timeoutMs: number;
+}
+
+interface GuardianProbeHttpResponse {
+  data?: unknown;
+  status: number;
+  headers?: Record<string, string>;
+  url?: string;
+}
+
+interface GuardianProbeHttpPlugin {
+  request(options: GuardianProbeHttpRequest): Promise<GuardianProbeHttpResponse>;
+  cancel(options: { requestId: string }): Promise<void>;
+}
+
+interface GuardianNativeResponse {
+  data?: unknown;
+  status: number;
+  headers?: HeadersInit;
+}
+
+/** The plugin handle is created on the first probe read, never at module load. */
+let guardianProbeHttpPlugin: GuardianProbeHttpPlugin | undefined;
+
+function guardianProbeHttp(): GuardianProbeHttpPlugin {
+  guardianProbeHttpPlugin ??= registerPlugin<GuardianProbeHttpPlugin>('GuardianProbeHttp');
+  return guardianProbeHttpPlugin;
+}
+
+function callerAbortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+}
+
+/**
+ * A rejected cancel must not replace the plugin request recorded as this signal's settlement.
+ * The permit waits on that request, including while cancel is in flight.
+ */
+function cancelGuardianProbeRead(plugin: GuardianProbeHttpPlugin, requestId: string): void {
+  try {
+    void Promise.resolve(plugin.cancel({ requestId })).then(
+      () => undefined,
+      () => undefined
+    );
+  } catch {
+    // The native read already stored for this signal is unchanged.
+  }
+}
+
+function guardianResponseFromNative(nativeResponse: GuardianNativeResponse): Response {
+  const responseData: unknown = nativeResponse.data;
+  const bodyText =
+    typeof responseData === 'string' ? responseData : responseData == null ? '' : JSON.stringify(responseData);
+
+  return new Response(NULL_BODY_STATUSES.has(nativeResponse.status) ? null : bodyText, {
+    status: nativeResponse.status,
+    headers: nativeResponse.headers
+  });
+}
+
+/**
+ * A probe read ends when its attempt budget ends. CapacitorHttp's read timeout resets while bytes
+ * arrive and its promise cannot be cancelled, so a trickle would keep the permit the read holds.
+ * `timeoutMs` is the remaining budget, at least 1 ms, and the plugin's lifetime is that long from
+ * the start of the call. The caller-facing fetch rejects at the ceiling or on abort; the settlement
+ * promise is the plugin request, so the permit stays out until that call settles.
+ */
+function readGuardianProbeNative(
+  url: string,
+  method: string,
+  headers: Record<string, string>,
+  rawBody: string | undefined,
+  callerSignal: AbortSignal,
+  probeBudget: GuardianProbeRequestBudget
+): Promise<GuardianNativeResponse> {
+  if (callerSignal.aborted) throw callerAbortReason(callerSignal);
+  const deadlineAt = probeBudget.startedAt + probeBudget.timeoutMs;
+  const remainingMs = deadlineAt - monotonicNowMs();
+  if (remainingMs <= 0) throw new GuardianRequestTimeoutError(url, probeBudget.timeoutMs);
+
+  const timeoutMs = Math.max(1, Math.ceil(remainingMs));
+  const requestId = crypto.randomUUID();
+  const plugin = guardianProbeHttp();
+  const nativeRequest = plugin.request({
+    url,
+    method,
+    headers,
+    ...(rawBody !== undefined ? { data: rawBody } : {}),
+    requestId,
+    timeoutMs
+  });
+  // Recorded before this function returns, which is before the patched fetch awaits the response.
+  guardianNativeProbeSettlements.set(
+    callerSignal,
+    nativeRequest.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopWaiting = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      callerSignal.removeEventListener('abort', onAbort);
+    };
+    const finish = (settle: () => void): void => {
+      if (settled) return;
+      settled = true;
+      stopWaiting();
+      settle();
+    };
+    const cutOff = (): void => {
+      finish(() => {
+        cancelGuardianProbeRead(plugin, requestId);
+        reject(
+          callerSignal.aborted ? callerAbortReason(callerSignal) : new GuardianRequestTimeoutError(url, timeoutMs)
+        );
+      });
+    };
+    const onAbort = (): void => cutOff();
+    timer = setTimeout(cutOff, timeoutMs);
+    if (callerSignal.aborted) {
+      cutOff();
+      return;
+    }
+    callerSignal.addEventListener('abort', onAbort, { once: true });
+    nativeRequest.then(
+      response => {
+        finish(() => {
+          if (callerSignal.aborted) {
+            reject(callerAbortReason(callerSignal));
+            return;
+          }
+          if (monotonicNowMs() >= deadlineAt) {
+            reject(new GuardianRequestTimeoutError(url, timeoutMs));
+            return;
+          }
+          resolve(response);
+        });
+      },
+      (error: unknown) => {
+        finish(() => {
+          if (callerSignal.aborted) {
+            reject(callerAbortReason(callerSignal));
+            return;
+          }
+          if (monotonicNowMs() >= deadlineAt) {
+            reject(new GuardianRequestTimeoutError(url, timeoutMs));
+            return;
+          }
+          reject(error);
+        });
+      }
+    );
+  });
+}
+
 async function guardianNativeFetch(url: string, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = input instanceof Request ? input : null;
   const method = init?.method ?? request?.method ?? 'GET';
@@ -303,14 +491,22 @@ async function guardianNativeFetch(url: string, input: RequestInfo | URL, init?:
 
   // guardian-client always sends JSON string bodies; CapacitorHttp serializes
   // `data` itself for JSON content types, so hand it the parsed value to avoid
-  // double-encoding.
+  // double-encoding. A probe read sends the string body unchanged.
   const rawBody = typeof init?.body === 'string' ? init.body : undefined;
   const contentType = Object.entries(headers).find(([key]) => key.toLowerCase() === 'content-type')?.[1] ?? '';
   const data = rawBody !== undefined && contentType.includes('application/json') ? JSON.parse(rawBody) : rawBody;
 
-  const deadline = startGuardianDeadline(url, callerSignalOf(input, init));
-  // The native timeouts bound the native request; what the caller sees is the JS deadline, which reads a failure past
-  // it as the cut-off.
+  const callerSignal = callerSignalOf(input, init);
+  const probeBudget = callerSignal ? guardianProbeRequestBudgets.get(callerSignal) : undefined;
+  if (callerSignal !== undefined && probeBudget !== undefined) {
+    return guardianResponseFromNative(
+      await readGuardianProbeNative(url, method, headers, rawBody, callerSignal, probeBudget)
+    );
+  }
+
+  // The native timeouts bound the native request; what the caller sees is the JS deadline, which reads a
+  // failure past it as the cut-off.
+  const deadline = startGuardianDeadline(url, callerSignal);
   const nativeResponse = await deadline
     .race(() =>
       CapacitorHttp.request({
@@ -324,15 +520,7 @@ async function guardianNativeFetch(url: string, input: RequestInfo | URL, init?:
       })
     )
     .finally(deadline.release);
-
-  const responseData: unknown = nativeResponse.data;
-  const bodyText =
-    typeof responseData === 'string' ? responseData : responseData == null ? '' : JSON.stringify(responseData);
-
-  return new Response(NULL_BODY_STATUSES.has(nativeResponse.status) ? null : bodyText, {
-    status: nativeResponse.status,
-    headers: nativeResponse.headers
-  });
+  return guardianResponseFromNative(nativeResponse);
 }
 
 function normalizeHeaders(headers?: HeadersInit): Record<string, string> {

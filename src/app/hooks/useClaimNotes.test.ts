@@ -1,3 +1,4 @@
+/* eslint jest/expect-expect: ["warn", { "assertFunctionNames": ["expect", "expectSelected"] }] */
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { __resetClaimChecksForTest, useClaimCheckInvalidNoteIds, useClaimNotes } from './useClaimNotes';

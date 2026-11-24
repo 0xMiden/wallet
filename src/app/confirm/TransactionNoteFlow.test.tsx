@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 
@@ -15,7 +17,6 @@ jest.mock('utils/string', () => ({ truncateAddress: (value: string) => `short:${
 jest.mock('lib/miden/metadata/fetch', () => ({ fetchTokenMetadata: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => 'https://rpc.example' }));
 jest.mock('lib/miden/metadata/scale', () => ({ hasKnownScale: () => true }));
-jest.mock('lib/shared/format', () => ({ formatAmount: (amount: bigint) => amount.toString() }));
 
 function openNotes() {
   fireEvent.click(screen.getByRole('button', { name: 'showNotes' }));
@@ -143,10 +144,18 @@ it('does not show an old asset label while a different note asset resolves', asy
   });
   const { rerender } = render(<TransactionNoteFlow account="account" flow={flow(1n)} />);
   openNotes();
-  await waitFor(() => expect(screen.getByText('1 FIRST')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText('0.000001 FIRST')).toBeInTheDocument());
   rerender(<TransactionNoteFlow account="account" flow={flow(2n)} />);
-  expect(screen.queryByText('1 FIRST')).not.toBeInTheDocument();
+  expect(screen.queryByText('0.000001 FIRST')).not.toBeInTheDocument();
   expect(screen.getByText(/2 baseUnits/)).toBeInTheDocument();
   resolveSecond({ decimals: 6, symbol: 'SECOND' });
-  await waitFor(() => expect(screen.getByText('2 SECOND')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText('0.000002 SECOND')).toBeInTheDocument());
+});
+
+it('keeps .tx-notes-disclosure-inner constrained only vertically for grid collapse', () => {
+  const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
+  const match = css.match(/\.tx-notes-disclosure-inner\s*\{([^}]*)\}/);
+  expect(match).not.toBeNull();
+  expect(match![1]).toContain('min-height: 0;');
+  expect(match![1]).not.toMatch(/min-width\s*:\s*0/);
 });

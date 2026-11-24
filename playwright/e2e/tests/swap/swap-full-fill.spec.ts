@@ -44,7 +44,6 @@ test.describe('swap: full fill A→B', () => {
     const orderId = await createSwapOrder(walletA, {
       offerSymbol: 'SWPA',
       requestSymbol: 'SWPB',
-      amountAnchor: 'pay',
       payAmount: '10',
       receiveAmount: '9.995'
     });

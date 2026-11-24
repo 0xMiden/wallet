@@ -39,9 +39,19 @@ export const position: EarnPosition = {
     { label: 'Oct 17', value: 10.123456 }
   ]
 };
-export function navigate(url: string) {
-  window.history.pushState(null, '', url);
+// lib/woozie's navigate also takes { pathname, search, state }; the review hands the status page its state that way.
+export function navigate(to: string | { pathname: string; search?: string; state?: unknown }) {
+  const url = typeof to === 'string' ? to : to.pathname + (to.search ?? '');
+  window.history.pushState(typeof to === 'string' ? null : (to.state ?? null), '', url);
   window.dispatchEvent(new Event('popstate'));
+  // A fresh submission sits in "checking"; step it to the accepted state so a click-through reaches completion.
+  if (url.startsWith('/earn/withdraw-status/') && !url.includes('phase=')) {
+    setTimeout(() => {
+      if (window.location.pathname !== url) return;
+      window.history.replaceState(window.history.state, '', `${url}?phase=redeeming`);
+      window.dispatchEvent(new Event('popstate'));
+    }, 2500);
+  }
 }
 export const goBack = () => {
   window.history.back();
@@ -63,7 +73,11 @@ export function useLocation() {
     },
     () => window.location.pathname + window.location.search
   );
-  return { search: new URL(query, window.location.origin).search };
+  return {
+    search: new URL(query, window.location.origin).search,
+    state: window.history.state,
+    trigger: HistoryAction.Push
+  };
 }
 export const useEarnPositions = () => {
   const remaining = new URLSearchParams(window.location.search).has('remaining');
@@ -98,6 +112,10 @@ export const hapticLight = () => undefined;
 export const hapticMedium = () => undefined;
 export const hapticSelection = () => undefined;
 export const isMobile = () => false;
+export const isIOS = () => false;
+export const isAndroid = () => false;
+// lib/woozie's history actions, read by the withdraw status screen.
+export const HistoryAction = { Push: 'push', Replace: 'replace', Pop: 'pop' } as const;
 export const isExtension = () => false;
 // Mirror the production formatter at this mocked history boundary. Submission never reads this text.
 export const formatMoneyAmount = (value: string, kind: 'typed' | 'pays' | 'receives' = 'receives') => {

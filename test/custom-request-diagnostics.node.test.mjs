@@ -10,29 +10,23 @@ let guardian;
 let diagnose;
 let accountCode;
 
-before(async () => {
-  const source = await readFile(new URL('../src/lib/miden/sdk/custom-request-diagnostics.ts', import.meta.url), 'utf8');
+const dataModule = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+
+async function transpiled(path, imports) {
+  const source = await readFile(new URL(`../src/lib/miden/${path}`, import.meta.url), 'utf8');
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
     transformers: {
       before: [
         context => root =>
           ts.visitNode(root, function visit(node) {
-            if (
-              ts.isImportDeclaration(node) &&
-              ['@miden-sdk/miden-sdk/lazy', '@openzeppelin/miden-multisig-client'].includes(node.moduleSpecifier.text)
-            ) {
+            const replacement = ts.isImportDeclaration(node) ? imports.get(node.moduleSpecifier.text) : undefined;
+            if (replacement !== undefined) {
               return context.factory.updateImportDeclaration(
                 node,
                 node.modifiers,
                 node.importClause,
-                context.factory.createStringLiteral(
-                  import.meta.resolve(
-                    node.moduleSpecifier.text === '@miden-sdk/miden-sdk/lazy'
-                      ? '@miden-sdk/miden-sdk'
-                      : node.moduleSpecifier.text
-                  )
-                ),
+                context.factory.createStringLiteral(replacement),
                 node.attributes
               );
             }
@@ -41,9 +35,28 @@ before(async () => {
       ]
     }
   });
-  ({ customRequestAuthDiagnostics: diagnose, customRequestAccountAuthCode: accountCode } = await import(
-    `data:text/javascript;base64,${Buffer.from(compiled.outputText).toString('base64')}`
-  ));
+  return dataModule(compiled.outputText);
+}
+
+before(async () => {
+  // A data: module resolves no relative specifier, so the module's own imports load through the same map, leaves first.
+  const errorCode = await transpiled(
+    'sdk/sdk-error-code.ts',
+    new Map([
+      ['./wasm-client-poison', await transpiled('sdk/wasm-client-poison.ts', new Map())],
+      ['./wasm-handle', await transpiled('sdk/wasm-handle.ts', new Map())],
+      ['../back/offscreen-codec', await transpiled('back/offscreen-codec.ts', new Map())]
+    ])
+  );
+  const diagnostics = await transpiled(
+    'sdk/custom-request-diagnostics.ts',
+    new Map([
+      ['@miden-sdk/miden-sdk/lazy', import.meta.resolve('@miden-sdk/miden-sdk')],
+      ['@openzeppelin/miden-multisig-client', import.meta.resolve('@openzeppelin/miden-multisig-client')],
+      ['./sdk-error-code', errorCode]
+    ])
+  );
+  ({ customRequestAuthDiagnostics: diagnose, customRequestAccountAuthCode: accountCode } = await import(diagnostics));
   client = await sdk.MidenClient.createMock();
   const keys = [sdk.AuthSecretKey.rpoFalconWithRNG(), sdk.AuthSecretKey.rpoFalconWithRNG()];
   const config = new sdk.AuthGuardedMultisigConfig(
@@ -74,8 +87,16 @@ async function authRequest(kind) {
   // Protocol fee.rs stores [SALT, INFO] under hash(INFO || SALT).
   const auth = sdk.Word.fromHex('0x3681264494675a8c487cc2ab6821857517fbc036fc6e6396888e0c87d8599da4');
   const advice = new sdk.AdviceMap();
-  advice.insert(auth, new sdk.FeltArray([1n, 2n, 3n, 4n, 5n, 6n, 1n, 1n].map(n => new sdk.Felt(n))));
-  return new sdk.TransactionRequestBuilder().withAuthArg(auth).extendAdviceMap(advice).build();
+  const values = [1n, 2n, 3n, 4n, 5n, 6n, 1n, 1n].map(n => new sdk.Felt(n));
+  const input = [...values.slice(4), ...values.slice(0, 4)];
+  assert.equal(sdk.Poseidon2.hashElements(new sdk.FeltArray(input)).toHex(), auth.toHex());
+  advice.insert(auth, new sdk.FeltArray(values));
+  const request = new sdk.TransactionRequestBuilder()
+    .withAuthArgs(new sdk.FeltArray(input))
+    .extendAdviceMap(advice)
+    .build();
+  assert.equal(request.authArg().toHex(), auth.toHex());
+  return request;
 }
 
 for (const kind of ['fee', 'guardian']) {
@@ -95,7 +116,9 @@ for (const kind of ['fee', 'guardian']) {
     values[values.length - 1] = new sdk.Felt(999n);
     const advice = new sdk.AdviceMap();
     advice.insert(auth, new sdk.FeltArray(values));
-    const corrupted = new sdk.TransactionRequestBuilder().withAuthArg(auth).extendAdviceMap(advice).build();
+    const corrupted = sdk.TransactionRequest.deserialize(request.extendAdviceMap(advice).serialize());
+    assert.equal(corrupted.authArg().toHex(), auth.toHex());
+    assert.equal(corrupted.adviceMap().get(corrupted.authArg()).at(-1).asInt(), 999n);
     assert.deepEqual(diagnose(corrupted), expected(kind, 'neither'));
   });
 }
@@ -103,7 +126,7 @@ for (const kind of ['fee', 'guardian']) {
 test('distinguishes absent auth from a missing preimage', () => {
   assert.deepEqual(diagnose(new sdk.TransactionRequestBuilder().build()), expected('absent', 'unavailable'));
   assert.deepEqual(
-    diagnose(new sdk.TransactionRequestBuilder().withAuthArg(salt()).build()),
+    diagnose({ authArg: salt, adviceMap: () => new sdk.AdviceMap() }),
     expected('missing_preimage', 'unavailable')
   );
 });
@@ -111,7 +134,8 @@ test('distinguishes absent auth from a missing preimage', () => {
 test('does not hash arbitrary advice shapes', () => {
   const advice = new sdk.AdviceMap();
   advice.insert(salt(), new sdk.FeltArray(Array.from({ length: 13 }, () => new sdk.Felt(7n))));
-  const request = new sdk.TransactionRequestBuilder().withAuthArg(salt()).extendAdviceMap(advice).build();
+  // A stub preserves the malformed shape which withAuthArgs correctly refuses to construct.
+  const request = { authArg: salt, adviceMap: () => advice };
   assert.deepEqual(diagnose(request), expected('other', 'unavailable'));
 });
 

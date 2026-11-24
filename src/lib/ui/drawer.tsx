@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
 import { IconName } from 'app/icons/v2';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { HeaderRule } from 'components/ui/HeaderRule';
 import { IconButton } from 'components/ui/IconButton';
 import { installSheetKeyframes, sheetMotionVars } from 'lib/animation';
@@ -146,6 +147,7 @@ function DrawerContent({
   ...props
 }: DrawerContentProps) {
   const { open } = useContext(DrawerContext);
+  const command = useFlowPresentation() === 'command';
   const focus = useImperativeModalFocus();
   // Radix holds a press outside the sheet until its click, and a closing sheet still holds one: when
   // that click reopens this sheet (the swap's two pills share one picker), the held dismissal closes it
@@ -193,6 +195,7 @@ function DrawerContent({
           'fixed inset-x-0 bottom-0 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
           'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-transform',
           HOST_MODAL_LAYER,
+          command && 'dark text-ink',
           className
         )}
         {...props}

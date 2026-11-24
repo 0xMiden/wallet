@@ -2,10 +2,12 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 
 import { SendRoute, SendRouteProps } from './SendRoute';
 import { AgglayerEligibility, useAgglayerEligibility } from './useAgglayerEligibility';
+import { useSendRouteEligibility } from './useSendRouteEligibility';
 
 jest.mock('./useAgglayerEligibility', () => ({ useAgglayerEligibility: jest.fn(() => 'allowed') }));
 
@@ -15,15 +17,41 @@ const DOWN: FeatureAvailability = {
   detail: 'allocator /health: timeout'
 };
 let mockAvailability: Partial<Record<BridgeFeature, FeatureAvailability>> = {};
+let mockAgglayerChain = true;
 jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useBridgeConfigSnapshot: () =>
-    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
-      .TEST_BRIDGE_CONFIG_SNAPSHOT,
+  useBridgeConfigSnapshot: () => {
+    const snapshot = jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>(
+      'lib/epoch/testing/bridge-config'
+    ).TEST_BRIDGE_CONFIG_SNAPSHOT;
+    if (!mockAgglayerChain || !snapshot.config?.supportedEvmChains.sepolia) return snapshot;
+    return {
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        supportedEvmChains: {
+          ...snapshot.config.supportedEvmChains,
+          sepolia: {
+            ...snapshot.config.supportedEvmChains.sepolia,
+            bridges: {
+              ...snapshot.config.supportedEvmChains.sepolia.bridges,
+              agglayer: {
+                withdrawalEnabled: true,
+                depositEnabled: true,
+                contractAddress: '0x0000000000000000000000000000000000000001',
+                midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+              }
+            }
+          }
+        }
+      }
+    };
+  },
   useFeatureAvailability: (feature: BridgeFeature) => mockAvailability[feature] ?? { state: 'available' }
 }));
 
 beforeEach(() => {
   mockAvailability = {};
+  mockAgglayerChain = true;
   mockNearIntentsQuote = { status: 'idle' };
   mockUseNearIntentsSendQuote.mockClear();
 });
@@ -99,18 +127,31 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-function renderRoute(overrides: Partial<SendRouteProps> = {}) {
-  const props: SendRouteProps = {
-    faucetId: 'token',
-    route: 'epoch',
+function renderRoute(
+  overrides: Partial<Omit<SendRouteProps, 'eligibility'>> & { faucetId?: string; destinationChainId?: number } = {}
+) {
+  const { faucetId = TEST_MIDEN_USDC_FAUCET, destinationChainId = 11155111, ...viewOverrides } = overrides;
+  const props = {
+    faucetId,
+    route: 'epoch' as const,
     onRouteChange: jest.fn(),
     fastQuoteLoading: false,
     onBack: jest.fn(),
     onConfirm: jest.fn(),
     bridgeRoutesAvailable: true,
-    ...overrides
+    ...viewOverrides
   };
-  render(<SendRoute {...props} />);
+  const Probe = () => {
+    const eligibility = useSendRouteEligibility(
+      faucetId,
+      destinationChainId,
+      props.route,
+      !!props.usdcxAvailable,
+      true
+    );
+    return <SendRoute {...props} eligibility={eligibility} />;
+  };
+  render(<Probe />);
   return props;
 }
 
@@ -193,7 +234,7 @@ describe('SendRoute', () => {
 
       expect(screen.queryByTestId('near-intents-card')).not.toBeInTheDocument();
       expect(mockUseNearIntentsSendQuote).toHaveBeenCalledWith(
-        expect.objectContaining({ enabled: false, faucetId: 'token' })
+        expect.objectContaining({ enabled: false, faucetId: TEST_MIDEN_USDC_FAUCET })
       );
     });
 
@@ -204,7 +245,7 @@ describe('SendRoute', () => {
       expect(screen.getByTestId('near-intents-card')).toHaveAttribute('data-selected', 'false');
       expect(mockUseNearIntentsSendQuote).toHaveBeenCalledWith({
         chainId: 'sol',
-        faucetId: 'token',
+        faucetId: TEST_MIDEN_USDC_FAUCET,
         amount: 20_000_000n,
         recipient: 'SoLaNaRecipient',
         enabled: true
@@ -265,6 +306,7 @@ describe('SendRoute', () => {
 });
 
 it('hides AggLayer on an Epoch-only chain', () => {
+  mockAgglayerChain = false;
   renderRoute({ destinationChainId: 11155111 });
   expect(screen.getByTestId('route-options')).toHaveAttribute('data-show-fast', 'true');
   expect(screen.getByTestId('route-options')).toHaveAttribute('data-show-slow', 'false');

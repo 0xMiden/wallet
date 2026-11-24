@@ -67,11 +67,14 @@ export function withGuardianAccountLock<T>(accountId: string, fn: () => Promise<
  * attempt its entry names; a resolved submit, a #1317 mark and a later write
  * name none or another, and never match. A mark of a kept record keeps it;
  * #1317's retry rewrites a marked record plain without it once that abandon
- * is taken or the window closes.
+ * is taken or the window closes. `proposalId` is the id of the proposal that
+ * left the candidate, which every abandon of it is given; a record restored
+ * from a row kept before rows carried it has none.
  */
 export interface GuardianCandidate {
   endpoint: string;
   nonce: number;
+  proposalId?: string;
   proposedAt: number;
   proposedAtMono: number;
   abandon?: true;
@@ -121,9 +124,13 @@ export function clearGuardianAccountLocks(): void {
  * With no recognized code — an older or mocked error carrying only `status` and
  * a body — the previous text heuristic still applies, widened to cover the
  * spelling of the released case.
+ *
+ * A marked error is the new Guardian's answer (`markNewGuardianAnswer`) and is never a pending delta of the
+ * outgoing Guardian.
  */
 export function isGuardianPendingConflict(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
+  if (isNewGuardianAnswer(err)) return false;
   if ((err as { status?: unknown }).status !== 409) return false;
   const code = (err as { code?: unknown }).code;
   if (typeof code === 'string' && code.length > 0) {
@@ -147,6 +154,17 @@ export function isGuardianPendingConflict(err: unknown): boolean {
  */
 export function isGuardianCommitmentMismatch(err: unknown): boolean {
   return typeof err === 'object' && err !== null && 'code' in err && err.code === 'commitment_mismatch';
+}
+
+const STATE_NOT_ON_CHAIN = 'state_not_on_chain';
+
+/**
+ * A Guardian 0.19 refusal of a `/configure` state past nonce 0 that is not the account's current on-chain commitment
+ * (`409 state_not_on_chain`). Retryable, and answered before anything is stored, so a registration it refuses was
+ * never written. Matched anywhere in the cause chain, since the registration loops throw their last error as a cause.
+ */
+export function isGuardianStateNotOnChain(err: unknown): boolean {
+  return someInCauseChain(err, link => 'code' in link && link.code === STATE_NOT_ON_CHAIN);
 }
 
 /**
@@ -241,6 +259,23 @@ export const GUARDIAN_RETRY_MAX_ATTEMPTS = 8;
  * fails the rotation before any state changed, which is the safe direction.
  */
 export const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
+
+// Errors that the NEW guardian's `GET /pubkey` raised. The set holds the error object itself, so the
+// error is never wrapped or copied and every reader of the original object still gets it unchanged.
+const newGuardianAnswers = new WeakSet<object>();
+
+/**
+ * Mark an error as the NEW guardian's answer. Only the OUTGOING guardian's answer can start the direct
+ * switch as a refusal, so `isGuardianRefusal` does not count a marked error. A value that is not an
+ * object cannot be marked.
+ */
+export const markNewGuardianAnswer = (error: unknown): void => {
+  if (typeof error === 'object' && error !== null) newGuardianAnswers.add(error);
+};
+
+export const isNewGuardianAnswer = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && newGuardianAnswers.has(error);
+
 // Ceiling for a server-provided Retry-After on a 429: high enough to honour the
 // guardian's own cooldown (seconds → ~a minute) instead of retrying under it and
 // earning another 429, bounded so a rate-limited re-register can't stall a
@@ -248,7 +283,7 @@ export const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
 export const GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS = 60_000;
 
 /**
- * Delay (ms) before the next `registerOnGuardian` retry. On a 429 that carries a
+ * Delay (ms) before the next `/configure` retry. On a 429 that carries a
  * server Retry-After, honour that cooldown (clamped to
  * [base, rate-limited-max]) — the guardian just told us how long to wait, so a
  * blind exponential retry only earns another 429. Otherwise fall back to the

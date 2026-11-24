@@ -304,11 +304,23 @@ export class FakeOneClickService {
 }
 
 /**
- * A deposit address in the format of the origin chain, the same for the same sequence number. Solana gets a base58
- * public key, Bitcoin a P2WPKH bech32 address, NEAR an implicit account. Any other chain gets an EVM address.
+ * A deposit address in the format of the origin chain, the same for the same sequence number. The seed's first four
+ * bytes are that sequence as a uint32 and the rest mix those bytes, so a sequence 256 later does not repeat. Solana
+ * gets a base58 public key, Bitcoin a P2WPKH bech32 address, NEAR an implicit account. Any other chain gets an EVM
+ * address.
  */
 export function fakeDepositAddress(blockchain: string | undefined, sequence: number): string {
-  const seed = Uint8Array.from({ length: 32 }, (_, index) => (sequence * 31 + index * 7 + 1) % 256);
+  const byte0 = sequence & 0xff;
+  const byte1 = (sequence >>> 8) & 0xff;
+  const byte2 = (sequence >>> 16) & 0xff;
+  const byte3 = (sequence >>> 24) & 0xff;
+  const sequenceBytes = [byte0, byte1, byte2, byte3];
+  const seed = Uint8Array.from({ length: 32 }, (_, index) => {
+    const prefixed = sequenceBytes[index];
+    return prefixed !== undefined
+      ? prefixed
+      : (byte0 * 31 + byte1 * 17 + byte2 * 13 + byte3 * 7 + index * 7 + 1) & 0xff;
+  });
   switch (blockchain) {
     case 'sol':
       return bs58.encode(seed);
@@ -387,10 +399,9 @@ function scaleBaseUnits(amount: bigint, fromDecimals: number, toDecimals: number
   return amount / 10n ** BigInt(-difference);
 }
 
-// As the proxy does, refuse a request that names fees: 1Click adds the fees of the partner key to each quote.
 function parseSignedRequest(value: Record<string, unknown>): OneClickSignedRequest | undefined {
+  const appFees = value.appFees;
   if (
-    'appFees' in value ||
     typeof value.dry !== 'boolean' ||
     value.swapType !== 'EXACT_INPUT' ||
     typeof value.slippageTolerance !== 'number' ||
@@ -407,7 +418,8 @@ function parseSignedRequest(value: Record<string, unknown>): OneClickSignedReque
     typeof value.recipient !== 'string' ||
     value.recipientType !== 'DESTINATION_CHAIN' ||
     typeof value.deadline !== 'string' ||
-    !Number.isFinite(Date.parse(value.deadline))
+    !Number.isFinite(Date.parse(value.deadline)) ||
+    (appFees !== undefined && (!Array.isArray(appFees) || appFees.length > 3 || !appFees.every(isAppFee)))
   )
     return undefined;
   return {
@@ -422,8 +434,22 @@ function parseSignedRequest(value: Record<string, unknown>): OneClickSignedReque
     refundType: 'ORIGIN_CHAIN',
     recipient: value.recipient,
     recipientType: 'DESTINATION_CHAIN',
-    deadline: value.deadline
+    deadline: value.deadline,
+    ...(Array.isArray(appFees) ? { appFees } : {})
   };
+}
+
+function isAppFee(value: unknown): value is { recipient: string; fee: number } {
+  return (
+    isRecord(value) &&
+    typeof value.recipient === 'string' &&
+    value.recipient.length >= 2 &&
+    value.recipient.length <= 128 &&
+    Number.isSafeInteger(value.fee) &&
+    typeof value.fee === 'number' &&
+    value.fee >= 0 &&
+    value.fee <= 1000
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

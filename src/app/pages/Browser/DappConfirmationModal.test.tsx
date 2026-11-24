@@ -2,6 +2,8 @@ import React, { useLayoutEffect } from 'react';
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -1063,5 +1065,118 @@ describe('DappConfirmationModal - a login signature', () => {
     fireEvent.click(screen.getByRole('button', { name: /deny/i }));
     expect(onResolve).toHaveBeenCalledTimes(1);
     expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
+  });
+});
+
+describe('DappConfirmationModal horizontal overflow protection (#2045)', () => {
+  it('constrains dialog width and wraps long note-import errors and identifiers', () => {
+    const longErrorToken = `Reason,NoteImportFailed_${'0123456789abcdef'.repeat(8)}`;
+    render(
+      <DappConfirmationModal
+        request={buildRequest({
+          type: 'transaction',
+          sourcePublicKey: FULL_ACCOUNT_ID,
+          network: 'testnet',
+          previousAttemptError: `NoteImportRpcFailure:${'deadbeef'.repeat(12)}`,
+          transactionMessages: ['This transaction could not be simulated, so its effects are unknown.', longErrorToken]
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    const sheet = dialog.querySelector('.tx-stage-sheet') as HTMLElement;
+    expect(sheet).not.toBeNull();
+    expect(sheet).toHaveClass('min-w-0');
+
+    const messages = screen.getAllByTestId('dapp-confirmation-message');
+    const detailRow = messages[1]!;
+    expect(detailRow).toHaveTextContent(longErrorToken);
+
+    const body = detailRow.parentElement!.parentElement!;
+    expect(body).toHaveClass('min-w-0', 'overflow-x-hidden', 'wrap-anywhere');
+    expect(detailRow).not.toHaveClass('min-w-0');
+    expect(detailRow).not.toHaveClass('wrap-anywhere');
+    expect(detailRow.parentElement).not.toHaveClass('min-w-0');
+
+    const approvalError = screen.getByTestId('dapp-approval-error');
+    expect(approvalError).toHaveClass('wrap-anywhere');
+    expect(Array.from(body.querySelectorAll('.wrap-anywhere'))).toEqual([approvalError]);
+
+    const networkValue = screen.getByTestId('dapp-confirmation-network');
+    expect(networkValue).not.toHaveClass('wrap-anywhere');
+    expect(networkValue.parentElement).not.toHaveClass('min-w-0');
+  });
+
+  it('inherits wrap-anywhere across confirmation variants without redundant wrapping classes or no-op min-w-0', () => {
+    const bodyOf = () => screen.getByTestId('dapp-confirmation-network').parentElement!.parentElement!;
+
+    const { rerender } = render(
+      <DappConfirmationModal request={autoRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />
+    );
+    expect(bodyOf()).toHaveClass('min-w-0', 'overflow-x-hidden', 'wrap-anywhere');
+    expect(Array.from(bodyOf().querySelectorAll('.wrap-anywhere'))).toEqual([]);
+    expect(screen.getByTestId('private-data-scope')).not.toHaveClass('min-w-0');
+    expect(screen.getByText(truncateAddress(FULL_ACCOUNT_ID)).parentElement).not.toHaveClass('min-w-0');
+    expect(screen.getByText('confirmRisk')).toHaveClass('min-w-0');
+
+    rerender(<DappConfirmationModal request={buildRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+    expect(Array.from(bodyOf().querySelectorAll('.wrap-anywhere'))).toEqual([]);
+
+    rerender(
+      <DappConfirmationModal
+        request={buildRequest({
+          type: 'loginSign',
+          origin: 'https://example.org',
+          appMeta: { name: 'example.org' },
+          domain: 'example.org',
+          accountId: FULL_ACCOUNT_ID
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+    expect(Array.from(bodyOf().querySelectorAll('.wrap-anywhere'))).toEqual([]);
+
+    rerender(
+      <DappConfirmationModal
+        request={buildRequest({
+          type: 'transaction',
+          sourcePublicKey: FULL_ACCOUNT_ID,
+          noteFlow: null,
+          transactionMessages: []
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+    expect(Array.from(bodyOf().querySelectorAll('.wrap-anywhere'))).toEqual([]);
+  });
+
+  it('wraps network mismatch warning text without breaking domain display', () => {
+    mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    render(
+      <DappConfirmationModal
+        request={buildRequest({
+          origin: 'https://login.secure.pickupboomers.app',
+          network: 'testnet'
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const noticeBody = screen.getByTestId('dapp-network-mismatch').querySelector('[data-slot="body"]');
+    expect(noticeBody).not.toBeNull();
+    expect(noticeBody).toHaveClass('wrap-anywhere');
+
+    const domain = within(screen.getByRole('heading', { level: 2 })).getByTestId('dapp-origin-domain');
+    expectDomainNeverClipped(domain, domain.parentElement!.parentElement!);
+  });
+
+  it('leaves wrapping on ErrorLine instead of overriding ErrorLine layout className', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, 'DappConfirmationModal.tsx'), 'utf8');
+    expect(source).not.toMatch(/<ErrorLine\b[^>]*className=["'][^"']*wrap-(anywhere|break-word)/);
   });
 });

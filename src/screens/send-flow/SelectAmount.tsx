@@ -9,9 +9,8 @@ import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
 import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
-import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Avatar } from 'components/ui/Avatar';
-import { adaptiveFormatterFor } from 'lib/i18n/numbers';
+import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -23,7 +22,6 @@ import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-con
 import { AmountShortcuts } from 'screens/send-flow/AmountShortcuts';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
-import { balanceFormatterFor } from './amount-format';
 import { BridgeNetwork } from './bridge-networks';
 import { UITokenWithPendingBalance } from './types';
 
@@ -53,6 +51,7 @@ export interface SelectAmountProps {
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
+  tokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Required in the default (page) variant, which renders its own Confirm CTA. */
   onConfirm?: () => void;
   /**
@@ -124,6 +123,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   children,
   onAmountChange,
   onSelectToken,
+  tokenAnchorRef,
   onConfirm,
   embedded = false,
   accent = 'brand',
@@ -149,7 +149,6 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   useQuoteClock(quoteExpiryMs(quote));
   const price = usdQuoteStatus(quote) === 'ready' ? quote?.price : undefined;
   const availableFiat = token && token.balance !== null && price ? token.balance * price : null;
-  const formatAvailableFiat = adaptiveFormatterFor(availableFiat ?? 0);
   // An amount typed here is converted to base units with `token.decimals`. When
   // those decimals are the unknown-token placeholder's guess, that conversion
   // does not mean what the user thinks: "1" becomes 10^6 base units for a faucet
@@ -168,13 +167,18 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
 
   const tokenSelector = (
     <button
+      ref={tokenAnchorRef}
       type="button"
+      aria-haspopup={tokenAnchorRef ? 'dialog' : undefined}
       data-testid="send-token-selector"
       onClick={() => {
         hapticLight();
         onSelectToken();
       }}
-      className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
+      className={clsx(
+        'flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg',
+        tokenAnchorRef ? 'px-3 py-2 hover:bg-fill-pressed' : 'py-1.5 pr-2.5 pl-1.5'
+      )}
     >
       {token ? (
         <TokenLogo faucetId={token.id} size="sm" />
@@ -253,7 +257,6 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   let helper: React.ReactNode = null;
   if (token && showBalanceHelper) {
     // Built once per render, not per frame: `token` is only known here, inside the branch.
-    const formatAvailableBalance = balanceFormatterFor(token.balance ?? 0);
     helper = (
       <>
         <span className="font-heading text-gray text-base font-bold">
@@ -264,11 +267,15 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
               last token's; a new balance for the same token still counts. A balance still pending
               quotes no number, so it reads as loading whatever its scale. */}
           {scaleIsKnown || token.balance === null ? (
-            <AnimatedNumber
+            <TokenAmount
               key={token.id}
-              value={token.balance}
+              amount={token.balance}
               placeholder={t('loading')}
-              format={value => `${t('available')} ${formatAvailableBalance(value)} ${tokenLabel ?? token.name}`}
+              prefix={`${t('available')} `}
+              symbol={tokenLabel ?? token.name}
+              minimumFractionDigits={4}
+              rounding="down"
+              animated
             />
           ) : (
             t('unknownTokenScale')
@@ -277,11 +284,14 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {/* Only show the fiat approximation when we actually have a price — swap
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
         {scaleIsKnown && price !== undefined && (
-          <AnimatedNumber
+          <UsdAmount
             key={token.id}
             className="font-heading text-gray text-base font-bold"
-            value={availableFiat}
-            format={value => t('approxFiatValue', { value: `$${formatAvailableFiat(value)}` })}
+            amount={availableFiat}
+            placeholder={null}
+            grouping={false}
+            renderText={value => t('approxFiatValue', { value })}
+            animated
           />
         )}
       </>
@@ -337,7 +347,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     return (
       <>
         {amountField}
-        {amountShortcuts}
+        {amountShortcuts && <div className="mt-2">{amountShortcuts}</div>}
       </>
     );
   }

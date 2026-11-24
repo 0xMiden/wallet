@@ -121,6 +121,9 @@ test('Receive gives a NEAR Intents deposit address and follows the row to delive
   await walletA.triggerSync(true);
   await walletA.claimAllNotes(120_000);
   await expect.poll(phase, { timeout: 120_000 }).toBe('delivered');
+  // Claiming leaves the deposit page for Activity, so open the row's page again to read its final status.
+  if (!trackedId) throw new Error('The tracked NEAR Intents row id is missing');
+  await walletA.navigateTo(`/receive/near-intents/${encodeURIComponent(trackedId)}`);
   await expect(statusLine).toHaveAttribute('data-phase', 'delivered', { timeout: 30_000 });
   expect(oneClick.service.requests.some(request => request.path === '/v0/deposit/submit')).toBe(false);
 });

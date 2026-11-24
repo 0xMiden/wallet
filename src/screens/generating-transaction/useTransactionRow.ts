@@ -9,6 +9,8 @@ export interface TransactionRowState {
   row?: ITransaction;
   /** True once the first liveQuery result (row or empty) has arrived. */
   loaded: boolean;
+  /** The latest read failed; a retained row is stale until the existing subscription retries successfully. */
+  readFailed?: true;
 }
 
 /**
@@ -26,7 +28,10 @@ export const useTransactionRow = (txId: string): TransactionRowState => {
 
     return subscribeToLiveQuery(() => Repo.transactions.where({ id: txId }).first(), {
       next: row => setState({ row: row ?? undefined, loaded: true }),
-      error: error => console.error('[useTransactionRow] Failed to read transaction:', error)
+      error: error => {
+        setState(current => ({ ...current, readFailed: true }));
+        console.error('[useTransactionRow] Failed to read transaction:', error);
+      }
     });
   }, [txId]);
 

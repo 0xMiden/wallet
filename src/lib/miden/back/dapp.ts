@@ -1,4 +1,5 @@
 import {
+  getWasmOrThrow,
   Note,
   NoteFile,
   NoteFilterTypes,
@@ -21,15 +22,9 @@ import {
 import { nanoid } from 'nanoid';
 import type { Runtime, Windows } from 'webextension-polyfill';
 
-import {
-  declaredTransactionRequestToView,
-  netOutflowByFaucet,
-  simulatedBytesToView,
-  summaryToView,
-  type AssetAmount,
-  type TxAssetView
-} from 'app/confirm/decode';
-import { noteFlowFromSimulatedBytes } from 'app/confirm/note-flow';
+import { summaryToView, toHoldingsView, type AssetAmount, type TxAssetView } from 'app/confirm/decode';
+import { noteFlowFromTransaction, type NoteFlow } from 'app/confirm/note-flow';
+import { toSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import {
   MidenDAppDisconnectRequest,
   MidenDAppDisconnectResponse,
@@ -61,7 +56,8 @@ import {
   MidenDAppConsumableNotesRequest,
   MidenDAppConsumableNotesResponse,
   MidenDAppWaitForTxRequest,
-  MidenDAppWaitForTxResponse
+  MidenDAppWaitForTxResponse,
+  DAppConsumableNote
 } from 'lib/adapter/types';
 import { endOriginSessions } from 'lib/bread-connect/revoke';
 import {
@@ -70,10 +66,13 @@ import {
   type DAppConfirmationResult,
   type DAppLoginSignConfirmationRequest
 } from 'lib/dapp-browser/confirmation-store';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { getMessage } from 'lib/i18n';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
+import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { dappGuardianSyncStatus } from 'lib/miden/guardian/sync-guard';
@@ -104,13 +103,21 @@ import {
   MidenDAppPrivateNotesConfirmationRequest,
   MidenDAppSession,
   MidenDAppSessions,
+  MidenDAppSimulateTransactionResponse,
   MidenDAppTransactionPayload,
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import {
+  cacheScope,
+  getNativeAssetId,
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
+} from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -148,6 +155,7 @@ import {
 } from './dapp-locked';
 import { fieldWordFromBase64 } from './login-word';
 import { midenClientProxy } from './miden-client-proxy';
+import { CustomSimulationTimeoutError, PublicError } from './public-error';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
@@ -159,7 +167,7 @@ import type { DetailsCommitmentMatches } from '../sdk/miden-client-interface';
 import { describeNft, toNft, type NftAsset } from '../sdk/nft-asset';
 import { normalizedCommitment, noteDetailsCommitment, type NoteDetailsParts } from '../sdk/note-details-commitment';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
-import { causeChain, isPipelineKillLink, pipelineKillIn } from '../sdk/sdk-error-code';
+import { causeChain, isPipelineKillLink, pipelineKillIn, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -168,6 +176,7 @@ import {
 } from '../transaction';
 import { ClaimFeeRefusedError } from '../transaction/claim-fee';
 import { deterministicKernelFailureCopy } from '../transaction/constants';
+import type { ApprovedCustomSimulation } from '../transaction/custom-effects';
 import { TransactionQueuedError } from '../transaction/initiate';
 
 /**
@@ -176,7 +185,7 @@ import { TransactionQueuedError } from '../transaction/initiate';
  * lazy-import chain is swallowed here so the caller can safely run
  * `resolve(...)` afterwards. A thrown startup error would otherwise
  * cause the tx preview to succeed, the tx to actually sign, and then
- * the dApp promise to reject with "InvalidParams" — the dApp would
+ * the dApp promise to reject with "InvalidParams" - the dApp would
  * believe its request failed even though it broadcast on-chain.
  */
 function startDappBackgroundProcessing() {
@@ -187,7 +196,7 @@ function startDappBackgroundProcessing() {
   }
 }
 
-// Debug logger — gated so production builds don't dump wallet request
+// Debug logger - gated so production builds don't dump wallet request
 // payloads (addresses, amounts, allowedPrivateData) into platform logs.
 // Enable via `DEBUG_DAPP_BRIDGE=1` env at build time. Exported so
 // `actions.ts` can use the same gate for its top-level dispatcher log.
@@ -197,7 +206,7 @@ export const dappDebug = (...args: unknown[]) => {
 };
 
 // Log to Rust stdout for desktop debugging. Gated behind the same
-// DEBUG_DAPP_BRIDGE flag as `dappDebug` — several call sites in this
+// DEBUG_DAPP_BRIDGE flag as `dappDebug` - several call sites in this
 // file pass the origin / sessionId / appMeta.name and these breadcrumbs
 // would otherwise land unredacted in the Tauri process's stdout on
 // every dApp connection in production desktop builds. Desktop devs can
@@ -228,7 +237,7 @@ async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Pr
   // The account read parks (offscreen round trip, or inline store/gRPC work). A
   // watchdog eviction during it hands the mutex to a successor without stopping
   // this callback, and the commitment resolution + `serialize()` below are WASM
-  // reads on an Account borrowed from the client's RefCell — continuing would be
+  // reads on an Account borrowed from the client's RefCell - continuing would be
   // the double borrow the lock exists to prevent, not merely a stale read.
   assertWasmHoldCurrent(hold, 'after the connect account read');
   if (!account) {
@@ -248,7 +257,7 @@ async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Pr
  * `signData`'s default path loads whatever secret sits at
  * `accAuthSecretKeyStrgKey(publicKey)` and signs with it. The vault is keyed by
  * commitment alone, with no back-reference to an account, so that lookup will
- * happily return a DIFFERENT account's key — every account in the wallet is
+ * happily return a DIFFERENT account's key - every account in the wallet is
  * reachable from that one string. Nothing else on the path narrows it: the
  * session is resolved from the separate `sourceAccountId`, which an attacking
  * page fills in with its own connected account so the permission check passes.
@@ -268,7 +277,7 @@ async function publicKeyBelongsToAccount(
   // Between the parking account read and the commitment reads: an eviction
   // during the read hands the mutex to a successor, and `serialize()` below is a
   // WASM call on the borrowed Account. This runs pre-signature, so aborting is
-  // safe — and the poison throw is routed as a retryable failure by the caller,
+  // safe - and the poison throw is routed as a retryable failure by the caller,
   // never as an authorization verdict.
   assertWasmHoldCurrent(hold, 'after the sign-authorization account read');
   if (!account) return false;
@@ -641,11 +650,11 @@ type ConfirmationKind =
  * Raise a confirmation on the platforms that have no extension popup (mobile via
  * Capacitor, desktop via Tauri) and report whether the user approved.
  *
- * `requestConfirm` — the popup path — throws outright when `isExtension()` is
+ * `requestConfirm` - the popup path - throws outright when `isExtension()` is
  * false. Five handlers used to reach it with no non-extension branch of their own
  * (`sign`, `importPrivateNote`, and the `UponRequest` arms of `privateNotes` /
  * `assets` / `consumableNotes`). Because each runs as an un-awaited async function
- * inside a promise executor, that throw never reached `reject` — it became an
+ * inside a promise executor, that throw never reached `reject` - it became an
  * unhandled rejection and the dApp's promise simply never settled, until the
  * injection script's 5-minute timeout reported the misleading "Request timeout".
  */
@@ -681,19 +690,19 @@ async function confirmOnNonExtension(
  *
  * `MidenDAppSignRequest` carries `sourceAccountId` and `sourcePublicKey` as two
  * INDEPENDENT dApp-controlled strings: the session is looked up by the former,
- * but `Vault.signData` loads the secret key by the latter — every account's key is
+ * but `Vault.signData` loads the secret key by the latter - every account's key is
  * stored under `accAuthSecretKeyStrgKey(<commitment hex>)` and all of them are
  * wrapped under the one vault key, so an unbound `sourcePublicKey` resolves for
  * ANY account the wallet owns. A page connected to account A could therefore name
  * A as the source account, pass account B's commitment (which it received from an
  * earlier connect, or read off a public on-chain account), and get back a
- * signature made with B's key — including a `signingInputs` signature, which
+ * signature made with B's key - including a `signingInputs` signature, which
  * authorizes a transaction. Same defect class `executingAccountError` closes for
  * the send/custom paths; this closes it for the sign path.
  *
  * `dApp.publicKey` is base64 of the serialized commitment (`getAccountPublicKeyB64`
  * at connect); `MidenWindowObject.signBytes` sends `bytesToHex` of those same
- * bytes. A session with no stored public key fails CLOSED — it cannot be verified,
+ * bytes. A session with no stored public key fails CLOSED - it cannot be verified,
  * and reconnecting the dApp repopulates it.
  */
 function isAuthorizedSigningKey(dApp: MidenDAppSession, sourcePublicKey: string): boolean {
@@ -701,7 +710,7 @@ function isAuthorizedSigningKey(dApp: MidenDAppSession, sourcePublicKey: string)
   // The same key in either encoding the wallet itself hands out: the base64 the
   // connect response carries verbatim, or the hex `MidenWindowObject.signBytes`
   // derives from it. Both name the SAME commitment, so accepting both binds just as
-  // tightly — no other account's key satisfies either form.
+  // tightly - no other account's key satisfies either form.
   if (dApp.publicKey === sourcePublicKey) return true;
   const normalize = (hex: string) => (hex.startsWith('0x') || hex.startsWith('0X') ? hex.slice(2) : hex).toLowerCase();
   try {
@@ -734,7 +743,7 @@ export async function requestSign(
   // Bind the signing KEY to the authorized ACCOUNT before anything prompts the
   // user: no approval surface can contradict a swapped key. The extension's
   // `sign` screen shows no account at all, and the mobile/desktop sheet's
-  // `Account` row is `req.sourcePublicKey` — the very field being substituted —
+  // `Account` row is `req.sourcePublicKey` - the very field being substituted -
   // so a request for account B under a session for account A renders B's address
   // and reads as consistent. The check therefore has to happen in code, before
   // any prompt. See isAuthorizedSigningKey.
@@ -742,13 +751,40 @@ export async function requestSign(
     throw new Error(`${MidenDAppErrorType.NotGranted}: signing key is not the connected account's key`);
   }
 
+  // A Guardian account signs only `Arbitrary` signing inputs with no protocol message layout; refused here, before
+  // any prompt. A single-key account is unchanged. The vault applies the same rule again at sign time.
+  const messageElements = await guardianMessageElements(dApp.accountId, req);
+
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
   // unhandled rejection and leave the dApp's promise unsettled forever (the
   // caller only ever sees the injection script's 5-minute "Request timeout").
   return new Promise((resolve, reject) => {
-    generatePromisifySign(resolve, reject, origin, dApp, req, sessionId).catch(reject);
+    generatePromisifySign(resolve, reject, origin, dApp, req, messageElements, sessionId).catch(reject);
   });
+}
+
+/**
+ * The message a Guardian account may sign for `req` (`DAPP_SIGN_RULE`), `undefined` for a single-key account, and a
+ * refusal (`InvalidParams`) for a Guardian request the rule does not allow. The account kind is read from the unlocked
+ * store. While the wallet is locked it is unreadable, so this returns `undefined` and the caller asks again once
+ * unlocked: the extension when its popup asks for the payload, the mobile and desktop sheet after the unlock wait. The
+ * vault refuses at sign time all the same.
+ */
+async function guardianMessageElements(accountId: string, req: MidenDAppSignRequest): Promise<bigint[] | undefined> {
+  // A locked store lists no accounts, so the account reads as absent.
+  const account = store.getState().accounts?.find(acc => sameWalletAccountId(acc.publicKey, accountId));
+  if (account?.type !== WalletType.Guardian) return undefined;
+  // The service worker loads the WASM module only on demand, and only a `signingInputs` payload needs it.
+  if (req.kind === 'signingInputs') await getWasmOrThrow();
+  const elements =
+    req.kind === 'signingInputs'
+      ? await withWasmClientLock(async () => signableArbitraryElements(req.kind, req.payload), {
+          label: 'dapp-sign-rule'
+        })
+      : undefined;
+  if (elements === undefined) throw new Error(`${MidenDAppErrorType.InvalidParams}: ${DAPP_SIGN_RULE}`);
+  return elements;
 }
 
 const generatePromisifySign = async (
@@ -757,10 +793,62 @@ const generatePromisifySign = async (
   origin: string,
   dApp: MidenDAppSession,
   req: MidenDAppSignRequest,
+  guardianMessage: bigint[] | undefined,
   sessionId?: string
 ) => {
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
+
+  // A transaction summary is decoded and measured once, here, and both sheets show that measure. The refresh is the
+  // fresh read, outside the lock, and the refresh's scope and the cache are checked again at the summary decode; an
+  // unknown fee or an unmeasurable summary is refused before either sheet, as on the custom arm. A deserialize
+  // failure, a non-summary variant, and any other kind still prompt with the opaque-signature warning, and a fee read
+  // that throws does not fail them. WASM startup failures keep their original error, and a trap reaches the lock.
+  let signing: { view: TxAssetView; noteFlow?: NoteFlow } | undefined;
+  if (req.kind === 'signingInputs' && !guardianMessage) {
+    await ensureSdkWasmReady();
+    try {
+      const chainFee = await refreshVerificationBaseFee().catch((error: unknown) => {
+        console.warn('Failed to read the chain fee for a signature approval', error);
+        return null;
+      });
+      const feeScope = cacheScope();
+      signing = await withWasmClientLock(async () => {
+        let summary: TransactionSummary | undefined;
+        try {
+          const signingInputs = SigningInputs.deserialize(b64ToU8(req.payload));
+          if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
+            summary = signingInputs.transactionSummaryPayload();
+          }
+        } catch (decodeError) {
+          rethrowTrapOrKill(decodeError);
+          console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', decodeError);
+        }
+        if (!summary) return undefined;
+        // The refresh above is the fresh read. The refresh's scope and the cache are checked again here, at the
+        // summary decode, with no await before the split. Arbitrary, Blind, an undecodable payload and a word sign
+        // never reach this.
+        if (
+          cacheScope() !== feeScope ||
+          ((chainFee === null || getVerificationBaseFeeSync() === null) && !isVerificationBaseFeeKnownAbsent())
+        ) {
+          throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+        }
+        const view = measuredSigningHoldings(summary);
+        let noteFlow: NoteFlow | undefined;
+        try {
+          noteFlow = noteFlowFromTransaction(summary);
+        } catch (noteError) {
+          rethrowTrapOrKill(noteError);
+          console.error('[DApp] Signing summary note details unavailable:', noteError);
+        }
+        return { view, noteFlow };
+      });
+    } catch (e) {
+      reject(dappReadFailure(e));
+      return;
+    }
+  }
 
   // Mobile / desktop: no popup window exists, so prompt through the shared
   // confirmation store instead of falling into requestConfirm's throw.
@@ -772,12 +860,16 @@ const generatePromisifySign = async (
         reject(lockedRefusal());
         return;
       }
+      // A locked wallet could not tell the account kind at the entry gate; it can now.
+      const guardianMessageNow = guardianMessage ?? (await guardianMessageElements(dApp.accountId, req));
       const confirmed = await confirmOnNonExtension(
         'sign',
         origin,
         dApp,
         networkRpc,
-        await formatSignPreview(req),
+        guardianMessageNow
+          ? formatGuardianSignPreview(req, guardianMessageNow)
+          : await formatSignPreview(req, signing?.view),
         sessionId,
         waits.deadline
       );
@@ -787,10 +879,10 @@ const generatePromisifySign = async (
       }
       // The entry gate ran before the sheet opened; the session or the current account may have changed since (#1419).
       await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
-      const signature = await withUnlocked(async ({ vault }) =>
+      const { signature, signedCommitment } = await withUnlocked(async ({ vault }) =>
         vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
       );
-      resolve({ type: MidenDAppMessageType.SignResponse, signature });
+      resolve({ type: MidenDAppMessageType.SignResponse, signature, signedCommitment });
     } catch (e) {
       reject(dappSendFailure(e));
     }
@@ -799,16 +891,25 @@ const generatePromisifySign = async (
 
   await requestConfirm({
     id,
-    payload: {
-      type: 'sign',
-      origin,
-      networkRpc,
-      appMeta: dApp.appMeta,
-      sourcePublicKey: req.sourcePublicKey,
-      payload: req.payload,
-      kind: req.kind,
-      preview: null
+    // Built when the popup first asks, which a locked wallet's popup does only once unlocked: a locked store lists no
+    // accounts, so the account kind is read here, and a forbidden Guardian request is refused before any approval.
+    payload: async () => {
+      const message = guardianMessage ?? (await guardianMessageElements(dApp.accountId, req));
+      return {
+        type: 'sign',
+        origin,
+        networkRpc,
+        appMeta: dApp.appMeta,
+        sourcePublicKey: req.sourcePublicKey,
+        payload: req.payload,
+        kind: req.kind,
+        preview: null,
+        ...(message
+          ? { messageElements: message.map(String) }
+          : signing && { signingEffects: toSimulatedEffectsWire(signing.view, signing.noteFlow) })
+      };
     },
+    onPayloadError: reject,
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
     },
@@ -836,18 +937,13 @@ const generatePromisifySign = async (
           try {
             // See the mobile/desktop arm: same post-approval re-check.
             await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
-            let signature = await withUnlocked(async ({ vault }) => {
-              const signDataResult = await vault.signData(
-                req.sourcePublicKey,
-                req.payload,
-                req.kind,
-                req.sourceAccountId
-              );
-              return signDataResult;
-            });
+            const { signature, signedCommitment } = await withUnlocked(async ({ vault }) =>
+              vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
+            );
             resolve({
               type: MidenDAppMessageType.SignResponse,
-              signature
+              signature,
+              signedCommitment
             });
           } catch (e) {
             reject(dappSendFailure(e));
@@ -1062,11 +1158,11 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
 }
 
 /**
- * Private input notes belonging to `accountId` — the account this dApp session is
+ * Private input notes belonging to `accountId` - the account this dApp session is
  * connected to, NOT the whole wallet.
  *
  * `midenClientProxy.getInputNoteDetails(query)` reaches `client.notes.list(query)`,
- * and a `NoteQuery` is only ever `{ ids }` or `{ status }` — it has no account
+ * and a `NoteQuery` is only ever `{ ids }` or `{ status }` - it has no account
  * field, and every account in the wallet shares the one MidenClient store. So the
  * unscoped read returned the id, nullifier, sender, state and per-asset amounts of
  * EVERY private note in the wallet, including accounts the user never connected,
@@ -1076,9 +1172,9 @@ function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]):
  * poll it and watch every account's private balances.
  *
  * Scoping is by CONSUMABILITY, which is the only per-account note attribution the
- * SDK exposes (`getConsumableNotes(accountId)`). That can under-report — a note
+ * SDK exposes (`getConsumableNotes(accountId)`). That can under-report - a note
  * that is already consumed, or not yet consumable, cannot be attributed to an
- * account and is withheld — but it can never over-report across accounts, which is
+ * account and is withheld - but it can never over-report across accounts, which is
  * the property the user consented to. Intersecting also covers a caller that names
  * another account's note ids explicitly via `req.noteIds`.
  *
@@ -1198,7 +1294,7 @@ export const generatePromisifyRequestConsumableNotes = (
   req: MidenDAppConsumableNotesRequest,
   sessionId?: string
 ) =>
-  servePrivateDataRead<InputNoteDetails[], MidenDAppConsumableNotesResponse>(
+  servePrivateDataRead<DAppConsumableNote[], MidenDAppConsumableNotesResponse>(
     resolve,
     reject,
     origin,
@@ -1216,27 +1312,29 @@ export const generatePromisifyRequestConsumableNotes = (
     }
   );
 
-async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]> {
-  let consumableNotes: InputNoteDetails[] = [];
+async function getConsumableNotes(accountId: string): Promise<DAppConsumableNote[]> {
+  let consumableNotes: DAppConsumableNote[] = [];
   try {
     consumableNotes = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
         // Sync is THE parking await on this path (network-bound, tens of seconds
-        // on a slow node) — a watchdog eviction during it hands the mutex to a
+        // on a slow node) - a watchdog eviction during it hands the mutex to a
         // successor, and the consumable-notes read below would be a second
         // borrow of a client somebody else is inside.
         assertWasmHoldCurrent(hold, 'after the consumable-notes sync');
         // Consumable notes as DTOs (issue #260, slice 4). The reclaim gate + the
         // reduction ran in the client's realm (offscreen when the flag is on, so
-        // it uses the same realm that just ran syncState above — no stale height).
-        // The DTO is a strict superset of InputNoteDetails; map it 1:1.
+        // it uses the same realm that just ran syncState above - no stale height).
+        // The DTO is a strict superset of InputNoteDetails; map it 1:1, plus
+        // whether the note is a P2ID/P2IDE payment so a dApp can tell it from
+        // another script's note.
         const notes = await midenClientProxy.getConsumableNotes(accountId, step =>
           assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
         );
-        return notes.flatMap<InputNoteDetails>(note => {
-          // Partial (metadata-less) notes have no ID — and, since 0.15
+        return notes.flatMap<DAppConsumableNote>(note => {
+          // Partial (metadata-less) notes have no ID - and, since 0.15
           // nullifiers fold in metadata, no nullifier either. They cannot
           // be consumed, so skip until sync completes them.
           if (!note.noteId || !note.nullifier) {
@@ -1249,7 +1347,8 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
               senderAccountId: note.senderAccountId,
               nullifier: note.nullifier,
               state: note.state,
-              assets: note.assets
+              assets: note.assets,
+              standardPayment: note.standardPayment === true
             }
           ];
         });
@@ -1445,7 +1544,7 @@ export async function requestImportPrivateNote(
  *
  * Route through the offscreen proxy (issue #260, slice 7c): this is a STORE WRITE
  * (a claimable private note imported by a dApp flow). Flag-ON the note MUST land
- * in the OFFSCREEN client's store — the realm that syncs and consumes — else it
+ * in the OFFSCREEN client's store - the realm that syncs and consumes - else it
  * would import into the dormant SW store and be unclaimable. Flag-OFF each proxy
  * method is byte-identical to the former inline `getMidenClient().importNoteBytes()`
  * / `.syncState()` (verbatim getMidenClient path under this caller's lock).
@@ -1453,7 +1552,7 @@ export async function requestImportPrivateNote(
  * Don't lose the note on a transient blip (resilience gap 1): a private note's
  * bytes can be its only copy. Queue it for the background import loop (wall-clock
  * retry + backoff, dead-letter on give-up) before rethrowing. Only transient
- * failures are re-queued — a genuinely malformed note would just dead-letter.
+ * failures are re-queued - a genuinely malformed note would just dead-letter.
  */
 async function importDAppPrivateNote(note: string): Promise<string> {
   try {
@@ -1465,7 +1564,7 @@ async function importDAppPrivateNote(note: string): Promise<string> {
         // parked leaves it unknown whether the note landed, and the sync below
         // would borrow a client a successor now owns. The poison throw routes
         // through the catch below into the same queue-for-background-retry path
-        // as an eviction of the import itself — the note is preserved either way.
+        // as an eviction of the import itself - the note is preserved either way.
         assertWasmHoldCurrent(hold, 'between the dApp note import and its sync');
         await midenClientProxy.syncState();
         return noteId;
@@ -1480,7 +1579,7 @@ async function importDAppPrivateNote(note: string): Promise<string> {
     // Of the three, the poison and the terminated client are the shapes `isLikelyNetworkError`
     // genuinely misses (their messages are closed text). The abort shape reaches the classifier
     // as a match today purely because its message contains 'aborted', which is a
-    // coincidence of transport-text heuristics rather than a contract — so it is named
+    // coincidence of transport-text heuristics rather than a contract - so it is named
     // here too, and the clause stays load-bearing the moment that token list is re-tuned.
     if (isLikelyNetworkError(e) || pipelineKillIn(e) !== undefined) {
       await queueNoteImport(note).catch(queueError =>
@@ -1659,41 +1758,33 @@ export function buildCustomTxConfirmPayload(args: {
 }
 
 /**
- * Builds the intercom handler that answers a `DAppSimulateTransactionRequest`
- * for THIS confirm popup (matched by id) with the ground-truth summary. Returns
- * `undefined` for non-matching requests so the caller keeps dispatching.
+ * Builds the intercom handler that answers a `DAppSimulateTransactionRequest` for THIS confirm popup (matched by id)
+ * with the approval's view. Returns `undefined` for non-matching requests so the caller keeps dispatching.
  */
 export function makeSimulateHandler(
   id: string,
-  tx: MidenCustomTransaction,
   /**
-   * The dry run the caller already performed for this confirm id. Answering from it keeps the
-   * request simulated once: the sheet renders the same execution the spending-limit policy
-   * assessed, and the WASM lock is taken once rather than twice per approval.
+   * The approval's view, measured from the holdings: what the spending limit charges and signing allows. The sheet
+   * shows this object rather than a decode of its own, so the two cannot differ.
    */
-  simulated?: { summaryBytes?: string; executedBytes?: string; error?: string }
+  approvedView: TxAssetView | undefined,
+  /** The note flow the approval dry run measured inside its hold, so the handler decodes nothing. */
+  noteFlow?: NoteFlow
 ) {
-  return async (req: MidenRequest): Promise<any | undefined> => {
+  return async (req: MidenRequest): Promise<MidenDAppSimulateTransactionResponse | undefined> => {
     if (req?.type !== MidenMessageType.DAppSimulateTransactionRequest || (req as any).id !== id) {
       return undefined;
     }
-    // Only a SUCCESSFUL dry run is reusable. A timeout or a WASM-lock eviction resolves as
-    // `{ error }`, and caching that would leave the sheet's verified asset view - an anti-phishing
-    // control - permanently unavailable for this confirm id, even once the lock frees.
-    const reusable = simulated?.summaryBytes !== undefined || simulated?.executedBytes !== undefined;
-    const { summaryBytes, executedBytes, error } =
-      reusable && simulated
-        ? simulated
-        : await simulateCustomTransaction({
-            address: tx.address,
-            transactionRequest: tx.transactionRequest,
-            importNotes: tx.importNotes
-          });
+    if (!approvedView) {
+      return {
+        type: MidenMessageType.DAppSimulateTransactionResponse,
+        error: 'the request has no approved effects to show'
+      };
+    }
+    // The executed transaction is already authorized, so only the view leaves the service worker.
     return {
       type: MidenMessageType.DAppSimulateTransactionResponse,
-      summaryBytes,
-      executedBytes,
-      error: error === undefined ? undefined : dryRunFailureReason(error)
+      effects: toSimulatedEffectsWire(approvedView, noteFlow)
     };
   };
 }
@@ -1738,6 +1829,30 @@ const authorizationForDappSend = (
   return createSpendingLimitAuthorization(details.assessment, spends);
 };
 
+/** `UnattributableCustomSpendError` in the spending-limit queue. The message is NOT_GRANTED. */
+const UNATTRIBUTABLE_CUSTOM_SPEND_ERROR = 'UnattributableCustomSpendError';
+
+const isUnattributableCustomSpendRefusal = (error: unknown): boolean =>
+  [...causeChain(error)].some(link => link instanceof Error && link.name === UNATTRIBUTABLE_CUSTOM_SPEND_ERROR);
+
+/**
+ * Queues an approved custom request. A refusal from the locked spending-limit recheck, before any
+ * insert, releases the dry run's quarantined notes - the same release a pre-prompt refusal performs.
+ */
+const requestApprovedCustomTransaction = async (
+  importNotes: string[] | undefined,
+  request: () => Promise<string>
+): Promise<string> => {
+  try {
+    return await request();
+  } catch (error) {
+    if (isUnattributableCustomSpendRefusal(error)) {
+      await releaseNoteIds(importedNoteIds(importNotes));
+    }
+    throw error;
+  }
+};
+
 /**
  * Spending-limit state for a dApp CUSTOM request, or a refusal.
  *
@@ -1750,10 +1865,13 @@ const authorizationForDappSend = (
 const customSpendingLimitState = async (
   accountId: string,
   outgoing: IConsumedAssetTotal[] | undefined
-): Promise<{ totals: IConsumedAssetTotal[]; details?: SpendingLimitAssessmentDetails }> => {
+): Promise<{ totals: IConsumedAssetTotal[] | undefined; details?: SpendingLimitAssessmentDetails }> => {
   if (outgoing === undefined) {
+    // Not a measured empty spend: the summary consumed notes the request did not introduce.
+    // A limit already configured refuses before the prompt. No limit keeps the charge unset so
+    // the insert can recheck a limit added while the prompt was open.
     if (await hasSpendingLimits(accountId)) throw new Error(MidenDAppErrorType.NotGranted);
-    return { totals: [] };
+    return { totals: undefined };
   }
   try {
     const details = await assessOutgoingSpendingLimitDetails({ accountId, spends: outgoing });
@@ -1823,6 +1941,7 @@ const dappRequestFailure = (error: unknown): unknown => {
   const kill = pipelineKillIn(error);
   if (kill !== undefined) return kill;
   if (error instanceof ClaimFeeRefusedError) return error;
+  if (error instanceof CustomSimulationTimeoutError) return error;
   // A lock that lands after approval is not a malformed request (#1414).
   if (isWalletLockedError(error)) return lockedRefusal();
   if (error instanceof Error && hasDAppErrorCode(error.message)) return error;
@@ -2212,7 +2331,7 @@ async function sheetDataOnNonExtension<T>(
 }
 
 /**
- * The account a dApp request is AUTHORIZED for is `dApp.accountId` — the id
+ * The account a dApp request is AUTHORIZED for is `dApp.accountId` - the id
  * `getDApp(origin, req.sourcePublicKey)` matched a stored session on. The account
  * a send / custom transaction actually EXECUTES with is a separate, fully
  * dApp-controlled field on the transaction payload (`senderAddress` / `address`),
@@ -2255,7 +2374,7 @@ const generatePromisifyTransaction = async (
   // The generalized TransactionRequest carries a tagged `MidenTransaction`
   // ({ type, payload }). A `send`/`consume` payload is not a custom-transaction
   // payload, so delegate those to their dedicated flows (preview, confirmation
-  // UI and execution) instead of validating them as a CustomTransaction —
+  // UI and execution) instead of validating them as a CustomTransaction -
   // otherwise they fail with "Invalid CustomTransaction payload". Only `custom`
   // (and bare/legacy payloads) fall through to the custom flow below. Issue #88.
   // `req.transaction.type` is a string enum from `MidenTransaction`
@@ -2315,20 +2434,12 @@ const generatePromisifyTransaction = async (
     return;
   }
 
-  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error. The decode and
-  // its summary share one hold, so a trap in either reaches the lock, which retires the client before the refusal.
+  // Reject malformed bytes before any unlock prompt; WASM startup failures keep their original error.
+  // A decode trap reaches the lock, which retires the client before the refusal.
   await ensureSdkWasmReady();
-  let declared: TxAssetView | undefined;
   try {
-    declared = await withWasmClientLock(async () => {
-      const request = TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
-      try {
-        return declaredTransactionRequestToView(request, customTransaction.importNotes ?? [], { rethrowTraps: true });
-      } catch (e) {
-        if (e instanceof WebAssembly.RuntimeError) throw e;
-        console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
-        return undefined;
-      }
+    await withWasmClientLock(async () => {
+      TransactionRequest.deserialize(b64ToU8(customTransaction.transactionRequest));
     });
   } catch (e) {
     // A kill during the decode says nothing about the bytes, so it answers retryable, as the other previews do.
@@ -2337,47 +2448,15 @@ const generatePromisifyTransaction = async (
   }
 
   const prepare = async () => {
-    let declaredMessages: string[];
-    try {
-      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction, declared));
-    } catch (e) {
-      throw dappReadFailure(e);
-    }
     // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
     // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
     // platform split because the spending-limit gate below needs the dry run's outgoing totals on
     // BOTH paths: a custom request moves value too, and before this it reached the queue with no
     // assessment at all, which made "send it as a custom transaction" the way around a cap.
-    // ONE dry run per custom request, shared by the effects the signer reads, the spending-limit
-    // assessment, and (on the extension arm) the confirm sheet's own simulate request. Running it
-    // twice took the single-threaded WASM lock twice and let the displayed numbers and the enforced
-    // numbers come from two different executions.
-    // A dry run that throws must not take the request down with it: the sheet still rises, saying
-    // the effects are unknown. Previously this catch lived inside the formatter; hoisting the call
-    // moved the failure out of its reach, so it is restated here as the same contract.
-    const simulated = await withUnlocked(async () => {
-      try {
-        return await simulateCustomTransaction({
-          address: customTransaction.address,
-          transactionRequest: customTransaction.transactionRequest,
-          importNotes: customTransaction.importNotes
-        });
-      } catch (e) {
-        console.error('Failed to simulate a custom transaction for approval', e);
-        return { error: consentReason(e) };
-      }
-    });
-    const simulatedEffects = await formatSimulatedCustomEffects(simulated);
-    try {
-      const customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
-      return {
-        transactionMessages: [...declaredMessages, ...simulatedEffects.messages],
-        simulated,
-        customLimit,
-        approvedOutflow: simulatedEffects.approvedOutflow,
-        approvedNftOutflow: simulatedEffects.outgoingNfts
-      };
-    } catch (e) {
+    // ONE dry run per custom request, shared by the effects the signer reads, the spending-limit assessment, the
+    // effects recorded on the queued row, and (on the extension arm) the confirm sheet's own simulate request.
+    // Running it twice took the single-threaded WASM lock twice and let the displayed and enforced numbers differ.
+    const releaseRefusedRequest = async (e: unknown): Promise<never> => {
       // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
       // user decline, so the notes go back to the claimable list; only a decline earns staying
       // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
@@ -2385,6 +2464,64 @@ const generatePromisifyTransaction = async (
       // Through the same mapper as every other limit-observing path: this catch also sees a
       // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
       throw dappSendFailure(e);
+    };
+    let dryRun: { chainFeeRead: Promise<number | null>; simulated: SimulateCustomTxResult };
+    try {
+      dryRun = await withUnlocked(async () => {
+        // The refresh is the fresh read, outside every WASM hold: a failed refresh keeps a stale cached fee, so the
+        // cache alone would accept it. One that throws is an unknown fee. It starts before the dry run without holding
+        // it up, so a request whose dry run fails is refused without waiting on the node; a summary's decode waits for
+        // it in the hold, where the refresh's scope and the cache are checked again.
+        const chainFeeRead = refreshVerificationBaseFee().catch((error: unknown) => {
+          console.warn('Failed to read the chain fee for a custom transaction approval', error);
+          return null;
+        });
+        const feeScope = cacheScope();
+        try {
+          const simulated = await simulateCustomTransaction({
+            address: customTransaction.address,
+            transactionRequest: customTransaction.transactionRequest,
+            importNotes: customTransaction.importNotes,
+            feeScope,
+            chainFeeRead
+          });
+          return { chainFeeRead, simulated };
+        } catch (e) {
+          if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) throw e;
+          console.error('Failed to simulate a custom transaction for approval', e);
+          return { chainFeeRead, simulated: { error: consentReason(e) } };
+        }
+      });
+    } catch (e) {
+      if (isPipelineKillLink(e) || e instanceof CustomSimulationTimeoutError) return releaseRefusedRequest(e);
+      throw pipelineKillIn(e) ?? e;
+    }
+    const { chainFeeRead, simulated } = dryRun;
+    try {
+      // Only a summary waits for the read, which its decode already waited for; anything else would wait on the node.
+      const feeUnknown = simulated.summaryBytes
+        ? (await chainFeeRead) === null && !isVerificationBaseFeeKnownAbsent()
+        : false;
+      // Unknown at the fresh read, or a different endpoint or an unknown fee at the summary decode, refused before
+      // any prompt. An executed dry run has no summary and still splits on its own header. The refresh's scope is
+      // checked again at the summary decode.
+      if (simulated.summaryBytes && (feeUnknown || simulated.feeUnknown)) {
+        throw new Error(`${MidenDAppErrorType.NotGranted}: ${getMessage('chainFeeUnknown')}`);
+      }
+      const approval = approvedSimulationOrRefusal(simulated);
+      const effectLines = await formatSimulatedCustomEffects(approval.view);
+      const customLimit = await customSpendingLimitState(customTransaction.address, approval.spends);
+      return {
+        transactionMessages: [...formatCustomTransactionPreview(customTransaction), ...effectLines],
+        noteFlow: simulated.noteFlow,
+        customLimit,
+        approvedView: approval.view,
+        approvedEffects: approval.effects,
+        approvedOutflow: approval.signing.approvedOutflow,
+        approvedNftOutflow: approval.signing.approvedNftOutflow
+      };
+    } catch (e) {
+      return releaseRefusedRequest(e);
     }
   };
   const prepared = await prepareOrReject(prepare, reject);
@@ -2404,13 +2541,8 @@ const generatePromisifyTransaction = async (
       waits
     );
     if (sheetData === undefined) return;
-    const { transactionMessages, customLimit, simulated, approvedOutflow, approvedNftOutflow } = sheetData;
-    let noteFlow: ReturnType<typeof noteFlowFromSimulatedBytes>;
-    try {
-      noteFlow = noteFlowFromSimulatedBytes(simulated);
-    } catch (error) {
-      console.error('Custom transaction note details unavailable:', error);
-    }
+    const { transactionMessages, customLimit, noteFlow, approvedEffects, approvedOutflow, approvedNftOutflow } =
+      sheetData;
 
     const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
@@ -2444,18 +2576,21 @@ const generatePromisifyTransaction = async (
         // The same re-check the send arm performs: the sheet may have sat open while the origin
         // disconnected or the user switched accounts, and a custom request moves value too.
         await assertDappSendStillAuthorized(origin, req.sourcePublicKey, address);
-        return await requestCustomTransaction(
-          address,
-          transactionRequest,
-          inputNoteIds,
-          importNotes,
-          delegateFromConfirmation(result),
-          recipientAddress || undefined,
-          customLimit.totals,
-          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals),
-          origin,
-          approvedNftOutflow,
-          approvedOutflow
+        return await requestApprovedCustomTransaction(customTransaction.importNotes, () =>
+          requestCustomTransaction(
+            address,
+            transactionRequest,
+            inputNoteIds,
+            importNotes,
+            delegateFromConfirmation(result),
+            recipientAddress || undefined,
+            customLimit.totals,
+            authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals ?? []),
+            origin,
+            approvedNftOutflow,
+            approvedOutflow,
+            approvedEffects
+          )
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -2493,39 +2628,44 @@ const generatePromisifyTransaction = async (
         spendingLimitDetails: customLimit.details
       });
     },
-    // The sheet's own simulate request reuses the build's dry run, so it shows what the policy assessed.
-    handleSimulate: async simulateReq =>
-      makeSimulateHandler(id, customTransaction, (await sheet.data()).simulated)(simulateReq),
+    // The sheet shows the approval this request queues with, so it shows what the policy charges and signing allows.
+    handleSimulate: async simulateReq => {
+      const { approvedView, noteFlow } = await sheet.data();
+      return makeSimulateHandler(id, approvedView, noteFlow)(simulateReq);
+    },
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppTransactionConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
-            const { customLimit, approvedOutflow, approvedNftOutflow } = await sheet.data();
+            const { customLimit, approvedEffects, approvedOutflow, approvedNftOutflow } = await sheet.data();
             const transactionId = await withUnlocked(async () => {
               const { payload } = req.transaction;
               const { address, recipientAddress, transactionRequest, inputNoteIds, importNotes } =
                 payload as MidenCustomTransaction;
               // See the mobile/desktop arm: same stale-confirmation re-check.
               await assertDappSendStillAuthorized(origin, req.sourcePublicKey, address);
-              return await requestCustomTransaction(
-                address,
-                transactionRequest,
-                inputNoteIds,
-                importNotes,
-                confirmReq.delegate,
-                recipientAddress || undefined,
-                customLimit.totals,
-                authorizationForDappSend(
-                  customLimit.details,
-                  confirmReq.spendingLimitAuthenticated,
-                  customLimit.totals
-                ),
-                origin,
-                approvedNftOutflow,
-                approvedOutflow
+              return await requestApprovedCustomTransaction(customTransaction.importNotes, () =>
+                requestCustomTransaction(
+                  address,
+                  transactionRequest,
+                  inputNoteIds,
+                  importNotes,
+                  confirmReq.delegate,
+                  recipientAddress || undefined,
+                  customLimit.totals,
+                  authorizationForDappSend(
+                    customLimit.details,
+                    confirmReq.spendingLimitAuthenticated,
+                    customLimit.totals ?? []
+                  ),
+                  origin,
+                  approvedNftOutflow,
+                  approvedOutflow,
+                  approvedEffects
+                )
               );
             });
-            // The transaction is queued and will consume these notes —
+            // The transaction is queued and will consume these notes -
             // release the quarantine the pre-confirm dry-run placed on them
             // so a failed/abandoned submission doesn't hide them forever.
             // Deliberately NOT released on the decline branch below:
@@ -2604,14 +2744,14 @@ const generatePromisifySendTransaction = async (
   // Authorization, and it has to live HERE rather than in `requestSendTransaction`.
   // A session authorizes exactly one account, but the account to debit is taken
   // from the request, so without this a page connected to A names B as the
-  // sender and spends from B — and the approval sheet shows amount, recipient,
+  // sender and spends from B - and the approval sheet shows amount, recipient,
   // token and note type but not the sender, so nothing on screen gives it away.
   //
   // `requestSendTransaction` is only ONE of the two ways in. The generalized
   // `TRANSACTION_REQUEST` entrypoint routes a `{ type: 'send' }` payload
   // straight into this function (`generatePromisifyTransaction`), reaching the
   // same `initiateSendTransaction` while validating only `sourcePublicKey`
-  // against the session — which the attacking page satisfies with its own
+  // against the session - which the attacking page satisfies with its own
   // connected account. A check on the outer function is simply not on that
   // path; the two other boundary validations below are here for that reason.
   const senderAddress = req.transaction?.senderAddress;
@@ -2632,8 +2772,8 @@ const generatePromisifySendTransaction = async (
     // postMessage from an untrusted page, so its type is a claim rather than a
     // guarantee, and the wallet accepts both the persisted 'public'/'private'
     // strings and the SDK's numeric enum. Everything downstream compares the
-    // STRING form — including the private-note relay in
-    // `completeSendTransaction` — so persisting a numeric `0` would build a
+    // STRING form - including the private-note relay in
+    // `completeSendTransaction` - so persisting a numeric `0` would build a
     // Private note and then skip its delivery, leaving the recipient unable to
     // ever see it. A missing or unrecognized value throws, which the catch
     // below turns into InvalidParams before the user is prompted.
@@ -2910,7 +3050,7 @@ const generatePromisifyConsumeTransaction = async (
           await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         }
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
-        // must not be dropped by auto-consume's exponential backoff — which
+        // must not be dropped by auto-consume's exponential backoff - which
         // would queue nothing and answer the dApp with the previous attempt's
         // Failed row id. `origin` refuses a note another transaction holds rather
         // than answer with that transaction, and lets this origin wait on the
@@ -2967,7 +3107,7 @@ const generatePromisifyConsumeTransaction = async (
                 // See the mobile/desktop arm: the import can outlast the approval's check.
                 await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               }
-              // `manualRetry`: approved on the confirm page — see the
+              // `manualRetry`: approved on the confirm page - see the
               // non-extension branch above for why the backoff must not apply,
               // and why `origin`.
               return await initiateConsumeTransactionFromId(
@@ -3262,7 +3402,7 @@ async function requestConfirm({
       if (!handleSimulate) {
         return { type: MidenMessageType.DAppSimulateTransactionResponse, error: 'unsupported' };
       }
-      return await handleSimulate(req); // must NOT close() — the popup stays open
+      return await handleSimulate(req); // must NOT close() - the popup stays open
     }
 
     // Any other request from the popup falls through to its own handler.
@@ -3408,10 +3548,10 @@ function isAllowedNetwork() {
  * The amount is formatted HERE, from the faucet's own decimals, exactly like
  * `formatConsumeTransactionPreview` does. It used to be emitted raw (base
  * units) and divided by a hardcoded `10 ** 6` in the extension's ConfirmPage
- * — which showed the wrong number for any faucet that isn't 6-decimal, showed
+ * - which showed the wrong number for any faucet that isn't 6-decimal, showed
  * raw base units on mobile/desktop (whose renderers print the row verbatim),
  * and lost precision above 2^53 because the division went through `Number()`.
- * `formatBigInt` stays in bigint until the last step, so large amounts render
+ * `formatAmountDisplay` stays in bigint until the last step, so large amounts render
  * exactly.
  */
 async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
@@ -3423,7 +3563,7 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
     hasKnownScale(tokenMetadata)
   );
   // `noteType` was normalized to the persisted 'public'/'private' string by the
-  // caller, which also rejected a missing or unrecognized one — so the label
+  // caller, which also rejected a missing or unrecognized one - so the label
   // below states what will actually be built rather than echoing whatever the
   // page sent. This text is the user's consent surface, and it used to be able
   // to read "Note Type, undefined" for a send that then went out public.
@@ -3464,7 +3604,7 @@ interface ConsumePreview {
 }
 
 /**
- * Decodes dApp-carried note bytes (base64) the SAME way the import path does —
+ * Decodes dApp-carried note bytes (base64) the SAME way the import path does -
  * they may be a serialized `NoteFile` OR a bare `Note`, and the dApp picks which
  * (see `noteIdFromBytes` in note-quarantine.ts). Returns the note's id alongside
  * its real assets and type, or null when neither format parses.
@@ -3483,7 +3623,7 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
       note = NoteFile.deserialize(bytes).note();
     } catch (error) {
       if (error instanceof WebAssembly.RuntimeError) throw error;
-      // Not a NoteFile — fall through to a bare Note.
+      // Not a NoteFile - fall through to a bare Note.
     }
     if (!note) {
       note = Note.deserialize(bytes);
@@ -3702,6 +3842,9 @@ async function formatMaxNetworkFee(): Promise<string | null> {
 const OPAQUE_SIGNATURE_WARNING =
   'Warning, this site asked you to sign a value the wallet cannot decode. Only continue if you fully trust this site.';
 
+/** The wallet signs a domain-separated commitment for these requests, so the signature cannot authorize a transaction. */
+const OPAQUE_SIGNATURE_NOT_A_TRANSACTION = 'Note, this signature cannot authorize a transaction from your account.';
+
 /**
  * Asset movement of a decoded transaction view, as `Label, value` rows.
  *
@@ -3741,7 +3884,7 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
     rows.push('Assets, no fungible asset moves');
   }
   rows.push(`Notes, ${view.inputNotesConsumed} consumed / ${view.outputNotesCreated} created`);
-  // A cost the user pays, and `outgoing` deliberately excludes it on both decode paths — so
+  // A cost the user pays, and `outgoing` deliberately excludes it on both decode paths - so
   // if it is not printed here it is not on this sheet at all. Off-extension has no other
   // surface: these rows ARE the approval prompt.
   if (view.fee) {
@@ -3753,88 +3896,77 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
   return rows;
 }
 
+/** Holdings of a transaction summary. A throw here is `NotGranted` before any prompt. */
+function measuredSigningHoldings(summary: TransactionSummary): TxAssetView {
+  try {
+    return toHoldingsView(summaryToView(summary), []);
+  } catch (measureError) {
+    rethrowTrapOrKill(measureError);
+    const reason = measureError instanceof Error ? measureError.message : String(measureError);
+    throw new Error(`${MidenDAppErrorType.NotGranted}: ${reason}`);
+  }
+}
+
 /**
- * What the mobile modal / desktop overlay show for `signBytes`.
+ * What the mobile modal / desktop overlay show for a Guardian account's `signBytes`: the kind, the account, how many
+ * elements the message has, then the elements, as the extension's message alert and value do.
+ */
+function formatGuardianSignPreview(req: MidenDAppSignRequest, messageElements: bigint[]): string[] {
+  return [
+    `Kind, ${req.kind}`,
+    `Account, ${truncateAddress(req.sourcePublicKey)}`,
+    getMessage('signMessageWarning', { count: messageElements.length }),
+    `Message, ${messageElements.join(', ')}`
+  ];
+}
+
+/**
+ * What the mobile modal / desktop overlay show for a single-key account's `signBytes`.
  *
- * A `signingInputs` payload is a full TRANSACTION authorization — `Vault.signData`
- * runs `wasmSecretKey.signData(SigningInputs.deserialize(...))` on it — so
- * approving one can move the whole balance. The extension decodes it
- * (`SigningInputsPayloadContent` in ConfirmPage) and renders the summary's asset
- * movement; off-extension `signBytes` had no approval sheet at all — it fell into
- * `requestConfirm`'s throw and the dApp's promise never settled (see
- * `confirmOnNonExtension`). These rows are the first thing mobile and desktop show
- * for it, and they are that same decode as text: the summary's real asset movement
- * when the payload carries one, and the explicit opaque-signature warning for the
- * `Arbitrary` / `Blind` variants, for the other `SignKind` (`word`, a raw digest),
- * and for bytes that do not decode at all — mirroring the extension's
- * `OpaqueSignatureWarning`.
+ * A `signingInputs` payload holding a transaction summary is a full TRANSACTION
+ * authorization, signed as decoded, so approving one can move the whole balance.
+ * The `Arbitrary` / `Blind` variants and `word` are signed under a domain tag
+ * (`signBytesInputs`) and never authorize a transaction. Off-extension `signBytes`
+ * had no approval sheet at all: it fell into `requestConfirm`'s throw and the dApp's
+ * promise never settled (see `confirmOnNonExtension`). These rows are the first
+ * thing mobile and desktop show for it.
+ *
+ * `holdings` is the one measure `generatePromisifySign` made of the summary, after
+ * this realm's fee read: what leaves the account's holdings, crediting no consumed
+ * note. The extension popup renders that same measure (`signingEffects`). Nothing
+ * here decodes; a summary that could not be measured, or whose fee is unknown, was
+ * refused before this sheet. Without a measure the rows carry the explicit
+ * opaque-signature warning: for the `Arbitrary` / `Blind` variants, for the other
+ * `SignKind` (`word`, a raw digest), and for bytes that do not decode at all,
+ * mirroring the extension's `OpaqueSignatureWarning`.
  *
  * The summary is ground truth for the signature: it is the very value being
  * signed, not a dApp-declared description of it.
  */
-async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
+async function formatSignPreview(req: MidenDAppSignRequest, holdings?: TxAssetView): Promise<string[]> {
   const rows = [`Kind, ${req.kind}`, `Account, ${truncateAddress(req.sourcePublicKey)}`];
-  if (req.kind !== 'signingInputs') {
-    rows.push(OPAQUE_SIGNATURE_WARNING);
-    return rows;
-  }
-
-  let summary: TransactionSummary | undefined;
-  try {
-    const signingInputs = SigningInputs.deserialize(b64ToU8(req.payload));
-    if (signingInputs.variantType === SigningInputsType.TransactionSummary) {
-      summary = signingInputs.transactionSummaryPayload();
-    }
-  } catch (e) {
-    // An undecodable payload is not a reason to refuse — it is a reason to say
-    // so. The user still gets the warning row below instead of a bare "Kind".
-    console.error('[DApp] Could not decode the signingInputs payload for the approval sheet:', e);
-  }
-
-  if (!summary) {
-    rows.push(OPAQUE_SIGNATURE_WARNING);
+  if (!holdings) {
+    rows.push(OPAQUE_SIGNATURE_WARNING, OPAQUE_SIGNATURE_NOT_A_TRANSACTION);
     return rows;
   }
 
   rows.push('Signing, a transaction that moves these assets');
-  rows.push(...(await formatAssetViewRows(summaryToView(summary))));
+  rows.push(...(await formatAssetViewRows(holdings)));
+  if ((holdings.heldNotesSpent ?? 0) > 0) {
+    rows.push(`Includes notes you have not claimed yet, ${holdings.heldNotesSpent}`);
+  }
   return rows;
 }
 
 /**
  * What the mobile modal / desktop overlay show for a custom transaction.
- *
- * The two fixed lines plus `From` and `Recipient` used to be the WHOLE sheet
- * off-extension: no amount, no asset, no faucet, and a `Recipient` the dApp
- * simply declared — nothing there was derived from `transactionRequest`, the
- * bytes the wallet then executes. The extension shows the request's own asset movement
- * (`CustomTransactionContent`: the simulated summary, falling back to
- * `declaredRequestToView`), so the same static decode is rendered here as rows.
- *
- * `declared` is that offline decode of the request the wallet will execute,
- * built in the caller's WASM hold (undefined when it could not be summarised).
- * There is no dry run, so it is labelled unverified, exactly as the extension
- * labels its declared view. `recipientAddress` stays dApp-declared and is
- * labelled as such: it is not derived from the request bytes and nothing
- * downstream checks it.
  */
-async function formatCustomTransactionPreview(
-  payload: MidenCustomTransaction,
-  declared: TxAssetView | undefined
-): Promise<string[]> {
+function formatCustomTransactionPreview(payload: MidenCustomTransaction): string[] {
   const messages = [
     'This dApp is requesting a custom transaction,',
     'please ensure you know the details of the transaction before proceeding.',
-    // Executing account first, for the same reason as the send preview.
     `From, ${truncateAddress(payload.address)}`
   ];
-
-  if (declared) {
-    messages.push('Declared by the site, the wallet has not verified these amounts');
-    messages.push(...(await formatAssetViewRows(declared)));
-  } else {
-    messages.push('Warning, the wallet could not decode this transaction request — it cannot show what it does');
-  }
 
   if (payload.recipientAddress) {
     messages.push(`Recipient (declared by the site), ${truncateAddress(payload.recipientAddress)}`);
@@ -3844,122 +3976,77 @@ async function formatCustomTransactionPreview(
 }
 
 /**
- * What a custom transaction will actually do, as lines for an approval sheet.
- *
- * A custom transaction is an opaque base64 `TransactionRequest`, so it can do
- * anything the account can, and the three lines of
- * {@link formatCustomTransactionPreview} describe none of it. The extension's
- * approval page resolves that by running the dry run itself over the intercom
- * (`makeSimulateHandler`) and rendering the asset movements it returns. The
- * mobile and desktop sheets have no route to that call and render only
- * `transactionMessages`, so they asked for consent to an unnamed transfer of an
- * unnamed amount — "please ensure you know the details" and a recipient. Run the
- * same dry run here, on the same account binding checked above, and put its
- * result into the list those sheets already render.
- *
- * A dry run that could not be produced is STATED rather than omitted: no
- * movement lines is otherwise indistinguishable from a transaction that moves
- * nothing, which is the reading most likely to get an approval. Nothing in here
- * throws — a preview that fails must not take down the request that a user could
- * still legitimately decline.
+ * The approval's effects as the mobile and desktop sheets show them: what leaves and enters the account's holdings,
+ * the view the spending limit and the signing-time check also measure. A consumed note the account already held is
+ * value it spends, so its assets are among what leaves, and the sheet names how many such notes there are.
  */
-/**
- * Effects of a custom request's dry run: the lines the approval sheet renders, and the per-faucet
- * value LEAVING the account that the spending-limit policy needs.
- *
- * `outgoing` is undefined when the dry run produced NEITHER ground-truth shape. That is "unknown
- * value", not "no value": admitting such a request unassessed would make a deliberately
- * unsimulatable request the way around a configured cap. Decoding only the summary shape put every
- * ordinary single-sig account in that bucket and refused all of their custom transactions.
- *
- * Takes the dry-run result rather than running it, so the request is simulated ONCE.
- *
- * The lines the signer reads are the GROSS legs - what leaves and what enters, stated separately,
- * because that is what a person checking a transaction wants to see. The figure handed to the
- * spending-limit policy is the NET outflow: a summary's vault change as the sheet shows it, or an
- * executed transaction's output notes less only what this request brought in.
- *
- * `approvedOutflow` and `outgoingNfts` are what signing may let leave, recorded on the row for every
- * decoded dry run: the same net outflow, also when the policy figure is withheld because the
- * request consumed notes the wallet already held, and the complete identity of each NFT the sheet
- * lists as leaving.
- */
-async function formatSimulatedCustomEffects(simulated: SimulateCustomTxResult): Promise<{
-  messages: string[];
-  outgoing?: IConsumedAssetTotal[];
-  approvedOutflow?: IConsumedAssetTotal[];
-  outgoingNfts?: string[];
-}> {
-  try {
-    const view = simulatedBytesToView(simulated);
-    if (!view) throw new Error(simulated.error ?? 'no summary was produced');
-    // The summary arm reports a NETTED vault delta with no note identity, so it has already
-    // credited every consumed note - including ones the wallet already held, which are the user's
-    // own value. When it consumed more notes than this request introduced, that figure understates
-    // the outflow and cannot be corrected here.
-    //
-    // This withholds the POLICY's number, not the sheet's. The effect lines are still shown, still
-    // gross, and still useful to a person reading them; it is only the automated cap that must not
-    // act on a figure it cannot attribute, and it refuses on `outgoing === undefined` already.
-    const attributable =
-      simulated.summaryBytes === undefined || view.inputNotesConsumed <= (simulated.introducedCount ?? 0);
-    const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
-      const metadata = await getTokenMetadata(asset.faucetId);
-      const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals, hasKnownScale(metadata));
-      return `${direction === 'send' ? 'Leaves this account' : 'Enters this account'}, ${amount} ${
-        metadata?.symbol ?? ''
-      }`.trimEnd();
-    };
+async function formatSimulatedCustomEffects(view: TxAssetView): Promise<string[]> {
+  const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
+    const metadata = await getTokenMetadata(asset.faucetId);
+    const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals, hasKnownScale(metadata));
+    return `${direction === 'send' ? 'Leaves this account' : 'Enters this account'}, ${amount} ${
+      metadata?.symbol ?? ''
+    }`.trimEnd();
+  };
 
-    const effects = [
-      ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
-      ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume')))),
-      ...view.outgoingNfts.map(nft => `Leaves this account, ${describeNft(nft, nftFaucetLabel)}`),
-      ...view.incomingNfts.map(nft => `Enters this account, ${describeNft(nft, nftFaucetLabel)}`)
-    ];
-    if (view.unlistedAssets > 0) effects.push(UNLISTED_ASSETS_WARNING);
-    // BEFORE the "nothing moves" check, and separate from it. `summaryToView` subtracts the
-    // fee out of `outgoing` so it is not double-counted against the transfer, which means a
-    // transaction whose ONLY movement is the fee arrives here with two empty lists -- and
-    // "No assets move" is exactly the reading most likely to get an approval for something
-    // that does in fact cost the user money.
-    if (view.fee) {
-      const feeMetadata = await getTokenMetadata(view.fee.faucetId);
-      const feeAmount = formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata));
-      effects.push(`Network fee, ${feeAmount} ${feeMetadata?.symbol ?? ''}`.trimEnd());
-    }
-    if (effects.length === 0) {
-      effects.push('No assets move');
-    }
-    effects.push(`Notes consumed, ${view.inputNotesConsumed}`, `Notes created, ${view.outputNotesCreated}`);
-    if (view.storageChanged) {
-      effects.push('Changes this account’s stored data');
-    }
-
-    // A summary's net vault change already counts the notes this request brought in, so only an
-    // executed view's gross outflow is credited with them (see `netOutflowByFaucet`).
-    const credit = simulated.summaryBytes ? [] : simulated.introducedCredit;
-    // Netted and folded per faucet: what actually leaves, once per asset.
-    const outflow = netOutflowByFaucet(view, credit).map(asset => ({ faucetId: asset.faucetId, amount: asset.amount }));
-    return {
-      messages: ['Simulated effects:', ...effects],
-      approvedOutflow: outflow,
-      outgoingNfts: view.outgoingNfts.flatMap(nft => (nft.key === undefined ? [] : [nft.key])),
-      ...(attributable && { outgoing: outflow })
-    };
-  } catch (e: any) {
-    console.error('Failed to simulate a custom transaction for approval', e);
-    return {
-      messages: ['This transaction could not be simulated, so its effects are unknown.', `Reason, ${consentReason(e)}`]
-    };
+  const effects = [
+    ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
+    ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume')))),
+    ...view.outgoingNfts.map(nft => `Leaves this account, ${describeNft(nft, nftFaucetLabel)}`),
+    ...view.incomingNfts.map(nft => `Enters this account, ${describeNft(nft, nftFaucetLabel)}`)
+  ];
+  if (view.unlistedAssets > 0) effects.push(UNLISTED_ASSETS_WARNING);
+  if (view.fee) {
+    const feeMetadata = await getTokenMetadata(view.fee.faucetId);
+    const feeAmount = formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata));
+    effects.push(`Network fee, ${feeAmount} ${feeMetadata?.symbol ?? ''}`.trimEnd());
   }
+  if (effects.length === 0) effects.push('No assets move');
+  if ((view.heldNotesSpent ?? 0) > 0) effects.push(`Includes notes you have not claimed yet, ${view.heldNotesSpent}`);
+  effects.push(`Notes consumed, ${view.inputNotesConsumed}`, `Notes created, ${view.outputNotesCreated}`);
+  if (view.storageChanged) effects.push('Changes this account’s stored data');
+  return ['Simulated effects:', ...effects];
+}
+
+/**
+ * The refusal of a dApp custom request whose approval dry run failed or gave no result. The wallet refuses it before
+ * any prompt, because the user approves only simulated effects.
+ */
+/** The text of `CustomTransactionNotSimulatedError` after its code. The dApp E2E cells pin it. */
+const NOT_SIMULATED_REFUSAL =
+  'The transaction could not be simulated, so the wallet cannot show what it does and does not ask for approval.';
+const NOT_SIMULATED_REASON_PREFIX = 'Reason: ';
+
+export class CustomTransactionNotSimulatedError extends PublicError {
+  constructor(reason: string) {
+    super(`${MidenDAppErrorType.NotGranted}: ${NOT_SIMULATED_REFUSAL} ${NOT_SIMULATED_REASON_PREFIX}${reason}`);
+    this.name = 'CustomTransactionNotSimulatedError';
+  }
+}
+
+/**
+ * The effects of a successful approval dry run, or a `CustomTransactionNotSimulatedError`.
+ *
+ * Case that fails by design: a request that the wallet cannot simulate at approval. The wallet does not show the
+ * effects that the dApp declares in place of a dry run, so it refuses the request before any prompt. A dry run whose
+ * holdings cannot be measured (a view that does not list its notes, or a held note whose assets cannot be read) is
+ * refused the same way, so no row is queued without the note ids signing checks. The dry run measured the approval
+ * inside its hold, so nothing is decoded here.
+ */
+function approvedSimulationOrRefusal(simulated: SimulateCustomTxResult): ApprovedCustomSimulation {
+  if (simulated.approval !== undefined) return simulated.approval;
+  const failure = simulated.approvalFailure ?? simulated.error;
+  console.error('Failed to simulate a custom transaction for approval', failure);
+  throw new CustomTransactionNotSimulatedError(
+    failure === undefined ? 'the simulation gave no result' : consentReason(failure)
+  );
 }
 
 /**
  * The one-line reason shown on a signing consent sheet when the dry run failed.
  *
- * An abandonment reaches here as wallet-internal text — "WASM client poisoned
- * (watchdog): held the WASM client lock past its watchdog ceiling" — because the
+ * An abandonment reaches here as wallet-internal text - "WASM client poisoned
+ * (watchdog): held the WASM client lock past its watchdog ceiling" - because the
  * simulation flattens its error to a message string and this sheet interpolates
  * it. That says nothing a signer can act on, and a consent line is the last place
  * to spend on jargon; the real error is already on the console above.
@@ -3995,7 +4082,9 @@ function formatAmountSafe(
   tokenDecimals: number | undefined,
   scaleIsKnown: boolean
 ) {
-  const normalizedAmount = scaleIsKnown ? formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals) : '?';
+  const normalizedAmount = scaleIsKnown
+    ? formatAmountDisplay(amount, { decimals: tokenDecimals ?? MIDEN_METADATA.decimals, formatting: 'exact' })
+    : '?';
   if (transactionType === 'consume') {
     return `+${normalizedAmount}`;
   }

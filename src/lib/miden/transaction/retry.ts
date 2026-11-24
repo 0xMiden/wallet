@@ -2,6 +2,7 @@ import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { claimFeeDecisions } from 'lib/miden/fees/spendable';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { annotatePendingRetry, type PendingRetryReason } from 'lib/telemetry/ui-producer-diagnostics';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
@@ -14,9 +15,12 @@ import {
 } from './claim-fee';
 import {
   PRE_SUBMIT_STAGES,
+  PROOF_FRESHNESS_UNKNOWN_ERROR,
   STALE_PROOF_ERROR,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
   TRANSACTION_LANDING_PENDING_RETRY_ERROR,
+  TRANSACTION_REPLAY_CHECK_FAILED_ERROR,
+  TRANSACTION_REPLAY_UNREADABLE_ERROR,
   TRANSACTION_RETRY_UNSAFE_ERROR,
   isSubmitOutcomeUnknown
 } from './constants';
@@ -24,16 +28,32 @@ import {
   applyVerifiedLanding,
   completeVerifiedLandedTransaction,
   countNoteDeliveryWrite,
+  reportVerifiedLanding,
+  storedNoteIds,
   verifiedLandingRowFields
 } from './helper';
-import { latestEndMayStillRun } from './reconcile-judge';
-import { checkEvidenceForRetry, recordLandedDeliveryTarget } from './reconcile-unconfirmed';
+import {
+  checkPinnedReplayNotes,
+  orderFromSavedRequest,
+  type PinnedReplayCheck,
+  sameRequestBytes,
+  swapOpensOrderFromRead
+} from './pinned-replay-check';
+import { latestEndMayStillRun, noteClaimedElsewhere } from './reconcile-judge';
+import {
+  accountRowsOf,
+  checkEvidenceForRetry,
+  landedExecuteDeliveryValues,
+  landedNoteStamp,
+  recordLandedDeliveryTarget
+} from './reconcile-unconfirmed';
 import { GuardianHoldRetryError } from './retry-refusal';
 import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
   ICON_BY_TYPE,
+  ISubmitEvidence,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -41,6 +61,8 @@ import {
   nextQueuedSeq,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
+import { submittedSwapOrder } from '../sdk/apply-after-submit';
+import { normalizeHex } from '../sdk/submit-evidence';
 
 /**
  * Types whose failed row can simply be re-queued through the FIFO loop.
@@ -204,20 +226,23 @@ export const isCancellableTransaction = (tx: { status?: ITransactionStatus; type
 const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-send', 'execute'];
 
 /**
- * The types whose request is REBUILT from scratch on every attempt, so a second
- * submit produces a genuinely NEW output note (new serial) that the node has no
- * reason to reject - i.e. the ones where a resubmit of an already-landed tx is a
- * real double-send of the user's funds. Guardian sends/swaps are `send`/`swap`
- * rows too, and each retry builds a fresh proposal, so they are covered here.
+ * The types where a resubmit of an already-landed tx is a real double-send of the
+ * user's funds, whether the request is rebuilt or replayed. A rebuilt request draws
+ * a new note serial the node has no reason to reject. A request replayed from the
+ * row's `requestBytes` (a Guardian recallable send or swap, an Agglayer or USDCx
+ * `bridged-send`) re-creates the same note, which the node rejects only while the
+ * first copy is still in flight: it checks output notes against its mempool, not
+ * against committed notes. So holding bytes exempts none of these types, and before
+ * such a replay Retry asks the node for the notes the bytes create
+ * (`checkPinnedReplayNotes`): one already on chain completes the row instead.
  *
- * `bridged-send` (Agglayer) is excluded: it replays the `requestBytes` persisted
- * on the row, whose output notes are fixed and which runs no custom script, so a
- * duplicate submit re-creates the IDENTICAL note and the node rejects it. An
- * `execute` is excluded from the rebuild but not from the doubt: `newTransaction`
+ * An `execute` is left out of this list but not out of the doubt: `newTransaction`
  * re-executes its request against the account's current state, so a script that
  * reads the vault can pay a different amount, and an execute that may have
  * submitted meets the acknowledgeable refusal on its own rule
- * (`executeMayHaveSubmitted`, #1081).
+ * (`executeMayHaveSubmitted`, #1081). Once the user acknowledged that refusal, its
+ * Retry still asks the node for the notes its bytes create and its approval
+ * recorded, as a send's does; the refusal itself takes no lock and reads no node.
  * (`consume` is excluded for the same reason its Retry needs no node check - its
  * input note's nullifier makes a duplicate unusable.)
  *
@@ -237,7 +262,7 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * is acknowledgeable rather than final - the user can tell the two apart from
  * their own balance, so see `RetryOptions.acknowledged`.
  */
-const REBUILT_REQUEST_TYPES: ITransactionType[] = ['send', 'swap'];
+const RESUBMIT_GUARDED_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-send'];
 
 /** How long Retry waits for a reconciler pass that holds the row's verdict lock (#1081). */
 export const RETRY_VERDICT_WAIT_MS = 10_000;
@@ -312,7 +337,10 @@ export interface RetryOptions {
    * that refusal carried, `null` included. The lock cannot cover an acknowledgement, which is given before the call
    * starts, so Retry honours it only while it still names the row's attempt; one given before another surface's
    * Retry ran a newer attempt counts as absent. Taken as the premise being false, so both crossing markers are
-   * cleared in the requeue write rather than stepped over.
+   * cleared in the requeue write rather than stepped over, except a `send`'s `mayHaveSubmitted` while it holds
+   * `requestBytes`: that crossing pins the bytes, so the acknowledged Retry re-creates their note rather than drawing a
+   * new serial. It replays them only once the node shows none of the notes they create on chain. So does an execute,
+   * whose Retry replays its bytes too, for those notes and the ones its approval recorded.
    */
   acknowledged?: { attemptId: string | null };
 }
@@ -351,7 +379,8 @@ const executeMayHaveSubmitted = (tx: ITransaction): boolean =>
  * earlier attempt's entry is still in doubt the row has nothing left for an acknowledgement to rule out (#2060).
  */
 const endedUnsent = (tx: ITransaction): boolean =>
-  tx.error === STALE_PROOF_ERROR && !(tx.submitEvidence ?? []).some(isUnresolvedEntry);
+  (tx.error === STALE_PROOF_ERROR || tx.error === PROOF_FRESHNESS_UNKNOWN_ERROR) &&
+  !(tx.submitEvidence ?? []).some(isUnresolvedEntry);
 
 interface RequeuePlan {
   failedStage: ITransactionStage | undefined;
@@ -360,6 +389,30 @@ interface RequeuePlan {
   /** The entries' evidence as Retry judged and wrote them, never re-read. */
   baseline: string;
 }
+
+/**
+ * Complete `tx` when the node holds a note its saved request creates (for an execute, also one its approval recorded):
+ * true when written, false when the node holds none or there is none to ask for. No answer refuses, since the replay
+ * needs the same node, and so does a note on chain that another row of the account may own.
+ */
+const completedFromPinnedNotes = async (tx: ITransaction, baseline: string): Promise<boolean> => {
+  const pinned = await checkPinnedReplayNotes(tx);
+  if (pinned.kind === 'unknown') {
+    // Bytes that do not decode, or that declare a note under another account, can never be sent from this row.
+    throw pinned.cause === 'decode' || pinned.cause === 'sender'
+      ? retryRefusal(new Error(TRANSACTION_REPLAY_UNREADABLE_ERROR), 'replay_request_unreadable')
+      : retryRefusal(new Error(TRANSACTION_REPLAY_CHECK_FAILED_ERROR), 'replay_check_failed');
+  }
+  if (pinned.kind !== 'committed') return false;
+  // A swap's order expires a window after it landed. Read before the write, which cannot await the network.
+  const landedAt =
+    tx.type === 'swap' ? (await getBlockTimestamps([pinned.block], pinned.scope)).get(pinned.block) : undefined;
+  const written = await writePinnedLanding(tx, baseline, pinned, landedAt);
+  // On chain, but maybe not this row's: neither a replay nor a completion.
+  if (written === 'claimed') throw retryRefusal(new Error(TRANSACTION_RETRY_UNSAFE_ERROR), 'unsafe_retry');
+  if (written === 'declined') throw retryRefusal(new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR), 'verdict_busy');
+  return true;
+};
 
 /** Steps 1 to 5: refuse, complete, or say how to requeue. Undefined when the row was completed instead. */
 const planRequeue = async (
@@ -403,57 +456,83 @@ const planRequeue = async (
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
       // relays a private send's note, and with no delivery recorded that relay never ran, so the
       // note the verified transaction's attempt recorded becomes the delivery target by the
-      // reconciler's rule for a bound landing (#1473).
+      // reconciler's rule for a bound landing (#1473). An execute whose tail recorded nothing owes
+      // the private notes that attempt's stamp read, as at the reconciler's landing.
       const completedAt = Math.floor(Date.now() / 1000);
       const verifiedId = tx.transactionId;
+      const ofVerified = (entry: ISubmitEvidence): boolean =>
+        verifiedId !== undefined &&
+        entry.transactionId !== undefined &&
+        normalizeHex(entry.transactionId) === normalizeHex(verifiedId);
       let target: string[] | undefined;
+      let owesNotes = false;
+      // A swap that holds no order opens the one its saved request names. Decoded before the write, which
+      // cannot await the lock, and passed only while the fresh row still holds those bytes. A single-key swap saves no
+      // request, so its order is the one the verified transaction's attempt recorded on its stamp.
+      const decodedBytes = tx.requestBytes;
+      const savedOrder =
+        tx.type === 'swap' && swapOpensOrderFromRead(tx) ? await orderFromSavedRequest(decodedBytes) : undefined;
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
       await completeVerifiedLandedTransaction(tx.id, fresh => {
         // `fresh` is the row this write stores. The landing is applied to it here, not returned, so the target is
-        // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel.
-        applyVerifiedLanding(fresh, { ...verifiedLandingRowFields(fresh), completedAt });
+        // recorded on the completed row and nothing assigned after it can overwrite a replaced target's relabel. An
+        // execute's notes are read from the row as found, before the landed fields label one with a recipient
+        // undelivered.
+        const landedStamp = fresh.submitEvidence?.find(ofVerified);
+        const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
+        applyVerifiedLanding(
+          fresh,
+          { ...verifiedLandingRowFields(fresh), ...executeDelivery, completedAt },
+          (sameRequestBytes(fresh.requestBytes, decodedBytes) ? savedOrder : undefined) ??
+            submittedSwapOrder(fresh.submitEvidence, ofVerified)
+        );
         target =
           verifiedId === undefined ? undefined : recordLandedDeliveryTarget(fresh, { boundTransactionId: verifiedId });
+        owesNotes = (executeDelivery?.relayNoteIds?.length ?? 0) > 0;
         return {};
       });
-      if (target !== undefined) countNoteDeliveryWrite();
+      if (target !== undefined || owesNotes) countNoteDeliveryWrite();
       return undefined;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could
-    // not confirm", NOT "it did not land" - and for a rebuilt-request type a
-    // resubmit would broadcast a SECOND send. This covers the row that HAS a
+    // not confirm", NOT "it did not land" - and for a guarded type a resubmit
+    // would broadcast a SECOND send. This covers the row that HAS a
     // captured id the node has no record of, which the acknowledgeable refusal
     // below deliberately does not: an id proves the submit call was reached, so
     // there is nothing for the user to rule out from their balance.
-    if (REBUILT_REQUEST_TYPES.includes(tx.type) && tx.transactionId !== undefined && isSubmitOutcomeUnknown(tx)) {
+    if (RESUBMIT_GUARDED_TYPES.includes(tx.type) && tx.transactionId !== undefined && isSubmitOutcomeUnknown(tx)) {
       throw retryRefusal(new Error(TRANSACTION_RETRY_UNSAFE_ERROR), 'unsafe_retry');
     }
   }
 
-  // A send or swap that caches no bytes rebuilds its request with a fresh note serial, so the chain has no reason to
-  // reject a second submit. It is refused while a submit cannot be ruled out: a recorded crossing (`mayHaveSubmitted`,
-  // a live cancel) or the coarse reading that the row left the queue at all. The coarse one also catches failures that
-  // were provably pre-submit, which is why the refusal is acknowledgeable: the user can tell the two apart from their
-  // balance, and a refusal with no exit is what makes people re-send by hand.
+  // A send, swap or bridged-send is refused while a submit cannot be ruled out, whether it rebuilds its request or
+  // reuses the note its `requestBytes` pin, since the node rejects a duplicate note only while the first copy is in
+  // flight. The signals are a recorded crossing (`mayHaveSubmitted`, a live cancel) or the coarse reading that the row
+  // left the queue at all. The coarse one also catches failures that were provably pre-submit, which is why the
+  // refusal is acknowledgeable: the user can tell the two apart from their balance, and a refusal with no exit is what
+  // makes people re-send by hand.
   const live =
     pipelineMayStillBeRunning(tx.cancelledInFlightAt) ||
-    ((tx.type === 'execute' || tx.type === 'swap') && latestEndMayStillRun(tx));
-  const rebuiltWithoutBytes =
-    REBUILT_REQUEST_TYPES.includes(tx.type) && tx.requestBytes === undefined && tx.transactionId === undefined;
-  const sendOrSwapInDoubt =
-    rebuiltWithoutBytes &&
-    (proven || tx.mayHaveSubmitted === true || live || (isSubmitOutcomeUnknown(tx) && !endedUnsent(tx)));
+    ((tx.type === 'execute' || tx.type === 'swap' || tx.type === 'bridged-send') && latestEndMayStillRun(tx));
+  const guarded = RESUBMIT_GUARDED_TYPES.includes(tx.type) && tx.transactionId === undefined;
+  const resubmitInDoubt =
+    guarded && (proven || tx.mayHaveSubmitted === true || live || (isSubmitOutcomeUnknown(tx) && !endedUnsent(tx)));
   const executeInDoubt = tx.type === 'execute' && !listsNullifier(tx) && (proven || executeMayHaveSubmitted(tx));
 
   // An acknowledgement can rule out the past, not the future: while a cancelled or abandoned run may still submit,
-  // even a proven row waits. An Agglayer bridge never meets this: its bytes rebuild the identical note.
-  if ((sendOrSwapInDoubt || executeInDoubt) && live) {
+  // even a proven row waits.
+  if ((resubmitInDoubt || executeInDoubt) && live) {
     throw new UnverifiableSendRetryError(livenessCopy(tx.type, proven));
   }
+  // Bytes in doubt are replayed as they are, so the user's word cannot rule out what the node can: a note they create
+  // that is already on chain. No answer replays nothing, since the replay needs the same node.
+  if (!proven && resubmitInDoubt && tx.requestBytes !== undefined && (await completedFromPinnedNotes(tx, baseline))) {
+    return undefined;
+  }
   let clearFlags = proven;
-  if (!proven && (sendOrSwapInDoubt || executeInDoubt)) {
+  if (!proven && (resubmitInDoubt || executeInDoubt)) {
     const attemptId = tx.attemptId ?? null;
     if (acknowledged === undefined || acknowledged.attemptId !== attemptId) {
       // The copy only: the check may have just ended the reconciler's interest (an 'unresolvable' verdict), and the
@@ -463,8 +542,80 @@ const planRequeue = async (
     }
     clearFlags = true;
   }
+  // An acknowledged execute replays the same bytes, so a note they create, or one its approval recorded (the only
+  // notes signing lets it create), already on chain means a run created it: the user's word cannot rule that out. Asked
+  // only here, behind the acknowledgement, so the refusal above takes no lock and reads no node, and a request that
+  // names no note keeps the user's word (#1081). Bytes that declare a note under another account never run as this
+  // one, and an older wallet saved such a dApp request when its approval run failed, so the check refuses them before
+  // any read; it counts only a copy this account created, and refuses on node metadata that contradicts a note's id.
+  if (!proven && executeInDoubt && tx.requestBytes !== undefined && (await completedFromPinnedNotes(tx, baseline))) {
+    return undefined;
+  }
   // Read off the pre-reset row: the requeue write clears `stage`.
   return { failedStage: tx.stage, clearFlags, proven, baseline };
+};
+
+type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
+
+/**
+ * Complete a row whose pinned note the node holds, as the reconciler's note landing completes one: in one write that
+ * declines once the row moved from what Retry judged (its status, stage, evidence or bytes), and that re-reads the
+ * account's rows, since another attempt naming that note may be the one that created it. A swap opens the order its
+ * pinned note names when the row holds none ({@link applyVerifiedLanding}), with its expiry anchored at `landedAt`,
+ * the including block's time; without it at now, which is later and so never cancels the order early. An execute
+ * whose tail recorded nothing owes the private notes every attempt that can have created the pinned note read
+ * ({@link landedNoteStamp}), as at the reconciler's note landing ({@link landedExecuteDeliveryValues}), a delivery write
+ * counted once it commits.
+ */
+const writePinnedLanding = async (
+  tx: ITransaction,
+  baseline: string,
+  pinned: Extract<PinnedReplayCheck, { kind: 'committed' }>,
+  landedAt: number | undefined
+): Promise<PinnedLandingWrite> => {
+  const outcome = await Repo.db.transaction(
+    'rw',
+    Repo.transactions,
+    async (): Promise<{ write: PinnedLandingWrite; landed?: ITransaction; target?: string[]; owesNotes?: boolean }> => {
+      const fresh = await Repo.transactions.where({ id: tx.id }).first();
+      if (
+        fresh === undefined ||
+        (fresh.status !== ITransactionStatus.Failed && fresh.status !== ITransactionStatus.Unconfirmed) ||
+        fresh.stage !== tx.stage ||
+        evidenceKey(fresh.submitEvidence) !== baseline ||
+        !sameRequestBytes(fresh.requestBytes, tx.requestBytes)
+      ) {
+        return { write: 'declined' };
+      }
+      if (noteClaimedElsewhere(fresh, pinned.noteId, await accountRowsOf(fresh))) return { write: 'claimed' };
+      // Read from the row as found, before the landed fields label an execute undelivered. The pinned check cannot
+      // say which attempt created the note, so only what every attempt that can have created it read.
+      const notePin = { noteId: pinned.noteId, block: pinned.block };
+      const landedStamp = landedNoteStamp(fresh, notePin);
+      const executeDelivery = landedStamp && landedExecuteDeliveryValues(fresh, landedStamp);
+      applyVerifiedLanding(
+        fresh,
+        { ...verifiedLandingRowFields(fresh), ...executeDelivery, completedAt: landedAt ?? nowSeconds() },
+        pinned.order
+      );
+      const target = recordLandedDeliveryTarget(fresh, { proof: { kind: 'note', ...notePin } });
+      // Never an execute's root: the delivery sweep reads root notes as owed to the recipient, public ones and all, and
+      // these were found on the node, never put in this client's store to relay.
+      if (fresh.type !== 'execute' && storedNoteIds(fresh.outputNoteIds).length === 0) {
+        fresh.outputNoteIds = pinned.noteIds;
+      }
+      await Repo.transactions.put(fresh);
+      return {
+        write: 'written',
+        landed: fresh,
+        target,
+        owesNotes: (executeDelivery?.relayNoteIds?.length ?? 0) > 0
+      };
+    }
+  );
+  if (outcome.target !== undefined || outcome.owesNotes === true) countNoteDeliveryWrite();
+  if (outcome.landed !== undefined) reportVerifiedLanding(outcome.landed);
+  return outcome.write;
 };
 
 type RequeueWrite = 'written' | 'declined' | 'evidence-changed';
@@ -513,9 +664,10 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
         result = 'evidence-changed';
         return false;
       }
-      // Cleared first, so the send branch below reads them as it always has.
+      // Cleared first, so the send branch below reads them as it always has. An acknowledgement keeps the crossing
+      // that pins a send's bytes; only a proven row's attempts are dead enough to rebuild them.
       if (plan.clearFlags) {
-        dbTx.mayHaveSubmitted = undefined;
+        if (plan.proven || dbTx.type !== 'send' || dbTx.requestBytes === undefined) dbTx.mayHaveSubmitted = undefined;
         dbTx.cancelledInFlightAt = undefined;
       }
       dbTx.status = ITransactionStatus.Queued;
@@ -563,6 +715,12 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       dbTx.displayIcon = ICON_BY_TYPE[dbTx.type];
       // The safe marker belongs to the attempts it judged; the evidence stays, so an earlier attempt can still land.
       dbTx.neverCommittedAt = undefined;
+      // The order a proven-dead attempt's landing held goes too, so it never opens on a later attempt's landing. An
+      // unproven attempt can still land, and keeps it.
+      if (plan.proven && dbTx.type === 'swap' && dbTx.extraInputs?.landedOrder !== undefined) {
+        const { landedOrder: _deadAttempt, ...extraInputs } = dbTx.extraInputs;
+        dbTx.extraInputs = extraInputs;
+      }
       // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
       const failedPreSubmit =
         plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
@@ -571,8 +729,8 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       // rebuilds its request on every call and never reads `requestBytes`. Those
       // bytes froze an absolute reclaim height and the outgoing asset as built at
       // first attempt, so a retry has to rebuild them to stand any chance of
-      // succeeding. But they also pin the note id, which is the ONLY thing that
-      // makes the chain reject a duplicate - hence the gate; see
+      // succeeding. But they also pin the note id, which is what lets the node
+      // reject a duplicate while the first copy is in flight - hence the gate; see
       // `PRE_SUBMIT_STAGES` for what the stage does and does not prove.
       //
       // No other requeueable type may be cleared, whatever its stage. A swap's
@@ -583,8 +741,10 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       // answer for a broken one is a new intent, not a fresh note.
       //
       // Scoped to `send` on both arms because `send` is the only type whose bytes
-      // this gate can drop; writing the flag onto a swap or bridged-send row would
-      // persist a signal nothing reads and imply a guard those types don't have.
+      // this gate can drop. A swap or bridged-send keeps its bytes whatever the
+      // flag says, and its leaf records its own crossing, so a flag written here
+      // from the stage alone would protect nothing and could refuse a later
+      // Retry that the row's own evidence clears.
       if (dbTx.type === 'send') {
         // Read off the LIVE row rather than the snapshot taken at the top of this
         // function: `verifySendLanded` above makes a network round trip, and

@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import {
   REMOTE_PROVER_FAILED_ERROR,
@@ -13,6 +14,7 @@ import {
 import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
 import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import { WalletType } from 'screens/onboarding/types';
 
 import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
@@ -41,7 +43,8 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({ useNetworkFeeEstimate: () 
 
 jest.mock('lib/platform', () => ({
   isMobile: jest.fn(() => false),
-  isExtension: jest.fn(() => false)
+  isExtension: jest.fn(() => false),
+  isDesktop: jest.fn(() => false)
 }));
 
 jest.mock('components/Alert', () => ({
@@ -102,6 +105,9 @@ jest.mock('lib/store', () => ({
 
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
+  listen: () => () => {},
+  createLocationState: () => ({ historyPosition: 1, href: '/generating-transaction/original' }),
+  HistoryAction: { Replace: 'REPLACE' },
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">redirect:{to}</div>
 }));
 
@@ -1405,6 +1411,20 @@ describe('GeneratingTransaction stage + state rendering', () => {
     });
     return { container, root };
   };
+
+  it('pins processing and safe retry actions in the original Command operation workbench', async () => {
+    const { root } = await renderInto(
+      <FlowPresentationProvider value="command">
+        <CommandWorkbench route={{ kind: 'operation', id: 'original' }} container={document.body}>
+          <GeneratingTransaction isGuardian={false} onDoneClick={() => {}} transactionComplete={false} />
+        </CommandWorkbench>
+      </FlowPresentationProvider>
+    );
+    const footer = document.querySelector('[data-testid="command-footer"]');
+    expect(footer?.textContent).toContain('hide');
+    expect(document.querySelectorAll('[data-testid="command-footer"]')).toHaveLength(1);
+    act(() => root.unmount());
+  });
 
   it.each([
     ['syncing', undefined, 'transactionStageSyncing', 'transactionStageSyncingDescription'],

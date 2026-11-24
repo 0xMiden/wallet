@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useEffect, useRef } from 'react';
+import React, { ChangeEvent, useEffect, useId, useRef } from 'react';
 
 import clsx from 'clsx';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
@@ -44,6 +44,7 @@ const EASE = [0.32, 0.72, 0, 1] as const;
 const DURATION = 0.28;
 
 export interface SelectRecipientProps {
+  embedded?: boolean;
   /** The destination networks the wallet can send to. The field shows the ones that match the address chain. */
   networks?: readonly SendNetwork[];
   address: string;
@@ -83,6 +84,7 @@ export interface SelectRecipientProps {
 }
 
 export const SelectRecipient: React.FC<SelectRecipientProps> = ({
+  embedded,
   address,
   isValidAddress,
   error,
@@ -125,6 +127,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
     exit: { opacity: 0, y: -4, transition: reduceMotion ? { duration: 0 } : { duration: 0.14, ease: EASE } }
   };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const addressId = useId();
   // Undefined for a Miden address: a same-chain send needs no destination network.
   const networkKind = sendNetworkKind(chain);
   const selectedNetwork =
@@ -183,6 +186,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
   return (
     <SendStepLayout
+      embedded={embedded}
       tabRoot
       title={t('sendTo')}
       footer={
@@ -197,7 +201,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         />
       }
     >
-      <div className="relative mt-3">
+      <div className={clsx('relative', !embedded && 'mt-3')}>
+        {embedded && (
+          <label htmlFor={addressId} className="mb-2 block text-body-sm text-muted">
+            {t('sendTo')}
+          </label>
+        )}
         {recipientName && (
           <div className="mb-2 flex items-center gap-3">
             <span data-testid="send-recipient-avatar" className="flex shrink-0">
@@ -208,9 +217,15 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             </span>
           </div>
         )}
-        <div className="flex items-start">
+        <div
+          className={clsx(
+            'flex items-start',
+            embedded && 'rounded-xl border border-hairline bg-page px-3 py-3 focus-within:border-accent-tint-ink'
+          )}
+        >
           <textarea
             ref={textareaRef}
+            id={embedded ? addressId : undefined}
             data-testid="send-recipient-input"
             rows={1}
             placeholder={addressPlaceholder}
@@ -219,7 +234,8 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
               'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
               // Below the tab title, never above it: 24px holds the placeholder to two lines on a
               // 375pt phone, and a pasted address wraps to three.
-              'text-hero-name font-bold wrap-break-word placeholder:text-muted/70 focus:placeholder:text-transparent',
+              'wrap-break-word focus:placeholder:text-transparent',
+              embedded ? 'text-body placeholder:text-muted' : 'text-hero-name font-bold placeholder:text-muted/70',
               'caret-accent-send',
               error ? 'text-negative-tint-ink' : 'text-ink'
             )}

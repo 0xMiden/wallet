@@ -1,7 +1,7 @@
 // Light mocks so importing cancel.ts doesn't pull in Dexie / the WASM client proxy.
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
-import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { ProofFreshnessUnknownError, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
@@ -22,6 +22,7 @@ import {
 } from './cancel';
 import {
   CLAIM_VAULT_SHORTFALL_ERROR,
+  PROOF_FRESHNESS_UNKNOWN_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_STUCK_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
@@ -75,7 +76,7 @@ jest.mock('../back/background-notification', () => ({
 }));
 jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
-jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => true) }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: jest.fn(() => true) }));
 jest.mock('lib/mobile/background-time', () => ({
   ...jest.requireActual('lib/mobile/background-time'),
   hiddenSecondsSince: jest.fn(() => 0)
@@ -263,11 +264,24 @@ describe('the end of a swap, recorded when its row fails (#1660)', () => {
     ['the stuck reaper', TRANSACTION_STUCK_ERROR, 'timeout'],
     ['the startup sweep', TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted'],
     ['a proof that kept going stale', new StaleProofError(), 'timeout'],
+    ['an unreadable chain tip', new ProofFreshnessUnknownError(), 'timeout'],
     ['a failure that timed out', new Error('guardian request timed out'), 'timeout'],
     ['any other failure', new Error('mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe refused'), 'failed']
   ])('names %s as %s', async (_label, error, outcome) => {
     await cancelTransaction(swapRow('swap-1'), error);
     expect(ends()).toEqual([['operation_end', { operation: 'swap', outcome, duration: '1_to_5s' }]]);
+  });
+
+  it('preserves rawError with a network TypeError cause on ProofFreshnessUnknownError', async () => {
+    const error = new ProofFreshnessUnknownError('Could not establish proof freshness: TypeError: Failed to fetch', {
+      cause: new TypeError('Failed to fetch')
+    });
+    await cancelTransaction(swapRow('swap-freshness-cause'), error);
+    const row = mockRows.get('swap-freshness-cause');
+    expect(row?.error).toBe(PROOF_FRESHNESS_UNKNOWN_ERROR);
+    expect(row?.rawError).toContain('ProofFreshnessUnknownError:');
+    expect(row?.rawError).toContain('TypeError: Failed to fetch');
+    expect(ends()).toEqual([['operation_end', { operation: 'swap', outcome: 'timeout', duration: '1_to_5s' }]]);
   });
 
   it('records nothing for a row that was not failed', async () => {

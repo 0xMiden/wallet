@@ -63,7 +63,8 @@ const evmAsset: OneClickAsset = {
   blockchain: 'eth' as const,
   symbol: 'USDC',
   decimals: 6,
-  contractAddress: '0x1111111111111111111111111111111111111111'
+  contractAddress: '0x1111111111111111111111111111111111111111',
+  chainId: 1
 };
 const oneClickConfig: NearIntentsConfig = {
   serviceUrl: 'https://one-click.example',

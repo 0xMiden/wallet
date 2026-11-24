@@ -3,7 +3,22 @@ import type { Page } from '@playwright/test';
 import { fakeConfirmationApp, type CreateAttemptOutcome } from './confirmation-app-fake';
 import { ChromeWalletPage } from './wallet-page';
 
-jest.mock('@playwright/test', () => ({ expect: jest.fn() }));
+jest.mock('@playwright/test', () => ({
+  expect: (locator: {
+    waitFor(options: { state: string; timeout?: number }): Promise<void>;
+    count(): Promise<number>;
+    isEnabled(): Promise<boolean>;
+  }) => ({
+    toBeVisible: (options: { timeout?: number }) => locator.waitFor({ state: 'visible', ...options }),
+    toHaveCount: async (expected: number) => {
+      const actual = await locator.count();
+      if (actual !== expected) throw new Error(`Expected ${expected} matches, got ${actual}`);
+    },
+    toBeEnabled: async () => {
+      if (!(await locator.isEnabled())) throw new Error('Command Review is disabled');
+    }
+  })
+}));
 
 function makePage(): Page {
   return {
@@ -23,7 +38,12 @@ function makePage(): Page {
  */
 function makeSendPage(
   tokenIds: string[],
-  opts: { appearOnWait?: string[]; waitForError?: string; countError?: string } = {}
+  opts: {
+    appearOnWait?: string[];
+    waitForError?: string;
+    countError?: string;
+    requestedSymbol?: { symbol: string; tokenId: string };
+  } = {}
 ): { page: Page; clickedTokenIds: string[] } {
   const appearOnWait = opts.appearOnWait ?? [];
   const present = new Set(tokenIds);
@@ -34,6 +54,7 @@ function makeSendPage(
     click: jest.fn(async () => undefined),
     textContent: jest.fn(async () => ''),
     count: jest.fn(async () => 0),
+    isEnabled: jest.fn(async () => true),
     first() {
       return this;
     },
@@ -45,8 +66,17 @@ function makeSendPage(
     url: () => 'chrome-extension://test/fullpage.html#/',
     goto: jest.fn(async () => undefined),
     waitForFunction: jest.fn(async () => undefined),
+    waitForURL: jest.fn(async () => undefined),
     evaluate: jest.fn(async () => undefined),
-    getByTestId: jest.fn(() => noopLocator),
+    getByTestId: jest.fn((id: string) =>
+      id === `send-token-${opts.requestedSymbol?.symbol}`
+        ? {
+            ...noopLocator,
+            count: jest.fn(async () => 1),
+            click: jest.fn(async () => clickedTokenIds.push(opts.requestedSymbol!.tokenId))
+          }
+        : noopLocator
+    ),
     locator: jest.fn((selector: string) => {
       if (selector === 'body') return noopLocator;
       const match = selector.match(/^\[data-token-id=(.+)\]$/);
@@ -421,6 +451,22 @@ describe('ChromeWalletPage exact token selection', () => {
     expect(clickedTokenIds).toEqual(['faucet-b']);
   });
 
+  it('reports the row from the processing route as the send receipt', async () => {
+    const { page } = makeSendPage(['faucet-a']);
+    const route = { jsonValue: jest.fn(async () => 'wallet-row'), dispose: jest.fn(async () => {}) };
+    (page.waitForFunction as jest.Mock).mockResolvedValueOnce(undefined).mockResolvedValueOnce(route);
+    const onRow = jest.fn();
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await wallet.sendTokens(
+      { recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenId: 'faucet-a' },
+      onRow
+    );
+
+    expect(onRow).toHaveBeenCalledWith('wallet-row');
+    expect(route.dispose).toHaveBeenCalledTimes(1);
+  });
+
   it('waits for a row that commits after the drawer opens', async () => {
     const { page, clickedTokenIds } = makeSendPage([], { appearOnWait: ['faucet-late'] });
     const wallet = new ChromeWalletPage(page, 'test');
@@ -454,6 +500,31 @@ describe('ChromeWalletPage exact token selection', () => {
     await expect(
       wallet.sendTokens({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenId: 'faucet-a' })
     ).rejects.toThrow(destroyed);
+  });
+
+  it('selects the requested symbol when its row is available', async () => {
+    const { page, clickedTokenIds } = makeSendPage(['faucet-b'], {
+      requestedSymbol: { symbol: 'TST', tokenId: 'faucet-b' }
+    });
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await wallet.prepareSendReview({
+      recipientAddress: 'account-b',
+      amount: '1',
+      isPrivate: false,
+      tokenSymbol: 'TST'
+    });
+    expect(clickedTokenIds).toEqual(['faucet-b']);
+  });
+
+  it('refuses a missing requested symbol rather than selecting a different funded token', async () => {
+    const { page, clickedTokenIds } = makeSendPage(['other-faucet']);
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await expect(
+      wallet.prepareSendReview({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenSymbol: 'MISSING' })
+    ).rejects.toThrow('MISSING');
+    expect(clickedTokenIds).toEqual([]);
   });
 
   it('fails instead of falling back when the requested token id is absent', async () => {
@@ -581,7 +652,7 @@ describe('ChromeWalletPage create paths', () => {
   const KEY_PAIR = `${'1'.padStart(64, '0')}:${'2'.padStart(64, '0')}`;
 
   /** What a Ready check reads: the store's state, and whether the home page is in the document. */
-  type ReadyFixture = { store?: Record<string, unknown>; home?: boolean };
+  type ReadyFixture = { store?: Record<string, unknown>; home?: 'command' | 'explore' };
 
   afterEach(() => {
     Reflect.deleteProperty(window, '__TEST_STORE__');
@@ -621,7 +692,9 @@ describe('ChromeWalletPage create paths', () => {
       const state = fixture.store;
       Object.defineProperty(window, '__TEST_STORE__', { configurable: true, value: { getState: () => state } });
     }
-    document.body.innerHTML = fixture.home ? '<div data-testid="explore-page"></div>' : '';
+    document.body.innerHTML = fixture.home
+      ? `<div data-testid="${fixture.home === 'command' ? 'command-shell' : 'explore-page'}"></div>`
+      : '';
     try {
       return await isReady();
     } finally {
@@ -633,24 +706,34 @@ describe('ChromeWalletPage create paths', () => {
   it.each([
     {
       path: 'createWalletViaBypass',
-      run: (wallet: ChromeWalletPage) => wallet.createNewWallet('Test1234!'),
+      run: (wallet: ChromeWalletPage) => wallet.createNewWallet('Test1234!Wallet'),
       label: 'ChromeWalletPage.createWalletViaBypass(offchain)',
-      ready: [{ store: { currentAccount: ACCOUNT } }, { home: true }],
-      notReady: [{}, { store: { currentAccount: null } }]
+      ready: [{ store: { currentAccount: ACCOUNT } }, { home: 'command' }],
+      notReady: [
+        {},
+        { store: { currentAccount: null } },
+        { home: 'explore' },
+        { store: { currentAccount: ACCOUNT }, home: 'explore' }
+      ]
     },
     {
       path: 'recoverGuardianFromHotKey',
       run: (wallet: ChromeWalletPage) => wallet.recoverGuardianFromHotKey(KEY_PAIR),
       label: 'ChromeWalletPage.recoverGuardianFromHotKey',
-      ready: [{ store: { currentAccount: ACCOUNT } }, { home: true }],
-      notReady: [{}, { store: { currentAccount: null } }]
+      ready: [{ store: { currentAccount: ACCOUNT } }, { home: 'command' }],
+      notReady: [
+        {},
+        { store: { currentAccount: null } },
+        { home: 'explore' },
+        { store: { currentAccount: ACCOUNT }, home: 'explore' }
+      ]
     },
     {
       path: 'createGuardianWalletViaUi',
-      run: (wallet: ChromeWalletPage) => wallet.createGuardianWalletViaUi('Test1234!', 'http://guardian.test'),
+      run: (wallet: ChromeWalletPage) => wallet.createGuardianWalletViaUi('Test1234!Wallet', 'http://guardian.test'),
       label: 'ChromeWalletPage.createGuardianWalletViaUi',
-      ready: [{ home: true }],
-      notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }]
+      ready: [{ home: 'command' }],
+      notReady: [{}, { home: 'explore' }, { store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }]
     },
     {
       path: 'restoreEncryptedWalletFile',
@@ -662,7 +745,7 @@ describe('ChromeWalletPage create paths', () => {
         }),
       label: 'ChromeWalletPage.restoreEncryptedWalletFile',
       ready: [{ store: { currentAccount: ACCOUNT, accounts: [ACCOUNT] } }],
-      notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [] } }, { home: true }]
+      notReady: [{}, { store: { currentAccount: ACCOUNT, accounts: [] } }, { home: 'command' }]
     }
   ])(
     "$path runs the Retry-aware wait after Confirmation's button, with its own Ready check",

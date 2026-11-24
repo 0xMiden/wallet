@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import { reviewQueryParam, waitForReviewSubmitEnabled } from './bridge';
+import { commandSendForm, confirmCommandSendReview, openCommandSendDetails } from './command-send';
 import { selectSendNetwork } from './contact-network';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 
@@ -16,17 +17,15 @@ export async function burnUsdcxToAddress(
 ): Promise<void> {
   const { page, extensionId } = wallet;
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send?tokenId=${encodeURIComponent(opts.tokenId)}`);
-  const flow = page.getByTestId('send-flow');
-  await expect(flow).toBeVisible({ timeout: STEP_MS });
+  const flow = await commandSendForm(page, STEP_MS);
   await flow.getByTestId('send-recipient-input').fill(opts.destination);
   await selectSendNetwork(page, { id: opts.networkId, name: opts.networkName }, STEP_MS);
-  await flow.getByTestId('send-recipient-confirm').click({ timeout: STEP_MS });
   await flow.getByTestId('send-amount-input').fill(opts.amount);
-  await flow.getByTestId('send-amount-confirm').click({ timeout: STEP_MS });
-  const route = flow.getByTestId('bridge-route-usdcx');
+  const details = await openCommandSendDetails(page, STEP_MS);
+  const route = details.getByTestId('bridge-route-usdcx');
   await expect(route).toBeVisible({ timeout: STEP_MS });
   await route.click({ timeout: STEP_MS });
-  await flow.getByTestId('bridge-route-confirm').click({ timeout: STEP_MS });
+  await confirmCommandSendReview(page, STEP_MS);
   await page.waitForURL(/#\/send\/review\?/, { timeout: STEP_MS });
   expect(reviewQueryParam(page.url(), 'network')).toBe(opts.networkId);
   await waitForReviewSubmitEnabled(page, 120_000);

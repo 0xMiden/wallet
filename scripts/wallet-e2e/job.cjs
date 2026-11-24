@@ -1,0 +1,384 @@
+'use strict';
+
+const { createHash } = require('node:crypto');
+const { createReadStream, readFileSync, readdirSync, rmSync, statSync } = require('node:fs');
+const { join, resolve } = require('node:path');
+const { INVOCATIONS } = require('./invocations.cjs');
+const {
+  MAX_REPORT_BYTES,
+  REPORT_FILENAME,
+  createStage,
+  formatReport,
+  known,
+  makeReport,
+  matches,
+  publishAtomically,
+  schema,
+  unknown,
+  valueOrUnknown
+} = require('./report.cjs');
+
+const INSTALLATION = 'dist/chrome_unpacked';
+const WORKFLOW_PATH = '.github/workflows/e2e-mainnet-nightly.yml';
+const WORKFLOW_REF = '0xMiden/wallet/' + WORKFLOW_PATH + '@refs/heads/main';
+const JOB_CODES = new Map([
+  ['mainnet-nightly', 'mainnet'],
+  ['mainnet-agglayer', 'agglayer']
+]);
+const JOB_TIMEOUT_MINUTES = new Map([
+  ['mainnet', { scheduled: 200, manual: 245 }],
+  ['agglayer', { scheduled: 185, manual: 230 }]
+]);
+
+function utcNow() {
+  return new Date().toISOString();
+}
+
+function trustedEnvironment(env) {
+  const jobKey = JOB_CODES.get(env.GITHUB_JOB);
+  const sourceSha = env.GITHUB_SHA;
+  const runId = env.GITHUB_RUN_ID;
+  const runNumber = env.GITHUB_RUN_NUMBER;
+  const runAttempt = env.GITHUB_RUN_ATTEMPT;
+  if (
+    env.GITHUB_REPOSITORY !== '0xMiden/wallet' ||
+    env.GITHUB_REF !== 'refs/heads/main' ||
+    env.GITHUB_WORKFLOW_REF !== WORKFLOW_REF ||
+    env.MIDEN_E2E_MAINNET_NIGHTLY !== 'true' ||
+    env.E2E_NETWORK !== 'mainnet' ||
+    runAttempt !== '1' ||
+    !jobKey ||
+    (env.E2E_WALLET_REPORT_JOB_KEY && env.E2E_WALLET_REPORT_JOB_KEY !== jobKey) ||
+    !matches(sourceSha, schema.$defs.sha) ||
+    ![runId, runNumber].every(id => matches(id, schema.$defs.id)) ||
+    !['schedule', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME)
+  ) {
+    return undefined;
+  }
+  return {
+    repository: '0xMiden/wallet',
+    workflowId: '391951744',
+    workflowPath: WORKFLOW_PATH,
+    sourceSha,
+    sourceRef: 'refs/heads/main',
+    event: env.GITHUB_EVENT_NAME,
+    runId,
+    runNumber,
+    runAttempt,
+    jobKey
+  };
+}
+
+function readOptional(path) {
+  try {
+    if (statSync(path).size > MAX_REPORT_BYTES) return undefined;
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
+function writeInternal(path, record) {
+  publishAtomically(path, JSON.stringify(record) + '\n');
+}
+
+function initialize(root, identity, env) {
+  // A rerun or an untrusted manual ref never writes the report manifest.
+  rmSync(join(root, REPORT_FILENAME), { force: true });
+  writeInternal(join(root, 'job.json'), {
+    identity,
+    startAt: utcNow(),
+    swapsOnly: env.REPORT_SWAPS_ONLY === 'true',
+    bridgesOnly: env.REPORT_BRIDGES_ONLY === 'true',
+    loopsOnly: env.REPORT_LOOPS_ONLY === 'true',
+    approvalsOnly: env.REPORT_EXPLICIT_RECOVERY_ONLY === 'true'
+  });
+}
+
+async function hashTree(root) {
+  const hash = createHash('sha256');
+  async function walk(path = '') {
+    const absolute = resolve(root, path);
+    const entries = readdirSync(absolute, { withFileTypes: true }).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+    );
+    for (const entry of entries) {
+      const relative = path ? path + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) await walk(relative);
+      else if (entry.isFile()) {
+        const fileHash = createHash('sha256');
+        for await (const block of createReadStream(resolve(root, relative))) fileHash.update(block);
+        hash.update(relative + '\0' + fileHash.digest('hex') + '\0');
+      } else {
+        throw new Error('Extension has a nonregular build entry');
+      }
+    }
+  }
+  await walk();
+  return hash.digest('hex');
+}
+
+async function recordBuild(root) {
+  const manifest = readOptional(join(INSTALLATION, 'manifest.json'));
+  if (!manifest) throw new Error('Extension build manifest unavailable');
+  const sdk = readOptional('node_modules/@miden-sdk/miden-sdk/package.json');
+  const versionRule = schema.properties.build.properties.extensionVersion.anyOf[0].properties.value;
+  const sdkRule = schema.properties.build.properties.sdkVersion.anyOf[0].properties.value;
+  writeInternal(join(root, 'build.json'), {
+    extensionVersion: valueOrUnknown(matches(manifest.version, versionRule) ? manifest.version : undefined),
+    extensionSha256: known(await hashTree(INSTALLATION)),
+    sdkVersion: valueOrUnknown(matches(sdk?.version, sdkRule) ? sdk.version : undefined),
+    remoteConfigSha256: unknown(),
+    endpointLabels: []
+  });
+}
+
+function invocationMarkers(root, command, id, codeText) {
+  const path = join(root, 'invocations', id);
+  if (command === 'invocation-start') return writeInternal(join(path, 'start.json'), { startAt: utcNow() });
+  if (!/^(0|[1-9][0-9]{0,2})$/.test(codeText ?? '') || Number(codeText) > 255) {
+    throw new Error('Invalid wallet E2E command exit code');
+  }
+  return writeInternal(join(path, 'exit.json'), { endAt: utcNow(), code: Number(codeText) });
+}
+
+function invocationState(root, expected) {
+  const path = join(root, 'invocations', expected.id);
+  const start = readOptional(join(path, 'start.json'));
+  const exit = readOptional(join(path, 'exit.json'));
+  const candidate = readOptional(join(path, 'playwright.json'));
+  if (!start && !exit && !candidate) return undefined;
+  const report =
+    candidate &&
+    matches(candidate, schema.$defs.invocation) &&
+    candidate.id === expected.id &&
+    candidate.mode === expected.mode &&
+    candidate.suite === expected.suite &&
+    candidate.spec === expected.spec
+      ? candidate
+      : undefined;
+  const exitCode = valueOrUnknown(exit?.code, 'report_incomplete');
+  const playwrightOutcome = report?.playwrightOutcome ?? unknown('report_incomplete');
+  const commandFailed = exitCode.value !== null && exitCode.value > 0;
+  const status =
+    commandFailed && playwrightOutcome.value === 'passed'
+      ? 'failed'
+      : (playwrightOutcome.value ?? (commandFailed ? 'failed' : 'unknown'));
+  return {
+    ...report,
+    id: expected.id,
+    mode: expected.mode,
+    suite: expected.suite,
+    spec: expected.spec,
+    shard: report?.shard ?? unknown('not_applicable'),
+    status,
+    startAt: start?.startAt ? known(start.startAt) : (report?.startAt ?? unknown('report_incomplete')),
+    endAt: exit?.endAt ? known(exit.endAt) : (report?.endAt ?? unknown('report_incomplete')),
+    elapsedMs: report?.elapsedMs ?? unknown('report_incomplete'),
+    deadlineAt: unknown('not_observed'),
+    timeoutMs: valueOrUnknown(expected.timeoutMs, 'not_applicable'),
+    exitCode,
+    playwrightOutcome,
+    tests: report?.tests ?? []
+  };
+}
+
+function coverageFor(selection, expected, dispositions, blocked) {
+  if (!selection) return { selection: 'not_selected', status: 'not_started', reason: 'workflow_selection' };
+  const states = expected.map(id => dispositions.get(id));
+  if (states.includes('failed')) return { selection: 'selected', status: 'failed', reason: null };
+  if (states.includes('timed_out')) return { selection: 'selected', status: 'timed_out', reason: null };
+  if (states.includes('interrupted')) return { selection: 'selected', status: 'interrupted', reason: null };
+  if (states.every(state => state === 'passed')) {
+    return { selection: 'selected', status: 'passed', reason: null };
+  }
+  if (states.every(state => state === 'skipped')) {
+    return { selection: 'selected', status: 'skipped', reason: null };
+  }
+  if (states.every(state => state === undefined) && blocked) {
+    return { selection: 'selected', status: 'not_started', reason: blocked };
+  }
+  return { selection: 'selected', status: 'unknown', reason: 'report_incomplete' };
+}
+
+const WORKFLOW_STATUS = new Map([
+  ['success', 'passed'],
+  ['failure', 'failed'],
+  ['cancelled', 'interrupted']
+]);
+
+const RECOVERY_INVOCATIONS = [
+  'swap-recovery-grant',
+  'swap-recover',
+  'swap-recovered-return',
+  'epoch-recover',
+  'near-recover'
+];
+
+function invocationOutcomes(env, id) {
+  const suffix = id.replaceAll('-', '_').toUpperCase();
+  return [env['REPORT_INVOCATION_' + suffix], env['REPORT_WAIT_' + suffix]];
+}
+
+function workflowStage(key, primaryOutcome, relatedOutcomes, failureCode) {
+  const outcomes = [primaryOutcome, ...relatedOutcomes];
+  const status = outcomes.includes('failure')
+    ? 'failed'
+    : outcomes.includes('cancelled')
+      ? 'interrupted'
+      : WORKFLOW_STATUS.get(primaryOutcome);
+  if (status) {
+    return createStage({
+      key,
+      status,
+      origin: 'workflow',
+      errorCode: status === 'failed' ? failureCode : null
+    });
+  }
+}
+
+function workflowObservations(env) {
+  // An early setup failure can skip the build step.
+  const setup = workflowStage(
+    'setup',
+    env.REPORT_BUILD_OUTCOME,
+    (env.REPORT_SETUP_OUTCOMES ?? '').split(/\s+/),
+    'setup_failed'
+  );
+  const recovery = workflowStage(
+    'recovery_gate',
+    env.REPORT_BARRIER_OUTCOME,
+    [
+      ...RECOVERY_INVOCATIONS.flatMap(id => invocationOutcomes(env, id)),
+      ...(env.REPORT_RECOVERY_AUTH_OUTCOMES ?? '').split(/\s+/)
+    ],
+    'recovery_gate_failed'
+  );
+  const blockedByRecovery = ['failed', 'interrupted'].includes(recovery?.status) || env.REPORT_RECOVERY_ONLY === 'true';
+  return {
+    stages: [setup, recovery].filter(Boolean),
+    blocked: blockedByRecovery ? 'blocked_by_recovery' : setup?.status === 'failed' ? 'blocked_by_setup' : undefined
+  };
+}
+
+function freshSwapCount(forward, workflowOutcome) {
+  const stages =
+    forward?.tests
+      .flatMap(test => test.attempts)
+      .flatMap(attempt => attempt.operations)
+      .filter(operation => operation.key === 'swap-forward')
+      .flatMap(operation => operation.stages) ?? [];
+  if (
+    stages.some(stage => stage.key === 'execution' && stage.origin === 'wallet_ui' && stage.status === 'in_progress')
+  ) {
+    return known(1);
+  }
+  if (
+    workflowOutcome === 'skipped' ||
+    stages.some(stage => stage.key === 'wallet_session' && stage.status === 'failed')
+  ) {
+    return known(0);
+  }
+  return unknown();
+}
+
+function hasMissingInvocationEvidence(expected, invocations, env) {
+  const reported = new Map(invocations.map(invocation => [invocation.id, invocation]));
+  return expected.some(({ id }) => {
+    const invocation = reported.get(id);
+    return invocation
+      ? invocation.exitCode.value === null || invocation.playwrightOutcome.value === null
+      : invocationOutcomes(env, id).some(outcome => WORKFLOW_STATUS.has(outcome));
+  });
+}
+
+function assemble(root, identity, env) {
+  const destination = join(root, REPORT_FILENAME);
+  rmSync(destination, { force: true });
+  const job = readOptional(join(root, 'job.json'));
+  if (!job || Object.keys(identity).some(key => job.identity?.[key] !== identity[key])) {
+    throw new Error('Wallet E2E manifest unavailable');
+  }
+  const expected = Array.from(INVOCATIONS.values()).filter(invocation => invocation.jobKey === identity.jobKey);
+  const invocations = expected.map(invocation => invocationState(root, invocation)).filter(Boolean);
+  const dispositions = new Map(
+    invocations.map(invocation => {
+      if (invocation.status !== 'passed') return [invocation.id, invocation.status];
+      const statuses = invocation.tests.map(test => test.status);
+      const observed = statuses.includes('passed')
+        ? 'passed'
+        : statuses.length > 0 && statuses.every(status => status === 'skipped')
+          ? 'skipped'
+          : 'unknown';
+      return [invocation.id, observed];
+    })
+  );
+  const jobLimits = JOB_TIMEOUT_MINUTES.get(identity.jobKey);
+  const timeoutMs = jobLimits[identity.event === 'schedule' ? 'scheduled' : 'manual'] * 60_000;
+  const observations = workflowObservations(env);
+  const agglayer = identity.jobKey === 'agglayer';
+  const bridges = agglayer
+    ? ['agglayer-round-trip']
+    : ['epoch-forward', 'epoch-reverse', 'near-forward', 'near-reverse'];
+  if (!agglayer && !job.loopsOnly) bridges.push('usdcx-round-trip');
+  const coverage = {
+    swap: agglayer
+      ? { selection: 'not_selected', status: 'not_started', reason: 'outside_job' }
+      : coverageFor(
+          !job.bridgesOnly && !job.approvalsOnly,
+          ['swap-forward', 'swap-reverse'],
+          dispositions,
+          observations.blocked
+        ),
+    bridge: coverageFor(!job.swapsOnly && !job.approvalsOnly, bridges, dispositions, observations.blocked),
+    freshSwapsStarted: agglayer
+      ? unknown('not_applicable')
+      : freshSwapCount(
+          invocations.find(invocation => invocation.id === 'swap-forward'),
+          env.REPORT_INVOCATION_SWAP_FORWARD
+        )
+  };
+  const now = utcNow();
+  const report = makeReport({
+    ...identity,
+    generatedAt: now,
+    availability: hasMissingInvocationEvidence(expected, invocations, env) ? 'partial' : 'available',
+    startAt: job.startAt,
+    endAt: now,
+    timeoutMs,
+    build: readOptional(join(root, 'build.json')),
+    coverage,
+    stages: observations.stages,
+    invocations
+  });
+  publishAtomically(destination, formatReport(report));
+}
+
+async function main(env = process.env, args = process.argv.slice(2)) {
+  const identity = trustedEnvironment(env);
+  const root =
+    env.E2E_WALLET_REPORT_ROOT ??
+    (identity && env.RUNNER_TEMP ? join(env.RUNNER_TEMP, 'wallet-e2e', identity.jobKey) : undefined);
+  if (!identity || !root) return;
+  const [command, invocationId, code] = args;
+  if (command === 'initialize') return initialize(root, identity, env);
+  if (command === 'capture-build') return recordBuild(root);
+  if (command === 'assemble') return assemble(root, identity, env);
+  if (
+    ['invocation-start', 'invocation-end'].includes(command) &&
+    INVOCATIONS.get(invocationId)?.jobKey === identity.jobKey
+  ) {
+    return invocationMarkers(root, command, invocationId, code);
+  }
+  throw new Error('Unknown wallet E2E reporting command');
+}
+
+if (require.main === module) {
+  main().catch(() => {
+    // Report failures contain no path, input, URL, error context or command.
+    process.stderr.write('Wallet E2E reporting evidence unavailable.\n');
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { main, trustedEnvironment };

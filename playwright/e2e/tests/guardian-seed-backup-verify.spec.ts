@@ -54,7 +54,7 @@ const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
 
 // Vault password for both instances. Passed explicitly (rather than leaning on
 // the page object's default) because the reveal flow re-authenticates with it.
-const PASSWORD = 'Test1234!';
+const PASSWORD = 'Test1234!Wallet';
 
 const SEED_WORD_COUNT = 12;
 
@@ -106,7 +106,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
       // than racing the `seedWalletPrompt` write that `register()` performs
       // just after the wallet becomes Ready.
       await walletA.navigateTo('/');
-      await expect(walletA.page.getByTestId('explore-page')).toBeVisible({ timeout: 60_000 });
+      await expect(walletA.page.getByTestId('command-shell')).toBeVisible({ timeout: 60_000 });
 
       // The card a real user taps to reach the phrase. `PromptCard` renders as
       // role=button with the title in its accessible name (components/ui/
@@ -114,7 +114,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
       // wallet. Asserting it here proves the route driven below is the one the
       // product actually points users at.
       await expect(
-        walletA.page.getByTestId('explore-page').getByRole('button', { name: BACKUP_PROMPT_TITLE })
+        walletA.page.getByTestId('command-shell').getByRole('button', { name: BACKUP_PROMPT_TITLE })
       ).toBeVisible({ timeout: 60_000 });
     });
 
@@ -142,8 +142,9 @@ test.describe('Seed Phrase Backup and Verification', () => {
         await passwordInput.fill(PASSWORD);
         await page.getByRole('button', { name: CONTINUE, exact: true }).click();
 
-        // Review step: the twelve words, in order. The last chip rendering is
+        // Review step: the words stay masked until Show. The last chip rendering is
         // the signal that the whole grid is on screen.
+        await page.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
         await expect(page.getByTestId(`seed-word-${SEED_WORD_COUNT - 1}`)).toBeVisible({ timeout: 30_000 });
         const words: string[] = [];
         for (let index = 0; index < SEED_WORD_COUNT; index++) {
@@ -176,6 +177,10 @@ test.describe('Seed Phrase Backup and Verification', () => {
       const challenge = page.getByTestId('verify-seed-phrase-prompt-flow');
       const verdict = challenge.getByTestId('verify-seed-prompt');
       await expect(verdict).toBeVisible({ timeout: 30_000 });
+
+      // Off mobile the challenge hides the words until Show. The toggle stays
+      // outside <article>, as the submit button does.
+      await challenge.getByTestId('seed-reveal-toggle').click({ timeout: 30_000 });
 
       // The word chips, in the order the screen shuffled them. The submit
       // button is outside <article>, so this locator is exactly the 12 chips.
@@ -223,7 +228,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
 
       await submit.click();
       // Completing the challenge returns the user to the wallet home.
-      await expect(page.getByTestId('explore-page')).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId('command-shell')).toBeVisible({ timeout: 60_000 });
     });
 
     await steps.step(

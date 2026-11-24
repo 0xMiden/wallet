@@ -12,6 +12,9 @@ export const withWasmClientLock = async <T>(operation: () => Promise<T>): Promis
   return operation();
 };
 
+// A write's own signer for its hold: with no realm keystore here, the write simply runs.
+export const withHoldSigner = async <T>(_hold: unknown, _signer: unknown, run: () => Promise<T>): Promise<T> => run();
+
 // The realm keystore (#878): init installs the signer, a vault its insert-key sink, lock retires it.
 export const installRealmKeystore = () => {};
 export const uninstallRealmKeystore = () => {};

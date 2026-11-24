@@ -50,7 +50,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
   getNativeAssetIdSync: jest.fn(() => '0xfee0000000000000000000000000000000'),
   getVerificationBaseFee: jest.fn(async () => 10000),
-  getVerificationBaseFeeSync: jest.fn(() => null)
+  refreshVerificationBaseFee: jest.fn(async () => 10000),
+  getVerificationBaseFeeSync: jest.fn(() => 10000)
 }));
 jest.mock('lib/miden/assets/faucet-id-setting', () => ({
   getFaucetIdSetting: async () => '0xfee0000000000000000000000000000000'
@@ -60,13 +61,37 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
   walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
   canonicalWalletAccountId: (id: string) => id,
-  sameWalletAccountId: (a: string, b: string) => a === b
+  sameWalletAccountId: (a: string, b: string) => a === b,
+  getBech32AddressFromAccountId: (id: string | { __faucet: string }) => (typeof id === 'string' ? id : id.__faucet)
 }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
   TransactionProver: {
     newLocalProver: jest.fn(() => 'local-prover'),
     newCallbackProver: jest.fn(() => 'callback-prover')
+  },
+  TransactionSummary: {
+    deserialize: () => {
+      const removed = [{ faucetId: () => ({ __faucet: 'faucet' }), amount: () => 1000n }];
+      let noteCount = 0;
+      const note = (assets: typeof removed) => ({
+        id: () => ({ toString: () => `stub-note-${++noteCount}` }),
+        assets: () => ({ fungibleAssets: () => assets, nonFungibleAssets: () => [] })
+      });
+      return {
+        accountDelta: () => ({
+          id: () => 'guardian-acc',
+          vault: () => ({
+            removedFungibleAssets: () => removed,
+            addedFungibleAssets: () => [],
+            numAssets: () => removed.length
+          }),
+          storage: () => ({ isEmpty: () => true })
+        }),
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => removed.length, notes: () => removed.map(asset => note([asset])) })
+      };
+    }
   }
 }));
 jest.mock('../sdk/native-prover-mobile', () => ({
@@ -279,7 +304,7 @@ const service = {
   guardianEndpoint: 'https://guardian.test',
   createSendProposal: async () => {
     play('proposal');
-    return { id: 'proposal', nonce: 5 };
+    return { id: 'proposal', nonce: 5, txSummary: 'c2VuZA==' };
   },
   signAndCreateTransactionRequest: async () => {
     play('co-sign');
@@ -506,7 +531,7 @@ describe('a network interruption on resume', () => {
     await expectRetryAddsNoLanding();
   });
 
-  it('the tip read, which sends the stale proof: the node refuses it and Retry waits for the hold', async () => {
+  it('the tip read fails: nothing is sent, the candidate is abandoned, and Retry lands it at once', async () => {
     scenes.executing = away;
     mockReadChainTip.mockRejectedValue(new TypeError('Load failed'));
 
@@ -514,17 +539,17 @@ describe('a network interruption on resume', () => {
 
     const { status, submitEvidence } = await row();
     expect(status).toBe(ITransactionStatus.Failed);
-    expect(submitEvidence).toEqual([expect.objectContaining({ candidateKept: true })]);
-    expect(posts).toHaveLength(1);
+    expect(submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(posts).toHaveLength(0);
     expect(landings).toHaveLength(0);
-    expect(isGuardianHoldRetryError(await tapRetry())).toBe(true);
 
     mockReadChainTip.mockImplementation(async () => chainTip());
-    goAway(HOLD_MS);
 
     expect(await tapRetry()).toBeUndefined();
     expect((await row()).status).toBe(ITransactionStatus.Completed);
-    expect(posts).toHaveLength(2);
+    expect(posts).toHaveLength(1);
     await expectRetryAddsNoLanding();
   });
 });

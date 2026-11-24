@@ -1,11 +1,10 @@
 import browser from 'webextension-polyfill';
 
 import { CHECK_PAGES_EXIST, WALLET_AUTOLOCK_TIME } from 'lib/fixed-times';
-import { assertResponse, request } from 'lib/miden/front';
 import { hasExtensionRuntime, reloadInPlace } from 'lib/platform';
-import { WalletMessageType } from 'lib/shared/types';
 
 import { getIsLockUpEnabled } from './index';
+import { requestLock } from './lock-request';
 
 const CLOSURE_STORAGE_KEY = 'last-page-closure-timestamp';
 
@@ -51,7 +50,7 @@ export async function runLockUpChecks(): Promise<void> {
 
 async function startLockUpChecks(reloadIfOrphaned: () => boolean): Promise<void> {
   if (await needsLocking()) {
-    lock().catch(err => console.warn('[lock-up] Auto-lock request failed:', err));
+    requestLock().catch(err => console.warn('[lock-up] Auto-lock request failed:', err));
   }
 
   // Establish background connection. sw.js will update timestamp on close
@@ -118,11 +117,4 @@ async function updateClosureTimestamp() {
   } catch {
     // the next tick writes it again
   }
-}
-
-async function lock() {
-  const res = await request({
-    type: WalletMessageType.LockRequest
-  });
-  assertResponse(res.type === WalletMessageType.LockResponse);
 }

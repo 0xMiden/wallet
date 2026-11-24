@@ -4,7 +4,7 @@
  * WHY THIS EXISTS
  *
  * `ChromeWalletPage.unlockWallet()` only knows the correct password: it fills,
- * presses Enter and waits for `explore-page`. Nothing in the Chrome suite has
+ * presses Enter and waits for `command-shell`. Nothing in the Chrome suite has
  * ever typed a WRONG one, so the escalating lockout in `src/app/pages/Unlock.tsx`
  * — real product behaviour, not a test fixture — is unexercised end to end.
  *

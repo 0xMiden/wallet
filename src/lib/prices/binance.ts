@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 import { fixedQuote } from './fixed';
+import type { PriceKind } from './source';
 import { hasUnquotedDefaultPrice } from './unquoted-default';
 
 const BINANCE_API_BASE = 'https://data-api.binance.vision/api/v3';
@@ -11,9 +12,30 @@ export interface TokenPriceInfo {
   price: number;
   change24h: number;
   percentageChange24h: number;
+  /**
+   * What produced the quote. A `basket` token is priced at its net asset value from its vault on chain
+   * (`./basket-nav`); its move and history, when shown, come from its constituents, not from a market of its own.
+   */
+  kind: PriceKind;
+  /** What one unit of a basket token holds, read from its vault (`./basket-nav`). */
+  composition?: BasketComponent[];
+}
+
+/** One verified token in a basket and its share of the basket's value, as a fraction (the shares sum to 1). */
+export interface BasketComponent {
+  /** As the token list spells it. */
+  faucetId: string;
+  /** The verified list's symbol for the token. */
+  symbol: string;
+  /** The asset the feed quotes the token under. */
+  priceSymbol: string;
+  weight: number;
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;
+
+/** What an exchange fetcher returns: the feed's sources tag it `market`. */
+export type MarketQuote = Omit<TokenPriceInfo, 'kind'>;
 
 interface BinanceTicker24hr {
   symbol: string;
@@ -116,7 +138,7 @@ async function resolveMarket(symbol: string): Promise<ResolvedMarket | null> {
   }
 }
 
-function tickerQuote(ticker: BinanceTicker24hr): TokenPriceInfo | undefined {
+function tickerQuote(ticker: BinanceTicker24hr): MarketQuote | undefined {
   const price = Number(ticker.lastPrice);
   const change24h = Number(ticker.priceChange);
   const previous = price - change24h;
@@ -135,7 +157,7 @@ function tickerQuote(ticker: BinanceTicker24hr): TokenPriceInfo | undefined {
 }
 
 /** Fetch USD prices for the requested assets and both quote currencies. */
-export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<TokenPrices> {
+export async function fetchTokenPrices(symbols: readonly string[] = []): Promise<Record<string, MarketQuote>> {
   const resolved = new Map<string, ResolvedMarket>();
   const queue = [...new Set(symbols)].filter(symbol => symbol !== 'USDT' && symbol !== 'USDC');
   const resolveNext = async (): Promise<void> => {
@@ -150,7 +172,7 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
   };
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, resolveNext));
   const pairs = ['USDTUSD', 'USDCUSD', ...[...resolved.values()].map(market => market.pair)];
-  const prices: TokenPrices = {};
+  const prices: Record<string, MarketQuote> = {};
   const tickers = new Map<string, BinanceTicker24hr>();
   const uniquePairs = [...new Set(pairs)];
   for (let offset = 0; offset < uniquePairs.length; offset += 100) {
@@ -264,12 +286,7 @@ export function pricesLoaded(prices: TokenPrices, priceSymbols: Iterable<string 
 }
 
 /** Display rate for tokens without a price asset when the test-network switch is on. */
-const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
-
-/** Identify the test-network display rate by reference. It is not a market price. */
-export function isNominalQuote(quote: TokenPriceInfo | undefined): boolean {
-  return quote === TEST_NETWORK_UNQUOTED_PRICE;
-}
+const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0, kind: 'nominal' };
 
 /** Return a USD quote. An absent market or a failed request has no quote. */
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
@@ -308,6 +325,12 @@ export interface KlinePoint {
   value: number;
 }
 
+/** Candles with the length the provider asked for: points can be missing, so the length is never read from them. */
+export interface KlineSeries {
+  points: KlinePoint[];
+  stepMs: number;
+}
+
 const TIMEFRAME_CONFIGS: Record<Exclude<Timeframe, 'YTD'>, { interval: string; limit: number }> = {
   '1H': { interval: '1m', limit: 60 },
   '1D': { interval: '5m', limit: 288 },
@@ -332,17 +355,28 @@ function getYtdConfig(): { interval: string; limit: number; startTime: number } 
   }
 }
 
-/** Fetch USD close prices. Return no points if a market or its historical USD rate is unavailable. */
-export async function fetchKlineData(walletSymbol: string, timeframe: Timeframe): Promise<KlinePoint[]> {
+const INTERVAL_MS: Record<string, number> = {
+  '1m': 60_000,
+  '5m': 5 * 60_000,
+  '1h': 60 * 60_000,
+  '6h': 6 * 60 * 60_000,
+  '12h': 12 * 60 * 60_000,
+  '1d': 24 * 60 * 60_000
+};
+
+/** Fetch USD close prices and the candle length of the request that asked for them. A failed request has no length. */
+export async function fetchKlineSeries(walletSymbol: string, timeframe: Timeframe): Promise<KlineSeries> {
+  const empty: KlineSeries = { points: [], stepMs: Number.NaN };
   try {
     const direct = walletSymbol === 'USDT' || walletSymbol === 'USDC';
     const market = direct ? null : await resolveMarket(walletSymbol);
-    if (!direct && !market) return [];
+    if (!direct && !market) return empty;
     const binancePair = direct ? `${walletSymbol}USD` : market?.pair;
-    if (!binancePair) return [];
+    if (!binancePair) return empty;
     const params: Record<string, string | number> = { symbol: binancePair };
     const config = timeframe === 'YTD' ? getYtdConfig() : TIMEFRAME_CONFIGS[timeframe];
     Object.assign(params, config);
+    const stepMs = INTERVAL_MS[config.interval] ?? Number.NaN;
     const read = async (symbol: string): Promise<KlinePoint[]> => {
       const { data } = await axios.get<(string | number)[][]>(`${BINANCE_API_BASE}/uiKlines`, {
         params: { ...params, symbol },
@@ -356,17 +390,23 @@ export async function fetchKlineData(walletSymbol: string, timeframe: Timeframe)
           : [];
       });
     };
-    if (!market) return await read(binancePair);
+    if (!market) return { points: await read(binancePair), stepMs };
     const [asset, denominator] = await Promise.all([read(binancePair), read(`${market.denominator}USD`)]);
     const rates = new Map(denominator.map(point => [point.time, point.value]));
-    return asset.flatMap(point => {
+    const points = asset.flatMap(point => {
       const rate = rates.get(point.time);
       if (rate === undefined) return [];
       const value = point.value * rate;
       return Number.isFinite(value) && value > 0 ? [{ time: point.time, value }] : [];
     });
+    return { points, stepMs };
   } catch (error) {
     console.warn('[Binance] Failed to fetch kline data:', error);
-    return [];
+    return empty;
   }
+}
+
+/** Fetch USD close prices. Return no points if a market or its historical USD rate is unavailable. */
+export async function fetchKlineData(walletSymbol: string, timeframe: Timeframe): Promise<KlinePoint[]> {
+  return (await fetchKlineSeries(walletSymbol, timeframe)).points;
 }

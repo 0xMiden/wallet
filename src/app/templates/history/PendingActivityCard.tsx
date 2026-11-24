@@ -11,9 +11,9 @@ import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
-import { formatBigInt } from 'lib/i18n/numbers';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
@@ -55,6 +55,7 @@ interface PendingActivityCardProps {
   onAccept: (note: ClaimableNoteWithMetadata) => void;
   onReject?: (note: ClaimableNoteWithMetadata) => void;
   onRetryHeld?: (item: PendingActivityItem) => void;
+  initiallyExpanded?: boolean;
 }
 
 function formatDateTime(unixSeconds: number): string {
@@ -78,7 +79,13 @@ function formatDateTime(unixSeconds: number): string {
 // same component as every other settled transaction and carrying that component's own navigation
 // to the transaction page. `ActivityPendingHistory` drops a `claimed` item from the card list and
 // `History` stops standing its consume row down, so the two swap cleanly with nothing in between.
-export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: PendingActivityCardProps) => {
+export const PendingActivityCard = ({
+  item,
+  onAccept,
+  onReject,
+  onRetryHeld,
+  initiallyExpanded = false
+}: PendingActivityCardProps) => {
   const { t } = useTranslation();
   const { note, status } = item;
   const transition = useMotion(springs.standard);
@@ -93,9 +100,15 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const unread = !isActivityRead(readState, unreadKey, note.receivedAt ?? Number.NaN);
   const detailsId = useId();
   const feeNoticeId = useId();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
-  const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
+  const amount = hasKnownScale(note.metadata)
+    ? formatAmountDisplay(BigInt(note.amount), {
+        decimals: note.metadata.decimals,
+        rounding: 'down',
+        minimumFractionDigits: 3
+      })
+    : undefined;
   const tokenLabel = midenTokenLabel(bridgeConfig, note.faucetId, note.metadata.symbol);
   const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.

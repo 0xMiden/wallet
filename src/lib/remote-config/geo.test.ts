@@ -10,11 +10,15 @@ import * as geoModule from './geo';
 import type { NearIntentsConfig } from '../one-click/types';
 
 type AssertFalse<T extends false> = T;
-export type StartupEligibilityFailureAliasesRemainRemoved = AssertFalse<
+type StartupEligibilityFailureAliasesRemainRemoved = AssertFalse<
   'STARTUP_ELIGIBILITY_REQUEST_FAILURES' extends keyof typeof geoModule ? true : false
 >;
 // @ts-expect-error this duplicate type alias must remain removed from the geo contract
-export type StartupEligibilityRequestFailureAliasRemainsRemoved = geoModule.StartupEligibilityRequestFailure;
+type StartupEligibilityRequestFailureAliasRemainsRemoved = geoModule.StartupEligibilityRequestFailure;
+const removedAliasChecks:
+  | [StartupEligibilityFailureAliasesRemainRemoved, StartupEligibilityRequestFailureAliasRemainsRemoved]
+  | undefined = undefined;
+void removedAliasChecks;
 
 const invalid = (): never => {
   throw new Error('invalid');

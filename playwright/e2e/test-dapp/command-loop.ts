@@ -7,10 +7,13 @@
 // A module, though it exports nothing: as a script its top-level names would be globals across the whole program.
 export {};
 
+import type { MeasuredSubmitContext } from './protocol';
+
 interface PageCommand {
   id: string;
   command: string;
   input: unknown;
+  expiresAt?: number;
 }
 type Answer = { ok: true; value: unknown } | { ok: false; error: { name: string; message: string } };
 
@@ -78,14 +81,20 @@ function report(kind: string, data: Record<string, unknown> = {}, keepalive = fa
   else void post('/event', body, keepalive);
 }
 
-function testDapp(): { ready: boolean; call: ((command: string, input: unknown) => Promise<unknown>) | undefined } {
+function testDapp(): {
+  ready: boolean;
+  call: ((command: string, input: unknown, expiresAt?: number, measured?: MeasuredSubmitContext) => Promise<unknown>) | undefined;
+} {
   const api: unknown = Reflect.get(window, 'testDapp');
   if (typeof api !== 'object' || api === null) return { ready: false, call: undefined };
   const call: unknown = Reflect.get(api, 'call');
   return {
     ready: Reflect.get(api, 'ready') === true,
     call:
-      typeof call === 'function' ? (name, input) => Promise.resolve(Reflect.apply(call, api, [name, input])) : undefined
+      typeof call === 'function'
+        ? (name, input, expiresAt, measured) =>
+            Promise.resolve(Reflect.apply(call, api, measured ? [name, input, expiresAt, measured] : [name, input, expiresAt]))
+        : undefined
   };
 }
 
@@ -159,7 +168,16 @@ async function run(command: PageCommand): Promise<unknown> {
   if (command.command === '__fetchLog') return Reflect.get(window, '__dappFetchLog') ?? [];
   const api = testDapp();
   if (!api.ready || api.call === undefined) throw new Error('window.testDapp is not ready');
-  return api.call(command.command, command.input);
+  const measured = command.command === 'submitCustomMeasured' && command.expiresAt !== undefined
+    ? {
+        trailingCutoff: command.expiresAt - (2 * POST_ATTEMPT_MS + RETRY_MS + 1_000),
+        reportLeadingNode: (error?: { name: string; message: string }) => post('/event', JSON.stringify({
+          kind: error === undefined ? 'leading-node-recovered' : 'leading-node-failure',
+          data: { id: command.id, ...error }
+        }))
+      }
+    : undefined;
+  return api.call(command.command, command.input, command.expiresAt, measured);
 }
 
 function answerBody(command: PageCommand, answer: Answer): string {
@@ -203,7 +221,9 @@ async function loop(): Promise<void> {
           continue;
         }
         // Not awaited: a command waiting on the approval sheet must not stop the next poll.
-        void dispatch({ id, command: name, input: read('input') });
+        const expiry = read('expiresAt');
+        const expiresAt = typeof expiry === 'number' && Number.isFinite(expiry) ? expiry : undefined;
+        void dispatch({ id, command: name, input: read('input'), expiresAt });
       } else if (response.status === 409) {
         // A newer poll for this key took over, so another loop owns it: this one stops, or the two trade 409s forever.
         report('pollSuperseded', { poll: n });

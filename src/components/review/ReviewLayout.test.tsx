@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ReviewLayout, ReviewAction } from './ReviewLayout';
@@ -61,6 +62,19 @@ const makeProps = (overrides: Partial<React.ComponentProps<typeof ReviewLayout>>
 });
 
 describe('ReviewLayout', () => {
+  it('places the Command review action outside its scrolling content without a duplicate Back action', () => {
+    const onBack = jest.fn();
+    const { container } = render(
+      <FlowPresentationProvider value="command">
+        <ReviewLayout {...makeProps({ secondary: { label: 'Back', onPress: onBack } })} />
+      </FlowPresentationProvider>
+    );
+    expect(screen.getAllByRole('button', { name: 'Confirm' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+    expect(container.querySelector('[data-command-review-footer]')).toContainElement(
+      screen.getByRole('button', { name: 'Confirm' })
+    );
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });

@@ -34,6 +34,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
+  hasOwnBridgeBadge,
   earnDepositSettlementOf,
   formatMoneyAmount,
   isBridgeInEntry,
@@ -155,8 +156,7 @@ function buildRowProps(
             preformatted: true
           }
         : undefined,
-      // USDCx rows read their own phases, and an unpaid NEAR Intents deposit past its deadline reads Expired.
-      status: bridgeBadgeStatusOf(entry)
+      status: hasOwnBridgeBadge(entry) ? bridgeBadgeStatusOf(entry) : d.status
     };
   }
 

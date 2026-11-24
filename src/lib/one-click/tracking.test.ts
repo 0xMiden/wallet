@@ -1,9 +1,10 @@
 import { HistoryEntryType } from 'app/templates/history/IHistoryEntry';
 import { bridgeStatusOf } from 'app/templates/history/transactionUtils';
-import { ITransactionStatus, type IOneClickTrackingData } from 'lib/miden/db/types';
+import { ITransactionStatus, type IOneClickTrackingData, type ITransaction } from 'lib/miden/db/types';
 
-import { OneClickHttpError } from './client';
+import { OneClickHttpError, resolveOneClickDestinationReceipts } from './client';
 import {
+  NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS,
   NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR,
   NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS,
   NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS,
@@ -11,7 +12,8 @@ import {
   isNearIntentsDepositExpired,
   persistNearIntentsDeposit,
   phaseForProviderStatus,
-  reconcileOneClickSwaps
+  reconcileOneClickSwaps,
+  updateOneClickTrackingPhase
 } from './tracking';
 import { NearIntentsConfig, OneClickAsset, OneClickQuoteRequest, OneClickQuoteResponse } from './types';
 
@@ -35,6 +37,11 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (left: string, right: string) => left === right }));
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  assertWasmHoldCurrent: jest.fn(),
+  withWasmClientLock: (read: () => Promise<unknown>) => read()
+}));
+jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: { getConsumableNotes: jest.fn() } }));
 jest.mock('lib/one-click/client', () => ({
   OneClickHttpError:
     jest.requireActual<typeof import('lib/one-click/client')>('lib/one-click/client').OneClickHttpError,
@@ -140,7 +147,7 @@ const inboundInput = {
 };
 
 const activityBridgeStatus = (phase: string | undefined) => {
-  const bridgeInPhase = phase === 'delivering' || phase === 'failed' ? phase : undefined;
+  const bridgeInPhase = phase === 'delivering' || phase === 'failed' || phase === 'received' ? phase : undefined;
   return bridgeStatusOf({
     key: 'refunded-inbound-row',
     address: 'miden-account-id',
@@ -317,6 +324,109 @@ describe('1Click durable tracking', () => {
 
     expect(fetchStatus).toHaveBeenCalledTimes(1);
     expect(submitDeposit).not.toHaveBeenCalled();
+  });
+
+  it('keeps an inbound provider success arriving until the linked note is locally consumed', async () => {
+    const row = inboundRow('arriving-inbound-row', { phase: 'known-deposit-tx', providerSubmitted: true });
+    storedRows.push(row);
+    const noteId = '0xABC123';
+    const amount = 2000000000000000000n;
+    fetchStatus.mockResolvedValue({
+      status: 'SUCCESS',
+      updatedAt: new Date().toISOString(),
+      swapDetails: { amountOut: amount.toString(), destinationChainTxHashes: [{ hash: '0xreceipt' }] }
+    });
+    jest
+      .mocked(resolveOneClickDestinationReceipts)
+      .mockResolvedValue([{ transactionHash: '0xreceipt', noteIds: [noteId] }]);
+
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick).toMatchObject({ phase: 'arriving' });
+    expect(row.extraInputs.phase).toBe('delivering');
+    expect(activityBridgeStatus(row.extraInputs.phase)).toBe('pending');
+
+    const consume = (status: ITransactionStatus, accountId = 'miden-account-id'): ITransaction => ({
+      id: `consume-${storedRows.length}`,
+      type: 'consume',
+      accountId,
+      status,
+      initiatedAt: Date.now(),
+      displayIcon: 'RECEIVE',
+      consumedNotes: [{ id: noteId, senderAddress: 'sender', faucetId: 'miden-faucet', amount }]
+    });
+    storedRows.push(consume(ITransactionStatus.Queued), consume(ITransactionStatus.Failed));
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick.phase).toBe('arriving');
+
+    storedRows.push(consume(ITransactionStatus.Completed, 'another-account'));
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick.phase).toBe('arriving');
+
+    storedRows.push({ ...consume(ITransactionStatus.Completed), id: 'restored-consume', restoredFromBackup: true });
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick.phase).toBe('arriving');
+
+    storedRows.push(consume(ITransactionStatus.Completed));
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick.phase).toBe('delivered');
+    expect(row.extraInputs.phase).toBe('received');
+    expect(activityBridgeStatus(row.extraInputs.phase)).toBe('confirmed');
+  });
+
+  it('closes an inbound success older than the arrival window as delivered when no note matches', async () => {
+    const row = inboundRow('stale-success-row', { phase: 'known-deposit-tx', providerSubmitted: true });
+    storedRows.push(row);
+    fetchStatus.mockResolvedValue({
+      status: 'SUCCESS',
+      updatedAt: new Date(Date.now() - NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS - 60_000).toISOString(),
+      swapDetails: { amountOut: '2000000000000000000', destinationChainTxHashes: [] }
+    });
+
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('delivered');
+    expect(row.extraInputs.phase).toBe('received');
+    expect(resolveOneClickDestinationReceipts).not.toHaveBeenCalled();
+  });
+
+  it('delivers a young inbound success with no note ids when a completed consume matches the amount', async () => {
+    const row = inboundRow('amount-match-row', { phase: 'known-deposit-tx', providerSubmitted: true });
+    storedRows.push(row);
+    const amount = 2000000000000000000n;
+    fetchStatus.mockResolvedValue({
+      status: 'SUCCESS',
+      updatedAt: new Date().toISOString(),
+      swapDetails: { amountOut: amount.toString(), destinationChainTxHashes: [] }
+    });
+
+    await reconcileOneClickSwaps();
+    expect(row.extraInputs.oneClick.phase).toBe('arriving');
+
+    storedRows.push({
+      id: 'amount-consume',
+      type: 'consume',
+      accountId: 'miden-account-id',
+      status: ITransactionStatus.Completed,
+      initiatedAt: row.initiatedAt,
+      displayIcon: 'RECEIVE',
+      consumedNotes: [{ id: '0xunlinked', senderAddress: 'sender', faucetId: 'miden-faucet', amount }]
+    });
+    await reconcileOneClickSwaps();
+
+    expect(row.extraInputs.oneClick.phase).toBe('delivered');
+    expect(row.extraInputs.phase).toBe('received');
+    expect(resolveOneClickDestinationReceipts).not.toHaveBeenCalled();
+  });
+
+  it.each(['refunded', 'expired'] as const)('maps an explicit %s phase to a terminal Activity state', async phase => {
+    const row = inboundRow(`explicit-${phase}-row`, { phase: 'pending-deposit' });
+    storedRows.push(row);
+
+    await updateOneClickTrackingPhase(row.id, phase);
+
+    expect(row.extraInputs.oneClick.phase).toBe(phase);
+    expect(row.extraInputs.phase).toBe('failed');
+    expect(activityBridgeStatus(row.extraInputs.phase)).toBe('failed');
   });
 
   it('stops polling an outbound swap after the provider reports success', async () => {

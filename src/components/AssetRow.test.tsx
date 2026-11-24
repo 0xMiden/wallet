@@ -15,7 +15,7 @@ import {
   getNativeAssetMetadataSync,
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
-import { useTokenSparkline } from 'lib/prices';
+import { useBasketSparkline, useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -136,10 +136,12 @@ jest.mock('lib/token-list/useTokenVerification', () => ({ useTokenVerification: 
 // The sparkline hook fetches, so it is stubbed; the price lookup is the real one.
 jest.mock('lib/prices', () => ({
   quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
-  useTokenSparkline: jest.fn()
+  useTokenSparkline: jest.fn(),
+  useBasketSparkline: jest.fn(() => [])
 }));
 
 const mockUseTokenSparkline = useTokenSparkline as jest.MockedFunction<typeof useTokenSparkline>;
+const mockUseBasketSparkline = useBasketSparkline as jest.MockedFunction<typeof useBasketSparkline>;
 
 let tokenPrices: TokenPrices;
 
@@ -156,7 +158,7 @@ function makeAsset(overrides: Partial<{ symbol: string; name: string; balance: n
 }
 
 function priceInfo(overrides: Partial<TokenPriceInfo> = {}): TokenPriceInfo {
-  return { price: 100, change24h: 0, percentageChange24h: 5, ...overrides };
+  return { kind: 'market' as const, price: 100, change24h: 0, percentageChange24h: 5, ...overrides };
 }
 
 beforeEach(() => {
@@ -166,6 +168,7 @@ beforeEach(() => {
   // Sensible defaults; individual tests override as needed.
   tokenPrices = { BTC: priceInfo() };
   mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
+  mockUseBasketSparkline.mockReturnValue([]);
   mockVerify.mockReturnValue('unknown');
 });
 
@@ -548,5 +551,90 @@ it('shows a native fixed quote with a flat line and a flat move, fetching no mar
   expect(screen.getByTestId('row-price')).toHaveTextContent('$2.00');
   expect(screen.getByTestId('row-delta')).toHaveTextContent('+0.00%');
   expect(screen.getByTestId('sparkline')).toBeInTheDocument();
+  expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
+});
+
+it("shows a basket's net asset value with its tokens' weighted move and line", () => {
+  const composition = [
+    { faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 0.6 },
+    { faucetId: 'f-sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.4 }
+  ];
+  const basketQuote = priceInfo({
+    price: 1.5,
+    change24h: 0,
+    percentageChange24h: 0,
+    kind: 'basket' as const,
+    composition
+  });
+  const prices = {
+    BTC: basketQuote,
+    ETH: priceInfo({ price: 2000, percentageChange24h: -10 }),
+    SOL: priceInfo({ price: 100, percentageChange24h: -5 })
+  };
+  mockUseBasketSparkline.mockReturnValue([1.6, 1.55, 1.5]);
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} />);
+  expect(screen.getByTestId('row-price')).toHaveTextContent('$3.00');
+  expect(screen.getByTestId('row-delta')).toHaveTextContent('-8.06%');
+  const spark = screen.getByTestId('sparkline');
+  expect(spark).toHaveAttribute('data-color', 'var(--status-negative)');
+  expect(spark).toHaveAttribute('data-points', JSON.stringify([1.6, 1.55, 1.5]));
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(basketQuote, prices);
+  expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
+});
+
+it('draws a flat grey line with no move while a basket sparkline is empty or loading', () => {
+  const composition = [{ faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 1 }];
+  const basketQuote = priceInfo({
+    price: 1.5,
+    change24h: 0,
+    percentageChange24h: 0,
+    kind: 'basket' as const,
+    composition
+  });
+  const prices = { BTC: basketQuote };
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} />);
+  expect(screen.queryByTestId('row-delta')).toBeNull();
+  const spark = screen.getByTestId('sparkline');
+  expect(spark).toHaveAttribute('data-points', JSON.stringify([1, 1]));
+  expect(spark).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(basketQuote, prices);
+  expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
+});
+
+it('draws a loaded basket line in neutral grey with no move while its tokens lack market quotes', () => {
+  const composition = [{ faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 1 }];
+  const basketQuote = priceInfo({
+    price: 1.5,
+    change24h: 0,
+    percentageChange24h: 0,
+    kind: 'basket' as const,
+    composition
+  });
+  const prices = { BTC: basketQuote };
+  mockUseBasketSparkline.mockReturnValue([1.6, 1.55, 1.5]);
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} />);
+  expect(screen.queryByTestId('row-delta')).toBeNull();
+  const spark = screen.getByTestId('sparkline');
+  expect(spark).toHaveAttribute('data-points', JSON.stringify([1.6, 1.55, 1.5]));
+  expect(spark).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(basketQuote, prices);
+});
+
+it('draws no sparkline and fetches none for a basket when sparkline is false', () => {
+  const composition = [{ faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 1 }];
+  const basketQuote = priceInfo({
+    price: 1.5,
+    change24h: 0,
+    percentageChange24h: 0,
+    kind: 'basket' as const,
+    composition
+  });
+  const prices = {
+    BTC: basketQuote,
+    ETH: priceInfo({ price: 2000, percentageChange24h: 3 })
+  };
+  render(<AssetRow asset={makeAsset({ balance: 2 })} tokenPrices={prices} sparkline={false} />);
+  expect(screen.queryByTestId('sparkline')).toBeNull();
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(undefined, prices);
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });

@@ -231,12 +231,36 @@ describe('swap section', () => {
 
   // NEAR Intents is the top-level `nearIntents` section now: a `swap.oneClick` an older document carries is not read.
   it('ignores a swap.oneClick section, valid or not, on every network', () => {
-    const swap = { etaUrl: 'https://quotes.example', oneClick: { serviceUrl: 'http://bad', midenAssets: 'none' } };
-    expect(parseBridgeConfig({ ...doc({ swap }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual({
+    const assets = {
+      usdcx: { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }
+    };
+    const chains = {
+      eth: {
+        name: 'Ethereum',
+        addressKind: 'evm',
+        tokens: { ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdcx'] } }
+      }
+    };
+    const retired = { serviceUrl: 'https://retired.example', midenAssets: assets, chains };
+    const swap = { etaUrl: 'https://quotes.example', oneClick: retired };
+    const parsed = parseBridgeConfig(
+      { ...doc({ swap, nearIntents: { ...retired, serviceUrl: 'https://one-click.example' } }), network: 'mainnet' },
+      'mainnet'
+    );
+    expect(parsed?.nearIntents?.serviceUrl).toBe('https://one-click.example');
+    expect(parsed?.swap).toStrictEqual({ etaUrl: 'https://quotes.example' });
+
+    // This section is invalid. Parsing it would reject the document.
+    const invalidSwap = {
+      etaUrl: 'https://quotes.example',
+      oneClick: { serviceUrl: 'http://bad', midenAssets: 'none' }
+    };
+    expect(parseBridgeConfig({ ...doc({ swap: invalidSwap }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual({
       etaUrl: 'https://quotes.example'
     });
-    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({ etaUrl: 'https://quotes.example' });
-    expect(parseBridgeConfig({ ...doc({ swap }), network: 'mainnet' }, 'mainnet')?.nearIntents).toBeUndefined();
+    expect(parseBridgeConfig(doc({ swap: invalidSwap }), 'testnet')?.swap).toStrictEqual({
+      etaUrl: 'https://quotes.example'
+    });
   });
 });
 
@@ -1247,7 +1271,7 @@ describe('the NEAR Intents local E2E gate', () => {
   const local = { ...doc({ nearIntents: nearIntents('http://127.0.0.1:8550') }), network: 'localnet' };
   const both = { allowLocalHttp: true, allowOneClickLocalE2E: true };
 
-  it('accepts a loopback mainnet proxy in a non-E2E development build only', () => {
+  it('rejects a mainnet LAN URL and a mainnet localhost URL outside the hermetic gate', () => {
     const env = jest.replaceProperty(process, 'env', {
       ...process.env,
       MODE_ENV: 'development',
@@ -1255,16 +1279,11 @@ describe('the NEAR Intents local E2E gate', () => {
     });
     try {
       const mainnet = { ...local, network: 'mainnet' };
-      expect(parseBridgeConfig(mainnet, 'mainnet')?.nearIntents?.serviceUrl).toBe('http://192.168.29.144:8787');
+      expect(parseBridgeConfig(mainnet, 'mainnet')).toBeNull();
       const lanConfig = { ...mainnet, nearIntents: nearIntents('http://192.168.29.144:8787') };
-      expect(parseBridgeConfig(lanConfig, 'mainnet')?.nearIntents?.serviceUrl).toBe('http://192.168.29.144:8787');
-      expect(parseBridgeConfig({ ...mainnet, nearIntents: nearIntents('http://example.com') }, 'mainnet')).toBeNull();
-      process.env.MODE_ENV = 'production';
-      expect(parseBridgeConfig(mainnet, 'mainnet')).toBeNull();
       expect(parseBridgeConfig(lanConfig, 'mainnet')).toBeNull();
-      process.env.MODE_ENV = 'development';
-      process.env.MIDEN_E2E_TEST = 'true';
-      expect(parseBridgeConfig(mainnet, 'mainnet')).toBeNull();
+      const localhostConfig = { ...mainnet, nearIntents: nearIntents('http://localhost:8787') };
+      expect(parseBridgeConfig(localhostConfig, 'mainnet')).toBeNull();
     } finally {
       env.restore();
     }

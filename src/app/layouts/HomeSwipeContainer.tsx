@@ -2,6 +2,7 @@ import React, { FC, memo, ReactNode, useCallback, useEffect, useLayoutEffect, us
 
 import { useReducedMotion } from 'framer-motion';
 
+import CommandLauncher from 'app/layouts/CommandLauncher';
 import { setHomePagerPreview } from 'app/layouts/home-pager-preview';
 import { PageActiveContext, usePageActive, useTabShownAgain } from 'app/layouts/page-active';
 import Earn from 'app/pages/Earn';
@@ -39,7 +40,7 @@ interface HomePage {
 
 function buildPages(swapEnabled: boolean): HomePage[] {
   return [
-    { id: 'overview', path: '/', node: <Explore /> },
+    { id: 'overview', path: '/', node: <Explore balanceAction={<CommandLauncher inBalanceCard />} /> },
     { id: 'send', path: '/send', node: <SendFlow isLoading={false} /> },
     { id: 'receive', path: '/receive', node: <Receive /> },
     { id: 'earn', path: '/earn', node: <Earn /> },

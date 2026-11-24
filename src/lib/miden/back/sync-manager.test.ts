@@ -194,10 +194,13 @@ jest.mock('lib/settings/helpers', () => ({
 }));
 
 let mockBaseFee: number | null = 0;
+let mockFloorFee: number | null | undefined;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: () => mockGetFaucetIdSetting(),
-  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+  getVerificationBaseFee: () => Promise.resolve(mockBaseFee),
+  refreshVerificationBaseFee: () => Promise.resolve(mockBaseFee),
+  getClaimFloorBaseFee: () => Promise.resolve(mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 
 const mockGetBlockTimestamps = jest.fn(
@@ -231,6 +234,9 @@ const mockInitiatePswapReclaim = jest.fn((..._args: any[]) => Promise.resolve('r
 jest.mock('../transaction/initiate', () => ({
   get ClaimFeeRefusedError() {
     return jest.requireActual('../transaction/initiate').ClaimFeeRefusedError;
+  },
+  get ClaimCohortRefusedError() {
+    return jest.requireActual('../transaction/initiate').ClaimCohortRefusedError;
   },
   initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
   initiatePswapReclaimTransaction: (...a: any[]) => mockInitiatePswapReclaim(...a),
@@ -293,6 +299,7 @@ jest.mock('../swap/settlement', () => {
 
 // ── Imports under test ─────────────────────────────────────────────
 
+import { noteUnknownClaimFloor } from 'lib/miden/fees/spendable';
 import * as Repo from 'lib/miden/repo';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -359,6 +366,7 @@ const queuedClaimNoteIds = async (): Promise<string[]> =>
 beforeEach(() => {
   mockInitiateConsumeBatch.mockClear();
   mockBaseFee = 0;
+  mockFloorFee = undefined;
   mockRpcUrl = undefined;
   jest.clearAllMocks();
   mockIsExist.mockResolvedValue(true);
@@ -461,7 +469,13 @@ describe('doSync', () => {
         miden_cached_consumable_notes: expect.any(Array),
         miden_sync_data: expect.objectContaining({
           accountPublicKey: 'pk-1',
-          balanceSnapshot: { network: 'testnet', accountNonce: '5' }
+          balanceSnapshot: expect.objectContaining({
+            network: 'testnet',
+            accountNonce: '5',
+            effectiveNetwork: 'testnet',
+            rpcUrl: expect.any(String),
+            capturedAt: expect.any(Number)
+          })
         })
       })
     );
@@ -1336,6 +1350,68 @@ describe('doSync — syncState timeout + circuit breaker', () => {
     });
   });
 
+  it('a stalled-storage failure is no node outage: no failure streak, breaker window or banner, and nothing past it runs', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const { StorageStalledError } = jest.requireActual('lib/miden/storage-health');
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new StorageStalledError());
+
+      const { doSync: isolated } = await import('./sync-manager');
+      for (let i = 0; i < 5; i++) await isolated();
+
+      expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('circuit breaker open'));
+      expect(mockClient.getConsumableNoteDtos).not.toHaveBeenCalled();
+      expect(mockBroadcast).toHaveBeenCalledTimes(5);
+      warnSpy.mockRestore();
+    });
+  });
+
+  it('a watchdog eviction is probed afresh, and a stall is no node failure', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const probe = jest.fn(async () => true);
+      jest.doMock('lib/miden/storage-health', () => ({
+        ...jest.requireActual('lib/miden/storage-health'),
+        checkStorage: probe
+      }));
+      const { WasmClientPoisonedError } = jest.requireActual('../sdk/wasm-client-poison');
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      const { doSync: isolated } = await import('./sync-manager');
+      for (let i = 0; i < 4; i++) await isolated();
+
+      expect(probe).toHaveBeenCalledTimes(4);
+      expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('circuit breaker open'));
+      jest.dontMock('lib/miden/storage-health');
+      warnSpy.mockRestore();
+    });
+  });
+
+  it('while storage is stalled a lap neither reads the vault, syncs nor runs the reaper', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('lib/miden/storage-health', () => ({
+        ...jest.requireActual('lib/miden/storage-health'),
+        isStorageStalled: () => true,
+        isStorageStalledNow: async () => true,
+        checkStorage: async () => true
+      }));
+      mockClient.syncState.mockReset();
+
+      const { doSync: isolated } = await import('./sync-manager');
+      await isolated();
+
+      expect(mockIsExist).not.toHaveBeenCalled();
+      expect(mockClient.syncState).not.toHaveBeenCalled();
+      expect(mockTrimResultBytes).not.toHaveBeenCalled();
+      expect(mockBroadcast).toHaveBeenCalledTimes(1);
+      jest.dontMock('lib/miden/storage-health');
+    });
+  });
+
   it('increments the failure counter when syncState rejects and trips the breaker after consecutive failures', async () => {
     await jest.isolateModulesAsync(async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
@@ -1964,6 +2040,60 @@ describe('doSync — native-note auto-consume', () => {
 
       expect(await queuedClaimNoteIds()).toEqual(['native-note']);
       expect(startTransactionProcessing).toHaveBeenCalledTimes(1);
+    } finally {
+      undoRealQueue();
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('queues no native auto-consume while the fee is unknown, and asks the user instead', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    mockBaseFee = null;
+    mockFloorFee = null;
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockHasClients.mockReturnValue(false);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['native-note']);
+    const notificationHost = Reflect.get(globalThis, 'chrome');
+    const previousNotifications = Reflect.get(notificationHost, 'notifications');
+    const create = jest.fn();
+    Reflect.set(notificationHost, 'notifications', { create });
+    mockClient.getConsumableNoteDtos.mockResolvedValue([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet', amount: '1000000000' })
+    ]);
+    const debug = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    // A known fee first, so the shared latch starts clear whatever ran before.
+    noteUnknownClaimFloor('sync:pk-1', 0, false);
+    try {
+      await doSync();
+
+      expect(await queuedClaimNoteIds()).toEqual([]);
+      expect(create).toHaveBeenCalled();
+      expect(debug).toHaveBeenCalledWith('[claim-floor] claim skipped, fee unknown', 'sync:pk-1');
+    } finally {
+      debug.mockRestore();
+      Reflect.set(notificationHost, 'notifications', previousNotifications);
+      undoRealQueue();
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('auto-consumes on a chain whose fee is proven absent', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    mockBaseFee = null;
+    mockFloorFee = 0;
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockClient.getConsumableNoteDtos.mockResolvedValue([
+      fakeNote({ id: 'native-dust', faucetId: 'native-faucet', amount: '1' })
+    ]);
+    try {
+      await doSync();
+
+      const claims = (await Repo.transactions.toArray()).filter(row => row.type === 'consume');
+      expect(claims).toHaveLength(1);
+      expect(claims[0]?.noteIds).toEqual(['native-dust']);
+      expect(claims[0]?.consumeEntryPoint).toBe('auto_consume');
     } finally {
       undoRealQueue();
       await Repo.transactions.clear();
@@ -2604,6 +2734,132 @@ describe('doSync - expired swap order settlement', () => {
       const [autoClaim] = await Repo.transactions.where('noteIds').equals('copy-dust').toArray();
       expect([...(autoClaim?.noteIds ?? [])].sort()).toEqual(['copy-dust', 'payment']);
       expect(autoClaim?.extraInputs?.swapOrderTxId).toBeUndefined();
+    } finally {
+      feeContext.mockReset();
+      feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);
+      undoRealQueue();
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  it("leaves a payback that falls short of its order's fill to the claim list, and a native one to the claim floor", async () => {
+    const undoRealQueue = useRealClaimQueue();
+    const feeContext = jest.mocked(
+      jest.requireMock<typeof import('../transaction/claim-fee')>('../transaction/claim-fee').readClaimFeeContext
+    );
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    mockBaseFee = 10000;
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    // The order asked 50 and its lineage says 25 of it were filled.
+    await Repo.transactions.put({
+      ...partFilledOrderRow,
+      extraInputs: { ...partFilledOrderRow.extraInputs, requestedFaucetId: 'native-faucet' }
+    });
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: { pswap: { lineages: async () => [partFilledLineage] } }
+    }));
+    const attached = (note: ReturnType<typeof fakeNote>) => ({ ...note, swapAttachment: { orderId: '77', depth: 1 } });
+    const cachedNotes = () =>
+      mockStorageSet.mock.calls.filter(call => 'miden_cached_consumable_notes' in call[0]).at(-1)?.[0]
+        .miden_cached_consumable_notes;
+    try {
+      mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['short']);
+      mockHasClients.mockReturnValue(false);
+      const notify = jest.fn();
+      Object.assign(globalThis.chrome, { notifications: { create: notify } });
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        attached(fakeNote({ id: 'short', faucetId: 'native-faucet', amount: '1' }))
+      ]);
+      await doSync();
+
+      // It pays 1 of the 25 filled, so it is no payback to settle: it is listed and announced as a transfer to accept.
+      expect(await queuedClaimNoteIds()).toEqual([]);
+      expect(cachedNotes()).toEqual([expect.objectContaining({ id: 'short', swapOrder: undefined })]);
+      expect(notify).toHaveBeenCalled();
+
+      // Beside enough of the fee token, the native auto-consume claims it with that, as a payment.
+      mockClient.getConsumableNoteDtos.mockResolvedValue([
+        attached(fakeNote({ id: 'short', faucetId: 'native-faucet', amount: '1' })),
+        fakeNote({ id: 'payment', faucetId: 'native-faucet', amount: '1000000' })
+      ]);
+      await doSync();
+
+      const claims = (await Repo.transactions.toArray()).filter(row => row.type === 'consume');
+      expect(claims).toHaveLength(1);
+      expect([...(claims[0]?.noteIds ?? [])].sort()).toEqual(['payment', 'short']);
+      expect(claims[0]?.consumeEntryPoint).toBe('auto_consume');
+      expect(claims[0]?.extraInputs?.swapOrderTxId).toBeUndefined();
+    } finally {
+      feeContext.mockReset();
+      feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);
+      undoRealQueue();
+      mockGetMidenClient.mockImplementation(async () => mockClient);
+      await Repo.transactions.clear();
+    }
+  });
+
+  // Paybacks of an order with Auto accept off are the user's to accept, and a claim by hand records no amount.
+  it('keeps a later payback of an order with Auto accept off on its order, out of the native auto-consume', async () => {
+    const undoRealQueue = useRealClaimQueue();
+    const feeContext = jest.mocked(
+      jest.requireMock<typeof import('../transaction/claim-fee')>('../transaction/claim-fee').readClaimFeeContext
+    );
+    feeContext.mockResolvedValue({ vaultFeeAsset: 0n, nativeAssetId: 'native-faucet', verificationBaseFee: 10000 });
+    mockBaseFee = 10000;
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    // Two fills paid 6000000 of the 10000000 asked; the user accepted round 1 by hand.
+    await Repo.transactions.put({
+      ...partFilledOrderRow,
+      extraInputs: {
+        ...partFilledOrderRow.extraInputs,
+        requestedFaucetId: 'native-faucet',
+        requestedAmount: 10_000_000n,
+        autoConsume: false
+      }
+    });
+    await Repo.transactions.put({
+      id: 'accepted-by-hand',
+      accountId: 'pk-1',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 3,
+      completedAt: 4,
+      displayIcon: 'RECEIVE',
+      noteId: 'payback-1',
+      noteIds: ['payback-1'],
+      consumeEntryPoint: 'claim'
+    });
+    mockGetMidenClient.mockImplementation(async () => ({
+      ...mockClient,
+      client: {
+        pswap: {
+          lineages: async () => [{ ...partFilledLineage, currentDepth: () => 2, remainingRequested: () => 4_000_000n }]
+        }
+      }
+    }));
+    mockClient.getConsumableNoteDtos.mockResolvedValue([
+      {
+        ...fakeNote({ id: 'payback-2', faucetId: 'native-faucet', amount: '3000000' }),
+        swapAttachment: { orderId: '77', depth: 2 }
+      }
+    ]);
+    const cachedNotes = () =>
+      mockStorageSet.mock.calls.filter(call => 'miden_cached_consumable_notes' in call[0]).at(-1)?.[0]
+        .miden_cached_consumable_notes;
+    try {
+      await doSync();
+
+      expect(cachedNotes()).toEqual([
+        expect.objectContaining({
+          id: 'payback-2',
+          swapOrder: expect.objectContaining({ role: 'payback', depth: 2, autoConsume: false })
+        })
+      ]);
+      expect(await Repo.transactions.where('noteIds').equals('payback-2').toArray()).toEqual([]);
     } finally {
       feeContext.mockReset();
       feeContext.mockImplementation(jest.requireActual('../transaction/claim-fee').readClaimFeeContext);

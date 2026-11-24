@@ -212,7 +212,7 @@ jest.mock('./transactionUtils', () => ({
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
   bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
+  hasOwnBridgeBadge: jest.requireActual('./transactionUtils').hasOwnBridgeBadge,
   // Smart Withdraw rows: mirror the real predicate so the earn branch of
   // `buildRowProps` is exercised with realistic values.
   isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),
@@ -1791,6 +1791,24 @@ describe('HistoryView swap settlement status', () => {
 // note lands — but the position only exists once the solver-fulfilled Sepolia
 // lending leg settles, so the chip must track THAT leg, not the row status.
 describe('HistoryView earn-deposit status chip', () => {
+  it.each<[string, NonNullable<IHistoryEntry['earnDepositStatus']>]>([
+    ['Deposited to lending', 'pending'],
+    ['Deposited to lending', 'confirmed'],
+    ['Deposited to lending', 'failed'],
+    ['Deposited to Earn', 'pending'],
+    ['Deposited to Earn', 'confirmed'],
+    ['Deposited to Earn', 'failed']
+  ])('localizes %s while preserving %s settlement', (message, earnDepositStatus) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[makeEntry({ txType: 'earn-deposit', message, earnDepositStatus })]}
+        fullHistory
+      />
+    );
+    expect(rowByTitle('earnDepositRowTitle')).toHaveAttribute('data-status', earnDepositStatus);
+  });
+
   const renderDeposit = (overrides: Partial<IHistoryEntry> = {}) => {
     const entry = makeEntry({
       txType: 'earn-deposit',

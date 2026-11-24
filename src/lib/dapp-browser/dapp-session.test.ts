@@ -22,6 +22,13 @@ describe('parseOrigin', () => {
   });
 });
 
+describe('parseOrigin for an internationalized host', () => {
+  it('derives the ASCII serialization for an internationalized host', () => {
+    const A = String.fromCharCode(0x430);
+    expect(parseOrigin(`https://${A}pple.example/path`)).toBe('https://xn--pple-43d.example');
+  });
+});
+
 describe('getDappHostname', () => {
   it('returns the hostname without scheme', () => {
     expect(getDappHostname('https://miden.xyz/path')).toBe('miden.xyz');

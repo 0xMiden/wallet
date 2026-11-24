@@ -12,11 +12,12 @@
  */
 
 import { NoteFilterTypes, NoteType, Poseidon2, Word } from '@miden-sdk/miden-sdk/lazy';
-import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import { type SignKind, WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 import extensionBrowser, { type Windows } from 'webextension-polyfill';
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
 import * as noteQuarantine from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -24,6 +25,7 @@ import { requestCustomTransaction } from 'lib/miden/transaction';
 import { TransactionQueuedError } from 'lib/miden/transaction/initiate';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletStatus } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 // ── Capture intercom listeners via the mock ────────────────────────
 const _g = globalThis as any;
@@ -49,7 +51,7 @@ _g.__dappExtTestStoreListeners = new Set<(state: unknown) => void>();
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
-      signData: jest.fn(async () => 'fake-signature-base64')
+      signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' }))
     }
   })
 );
@@ -57,7 +59,7 @@ const mockFetchAccounts = jest.fn(async () => [] as unknown[]);
 // What an unlocked store hands `withUnlocked`'s callback here.
 const unlockedContext = () => ({
   vault: {
-    signData: jest.fn(async () => 'fake-signature-base64'),
+    signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' })),
     fetchAccounts: mockFetchAccounts
   }
 });
@@ -82,7 +84,9 @@ jest.mock('lib/miden/back/store', () => ({
   store: {
     getState: () => ({
       currentAccount: { publicKey: (globalThis as any).__dappExtTestCurrentAccount ?? 'miden-account-1' },
-      status: (globalThis as any).__dappExtTestStatus ?? 'Ready'
+      status: (globalThis as any).__dappExtTestStatus ?? 'Ready',
+      // The connected account's kind, which the sign gate reads. Empty reads as a single-key account.
+      accounts: (globalThis as any).__dappExtTestAccounts ?? []
     }),
     // Drives `waitForUnlock`: `unlockWallet()` below notifies these the way the real store's updates do.
     updates: {
@@ -183,6 +187,40 @@ jest.mock('lib/miden/back/defaults', () => ({
   }
 }));
 
+/**
+ * The approval of a custom transaction needs a dry run that succeeds. The dry run itself is covered by
+ * `simulate-custom-tx.test.ts`, so here it gives a result whose decoded view moves nothing.
+ */
+jest.mock('./simulate-custom-tx', () => {
+  // The stand-in dry run measures its approval and note flow through the real code, as the hold does.
+  const { measureApprovalDryRun } = jest.requireActual<typeof import('./simulate-custom-tx')>('./simulate-custom-tx');
+  return { simulateCustomTransaction: jest.fn(async () => measureApprovalDryRun({ summaryBytes: 'sumB64' })) };
+});
+
+// A custom summary's approval re-reads the chain fee before it decodes; the read is the node's, not this suite's.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  refreshVerificationBaseFee: jest.fn(async () => 2),
+  getVerificationBaseFeeSync: () => 2
+}));
+
+jest.mock('app/confirm/decode', () => ({
+  ...jest.requireActual('app/confirm/decode'),
+  simulatedBytesToView: () => ({
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [],
+    incomingNfts: [],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 0,
+    storageChanged: false,
+    viewConsumedNotes: [],
+    createdNotes: []
+  }),
+  simulatedOutputRecipients: () => []
+}));
+
 const mockGetCurrentAccountPublicKey = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
@@ -201,7 +239,7 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // routing sees the shape the poison contract promises.
 let currentWasmHold: object | null = null;
 // Simulates the watchdog handing the mutex to a successor while the current client
-// call is still parked — call from inside a client-method mock.
+// call is still parked - call from inside a client-method mock.
 const revokeWasmHold = (): void => {
   currentWasmHold = null;
 };
@@ -341,6 +379,7 @@ beforeEach(() => {
   mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-1');
   mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
   _g.__dappExtTestCurrentAccount = 'miden-account-1';
+  _g.__dappExtTestAccounts = [];
   delete _g.__dappExtTestStatus;
   _g.__dappExtTestStoreListeners.clear();
   _g.__dappExtRemovedListeners.length = 0;
@@ -348,7 +387,7 @@ beforeEach(() => {
 });
 
 /** Drive the most recently registered intercom listener with a synthetic confirmation. */
-// @ts-ignore — kept for reference
+// @ts-ignore - kept for reference
 
 describe('requestConfirm window-position fallback', () => {
   it('keeps a confirmation onscreen when the focused window has no dimensions', async () => {
@@ -694,7 +733,7 @@ describe('requestConfirm placement Chrome refuses', () => {
 /**
  * `sourcePublicKey` on a sign request is a signer COMMITMENT, not an account id.
  * `connect` hands the page b64 of `Word.serialize()`, and the vault keys its
- * secret blobs by those same 32 bytes in hex — which is the form `signData`
+ * secret blobs by those same 32 bytes in hex - which is the form `signData`
  * looks up by. A fixture that is neither (an account id, say) cannot exercise
  * the key binding, and worse, would pass a check that only compared strings.
  */
@@ -720,10 +759,10 @@ const arrangeSignerAccount = () => {
   });
 };
 
-describe('requestSign — extension flow', () => {
+describe('requestSign - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
-    // Kick off requestSign — it'll register a listener and call windows.create.
+    // Kick off requestSign - it'll register a listener and call windows.create.
     // We don't need to await: the inner promise hangs until we synth-confirm.
     const sigPromise = dapp.requestSign('https://miden.xyz', {
       type: MidenDAppMessageType.SignRequest,
@@ -736,7 +775,7 @@ describe('requestSign — extension flow', () => {
     await new Promise(r => setTimeout(r, 0));
     expect(_g.__dappExtTest.intercomListeners.length).toBeGreaterThan(0);
     expect(browser.windows.create).toHaveBeenCalled();
-    // Avoid leaking the unhandled promise — we don't actually resolve it.
+    // Avoid leaking the unhandled promise - we don't actually resolve it.
     sigPromise.catch(() => {});
   });
 
@@ -774,7 +813,11 @@ describe('requestSign — extension flow', () => {
     );
     const res = await sigPromise;
     expect(res.type).toBe(MidenDAppMessageType.SignResponse);
-    expect((res as any).signature).toBe('fake-signature-base64');
+    expect(res).toEqual({
+      type: MidenDAppMessageType.SignResponse,
+      signature: 'fake-signature-base64',
+      signedCommitment: 'fake-commitment-b64'
+    });
   });
 
   it('rejects with NotGranted when the user declines', async () => {
@@ -842,7 +885,7 @@ describe('requestPermission existing-permission early-return', () => {
   });
 });
 
-describe('requestImportPrivateNote — extension flow', () => {
+describe('requestImportPrivateNote - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestImportPrivateNote('https://miden.xyz', {
@@ -856,7 +899,7 @@ describe('requestImportPrivateNote — extension flow', () => {
   });
 });
 
-describe('requestPrivateNotes — extension flow', () => {
+describe('requestPrivateNotes - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([]);
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -968,7 +1011,7 @@ describe('requestPrivateNotes by an import id - extension Auto flow (#1536)', ()
   });
 });
 
-describe('requestConsumableNotes — extension flow', () => {
+describe('requestConsumableNotes - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -982,7 +1025,7 @@ describe('requestConsumableNotes — extension flow', () => {
   });
 });
 
-describe('requestAssets — extension flow', () => {
+describe('requestAssets - extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
       vault: () => ({
@@ -1005,7 +1048,7 @@ describe('requestAssets — extension flow', () => {
   });
 });
 
-describe('requestTransaction — extension flow', () => {
+describe('requestTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestTransaction('https://miden.xyz', {
@@ -1025,7 +1068,7 @@ describe('requestTransaction — extension flow', () => {
   });
 });
 
-describe('requestSendTransaction — extension flow', () => {
+describe('requestSendTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestSendTransaction('https://miden.xyz', {
@@ -1045,7 +1088,7 @@ describe('requestSendTransaction — extension flow', () => {
   });
 });
 
-describe('requestConsumeTransaction — extension flow', () => {
+describe('requestConsumeTransaction - extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestConsumeTransaction('https://miden.xyz', {
@@ -1339,6 +1382,33 @@ describe('Full confirmation cycles in extension mode', () => {
     const notes = (res as any).consumableNotes;
     expect(notes).toHaveLength(1);
     expect(notes[0].noteId).toBe('note-full');
+  });
+
+  it('requestConsumableNotes marks each note with whether it is a standard payment', async () => {
+    const base = { noteType: 1, senderAccountId: 'sender-bech32', state: 2, assets: [], swapAttachment: null };
+    const partialNote = { ...base, noteId: null, nullifier: null, standardPayment: true };
+    const dtos = [
+      { ...base, noteId: 'pay', nullifier: 'n-1', standardPayment: true },
+      { ...base, noteId: 'other', nullifier: 'n-2', standardPayment: false },
+      { ...base, noteId: 'legacy', nullifier: 'n-3' },
+      partialNote
+    ];
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue(dtos);
+    _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestConsumableNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest
+    );
+    const notes = (res as any).consumableNotes;
+    expect(notes.map((n: any) => [n.noteId, n.standardPayment])).toEqual([
+      ['pay', true],
+      ['other', false],
+      ['legacy', false]
+    ]);
   });
 
   it('requestAssets resolves when confirmed', async () => {
@@ -1753,14 +1823,14 @@ describe('Full confirmation cycles in extension mode', () => {
   /**
    * The signing key is a separate field from the account the session is resolved
    * by, and the vault's lookup is keyed by commitment alone with no
-   * back-reference to an account — so every key in the wallet is reachable from
+   * back-reference to an account - so every key in the wallet is reachable from
    * that one string. A page connected to its own account puts its own id in
    * `sourceAccountId` (so the permission check passes) and somebody else's
    * commitment in `sourcePublicKey`, and gets a signature from a key it was
    * never granted. Approving the sheet does not help: the sheet shows the
    * payload, not whose key will sign it.
    */
-  describe('requestSign — the key must belong to the account the session authorized', () => {
+  describe('requestSign - the key must belong to the account the session authorized', () => {
     const request = (sourcePublicKey: string) =>
       ({
         type: MidenDAppMessageType.SignRequest,
@@ -1798,11 +1868,22 @@ describe('Full confirmation cycles in extension mode', () => {
     it('accepts the b64 form the wallet itself handed out at connect', async () => {
       arrangeSignerAccount();
       mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
-        fn({ vault: { signData: jest.fn(async () => 'fake-signature-base64') } })
+        fn({
+          vault: {
+            signData: jest.fn(async () => ({
+              signature: 'fake-signature-base64',
+              signedCommitment: 'fake-commitment-b64'
+            }))
+          }
+        })
       );
 
       const res = await signWith(Buffer.from(SIGNER_COMMITMENT).toString('base64'));
-      expect((res as any).signature).toBe('fake-signature-base64');
+      expect(res).toEqual({
+        type: MidenDAppMessageType.SignResponse,
+        signature: 'fake-signature-base64',
+        signedCommitment: 'fake-commitment-b64'
+      });
     });
 
     it.each([
@@ -1841,6 +1922,149 @@ describe('Full confirmation cycles in extension mode', () => {
 
       await expect(signRefused(SIGNER_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
       expect(signData).not.toHaveBeenCalled();
+    });
+  });
+
+  // A Guardian account signs only `Arbitrary` signing inputs whose preimage has no protocol message layout. Every other
+  // request is refused before the popup opens. A single-key account's request is not refused by this gate.
+  describe('requestSign - the Guardian sign rule applies before the popup opens', () => {
+    // The SDK stub that `lib/miden/dapp-sign-inputs` reads; each case replaces its `SigningInputs` and restores it.
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const variant = (variantType: number) => ({ variantType, free: () => undefined });
+    const cases: [string, SignKind, { deserialize: () => unknown }][] = [
+      ['a raw word', 'word', { deserialize: () => variant(1) }],
+      ['transaction summary signing inputs', 'signingInputs', { deserialize: () => variant(0) }],
+      ['blind signing inputs', 'signingInputs', { deserialize: () => variant(2) }],
+      [
+        'an arbitrary preimage of 257 elements, without reading it',
+        'signingInputs',
+        {
+          deserialize: () => ({
+            ...variant(1),
+            toElements: () => ({
+              length: () => 257,
+              get: () => {
+                throw new Error('the element cap must refuse before any element is read');
+              },
+              free: () => undefined
+            })
+          })
+        }
+      ]
+    ];
+    const signRequest = (kind: SignKind) =>
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: SIGNER_COMMITMENT_HEX,
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind
+      });
+    const withSigningInputs = async (signingInputs: unknown, run: () => Promise<void>) => {
+      const defaultSigningInputs = sdk.SigningInputs;
+      sdk.SigningInputs = signingInputs;
+      try {
+        await run();
+      } finally {
+        sdk.SigningInputs = defaultSigningInputs;
+      }
+    };
+
+    it.each(cases)('refuses %s for a Guardian account', async (_label, kind, signingInputs) => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+      const signData = jest.fn(async () => 'fake-signature-base64');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+      const create = jest.mocked(extensionBrowser.windows.create);
+      create.mockClear();
+
+      await withSigningInputs(signingInputs, async () => {
+        const refusal = signRequest(kind);
+        await expect(refusal).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+        await expect(refusal).rejects.toThrow(DAPP_SIGN_RULE);
+      });
+      expect(create).not.toHaveBeenCalled();
+      expect(signData).not.toHaveBeenCalled();
+    });
+
+    // The popup asks for its payload by the id in its URL; a locked wallet's popup asks only once unlocked.
+    const servedPayload = async () => {
+      const calls = jest.mocked(extensionBrowser.windows.create).mock.calls;
+      const url = String((calls[calls.length - 1]![0] as { url?: string }).url);
+      const id = url.match(/[?&]id=([^&]+)/)![1];
+      const listener = _g.__dappExtTest.intercomListeners[_g.__dappExtTest.intercomListeners.length - 1];
+      const response = await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, { id: 'fake-port' });
+      return response.payload as { messageElements?: string[] };
+    };
+
+    it('opens the popup for arbitrary signing inputs of a Guardian account, with the elements to show', async () => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+      const create = jest.mocked(extensionBrowser.windows.create);
+      create.mockClear();
+
+      // The wasmMock default reads every payload as Arbitrary signing inputs with the preimage 1, 2, 3.
+      void signRequest('signingInputs').catch(() => undefined);
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect((await servedPayload()).messageElements).toEqual(['1', '2', '3']);
+    });
+
+    it('serves a single-key account no message elements', async () => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.OnChain }];
+      jest.mocked(extensionBrowser.windows.create).mockClear();
+
+      void signRequest('signingInputs').catch(() => undefined);
+      await new Promise(r => setTimeout(r, 0));
+
+      expect((await servedPayload()).messageElements).toBeUndefined();
+    });
+
+    it('classifies a Guardian account when a locked popup asks for its payload, after the unlock', async () => {
+      arrangeSignerAccount();
+      // Locked at the entry gate: the store lists no accounts.
+      _g.__dappExtTestAccounts = [];
+      jest.mocked(extensionBrowser.windows.create).mockClear();
+
+      void signRequest('signingInputs').catch(() => undefined);
+      await new Promise(r => setTimeout(r, 0));
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+
+      expect((await servedPayload()).messageElements).toEqual(['1', '2', '3']);
+    });
+
+    it('refuses a forbidden Guardian request with the sign rule when the locked popup asks, before any approval', async () => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [];
+      const signData = jest.fn(async () => 'fake-signature-base64');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+      jest.mocked(extensionBrowser.windows.create).mockClear();
+
+      const outcome = signRequest('word').then(
+        () => 'resolved',
+        (err: Error) => err.message
+      );
+      await new Promise(r => setTimeout(r, 0));
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.Guardian }];
+
+      await expect(servedPayload()).rejects.toThrow(DAPP_SIGN_RULE);
+      await expect(outcome).resolves.toContain(DAPP_SIGN_RULE);
+      expect(signData).not.toHaveBeenCalled();
+    });
+
+    it.each(cases)('does not refuse %s for a single-key account', async (_label, kind, signingInputs) => {
+      arrangeSignerAccount();
+      _g.__dappExtTestAccounts = [{ publicKey: 'miden-account-1', type: WalletType.OnChain }];
+      const create = jest.mocked(extensionBrowser.windows.create);
+      create.mockClear();
+
+      await withSigningInputs(signingInputs, async () => {
+        void signRequest(kind).catch(() => undefined);
+        await new Promise(r => setTimeout(r, 0));
+      });
+      expect(create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -2382,8 +2606,8 @@ describe('a prompted request approved after the current account changed (#1419, 
 // ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────
 
 describe('a watchdog eviction mid-read abandons the extension flow instead of double-borrowing', () => {
-  // Both tests revoke hold ownership from INSIDE the parking account read — the
-  // moment the real watchdog hands the mutex to a successor — and pin that the
+  // Both tests revoke hold ownership from INSIDE the parking account read - the
+  // moment the real watchdog hands the mutex to a successor - and pin that the
   // commitment reads on the returned Account never run: those are borrows of the
   // client's RefCell, so touching them after the eviction IS the double borrow.
 
@@ -2744,40 +2968,19 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
       );
     });
 
-    it('retires the client when the declared summary traps, and refuses before any popup', async () => {
-      const trap = new WebAssembly.RuntimeError('unreachable');
+    it('never reads the declared outputs of the request, so the sheet shows only the dry run', async () => {
+      const expectedOutputOwnNotes = jest.fn(() => []);
       await withRequest(
-        () => ({
-          expectedOutputOwnNotes: () => {
-            throw trap;
-          }
-        }),
-        async () => {
-          lockWallet();
-          const outcome = settle(startCustom());
-          await new Promise(resolve => setTimeout(resolve, 0));
-
-          expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
-          await expect(outcome).resolves.toEqual({ ok: false, message: expect.stringMatching(/^INVALID_PARAMS: /) });
-          expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(expect.anything(), trap);
-        }
-      );
-    });
-
-    it('keeps the opaque warning, and retires nothing, when the summary fails without a trap', async () => {
-      await withRequest(
-        () => ({
-          expectedOutputOwnNotes: () => {
-            throw new Error('cannot summarise');
-          }
-        }),
+        () => ({ expectedOutputOwnNotes }),
         async () => {
           lockWallet();
           const popup = await openPopup(startCustom);
           unlockWallet();
           const payload = await popup.getPayload();
 
-          expect(JSON.stringify(payload)).toContain('Warning, the wallet could not decode this transaction request');
+          expect(expectedOutputOwnNotes).not.toHaveBeenCalled();
+          expect(JSON.stringify(payload)).toContain('Simulated effects:');
+          expect(JSON.stringify(payload)).not.toContain('Declared by the site');
           expect(mockRetireWasmClientForCaughtTrap).not.toHaveBeenCalled();
         }
       );
@@ -3077,7 +3280,7 @@ describe('requestConsumeTransaction by the id importPrivateNote returned, in ext
 
     expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-consume-1' });
     expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({ type: 'consume', noteId: '0xreal-note' });
-    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +45');
+    expect(_g.__dappExtTest.lastPayloadResponse.payload.transactionMessages).toContain('Amount, +0.000045');
     expect(require('lib/miden/transaction').initiateConsumeTransactionFromId).toHaveBeenCalledWith(
       'miden-account-1',
       '0xreal-note',

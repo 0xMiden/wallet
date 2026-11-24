@@ -8,13 +8,13 @@ import type {
 } from './types';
 
 /** One configured origin token with the chain that names it. */
-interface NearIntentsOriginMatch {
+export interface NearIntentsOriginMatch {
   chain: NearIntentsChainConfig;
   token: NearIntentsTokenConfig;
 }
 
 /** A configured pair: one origin token and one Miden token that the origin token lists in `miden`. */
-interface NearIntentsRoute extends NearIntentsOriginMatch {
+export interface NearIntentsRoute extends NearIntentsOriginMatch {
   midenAsset: NearIntentsMidenAssetConfig;
 }
 
@@ -47,7 +47,7 @@ function chainsOf(config: NearIntentsConfig): readonly NearIntentsChainConfig[] 
  * Find the configured origin token that `asset` is. The asset id, the chain, the decimals and, when the config
  * gives one, the contract address must agree.
  */
-function findNearIntentsOriginToken(
+export function findNearIntentsOriginToken(
   config: NearIntentsConfig,
   asset: OneClickAsset
 ): NearIntentsOriginMatch | undefined {
@@ -69,7 +69,7 @@ function findNearIntentsOriginToken(
 }
 
 /** Find the configured Miden token that `asset` is. The asset id and the decimals must agree, and the faucet when given. */
-function findNearIntentsMidenAsset(
+export function findNearIntentsMidenAsset(
   config: NearIntentsConfig,
   asset: OneClickAsset
 ): NearIntentsMidenAssetConfig | undefined {
@@ -83,8 +83,8 @@ function findNearIntentsMidenAsset(
 
 /**
  * Make sure that the two assets of a quote are trusted and are a configured pair. Into Miden, the destination must
- * be one of the `miden` outputs of the origin token. A send from Miden to another chain uses the same pair in the
- * other direction: the Miden token is the origin and the chain token is the destination.
+ * be one of the `miden` outputs of the origin token. The older Miden-to-chain start path uses the same pair in the
+ * other direction.
  */
 export function assertNearIntentsRoute(
   config: NearIntentsConfig,

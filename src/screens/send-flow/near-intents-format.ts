@@ -1,6 +1,6 @@
 import BigNumber from 'bignumber.js';
 
-import { toAdaptiveFixed } from 'lib/i18n/adaptive-precision';
+import { getAdaptiveDecimalPlaces } from 'lib/i18n/adaptive-precision';
 import type { OneClickQuote } from 'lib/one-click/types';
 import { arrivalMinutes } from 'screens/near-intents-flow/format';
 
@@ -19,7 +19,7 @@ export function formatNearIntentsAmount(value: string | undefined, decimals: num
     return undefined;
   const amount = new BigNumber(value).shiftedBy(-decimals);
   const text = amount.lt(1)
-    ? toAdaptiveFixed(amount, MAX_AMOUNT_PLACES, BigNumber.ROUND_DOWN)
+    ? amount.toFixed(getAdaptiveDecimalPlaces(amount, MAX_AMOUNT_PLACES), BigNumber.ROUND_DOWN)
     : amount.toFixed(
         Math.max(MIN_AMOUNT_PLACES, MAX_AMOUNT_PLACES - amount.integerValue(BigNumber.ROUND_DOWN).toFixed().length),
         BigNumber.ROUND_DOWN

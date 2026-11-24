@@ -4,8 +4,9 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { beginBalanceSnapshot } from 'lib/miden/balance-snapshot';
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import { checkStorage, isStorageStalled, isStorageStalledError, isStorageStalledNow } from 'lib/miden/storage-health';
 import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -15,7 +16,7 @@ import {
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveRpcUrl, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getClaimFloorBaseFee, getNativeAssetId } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -186,7 +187,7 @@ export function doSync(force = false): Promise<void> {
   // coalescing, nor the circuit breaker, nor the #777 fuse - which can hold this realm off the
   // node for 30 minutes at a time - has any business gating it. Self-throttled and fire-and-forget,
   // so it can neither slow a sync nor fail one.
-  void runTrimTick();
+  if (!isStorageStalled()) void runTrimTick();
 
   if (inFlight) {
     if (!force) return inFlight;
@@ -218,6 +219,11 @@ async function runSync(force: boolean): Promise<void> {
     // The `miden-sync` alarm can fire before start() has loaded the override; until then the note scope below and
     // the state sent to the offscreen document would be the build's network (#1482).
     await whenEndpointOverridesLoaded();
+    // Every step below reads IndexedDB; with the browser's backend not answering each one would park forever.
+    if (await isStorageStalledNow()) {
+      broadcastSyncCompleted();
+      return;
+    }
     // Skip if wallet not set up
     const vault = await getVault();
     const exists = await vault.isExist();
@@ -287,6 +293,20 @@ async function runSync(force: boolean): Promise<void> {
       // health and is owned by withProverFallback.
       clearReachabilityIssues();
     } catch (err) {
+      // A stalled IndexedDB is the browser's fault, not the node's (#2148): no failure streak, breaker window or
+      // connectivity banner, and nothing below may touch storage. The 30 s timeout fires before the offscreen
+      // deadline reports the stall, so a timeout is checked against the probe here.
+      // A sync timeout, or on the inline path a watchdog eviction, is probed afresh: the cached flag is false after a
+      // healthy start, and a stall must not feed the node-failure streak.
+      if (
+        isStorageStalledError(err) ||
+        ((isSyncWatchdogEviction(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) &&
+          (await checkStorage()))
+      ) {
+        console.warn('[SyncManager] sync skipped: browser storage is not answering');
+        broadcastSyncCompleted();
+        return;
+      }
       consecutiveSyncFailures++;
       // The FUSE (#777), same rule and constants as the mobile/desktop loop, because
       // this realm needs it for the same reason: after an eviction the SDK still
@@ -674,7 +694,7 @@ async function runSync(force: boolean): Promise<void> {
             // then claimed by itself for a full fee. A dApp transaction's carried notes are listed
             // the lap after its confirm releases their quarantine, and a claim of one raced it.
             const notesBeingClaimed = new Set((await getNoteHoldingTransactions(accountPubKey)).flatMap(heldNoteIdsOf));
-            // Faucet filter FIRST, and BEFORE the fee is read. `getVerificationBaseFee`
+            // Faucet filter FIRST, and BEFORE the fee is read. `getClaimFloorBaseFee`
             // returns a cached value instantly but falls through to an RPC round trip
             // while the fee is still unknown -- which against a parked node is every
             // lap, for the full timeout, on the sync critical path. Nothing downstream
@@ -694,11 +714,13 @@ async function runSync(force: boolean): Promise<void> {
             const candidates = nativeNotes.filter(n => !notesBeingClaimed.has(n.id) && n.standardPayment === true);
             // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
-            // `isWorthClaiming` fails open on an unknown fee. Measured on the BATCH
-            // TOTAL because these are claimed as one transaction paying one fee (see the
-            // batch call below) -- judged per note, twenty notes worth 5x the base fee
-            // each were all refused despite totalling 100x.
-            nativeAutoConsumeBaseFee = candidates.length > 0 ? await getVerificationBaseFee() : null;
+            // while the fee is unknown it claims nothing and the notes are announced as
+            // transfers to accept. Measured on the BATCH TOTAL because these are claimed
+            // as one transaction paying one fee (see the batch call below) -- judged per
+            // note, twenty notes worth 5x the base fee each were all refused despite
+            // totalling 100x.
+            nativeAutoConsumeBaseFee = candidates.length > 0 ? await getClaimFloorBaseFee() : null;
+            noteUnknownClaimFloor(`sync:${accountPubKey}`, nativeAutoConsumeBaseFee, candidates.length > 0);
             if (
               candidates.length > 0 &&
               isWorthClaiming(totalClaimableAmount(candidates.map(n => n.amountBaseUnits)), nativeAutoConsumeBaseFee)
@@ -900,7 +922,15 @@ async function runSync(force: boolean): Promise<void> {
               console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
               for (const note of batch) {
                 try {
-                  await initiateConsumeTransaction(accountPubKey, note, delegate, false, 'auto_consume', canSign);
+                  await initiateConsumeTransaction(
+                    accountPubKey,
+                    note,
+                    delegate,
+                    false,
+                    'auto_consume',
+                    canSign,
+                    nativeAutoConsumeBaseFee
+                  );
                 } catch (noteErr) {
                   if (noteErr instanceof ClaimFeeRefusedError) {
                     console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
@@ -936,6 +966,14 @@ async function runSync(force: boolean): Promise<void> {
     } catch {
       // No frontends connected
     }
+  }
+}
+
+function broadcastSyncCompleted(): void {
+  try {
+    getIntercom()!.broadcast({ type: WalletMessageType.SyncCompleted });
+  } catch {
+    // No frontends connected
   }
 }
 

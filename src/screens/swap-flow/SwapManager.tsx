@@ -7,6 +7,7 @@ import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody, HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
+import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { Notice } from 'components/ui/Notice';
@@ -29,6 +30,7 @@ import { DEFAULT_SWAP_SLIPPAGE_BPS, swapEtaBlocksSubmit, SwapQuote, SwapQuoteErr
 import {
   getDefaultSwapPair,
   getSwapPartners,
+  getSwapTokenByFaucetId,
   isSwapPair,
   SwapPair,
   SwapToken,
@@ -48,9 +50,10 @@ import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { HistoryAction, navigate, useLocation } from 'lib/woozie';
+import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
 
 import { isValidExpirySeconds } from './expiry';
-import { ReviewSwap } from './ReviewSwap';
+import { ReviewSwap, swapReviewTermsChanged } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 import { SwapAmounts } from './SwapAmounts';
 import { SwapFlowStep, SwapSide } from './types';
@@ -84,6 +87,12 @@ interface SwapManagerProps {
 
 const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) => {
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
+  const commandDrafts = useOptionalCommandDrafts();
+  const writeCommandDraft = commandDrafts?.writeDraft;
+  const clearCommandDraft = commandDrafts?.clearDraft;
+  const [savedDraft] = useState(() => (command ? commandDrafts?.readDraft('swap') : undefined));
+  const savedSwap = savedDraft?.engine === 'swap' ? savedDraft : undefined;
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { pathname } = useLocation();
   const { publicKey } = useAccount();
@@ -96,9 +105,13 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const verificationBaseFee = useVerificationBaseFee();
   const feeAssetMissing = hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee);
 
-  const [offerToken, setOfferToken] = useState<SwapToken>(defaultPair.offer);
-  const [requestToken, setRequestToken] = useState<SwapToken>(defaultPair.request);
-  const [offerAmount, setOfferAmount] = useState('');
+  const [offerToken, setOfferToken] = useState<SwapToken>(
+    () => getSwapTokenByFaucetId(savedSwap?.payTokenId) ?? defaultPair.offer
+  );
+  const [requestToken, setRequestToken] = useState<SwapToken>(
+    () => getSwapTokenByFaucetId(savedSwap?.receiveTokenId) ?? defaultPair.request
+  );
+  const [offerAmount, setOfferAmount] = useState(savedSwap?.payAmount ?? '');
   const [requestAmount, setRequestAmount] = useState('');
   const prices = useWalletStore(state => state.tokenPrices);
   const offerUsdQuote = tokenQuote(prices, offerToken.faucetId, offerToken.symbol);
@@ -107,11 +120,13 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const minimumError = swapMinimumError(offerAmount, offerUsdQuote);
   // The last edited side anchors the quote; its opposite side is derived.
   const [requestEdited, setRequestEdited] = useState(false);
-  const [expirySeconds, setExpirySeconds] = useState(String(DEFAULT_EXPIRY_SECONDS));
-  const [slippageBps, setSlippageBps] = useState(DEFAULT_SWAP_SLIPPAGE_BPS);
-  const [autoConsume, setAutoConsume] = useState(true);
+  const [expirySeconds, setExpirySeconds] = useState(savedSwap?.expirySeconds ?? String(DEFAULT_EXPIRY_SECONDS));
+  const [slippageBps, setSlippageBps] = useState(savedSwap?.slippageBps ?? DEFAULT_SWAP_SLIPPAGE_BPS);
+  const [autoConsume, setAutoConsume] = useState(savedSwap?.autoAccept ?? true);
   const [selectingSide, setSelectingSide] = useState<SwapSide>('offer');
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+  const offerTokenAnchorRef = useRef<HTMLButtonElement>(null);
+  const requestTokenAnchorRef = useRef<HTMLButtonElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
@@ -227,6 +242,28 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     if (currentStep === SwapFlowStep.ReviewSwap) flowRef.current?.step('review');
   }, [currentStep, onSwapRoute]);
 
+  useEffect(() => {
+    if (!command || !writeCommandDraft) return;
+    writeCommandDraft('swap', {
+      engine: 'swap',
+      payTokenId: offerToken.faucetId,
+      receiveTokenId: requestToken.faucetId,
+      payAmount: offerAmount,
+      expirySeconds,
+      slippageBps,
+      autoAccept: autoConsume
+    });
+  }, [
+    command,
+    writeCommandDraft,
+    offerToken.faucetId,
+    requestToken.faucetId,
+    offerAmount,
+    expirySeconds,
+    slippageBps,
+    autoConsume
+  ]);
+
   const sameToken = offerToken.faucetId === requestToken.faucetId;
   const pairListed = isSwapPair(offerToken.faucetId, requestToken.faucetId);
   // A finer typed side is quoted as blank so `toBigIntOrZero` cannot price the truncated amount.
@@ -331,10 +368,10 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   // hold with it: a held amount beside a live rate would show a price the swap does not use.
   const [reviewQuote, setReviewQuote] = useState<SwapQuote | undefined>(swapQuote.quote);
   useEffect(() => {
-    if (!submitting && spendingLimitChallenge === undefined) {
+    if (!submitting && spendingLimitChallenge === undefined && !(command && currentStep === SwapFlowStep.ReviewSwap)) {
       setReviewQuote(swapQuote.quote);
     }
-  }, [swapQuote.quote, submitting, spendingLimitChallenge]);
+  }, [swapQuote.quote, submitting, spendingLimitChallenge, command, currentStep]);
 
   // Balances are keyed by `getBech32AddressFromAccountId(faucet)` (BasicWallet
   // interface + active-network HRP), while the swap registry stores
@@ -433,7 +470,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const onSwapDirection = useCallback(() => {
     setOfferToken(requestToken);
     setRequestToken(offerToken);
-    if (requestEdited) {
+    if (command) {
+      setOfferAmount(amountExceedsTokenDecimals(requestAmount, requestToken.decimals) ? '' : requestAmount);
+      setRequestAmount('');
+      setRequestEdited(false);
+    } else if (requestEdited) {
       setOfferAmount(requestAmount);
       setRequestAmount('');
       setRequestEdited(false);
@@ -443,7 +484,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       setRequestEdited(true);
     }
     setSubmitError(null);
-  }, [offerToken, requestToken, offerAmount, requestAmount, requestEdited]);
+  }, [offerToken, requestToken, offerAmount, requestAmount, requestEdited, command]);
 
   const onSelectOfferToken = useCallback(() => {
     setSelectingSide('offer');
@@ -479,7 +520,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         setRequestToken(token);
       }
       if (flipsPair) {
-        if (requestEdited) {
+        if (command) {
+          setOfferAmount(amountExceedsTokenDecimals(requestAmount, token.decimals) ? '' : requestAmount);
+          setRequestAmount('');
+          setRequestEdited(false);
+        } else if (requestEdited) {
           setOfferAmount(requestAmount);
           setRequestAmount('');
           setRequestEdited(false);
@@ -497,7 +542,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       }
       setSubmitError(null);
     },
-    [selectingSide, offerToken, requestToken, offerAmount, requestAmount, requestEdited]
+    [selectingSide, offerToken, requestToken, offerAmount, requestAmount, requestEdited, command]
   );
 
   const runSwap = useCallback(
@@ -576,6 +621,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         // Settled before navigation: that navigation unmounts this component and
         // the route cleanup would otherwise report the swap as abandoned.
         settleSwap(flow => flow.complete());
+        if (command) clearCommandDraft?.('swap');
         releaseSubmission();
         navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
       } catch (error) {
@@ -609,6 +655,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     },
     [
       balanceScope,
+      command,
+      clearCommandDraft,
       autoConsume,
       expirySecondsValue,
       offerAmount,
@@ -630,6 +678,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
 
   const onSubmit = useCallback(async () => {
     if (submissionPhase.current !== 'idle' || submitting || spendingLimitChallenge !== undefined || !publicKey) return;
+    if (command && !canProceed) {
+      setSubmitError(t('swapPriceMoved'));
+      setSubmitErrorId('swapPriceMoved');
+      return;
+    }
     // A previous attempt that failed settled its flow errored, so a retry is a
     // fresh flow rather than an unreported second try inside a closed one. Same
     // contract as `enterSendFlow`.
@@ -689,6 +742,23 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         releaseSubmission();
         return;
       }
+      if (
+        command &&
+        (reviewQuote === undefined ||
+          fresh.offeredAmount !== reviewQuote.offeredAmount ||
+          fresh.requestedAmount !== reviewQuote.requestedAmount ||
+          fresh.price.fillPrice !== reviewQuote.price.fillPrice ||
+          fresh.price.feePpm !== reviewQuote.price.feePpm ||
+          fresh.slippageBps !== reviewQuote.slippageBps ||
+          swapReviewTermsChanged(t, reviewQuote, fresh, requestToken.decimals))
+      ) {
+        setReviewQuote(fresh);
+        setSubmitError(t('swapPriceMoved'));
+        setSubmitErrorId('swapPriceMoved');
+        setSubmitting(false);
+        releaseSubmission();
+        return;
+      }
       setReviewQuote(fresh);
       if (swapEtaBlocksSubmit(fresh.eta)) {
         setSubmitError(t('swapPriceMoved'));
@@ -739,6 +809,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     }
   }, [
     assessSpendingLimit,
+    command,
+    canProceed,
+    reviewQuote,
     offerAmountBaseUnits,
     openUnpricedChallenge,
     onBusyChange,
@@ -751,6 +824,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     balanceScope,
     offerToken,
     requestToken.faucetId,
+    requestToken.decimals,
     hasOfferAmount,
     hasRequestAmount,
     requestAmountBaseUnits,
@@ -841,17 +915,22 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
               offerAmount={offerAmount}
               onOfferAmountChange={onOfferAmountChange}
               onSelectOfferToken={onSelectOfferToken}
+              offerTokenAnchorRef={command ? offerTokenAnchorRef : undefined}
               requestToken={requestToken}
               requestAmount={requestAmount}
               onRequestAmountChange={onRequestAmountChange}
               onSelectRequestToken={onSelectRequestToken}
+              requestTokenAnchorRef={command ? requestTokenAnchorRef : undefined}
               requestLoading={requestCalculating}
               offerLoading={offerCalculating}
               quoteLoading={swapQuote.loading || requestCalculating || offerCalculating}
               requestEdited={requestEdited}
               onSwapDirection={onSwapDirection}
               onConfirm={() => {
-                if (canProceed) navigateTo(SwapFlowStep.ReviewSwap);
+                if (canProceed) {
+                  if (command) setReviewQuote(swapQuote.quote);
+                  navigateTo(SwapFlowStep.ReviewSwap);
+                }
               }}
               canProceed={canProceed}
               statusMessage={statusMessage?.text}
@@ -859,13 +938,15 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
               statusErrorId={statusMessage?.errorId}
             />
           );
-        case SwapFlowStep.ReviewSwap:
+        case SwapFlowStep.ReviewSwap: {
+          const reviewedRequestAmount =
+            command && reviewQuote ? formatBigInt(reviewQuote.requestedAmount, requestToken.decimals) : requestAmount;
           return (
             <ReviewSwap
               offerToken={offerToken}
               offerAmount={offerAmount}
               requestToken={requestToken}
-              requestAmount={requestAmount}
+              requestAmount={reviewedRequestAmount}
               requestEdited={requestEdited}
               quote={reviewQuote}
               expirySeconds={expirySeconds}
@@ -881,6 +962,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
               submitting={submitting}
             />
           );
+        }
         default:
           return <></>;
       }
@@ -901,6 +983,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       submitError,
       submitErrorId,
       canProceed,
+      command,
+      swapQuote.quote,
       requestCalculating,
       offerCalculating,
       swapQuote.loading,
@@ -921,6 +1005,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     ]
   );
 
+  const closeTokenDrawer = useCallback(() => setShowTokenDrawer(false), []);
+  useRegisterCommandFlowBack(showTokenDrawer ? closeTokenDrawer : undefined);
+
   return (
     // The shared home-group pane box, the same one Send, Receive and Earn are drawn in.
     <HomeGroupPaneRoot testId="swap-flow">
@@ -929,6 +1016,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       <SelectSwapTokenDrawer
         open={showTokenDrawer}
         onOpenChange={setShowTokenDrawer}
+        anchorRef={command ? (selectingSide === 'offer' ? offerTokenAnchorRef : requestTokenAnchorRef) : undefined}
         currentFaucetId={selectingSide === 'offer' ? offerToken.faucetId : requestToken.faucetId}
         partnersOf={selectingSide === 'offer' ? undefined : offerToken.faucetId}
         onSelect={onTokenSelected}
@@ -954,6 +1042,17 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
 const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailability> }> = ({ availability }) => {
   const { t } = useTranslation();
   const restricted = availability.state === 'unavailable' && availability.reason === 'restricted';
+  const notConfigured = availability.state === 'unavailable' && availability.reason === 'not-configured';
+  const titleKey = restricted
+    ? 'geoRestrictedTitle'
+    : notConfigured
+      ? 'swapUnavailableTitle'
+      : 'bridgeFeatureUnavailableTitle';
+  const bodyKey = restricted
+    ? 'geoRestrictedBody'
+    : notConfigured
+      ? 'swapUnavailableBody'
+      : 'bridgeFeatureUnavailableBody';
   return (
     <HomeGroupPaneRoot testId="swap-flow">
       <HomeGroupPaneBody title={t('swap')}>
@@ -961,11 +1060,11 @@ const SwapUnavailable: React.FC<{ availability: ReturnType<typeof swapAvailabili
           <Notice
             tone="warning"
             icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-            title={t(restricted ? 'geoRestrictedTitle' : 'swapUnavailableTitle')}
+            title={t(titleKey)}
             data-testid="swap-unavailable-notice"
             data-reason={availability.reason}
           >
-            {t(restricted ? 'geoRestrictedBody' : 'swapUnavailableBody')}
+            {t(bodyKey)}
           </Notice>
         )}
       </HomeGroupPaneBody>

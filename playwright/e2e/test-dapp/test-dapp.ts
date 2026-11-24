@@ -65,7 +65,9 @@ import {
   HarnessCheckError,
   noteTypeName,
   outcome,
-  outputNoteView
+  outputNoteView,
+  signBytesCommitment,
+  withProviderSignedCommitment
 } from './page-common.js';
 import type {
   ConnectedView,
@@ -77,8 +79,10 @@ import type {
   NoteView,
   RawArg,
   SessionEvent,
-  TestDappWindowApi
+  TestDappWindowApi,
+  MeasuredSubmitContext
 } from './protocol';
+import { runMeasuredCustomSubmit } from './protocol.js';
 import { buildScriptRequest } from './script-request.js';
 
 /** A built custom request waits here until `submitCustom`, so a test can let the chain move in between. */
@@ -176,8 +180,7 @@ function loginMessage(word: Word): Word {
 // Chain reads bypass the dApp's client store as well as the wallet: the chain's view of a write is checked on its own.
 const rpc = (): RpcClient => new RpcClient(new Endpoint(state.rpcUrl));
 
-// The adapter never subscribes to the provider's accountChange (K1), so the page listens on the provider itself to
-// record what the wallet actually emitted next to what the adapter reports.
+// Record provider events independently so cells can compare them with the adapter after a switch or revoke.
 function installProviderListener(): void {
   if (state.providerListening) return;
   provider().on('accountChange', (permission: unknown) =>
@@ -273,6 +276,26 @@ function toWire(value: unknown): RawArg {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null;
 }
 
+const syncHeight: DappHandlers['syncHeight'] = async () => {
+  const ownClient = client();
+  await fromNode('syncChain', () => ownClient.syncChain());
+  return { height: await ownClient.getSyncHeight() };
+};
+
+const submitCustom: DappHandlers['submitCustom'] = input =>
+  outcome(async () => {
+    const held = state.requests.get(input.requestId);
+    if (held === undefined) throw new HarnessCheckError(`no built request ${input.requestId}`);
+    const tx = Transaction.createCustomTransaction(
+      requireConnected().addressCanonical,
+      input.recipientAddress,
+      held.request,
+      input.inputNoteIds ?? [],
+      input.importNotes ? held.importNotes.map(bytes => b64ToU8(bytes)) : []
+    );
+    return { txId: await state.adapter.requestTransaction(tx) };
+  });
+
 const handlers: Partial<DappHandlers> = {
   // `autoSync: false` keeps the dApp's height its own, so a request binds the block the dApp saw, not the wallet's
   // (spec section 2.2). The fee faucet is passed because MidenClient.create says a non-mock client must name it. A
@@ -366,11 +389,7 @@ const handlers: Partial<DappHandlers> = {
     return runConformance([...getSurfaceCases(live), ...getBehaviorCases(live)]);
   },
 
-  syncHeight: async () => {
-    const ownClient = client();
-    await fromNode('syncChain', () => ownClient.syncChain());
-    return { height: await ownClient.getSyncHeight() };
-  },
+  syncHeight,
 
   // `reachedAtMs` is when the dApp first saw the target: the wallet's sync stamps must be later than this before the
   // request goes out (spec section 6, the "wallet synced past N" gate). A failed sync is tried again on the next lap,
@@ -653,19 +672,10 @@ const handlers: Partial<DappHandlers> = {
 
   // The sender is always the connected account: a custom request from any other address is refused before any popup
   // (R3), which a test drives through `raw` instead.
-  submitCustom: input =>
-    outcome(async () => {
-      const held = state.requests.get(input.requestId);
-      if (held === undefined) throw new HarnessCheckError(`no built request ${input.requestId}`);
-      const tx = Transaction.createCustomTransaction(
-        requireConnected().addressCanonical,
-        input.recipientAddress,
-        held.request,
-        input.inputNoteIds ?? [],
-        input.importNotes ? held.importNotes.map(bytes => b64ToU8(bytes)) : []
-      );
-      return { txId: await state.adapter.requestTransaction(tx) };
-    }),
+  submitCustom,
+  // Keep the real sync samples adjacent to the request, without driver transport between them.
+  submitCustomMeasured: (input, expiresAt, measured) =>
+    runMeasuredCustomSubmit(() => syncHeight({}), () => submitCustom(input), expiresAt, measured),
 
   waitForTransaction: ({ txId }) =>
     outcome(async () => {
@@ -676,16 +686,20 @@ const handlers: Partial<DappHandlers> = {
       };
     }),
 
-  // The scheme tag is the serialized signature's first byte (ECDSA is 0x01); for a word the signed message is the word.
+  // The scheme tag is the serialized signature's first byte (ECDSA is 0x01); the signed message is the word under the
+  // signBytes domain, not the word.
   signWord: ({ wordHex }) =>
     outcome(async () => {
       const payload = Word.fromHex(wordHex).serialize();
-      const signature = await state.adapter.signBytes(payload, 'word');
+      const { value: signature, signedCommitment } = await withProviderSignedCommitment(() =>
+        state.adapter.signBytes(payload, 'word')
+      );
       return {
         signatureB64: u8ToB64(signature),
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
-        messageB64: u8ToB64(payload)
+        messageB64: u8ToB64(signBytesCommitment(payload, 'word').serialize()),
+        ...(signedCommitment === undefined ? {} : { signedCommitmentB64: u8ToB64(signedCommitment) })
       };
     }),
 
@@ -708,15 +722,20 @@ const handlers: Partial<DappHandlers> = {
                   amount: BigInt(input.amount ?? '0')
                 })
               );
-      // The key signs the SigningInputs commitment, so that is the message the driver recovers the key from.
+      // The key signs the SigningInputs commitment, or the domain commitment for Blind and Arbitrary, so that is the
+      // message the driver recovers the key from.
       const payload = inputs.serialize();
-      const message = inputs.toCommitment().serialize();
-      const signature = await state.adapter.signBytes(payload, 'signingInputs');
+      const message =
+        input.variant === 'summary' ? inputs.toCommitment() : signBytesCommitment(payload, 'signingInputs');
+      const { value: signature, signedCommitment } = await withProviderSignedCommitment(() =>
+        state.adapter.signBytes(payload, 'signingInputs')
+      );
       return {
         signatureB64: u8ToB64(signature),
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
-        messageB64: u8ToB64(message)
+        messageB64: u8ToB64(message.serialize()),
+        ...(signedCommitment === undefined ? {} : { signedCommitmentB64: u8ToB64(signedCommitment) })
       };
     }),
 
@@ -746,10 +765,13 @@ const handlers: Partial<DappHandlers> = {
   verifySignature: async input => {
     const publicKey = PublicKey.deserialize(b64ToU8(input.publicKeyB64));
     const signature = Signature.deserialize(b64ToU8(input.signatureB64));
+    const payload = b64ToU8(input.payloadB64);
     const verifies =
-      input.kind === 'word'
-        ? publicKey.verify(Word.deserialize(b64ToU8(input.payloadB64)), signature)
-        : publicKey.verifyData(SigningInputs.deserialize(b64ToU8(input.payloadB64)), signature);
+      input.domain === 'signBytes'
+        ? publicKey.verify(signBytesCommitment(payload, input.kind), signature)
+        : input.kind === 'word'
+          ? publicKey.verify(Word.deserialize(payload), signature)
+          : publicKey.verifyData(SigningInputs.deserialize(payload), signature);
     return { verifies, commitmentHex: publicKey.toCommitment().toHex() };
   },
 
@@ -834,10 +856,15 @@ const handlers: Partial<DappHandlers> = {
     })
 };
 
-async function call<K extends DappCommandName>(command: K, input: DappInput<K>): Promise<DappOutput<K>> {
+async function call<K extends DappCommandName>(
+  command: K,
+  input: DappInput<K>,
+  expiresAt?: number,
+  measured?: MeasuredSubmitContext
+): Promise<DappOutput<K>> {
   const handler = handlers[command];
   if (handler === undefined) throw new HarnessCheckError(`command ${command} is not implemented`);
-  return handler(input);
+  return handler(input, expiresAt, command === 'submitCustomMeasured' ? measured : undefined);
 }
 
 // Published only once every handler above exists, so a driver that waits for `ready` never calls a half-loaded page.

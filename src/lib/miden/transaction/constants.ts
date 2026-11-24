@@ -1,9 +1,17 @@
+import { getMessage } from 'lib/i18n/core';
 import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import { isLikelyNetworkError, isPermanentHttpRejection } from 'lib/miden/activity/connectivity-classify';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
-import { isFailedReexecution, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
+import {
+  isFailedReexecution,
+  isProofFreshnessUnknownError,
+  isStaleProofError
+} from 'lib/miden/guardian/proof-freshness';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
+import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
+import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
+import { snapshotOffscreenDeadline } from 'lib/telemetry/offscreen-deadline-diagnostics';
 
 import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
@@ -41,6 +49,11 @@ export const SUBMIT_CROSSING_UNRECORDED_ERROR =
 // A proof that kept going stale stops before its submit (#2060), so nothing reached the network and Retry is safe.
 export const STALE_PROOF_ERROR =
   'The network window for this transaction closed before it could be sent, so nothing was sent and no funds moved. ' +
+  'Please try again.';
+
+// An unreadable chain tip stops before submit (#2193), so nothing reached the network and Retry is safe.
+export const PROOF_FRESHNESS_UNKNOWN_ERROR =
+  'Could not verify that this transaction is still within its network window, so nothing was sent and no funds moved. ' +
   'Please try again.';
 
 export const PROVER_PROCEDURE_MISMATCH_ERROR =
@@ -134,12 +147,14 @@ export function chunkNotesForClaim<T extends { id: string }>(notes: readonly T[]
  * The caller measured the whole batch against the claim floor, which only a single chunk inherits: over the cap each
  * chunk pays its own fee, so one not worth that fee is left out and waits for more notes, as the whole pile did below
  * the floor. Shared by every unattended native claimer (the service worker, Home, the mobile/desktop manager and the
- * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644).
+ * rotation gate), so none of them sends a claim that proves past the extension's write deadline (#1644). An unknown
+ * fee refuses every chunk, a single one included, whatever the caller measured.
  */
 export function chunkAutoConsumeBatch<T extends { id: string; amount: string }>(
   notes: readonly T[],
   verificationBaseFee: number | null
 ): T[][] {
+  if (verificationBaseFee === null) return [];
   const chunks = chunkNotesForClaim(notes);
   if (chunks.length <= 1) return chunks;
   return chunks.filter(chunk =>
@@ -159,6 +174,10 @@ export const INVALID_NOTE_ERROR = 'Note is invalid';
 // without it is one the allocator refuses to bind.
 export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
   'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
+
+// Thrown before the row is queued: a bridged send signs only the request persisted for the note it records.
+export const BRIDGED_SEND_MISSING_REQUEST_ERROR =
+  'Bridged send has no persisted request for its recorded note, so it was not queued.';
 
 // A dApp's consume request whose note a dApp transaction holds: answering with that row would hand it another
 // transaction's id, outcome and output notes.
@@ -282,6 +301,19 @@ export const TRANSACTION_RETRY_UNSAFE_ERROR =
 export const TRANSACTION_NEVER_COMMITTED_ERROR =
   'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.';
 
+/**
+ * Retry could not ask the node whether a note the row's saved request creates is already on chain, so it replays
+ * nothing. A replay needs that node too, so a later Retry can ask again.
+ */
+export const TRANSACTION_REPLAY_CHECK_FAILED_ERROR =
+  'The wallet could not check with the network whether this already went through, so it will not send it again ' +
+  'yet. Try again in a few minutes.';
+
+/** The row's saved request no longer decodes, so no Retry can resend it. */
+export const TRANSACTION_REPLAY_UNREADABLE_ERROR =
+  'The wallet can no longer read the saved request for this transaction, so it cannot send it again. ' +
+  'Check your activity once it syncs, and start a new one only if it never arrived.';
+
 /** Retry waited out its 10 s for a reconciler pass on this row, or the evidence moved twice under it (#1081). */
 export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =
   'The wallet is checking this transaction right now. Try again in a moment.';
@@ -356,9 +388,35 @@ export const isUserCancelledTransaction = (error: unknown): boolean => error ===
  */
 const PROVING_STAGES: ITransactionStage[] = ['proving', 'sending'];
 
-/** The raw `name: message` string persisted on `ITransaction.rawError`. */
+function formatOffscreenDeadlineFacts(link: Error): string {
+  if (safeOwnDiagnosticData(link, 'name') !== 'OperationAbortedError') return '';
+  const reason = safeOwnDiagnosticData(link, 'reason');
+  if (reason !== 'deadline' && reason !== 'deadline-no-kill') return '';
+  const deadline = safeOwnDiagnosticData(safeOwnDiagnosticData(link, 'facts'), 'deadline');
+  const owner = safeOwnDiagnosticData(deadline, 'owner');
+  const timer = safeOwnDiagnosticData(deadline, 'timer');
+  const trigger = safeOwnDiagnosticData(deadline, 'killer');
+  const observed = snapshotOffscreenDeadline(link);
+  return (
+    ` [offscreen deadline: owner=${owner === 'own' || owner === 'collateral' ? owner : 'unavailable'};` +
+    ` timer=${['dispatch', 'backstop', 'started', 'resumed'].find(value => value === timer) ?? 'unavailable'};` +
+    ` trigger=${trigger === 'read' || trigger === 'write' ? trigger : 'unavailable'};` +
+    ` method=${observed?.offscreenDeadlineMethod ?? 'unobserved'};` +
+    ` stage=${observed?.offscreenDeadlineStage ?? 'not_observed'}]`
+  );
+}
+
+/** The raw error chain and validated deadline facts persisted on `ITransaction.rawError`. */
 export function formatRawTransactionError(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
+  return formatTransactionErrorChain(error).rawError;
+}
+
+/** Render both forms in one walk so diagnostic suffixes never affect telemetry classification. */
+export function formatTransactionErrorChain(error: unknown): { rawError: string; errorChain: string } {
+  if (!(error instanceof Error)) {
+    const text = String(error);
+    return { rawError: text, errorChain: text };
+  }
   // Walk `cause`. Several wrappers in this pipeline say "see the cause chain" in
   // their own message -- `WasmClientPoisonedError` among them -- while every
   // consumer printed only the outermost frame, so the sentence pointed at
@@ -367,6 +425,7 @@ export function formatRawTransactionError(error: unknown): string {
   // guardian send failure reads as "uncaught realm error" and names neither the
   // call that trapped nor the reason.
   const parts: string[] = [];
+  const localParts: string[] = [];
   for (const link of causeChain(error)) {
     if (parts.length >= 5) break;
     let isError = false;
@@ -375,16 +434,20 @@ export function formatRawTransactionError(error: unknown): string {
     try {
       if (link instanceof Error) {
         isError = true;
-        parts.push(`${link.name}: ${link.message}`);
+        const text = `${link.name}: ${link.message}`;
+        localParts.push(text + formatOffscreenDeadlineFacts(link));
+        parts.push(text);
       } else if (link !== undefined) {
-        parts.push(String(link));
+        const text = String(link);
+        localParts.push(text);
+        parts.push(text);
       }
     } catch {
       // An unreadable link costs its own text, not the links below it.
     }
     if (!isError) break;
   }
-  return parts.join(' <- caused by ');
+  return { rawError: localParts.join(' <- caused by '), errorChain: parts.join(' <- caused by ') };
 }
 
 /**
@@ -591,6 +654,25 @@ export class RotationGateConsumeRefusal extends Error {
   }
 }
 
+/** The text of a Failed `execute` row whose generation-time effects are not the approved effects. */
+export const CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR =
+  'The wallet stopped this transaction because its effects are not the ones you approved. No funds moved.';
+
+/**
+ * The wallet refuses to propose an `execute` row because the generation-time dry run does not give the effects that
+ * the user approved. The failure is before the proposal, so nothing moved. `difference` names the first field that
+ * is not equal, for the log only.
+ */
+export class CustomTransactionEffectsChangedError extends Error {
+  readonly difference: string;
+
+  constructor(difference: string) {
+    super(`Custom transaction effects changed after approval: ${difference}`);
+    this.name = 'CustomTransactionEffectsChangedError';
+    this.difference = difference;
+  }
+}
+
 /**
  * The signing-time guard refused a proposal before the hot key signed it (#2147): its executed effect moves assets the
  * row was not approved to move, or its summary could not be read. The message names the type and what would have left,
@@ -613,11 +695,12 @@ export class ProposalEffectRefusedError extends Error {
  * The signing-time guard stopped before reading the summary: this realm does not know the chain's verification fee
  * yet. Discovery failed, or the probe cooldown has not elapsed. A returned fee, 0 included, and a null the probe
  * found absent, are not this. The message avoids the words the transport reading matches on, so only this class
- * marks the failure an outage.
+ * marks the failure an outage. `displayMessage` is the localized sentence a row failed outside a Guardian proposal
+ * stage shows.
  */
 export class ProposalFeeUnknownError extends Error {
-  constructor() {
-    super('The chain fee is not known yet, so this proposal was not signed.');
+  constructor(readonly displayMessage: string) {
+    super('The chain fee is not known yet, so this transaction was not signed.');
     this.name = 'ProposalFeeUnknownError';
   }
 }
@@ -747,7 +830,17 @@ function classifyTransactionError(
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
   }
+  if ([...causeChain(error)].some(link => link instanceof CustomTransactionEffectsChangedError)) {
+    return CUSTOM_TRANSACTION_EFFECTS_CHANGED_ERROR;
+  }
   if (error instanceof ProposalEffectRefusedError) {
+    return error.displayMessage;
+  }
+  if (error instanceof CalendarRecallReviewRequiredError) return getMessage('recallReviewChanged');
+  // A single-key write's signer refused before anything was signed. A Guardian row meets this only at its proposal
+  // stages, which keep the outage copy below. Read before the stage: a delegated attempt's local fallback can be
+  // refused while the row still reads the 'proving' its failed prove left.
+  if (error instanceof ProposalFeeUnknownError && stage !== 'creating-proposal' && stage !== 'signing-proposal') {
     return error.displayMessage;
   }
   // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
@@ -756,6 +849,9 @@ function classifyTransactionError(
   }
   if (isStaleProofError(error)) {
     return STALE_PROOF_ERROR;
+  }
+  if (isProofFreshnessUnknownError(error)) {
+    return PROOF_FRESHNESS_UNKNOWN_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote
@@ -802,7 +898,7 @@ export function resolveTransactionErrorMessage(
   delegateTransaction?: boolean,
   abandonedPreWrite?: boolean
 ): string {
-  const raw = formatRawTransactionError(error);
+  const { errorChain: raw } = formatTransactionErrorChain(error);
   const message = classifyTransactionError(error, raw, stage, delegateTransaction, abandonedPreWrite);
   // Keep the raw failure reachable in logs whenever a mapping replaces it. The
   // friendly copy is deliberately non-technical, so a mapped error otherwise

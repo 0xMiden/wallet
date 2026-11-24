@@ -511,65 +511,70 @@ test('failed exact recovery ownership check survives sanitizer and final retaine
   }
 });
 
-test('authoritative script-level refusal survives exact recovery sanitizer and final retained evidence', async () => {
+test('cleanup removes the exact recovered Worker when script privacy settings are unreadable', async () => {
   const f = fixture();
   const prepared = await prepareRecovery({ runId: '10001', runAttempt: '2' }, f.effects);
   const calls = [];
-  const outcome = await cleanupRecovery(prepared, manifest(), {
+  const recovered = manifest();
+  const prefix = `/workers/scripts/${recovered.scriptName}`;
+  const settings = {
+    compatibility_date: '2026-01-01',
+    compatibility_flags: [],
+    logpush: false,
+    tail_consumers: [],
+    bindings: [
+      { name: 'PROBE_SOURCE', type: 'plain_text', text: recovered.identity.sourceSha },
+      { name: 'PROBE_CONFIG_SHA', type: 'plain_text', text: recovered.configSha256 },
+      { name: 'PROBE_OWNER', type: 'plain_text', text: recovered.ownerMarker },
+      { name: 'PROBE_BEARER', type: 'secret_text' },
+      { name: 'PROBE_HASH_SECRET', type: 'secret_text' },
+      {
+        name: 'CALLER_PROBE',
+        type: 'ratelimit',
+        namespace_id: recovered.callerNamespaceId,
+        simple: { limit: 4, period: 60 }
+      },
+      {
+        name: 'COLO_PROBE',
+        type: 'ratelimit',
+        namespace_id: recovered.coloNamespaceId,
+        simple: { limit: 4, period: 10 }
+      }
+    ]
+  };
+  let deleted = false;
+  const outcome = await cleanupRecovery(prepared, recovered, {
     context: current,
     environment: { CLOUDFLARE_ACCOUNT_ID: 'account-private-canary' },
-    providerAPI: async path => {
-      calls.push(path);
+    providerAPI: async (path, init = {}) => {
+      const method = init.method || 'GET';
+      calls.push([path, method]);
       if (path === '/account')
         return Response.json({ success: true, errors: [], result: { id: 'account-private-canary' } });
-      const m = manifest();
-      if (path.endsWith('/settings'))
-        return Response.json({
-          success: true,
-          errors: [],
-          result: {
-            compatibility_date: '2026-01-01',
-            compatibility_flags: [],
-            logpush: false,
-            tail_consumers: [],
-            bindings: [
-              { name: 'PROBE_SOURCE', type: 'plain_text', text: m.identity.sourceSha },
-              { name: 'PROBE_CONFIG_SHA', type: 'plain_text', text: m.configSha256 },
-              { name: 'PROBE_OWNER', type: 'plain_text', text: m.ownerMarker },
-              { name: 'PROBE_BEARER', type: 'secret_text' },
-              { name: 'PROBE_HASH_SECRET', type: 'secret_text' },
-              {
-                name: 'CALLER_PROBE',
-                type: 'ratelimit',
-                namespace_id: m.callerNamespaceId,
-                simple: { limit: 4, period: 60 }
-              },
-              {
-                name: 'COLO_PROBE',
-                type: 'ratelimit',
-                namespace_id: m.coloNamespaceId,
-                simple: { limit: 4, period: 10 }
-              }
-            ]
-          }
+      if (path === `${prefix}/settings` && method === 'GET') {
+        if (deleted)
+          return Response.json({ success: false, errors: [{ code: 10007 }], result: null }, { status: 404 });
+        return Response.json({ success: true, errors: [], result: settings });
+      }
+      if (path === `${prefix}/content/v2` && method === 'GET')
+        return new Response(workerBytes, {
+          headers: { 'content-type': 'application/javascript', 'cf-entrypoint': 'staging-probe.mjs' }
         });
-      assert.ok(path.endsWith('/script-settings'));
-      return Response.json({
-        success: true,
-        errors: [],
-        result: { observability: { enabled: false, logs: { enabled: false, invocation_logs: false } } }
-      });
+      if (path === prefix && method === 'DELETE') {
+        deleted = true;
+        return Response.json({ success: true, errors: [], result: {} });
+      }
+      assert.fail(`unexpected provider call: ${method} ${path}`);
     }
   });
-  assert.deepEqual(outcome, {
-    cleanup: 'blocked',
-    reason: 'ownership_mismatch',
-    ownershipCheck: { gate: 'script_observability_traces', form: 'missing' }
-  });
+  assert.deepEqual(outcome, { cleanup: 'removed', reason: 'complete' });
+  assert.equal(deleted, true);
   assert.deepEqual(calls, [
-    '/account',
-    '/workers/scripts/miden-elig-probe-10001-2/settings',
-    '/workers/scripts/miden-elig-probe-10001-2/script-settings'
+    ['/account', 'GET'],
+    [`${prefix}/settings`, 'GET'],
+    [`${prefix}/content/v2`, 'GET'],
+    [prefix, 'DELETE'],
+    [`${prefix}/settings`, 'GET']
   ]);
   const root = await mkdtemp(join(tmpdir(), 'probe-failed-recovery-'));
   try {
@@ -588,7 +593,8 @@ test('authoritative script-level refusal survives exact recovery sanitizer and f
       GITHUB_REF: current.ref,
       GITHUB_EVENT_NAME: current.eventName
     });
-    assert.deepEqual(saved.ownershipCheck, outcome.ownershipCheck);
+    assert.equal(Object.hasOwn(saved, 'ownershipCheck'), false);
+    assert.deepEqual(saved, { ...result(), ...outcome });
     assert.deepEqual(JSON.parse(await readFile(join(root, 'probe-evidence/manifest.json'))), manifest());
     const wire = await readFile(join(root, 'probe-evidence/result.json'), 'utf8');
     assert.deepEqual(JSON.parse(wire), saved);

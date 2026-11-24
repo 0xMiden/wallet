@@ -59,7 +59,8 @@ describe('fake 1Click default quote amounts', () => {
       assetId: 'nep141:eth.omft.near',
       blockchain: 'eth',
       symbol: 'ETH',
-      decimals: 18
+      decimals: 18,
+      chainId: 1
     };
     const usdcAsset: OneClickAsset = { assetId: 'miden:usdc', blockchain: 'miden', symbol: 'USDC', decimals: 6 };
     const service = new FakeOneClickService({ tokens: [ethAsset, usdcAsset] });
@@ -109,6 +110,8 @@ describe('fake 1Click deposit addresses', () => {
     expect(isValidNearIntentsAddress(kind, first)).toBe(true);
     expect(fakeDepositAddress(blockchain, 1)).toBe(first);
     expect(fakeDepositAddress(blockchain, 2)).not.toBe(first);
+    expect(fakeDepositAddress(blockchain, 1)).not.toBe(fakeDepositAddress(blockchain, 257));
+    expect(isValidNearIntentsAddress(kind, fakeDepositAddress(blockchain, 257))).toBe(true);
   });
 });
 

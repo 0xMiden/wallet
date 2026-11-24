@@ -1,4 +1,3 @@
-import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
   ITransactionStatus,
   BridgedReceiveTransaction,
@@ -8,8 +7,6 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 
 import {
@@ -39,7 +36,7 @@ export const NEAR_INTENTS_UNKNOWN_DEPOSIT_EXPIRY_MS = 24 * 60 * 60_000;
  * How long after 1Click reports the delivery the wallet looks for the delivered note. After this time the row
  * closes as delivered, so a note that the wallet cannot match does not keep the row open.
  */
-const NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS = 60 * 60_000;
+export const NEAR_INTENTS_ARRIVAL_CHECK_WINDOW_MS = 60 * 60_000;
 export const NEAR_INTENTS_DEPOSIT_EXPIRED_ERROR = 'No deposit reached the 1Click address before the quote deadline.';
 
 interface OneClickTrackingInput {
@@ -196,6 +193,22 @@ function rowPhaseForOneClick(phase: IOneClickPhase): 'received' | 'failed' | 'de
   }
 }
 
+export async function updateOneClickTrackingPhase(rowId: string, phase: IOneClickPhase): Promise<void> {
+  await Repo.transactions
+    .where('id')
+    .equals(rowId)
+    .modify(transaction => {
+      const tracking = oneClickOf(transaction);
+      if (!tracking) return false;
+      transaction.extraInputs = {
+        ...transaction.extraInputs,
+        ...(transaction.type === 'bridged-receive' ? { phase: rowPhaseForOneClick(phase) } : {}),
+        oneClick: { ...tracking, phase, updatedAt: Date.now() }
+      };
+      return undefined;
+    });
+}
+
 async function updateTracking(rowId: string, patch: Partial<IOneClickTrackingData>): Promise<void> {
   await Repo.transactions
     .where('id')
@@ -340,13 +353,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
           // claim took it). The success of the provider is final, so the row closes and the note reads stop.
           phase = 'delivered';
         } else if (faucetId && amount !== undefined) {
-          const notes = await withWasmClientLock(
-            async hold =>
-              midenClientProxy.getConsumableNotes(tracking.accountId, step =>
-                assertWasmHoldCurrent(hold, 'inside the 1Click delivery note read', step)
-              ),
-            { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'one-click-delivery' }
-          );
+          // A committed note is ready to claim, not yet received; only a completed local consume closes the row.
           const consumed = await Repo.transactions.where('type').equals('consume').toArray();
           const noteIds = destinationNoteIds ?? [];
           const arrived =
@@ -356,7 +363,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
                   faucetId,
                   amount,
                   noteIds,
-                  consumableNotes: notes,
+                  consumableNotes: [],
                   transactions: consumed
                 })
               : hasOneClickDeliveryArrivedByAmount({
@@ -364,7 +371,7 @@ async function reconcileRow(transaction: ITransaction): Promise<void> {
                   faucetId,
                   amount,
                   since: transaction.initiatedAt,
-                  consumableNotes: notes,
+                  consumableNotes: [],
                   transactions: consumed
                 });
           if (arrived) phase = 'delivered';

@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import Dexie from 'dexie';
 import { toFunctionSelector } from 'viem';
 
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
@@ -26,7 +27,24 @@ import {
 import { NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
+import { legacyBridgeReceiveFixture } from './bridge-receive-test-fixture';
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
+
+let restoreTrackingLookup: () => void = () => undefined;
+beforeEach(() => {
+  const get = Repo.transactions.get.bind(Repo.transactions);
+  const lookup = jest.spyOn(Repo.transactions, 'get').mockImplementation(key => {
+    const args = jest.mocked(initiateBridgedReceiveTransaction).mock.calls.at(-1)?.[0];
+    if (typeof key === 'string' && key === 'bridge-tx' && args)
+      return Dexie.Promise.resolve(legacyBridgeReceiveFixture(args, key));
+    return get(key);
+  });
+  restoreTrackingLookup = () => lookup.mockRestore();
+});
+afterEach(() => restoreTrackingLookup());
+jest.mock('./EpochWithdrawalGate', () => ({
+  EpochWithdrawalGate: ({ children }: { children: React.ReactNode }) => children
+}));
 
 // The suite's document unless a case sets another before it renders, or publishes one mid-flow.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;

@@ -1,4 +1,72 @@
 {
+  "passkeyUnlock": {
+    "message": "Déverrouillage par mot de passe",
+    "englishSource": "Passkey unlock"
+  },
+  "unlockWithPasskey": {
+    "message": "Déverrouiller avec une clé d’accès",
+    "englishSource": "Unlock with passkey"
+  },
+  "passkeyUnlockDescription": {
+    "message": "Utilisez le fournisseur de clés d’accès de votre appareil pour déverrouiller ce portefeuille. Le mot de passe de votre portefeuille restera valable.",
+    "englishSource": "Use your device's passkey provider to unlock this wallet. Your wallet password will still work."
+  },
+  "passkeyUnlockEnabled": {
+    "message": "Le déverrouillage par mot de passe est activé pour ce portefeuille.",
+    "englishSource": "Passkey unlock is enabled for this wallet."
+  },
+  "passkeyUnlockUnavailable": {
+    "message": "Le déverrouillage par mot de passe n’est pas disponible sur ce navigateur, ce système d’exploitation ou ce portefeuille. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
+    "englishSource": "Passkey unlock is unavailable on this browser, operating system, or wallet. You can still use your wallet password."
+  },
+  "passkeyEnable": {
+    "message": "Activer le déverrouillage par mot de passe",
+    "englishSource": "Enable passkey unlock"
+  },
+  "passkeyReplace": {
+    "message": "Remplacer la clé d’accès",
+    "englishSource": "Replace passkey"
+  },
+  "passkeyRemove": {
+    "message": "Supprimer le déverrouillage par mot de passe",
+    "englishSource": "Remove passkey unlock"
+  },
+  "passkeyProviderRemoval": {
+    "message": "La suppression du déverrouillage par clé d’accès ici ne révoque ni ne supprime la clé d’accès stockée par votre fournisseur. Supprimez-la également dans les paramètres de votre fournisseur si vous n’en avez plus besoin.",
+    "englishSource": "Removing passkey unlock here does not revoke or delete the passkey stored by your provider. Delete it in your provider's settings too if you no longer need it."
+  },
+  "passkeySyncCapable": {
+    "message": "Votre fournisseur indique que ce mot de passe peut être sauvegardé ou synchronisé. Sa disponibilité sur d’autres appareils dépend de votre fournisseur.",
+    "englishSource": "Your provider reports that this passkey can be backed up or synced. Availability on other devices depends on your provider."
+  },
+  "passkeyDeviceBound": {
+    "message": "Votre fournisseur indique que ce mot de passe ne peut pas être sauvegardé.",
+    "englishSource": "Your provider reports that this passkey cannot be backed up."
+  },
+  "passkeySidePanelOnly": {
+    "message": "Ouvrez le panneau latéral du portefeuille pour activer, remplacer ou désactiver le déverrouillage par mot de passe.",
+    "englishSource": "Open the wallet side panel to enable, replace, or remove passkey unlock."
+  },
+  "passkeySidePanelFailed": {
+    "message": "Impossible d’ouvrir le panneau latéral. Ouvrez-le depuis la barre d’outils du portefeuille et réessayez.",
+    "englishSource": "Could not open the side panel. Open it from the wallet toolbar and try again."
+  },
+  "passkeyCanceled": {
+    "message": "La demande de mot de passe a été annulée ou n’était pas disponible. Vous pouvez toujours utiliser le mot de passe de votre portefeuille.",
+    "englishSource": "The passkey request was canceled or unavailable. You can still use your wallet password."
+  },
+  "passkeySetupFailed": {
+    "message": "Impossible d’activer le déverrouillage par mot de passe. Vérifiez le mot de passe de votre portefeuille et utilisez un fournisseur prenant en charge cette fonctionnalité.",
+    "englishSource": "Could not enable passkey unlock. Check your wallet password and use a provider that supports this feature."
+  },
+  "passkeyRemoveFailed": {
+    "message": "Impossible de supprimer le déverrouillage par mot de passe. Veuillez réessayer. Le mot de passe de votre portefeuille fonctionne toujours.",
+    "englishSource": "Could not remove passkey unlock. Please try again. Your wallet password still works."
+  },
+  "passkeyUnlockFailed": {
+    "message": "Impossible de déverrouiller avec cette clé d’accès. Utilisez le mot de passe de votre portefeuille et vérifiez les paramètres de la clé d’accès.",
+    "englishSource": "Could not unlock with this passkey. Use your wallet password and check passkey settings."
+  },
   "seedBackupRequiredTitle": {
     "message": "Sauvegardez votre phrase de récupération",
     "englishSource": "Back up your recovery phrase"
@@ -51,159 +119,6 @@
   "bridgeRouteAgglayer": {
     "message": "Lent · Agglayer",
     "englishSource": "Slow · Agglayer"
-  },
-  "bridgeRouteNearIntents": {
-    "message": "Intentions NEAR",
-    "englishSource": "NEAR Intents"
-  },
-  "nearIntentsSendArrivalSeconds": {
-    "message": "~$seconds$ sec",
-    "englishSource": "~$seconds$ sec",
-    "placeholders": {
-      "seconds": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendArrivalMinutes": {
-    "message": "~$minutes$ minutes",
-    "englishSource": "~$minutes$ mins",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendYouReceive": {
-    "message": "Vous recevez $amount$ $symbol$",
-    "englishSource": "You receive $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
-  },
-  "nearIntentsSendUnsupported": {
-    "message": "NEAR Intents ne propose pas ce jeton sur ce réseau.",
-    "englishSource": "NEAR Intents does not offer this token on this network."
-  },
-  "nearIntentsSendNoLiquidity": {
-    "message": "Ce montant est trop faible pour les NEAR Intents. Saisissez un montant plus élevé.",
-    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
-  },
-  "nearIntentsSendInvalidRecipient": {
-    "message": "NEAR Intents ne peut pas effectuer de livraison à cette adresse. Vérifiez l’adresse et le réseau.",
-    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
-  },
-  "nearIntentsSendQuoteChanged": {
-    "message": "Le devis a été modifié et propose désormais un montant inférieur à celui que vous aviez examiné. Vérifiez le nouveau devis, puis confirmez à nouveau.",
-    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
-  },
-  "nearIntentsSendQuoteExpired": {
-    "message": "La cotation a expiré avant le début du paiement. Vérifiez la nouvelle cotation, puis confirmez à nouveau.",
-    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
-  },
-  "nearIntentsSendRefundNote": {
-    "message": "Si le swap échoue, NEAR Intents rembourse le montant sur ce compte Miden.",
-    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
-  },
-  "transactionStepNearIntentsDepositAddress": {
-    "message": "Adresse de dépôt générée",
-    "englishSource": "Deposit address generated"
-  },
-  "transactionStepNearIntentsSend": {
-    "message": "Envoi vers une adresse de dépôt",
-    "englishSource": "Sending to deposit address"
-  },
-  "nearIntentsSendStartNew": {
-    "message": "Lancer un nouvel envoi",
-    "englishSource": "Start a new send"
-  },
-  "nearIntentsSendNotSentDescription": {
-    "message": "Le paiement vers l’adresse de dépôt a échoué ; aucun fonds n’a donc été transféré. Lancez un nouvel envoi pour obtenir une nouvelle adresse de dépôt.",
-    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
-  },
-  "nearIntentsSendGeneratingDepositAddress": {
-    "message": "Génération d’une adresse de dépôt",
-    "englishSource": "Generating deposit address"
-  },
-  "nearIntentsSendSentDescription": {
-    "message": "Les fonds sont envoyés vers NEAR Intents. La livraison vers $network$ se poursuit. Suivez son statut dans « Activité ».",
-    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendDeliveredDescription": {
-    "message": "NEAR Intents a effectué le paiement sur $network$.",
-    "englishSource": "NEAR Intents delivered the payment on $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendExpectedAmount": {
-    "message": "Le destinataire reçoit (estimation)",
-    "englishSource": "Recipient gets (estimate)"
-  },
-  "nearIntentsSendDeliveryStatus": {
-    "message": "Statut de livraison",
-    "englishSource": "Delivery status"
-  },
-  "nearIntentsSendStatusSending": {
-    "message": "Envoi vers NEAR Intents",
-    "englishSource": "Sending to NEAR Intents"
-  },
-  "nearIntentsSendStatusDelivered": {
-    "message": "Remis au destinataire",
-    "englishSource": "Delivered to the recipient"
-  },
-  "nearIntentsSendStatusExpired": {
-    "message": "Périmé",
-    "englishSource": "Expired"
-  },
-  "nearIntentsSendRefundedTitle": {
-    "message": "Paiement remboursé",
-    "englishSource": "Payment refunded"
-  },
-  "nearIntentsSendRefundedDescription": {
-    "message": "NEAR Intents n’a pas pu mener à bien l’échange et a remboursé le montant sur votre compte Miden.",
-    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
-  },
-  "nearIntentsSendFailedTitle": {
-    "message": "Échec de la livraison",
-    "englishSource": "Delivery failed"
-  },
-  "nearIntentsSendFailedDescription": {
-    "message": "NEAR Intents n’a pas pu effectuer ce paiement. Ouvrez l’activité pour plus de détails.",
-    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
-  },
-  "nearIntentsSendExpiredTitle": {
-    "message": "Délai de livraison expiré",
-    "englishSource": "Delivery expired"
-  },
-  "nearIntentsSendExpiredDescription": {
-    "message": "NEAR Intents n’a pas traité ce paiement à temps. Consultez l’activité ouverte pour plus de détails.",
-    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
-  },
-  "nearIntentsYouReceived": {
-    "message": "Le destinataire a reçu",
-    "englishSource": "Recipient got"
-  },
-  "nearIntentsViewOnExplorer": {
-    "message": "Consulter l’explorateur $network$",
-    "englishSource": "View on the $network$ explorer",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "bridgeRouteUnavailableBody": {
     "message": "Cet itinéraire n’est pas disponible pour ce transfert. Vous pouvez continuer avec un autre itinéraire disponible. Aucune transaction n’a été soumise à partir de cet écran.",
@@ -980,6 +895,14 @@
     "message": "La note de garantie doit utiliser le token validé, le montant validé et l’allocateur configuré. Rien n’a été envoyé. Revenez en arrière et réessayez.",
     "englishSource": "The collateral note must use the reviewed token, the reviewed amount and the configured allocator. Nothing was sent. Go back and try again."
   },
+  "bridgeReviewChanged": {
+    "message": "Les termes du pont ont changé. Vérifiez l’activité avant de continuer.",
+    "englishSource": "The bridge terms changed. Check Activity before continuing."
+  },
+  "bridgeStoppedBeforeSending": {
+    "message": "Interrompu avant l’envoi",
+    "englishSource": "Stopped before sending"
+  },
   "earnTotalEarnedRewards": {
     "message": "Total gagné",
     "englishSource": "Total earned"
@@ -1320,6 +1243,10 @@
   "back": {
     "message": "Retour",
     "englishSource": "Back"
+  },
+  "backToSwap": {
+    "message": "Retour au swap",
+    "englishSource": "Back to swap"
   },
   "skip": {
     "message": "Passer",
@@ -2409,24 +2336,8 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Saisissez l’adresse",
-    "englishSource": "Enter the address"
-  },
-  "recipientNetworkUnsupported": {
-    "message": "Ce portefeuille ne peut pas effectuer de virement vers cette adresse",
-    "englishSource": "This wallet cannot send to this address"
-  },
-  "networkSolana": {
-    "message": "Solana",
-    "englishSource": "Solana"
-  },
-  "networkBitcoin": {
-    "message": "Bitcoin",
-    "englishSource": "Bitcoin"
-  },
-  "networkNear": {
-    "message": "NEAR",
-    "englishSource": "NEAR"
+    "message": "Saisissez une adresse Miden ou Ethereum",
+    "englishSource": "Enter Miden or Ethereum Address"
   },
   "selectAmount": {
     "message": "Sélectionnez un montant",
@@ -2472,6 +2383,10 @@
   "swap": {
     "message": "Échange",
     "englishSource": "Swap"
+  },
+  "confirmSwap": {
+    "message": "Confirmer le swap",
+    "englishSource": "Confirm swap"
   },
   "viaInProtocolDex": {
     "message": "Via In Protocol Dex",
@@ -2683,6 +2598,14 @@
   "expirationDate": {
     "message": "Date d'expiration",
     "englishSource": "Expiration Date"
+  },
+  "recallEstimated": {
+    "message": "Estimé",
+    "englishSource": "Estimated"
+  },
+  "recallReviewChanged": {
+    "message": "La date d’expiration vérifiée a été modifiée. Vérifiez-la à nouveau avant l’envoi.",
+    "englishSource": "The reviewed expiration changed. Review it again before sending."
   },
   "recallReturnsNote": {
     "message": "S'il n'est pas accepté d'ici là, les $amount$ reviennent sous forme de transfert en attente que vous acceptez. Aucun fonds n'est perdu.",
@@ -3248,8 +3171,8 @@
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Votre phrase de récupération permet de restaurer vos clés et, grâce à la sauvegarde de votre « Guardian », votre compte. Conservez cette phrase en lieu sûr.",
-    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+    "message": "Votre phrase secrète et la sauvegarde de votre « Guardian » permettent de restaurer votre compte. Conservez cette phrase en lieu sûr.",
+    "englishSource": "Your phrase and your Guardian's backup restore your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Vos fonds restent les vôtres",
@@ -3268,8 +3191,8 @@
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
   "guardianIntroMoreAbout": {
-    "message": "En savoir plus sur les « Guardians »",
-    "englishSource": "More about Guardians"
+    "message": "En savoir plus sur le « Guardian »",
+    "englishSource": "Learn more about the Guardian"
   },
   "meetGuardianContinueWith": {
     "message": "Continuer avec $name$",
@@ -3384,6 +3307,14 @@
     "message": "Sauvegardez votre portefeuille",
     "englishSource": "Back up your wallet"
   },
+  "recoveryPhraseHidden": {
+    "message": "Phrase de récupération masquée",
+    "englishSource": "Recovery phrase hidden"
+  },
+  "privateKeyHidden": {
+    "message": "Clé privée masquée",
+    "englishSource": "Private key hidden"
+  },
   "show": {
     "message": "Afficher",
     "englishSource": "Show"
@@ -3460,6 +3391,245 @@
     "message": "Ouvrir le portefeuille",
     "englishSource": "Open wallet"
   },
+  "commandWallet": {
+    "message": "Portefeuille",
+    "englishSource": "Wallet"
+  },
+  "commandSearch": {
+    "message": "Rechercher les actions du portefeuille",
+    "englishSource": "Search wallet actions"
+  },
+  "commandActions": {
+    "message": "Actions sur le portefeuille",
+    "englishSource": "Wallet actions"
+  },
+  "commandOperation": {
+    "message": "Transaction",
+    "englishSource": "Transaction"
+  },
+  "commandBridge": {
+    "message": "Bridge",
+    "englishSource": "Bridge"
+  },
+  "commandBridgeDirection": {
+    "message": "Direction",
+    "englishSource": "Direction"
+  },
+  "commandBridgeOut": {
+    "message": "Bridge out",
+    "englishSource": "Bridge out"
+  },
+  "commandBridgeEnvironment": {
+    "message": "Réseau Miden",
+    "englishSource": "Miden network"
+  },
+  "commandBridgeChangeNetwork": {
+    "message": "Changer de réseau",
+    "englishSource": "Change network"
+  },
+  "commandBridgeProvider": {
+    "message": "Fournisseur",
+    "englishSource": "Provider"
+  },
+  "commandBridgeProvider_agglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "commandBridgeProvider_epoch": {
+    "message": "Époque",
+    "englishSource": "Epoch"
+  },
+  "commandBridgeProvider_xreserve": {
+    "message": "Circle",
+    "englishSource": "Circle"
+  },
+  "commandBridgeFrom": {
+    "message": "Extrait de",
+    "englishSource": "From"
+  },
+  "commandBridgeTo": {
+    "message": "À",
+    "englishSource": "To"
+  },
+  "commandBridgeRoute": {
+    "message": "Actif, réseau et fournisseur",
+    "englishSource": "Asset, network and provider"
+  },
+  "commandBridgeRouteLabel": {
+    "message": "$source$ vers $destination$ · $network$",
+    "englishSource": "$source$ to $destination$ · $network$",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "destination": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "commandBridgeExternalAccount": {
+    "message": "Compte externe",
+    "englishSource": "External account"
+  },
+  "commandBridgeMidenAccount": {
+    "message": "Compte Miden",
+    "englishSource": "Miden account"
+  },
+  "commandBridgeReceiveEstimate": {
+    "message": "Montant estimé reçu",
+    "englishSource": "Estimated received"
+  },
+  "commandBridgeSourceTotal": {
+    "message": "Montant total de la source",
+    "englishSource": "Total source amount"
+  },
+  "commandBridgeFee": {
+    "message": "Frais du prestataire",
+    "englishSource": "Provider fee"
+  },
+  "commandBridgeSwitchSource": {
+    "message": "Changer de réseau source",
+    "englishSource": "Switch source network"
+  },
+  "commandBridgeEpochReceiveUnavailable": {
+    "message": "Epoch ne peut pas indiquer un montant source fixe avec le fournisseur installé. Choisissez un autre fournisseur pour établir la connexion.",
+    "englishSource": "Epoch cannot quote a fixed source amount with the installed provider. Choose another provider to bridge in."
+  },
+  "commandBridgeNoRoutes": {
+    "message": "Aucun itinéraire de pont n’est disponible pour le réseau de portefeuille actuel.",
+    "englishSource": "No bridge routes are available for the current wallet network."
+  },
+  "commandBridgeBalanceCap": {
+    "message": "Le solde de réception doit être disponible et permettre ce dépôt avant de poursuivre.",
+    "englishSource": "The receiving balance limit must be available and allow this deposit before continuing."
+  },
+  "commandBridgeAdmitted": {
+    "message": "Ce transfert est enregistré dans l’historique d’activité. L’approbation par le portefeuille ou le règlement peuvent encore être en attente. Ne relancez pas l’opération.",
+    "englishSource": "This transfer is recorded in Activity. Wallet approval or settlement may still be pending. Do not start it again."
+  },
+  "commandBridgeViewStatus": {
+    "message": "Consulter le statut du virement",
+    "englishSource": "View transfer status"
+  },
+  "commandDetails": {
+    "message": "Détails",
+    "englishSource": "Details"
+  },
+  "commandOpenFullscreen": {
+    "message": "Passer en plein écran",
+    "englishSource": "Open fullscreen"
+  },
+  "commandFullscreenNewTab": {
+    "message": "Ouvre votre portefeuille dans un nouvel onglet.",
+    "englishSource": "Opens your wallet in a new tab."
+  },
+  "commandFullscreenOpenFailed": {
+    "message": "Impossible d’afficher en plein écran. Veuillez réessayer.",
+    "englishSource": "Couldn’t open fullscreen. Try again."
+  },
+  "commandPortfolio": {
+    "message": "Portefeuille",
+    "englishSource": "Portfolio"
+  },
+  "commandAllocation": {
+    "message": "Allocation",
+    "englishSource": "Allocation"
+  },
+  "commandPricedAssets": {
+    "message": "Actifs du portefeuille évalués",
+    "englishSource": "Priced wallet assets"
+  },
+  "commandWalletEmpty": {
+    "message": "Votre portefeuille est vide.",
+    "englishSource": "Your wallet is empty."
+  },
+  "commandAllocationUnavailable": {
+    "message": "Aucun actif coté à afficher.",
+    "englishSource": "No priced assets to show."
+  },
+  "commandRecentActions": {
+    "message": "Actions récentes",
+    "englishSource": "Recent actions"
+  },
+  "commandNoRecentActions": {
+    "message": "Aucune action récente à afficher",
+    "englishSource": "No recent actions to show"
+  },
+  "commandWalletBalance": {
+    "message": "Solde du portefeuille",
+    "englishSource": "Wallet balance"
+  },
+  "commandMarketPriceMovement24h": {
+    "message": "Évolution du cours de marché sur 24 h pour les avoirs au prix actuel : $change$ USD ($percentage$ %)",
+    "englishSource": "24h market-price movement at current priced holdings: $change$ USD ($percentage$%)",
+    "placeholders": {
+      "change": {
+        "content": "$1"
+      },
+      "percentage": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandHideBalances": {
+    "message": "Masquer les soldes",
+    "englishSource": "Hide balances"
+  },
+  "commandShowBalances": {
+    "message": "Afficher les soldes",
+    "englishSource": "Show balances"
+  },
+  "commandMaskedBalance": {
+    "message": "Caché",
+    "englishSource": "Hidden"
+  },
+  "commandBalanceUnavailable": {
+    "message": "Solde indisponible",
+    "englishSource": "Balance unavailable"
+  },
+  "commandPriceUnavailable": {
+    "message": "Prix indisponible",
+    "englishSource": "Price unavailable"
+  },
+  "commandPartialCoverage": {
+    "message": "Évaluation partielle — certains actifs n’ont pas de cours en USD vérifié",
+    "englishSource": "Partial valuation - some assets have no verified USD price"
+  },
+  "commandObservedHistory": {
+    "message": "Historique du portefeuille observé",
+    "englishSource": "Observed wallet history"
+  },
+  "commandHistoryRange": {
+    "message": "Plage historique",
+    "englishSource": "History range"
+  },
+  "commandHistoryInsufficient": {
+    "message": "Pas encore suffisamment d’observations",
+    "englishSource": "Not enough observations yet"
+  },
+  "commandHistoryGaps": {
+    "message": "Il manque certains intervalles ou certaines couvertures d’évaluation",
+    "englishSource": "Some intervals or valuation coverage are missing"
+  },
+  "commandHistoryObservationsOnly": {
+    "message": "Observations enregistrées uniquement",
+    "englishSource": "Recorded observations only"
+  },
+  "commandEarnDepositsPaused": {
+    "message": "Les nouveaux dépôts « Earn » sont suspendus. Vous pouvez toujours consulter et retirer vos positions existantes.",
+    "englishSource": "New Earn deposits are paused. You can still view and withdraw existing positions."
+  },
+  "commandInspectHistory": {
+    "message": "Consulter l’historique des transactions observées",
+    "englishSource": "Inspect observed history"
+  },
+  "commandObservedOnDevice": {
+    "message": "Remarques concernant uniquement cet appareil. Les espaces vides ne sont pas comblés.",
+    "englishSource": "Observations on this device only. Gaps are not filled."
+  },
   "getStarted": {
     "message": "Commencer",
     "englishSource": "Get started"
@@ -3525,12 +3695,12 @@
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 caractères, 1 chiffre",
-    "englishSource": "8 characters, 1 number"
+    "message": "Au moins 12 caractères",
+    "englishSource": "At least 12 characters"
   },
   "minimumCharsWithAtLeast": {
-    "message": "Au moins 8 caractères, dont au moins 1 chiffre",
-    "englishSource": "Minimum 8 characters with at least 1 number"
+    "message": "Utilisez au moins 12 caractères. Les chiffres, les symboles et l’utilisation de majuscules et de minuscules renforcent la sécurité.",
+    "englishSource": "Use at least 12 characters. Numbers, symbols and mixed case make it stronger."
   },
   "backUpWalletInstructions": {
     "message": "Notez ces 12 mots et conservez-les dans un endroit sûr.",
@@ -4057,6 +4227,14 @@
     "message": "Changer de Guardian",
     "englishSource": "Switch Guardian"
   },
+  "storageStalledTitle": {
+    "message": "Le stockage du navigateur ne répond pas",
+    "englishSource": "Browser storage is not responding"
+  },
+  "storageStalledBody": {
+    "message": "Les données de votre portefeuille ne sont pas perdues, mais le navigateur a cessé de répondre aux requêtes les concernant. Fermez puis rouvrez complètement le navigateur pour les restaurer.",
+    "englishSource": "Your wallet data is not lost, but the browser has stopped answering requests for it. Quit and reopen the browser completely to restore it."
+  },
   "revealHotKey": {
     "message": "Révéler la clé quotidienne",
     "englishSource": "Reveal everyday key"
@@ -4187,6 +4365,10 @@
     "message": "Vous ne pouvez pas envoyer de colis à votre propre adresse",
     "englishSource": "You can't send to your own address"
   },
+  "newRecipient": {
+    "message": "Nouveau destinataire",
+    "englishSource": "New recipient"
+  },
   "networkFee": {
     "message": "Network Fee",
     "englishSource": "Network Fee"
@@ -4222,6 +4404,10 @@
   "proposalEffectRefused": {
     "message": "Le portefeuille a interrompu cette transaction avant de la signer, car il n’a pas pu confirmer que la transaction ne transférait que ce que vous aviez approuvé. Aucun fonds n’a été transféré.",
     "englishSource": "The wallet stopped this transaction before signing it, because it could not confirm that the transaction moves only what you approved. No funds moved."
+  },
+  "chainFeeUnknown": {
+    "message": "Le portefeuille n’a pas pu lire les frais de réseau et n’a donc pas signé cette transaction. Rien n’a été envoyé. Veuillez réessayer dans quelques instants.",
+    "englishSource": "The wallet could not read the network fee, so it did not sign this transaction. Nothing was sent. Try again in a moment."
   },
   "amountMustBeLessThanBalance": {
     "message": "Le montant doit être inférieur au solde",
@@ -4371,6 +4557,14 @@
   "paymentSent": {
     "message": "Paiement envoyé !",
     "englishSource": "Payment Sent!"
+  },
+  "bridgeWithdrawalSuccessful": {
+    "message": "Retrait effectué avec succès",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "Retour aux fonds bloqués",
+    "englishSource": "Return to locked funds"
   },
   "bridgeRouteViaEpoch": {
     "message": "Via Epoch",
@@ -4546,6 +4740,18 @@
     "message": "Nous n’avons pas trouvé de sauvegarde sur ce Guardian. Vérifiez l’URL ou choisissez un autre Guardian.",
     "englishSource": "We couldn't find a backup on this Guardian. Check the URL or choose another Guardian."
   },
+  "guardianRecoveryUnverified": {
+    "message": "Vos comptes n’ont pas pu être restaurés : le guardian a renvoyé des données de compte qui ne correspondent pas à votre phrase de récupération. Rien n’a été restauré.",
+    "englishSource": "Your accounts could not be restored: the guardian returned account data that does not match your recovery phrase. Nothing was restored."
+  },
+  "guardianRecoveryBehindNetwork": {
+    "message": "Vos comptes n’ont pas pu être restaurés : la copie d’un compte détenue par le guardian ne correspond pas encore au réseau Miden. Rien n’a été restauré. Veuillez réessayer dans quelques minutes.",
+    "englishSource": "Your accounts could not be restored: the guardian's copy of an account does not match the Miden network yet. Nothing was restored. Try again in a few minutes."
+  },
+  "guardianRecoveryNetworkUnreachable": {
+    "message": "Impossible d’accéder au réseau Miden pour vérifier vos comptes. Votre phrase de récupération est correcte. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again."
+  },
   "guardianOtherNetwork": {
     "message": "Ce « guardian » fonctionne sur un autre réseau Miden ; il ne peut donc pas récupérer un compte ici.",
     "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
@@ -4617,6 +4823,11 @@
   "unknown": {
     "message": "Inconnu",
     "englishSource": "Unknown"
+  },
+  "includesUnclaimedNotes": {
+    "message": "Includes notes you have not claimed yet",
+    "englishSource": "(untranslated)",
+    "rejectedSource": "Includes notes you have not claimed yet"
   },
   "inputNotesConsumed": {
     "message": "Notes d'entrée consommées",
@@ -4777,6 +4988,19 @@
   "signBlindCommitment": {
     "message": "Signer l'engagement « Blind » ?",
     "englishSource": "Sign the Blind commitment?"
+  },
+  "signMessageTitle": {
+    "message": "Demande de signature d’un message",
+    "englishSource": "Message signature request"
+  },
+  "signMessageWarning": {
+    "message": "Ce site vous a demandé de signer un message comportant $count$ éléments de champ. Le portefeuille ne peut pas afficher la signification de ce message. Ne continuez que si vous faites entièrement confiance à ce site.",
+    "englishSource": "This site asked you to sign a message of $count$ field elements. The wallet cannot show what the message means. Only continue if you fully trust this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "connectToWebsite": {
     "message": "Se connecter au site web",
@@ -5689,6 +5913,10 @@
     "message": "Informations sur le jeton",
     "englishSource": "Token info"
   },
+  "basketComposition": {
+    "message": "Composition",
+    "englishSource": "Composition"
+  },
   "tokenDescription": {
     "message": "Description",
     "englishSource": "Description"
@@ -5987,6 +6215,10 @@
     "message": "Envoyez votre adresse",
     "englishSource": "Send your address"
   },
+  "receiveShareCopyFailed": {
+    "message": "Impossible de copier cette adresse. Sélectionnez-la ci-dessous pour la copier manuellement.",
+    "englishSource": "Couldn't copy this address. Select it below to copy manually."
+  },
   "receiveCrossChainCaption": {
     "message": "Depuis un autre réseau",
     "englishSource": "From another network"
@@ -6011,6 +6243,10 @@
         "content": "$1"
       }
     }
+  },
+  "evmWalletSmartTransactionsFailed": {
+    "message": "Les transactions intelligentes de MetaMask n’ont pas pu envoyer cette transaction. Désactivez les transactions intelligentes dans vos paramètres MetaMask et réessayez.",
+    "englishSource": "MetaMask Smart Transactions could not send this transaction. Turn off Smart Transactions in your MetaMask settings and try again."
   },
   "connectedWallet": {
     "message": "Portefeuille connecté",
@@ -6516,17 +6752,30 @@
     "message": "Cette dApp demande une transaction personnalisée. Le portefeuille n'a pas pu décoder ses détails — ne continuez que si vous savez exactement en quoi cela consiste.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
+  "customTransactionNotSimulated": {
+    "message": "Le portefeuille n’a pas pu simuler cette transaction ; il ne peut donc pas afficher ce qu’elle implique. Vous ne pouvez pas l’approuver.",
+    "englishSource": "The wallet could not simulate this transaction, so it cannot show what it does. You cannot approve it."
+  },
   "rawValue": {
     "message": "Valeur brute",
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Demande de signature opaque",
-    "englishSource": "Opaque signature request"
+    "message": "Bread ne peut pas prévisualiser ceci",
+    "englishSource": "Bread can't preview this"
+  },
+  "opaqueSignatureNotATransaction": {
+    "message": "Cette signature ne permet pas d’autoriser une transaction depuis votre compte.",
+    "englishSource": "This signature cannot authorize a transaction from your account."
   },
   "opaqueSignatureWarning": {
-    "message": "Ce site vous a demandé de signer une valeur brute. Le portefeuille ne peut pas afficher ce qu'il autorise. Ne continuez que si vous faites entièrement confiance à ce site.",
-    "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
+    "message": "$domain$ vous a demandé de signer une valeur brute. Bread ne peut pas afficher ce qu’il autorise ; ne continuez donc que si vous faites entièrement confiance à ce site.",
+    "englishSource": "$domain$ asked you to sign a raw value. Bread can't show what it authorizes, so only continue if you fully trust this site.",
+    "placeholders": {
+      "domain": {
+        "content": "$1"
+      }
+    }
   },
   "note": {
     "message": "Note",
@@ -6555,6 +6804,10 @@
   "redeemIntentLabel": {
     "message": "Intention de rachat",
     "englishSource": "Redeem intent"
+  },
+  "earnDepositRowTitle": {
+    "message": "Déposé sur Earn",
+    "englishSource": "Deposited to Earn"
   },
   "earnWithdrawRowTitle": {
     "message": "Retrait depuis Earn",
@@ -7498,6 +7751,10 @@
     "message": "Recevoir sur",
     "englishSource": "Receive at"
   },
+  "receiveNoPendingTransfers": {
+    "message": "Aucun virement entrant à examiner",
+    "englishSource": "No incoming transfers to review"
+  },
   "earnTitle": {
     "message": "Vos gains",
     "englishSource": "Your Earnings"
@@ -7612,6 +7869,14 @@
   "tokenHiddenNotice": {
     "message": "Caché depuis la page d’accueil. Il reste dans votre portefeuille et ses transferts peuvent toujours être réclamés.",
     "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hideDustTokens": {
+    "message": "Masquer les jetons « dust »",
+    "englishSource": "Hide dust tokens"
+  },
+  "hideDustTokensDescription": {
+    "message": "Masque les tokens d’une valeur inférieure à 0,001 $ dans votre liste d’actifs. Le token natif reste toujours visible.",
+    "englishSource": "Hides tokens worth less than $0.001 from your asset list. The native token always stays visible."
   },
   "hiddenAssets": {
     "message": "Actifs cachés",
@@ -7846,6 +8111,10 @@
   "bridgeConnectWalletAction": {
     "message": "Connecter un portefeuille",
     "englishSource": "Connect wallet"
+  },
+  "bridgeConnectPickerFailed": {
+    "message": "Le sélecteur de portefeuille n’a pas pu s’ouvrir. Veuillez réessayer.",
+    "englishSource": "The wallet picker could not open. Try again."
   },
   "bridgeConnectSource": {
     "message": "Votre portefeuille",
@@ -8126,13 +8395,100 @@
     "message": "Le portefeuille nécessite WebAssembly SIMD, ce que ce navigateur ou cet appareil ne prend pas en charge. Ouvrez le portefeuille sur un autre appareil ou dans un navigateur à jour.",
     "englishSource": "The wallet needs WebAssembly SIMD, which this browser or device does not provide. Open the wallet on another device or in an up-to-date browser."
   },
+  "oneClickSelectAsset": {
+    "message": "Sélectionnez un jeton sur $network$",
+    "englishSource": "Select a token on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickNoAssets": {
+    "message": "Aucun jeton vérifié n’est disponible sur ce réseau.",
+    "englishSource": "No verified tokens are available on this network."
+  },
+  "oneClickRecipientSection": {
+    "message": "Destinataire",
+    "englishSource": "Recipient"
+  },
+  "oneClickRefundSection": {
+    "message": "Compte de remboursement",
+    "englishSource": "Refund account"
+  },
+  "oneClickRecipientAddress": {
+    "message": "Adresse du destinataire",
+    "englishSource": "Recipient address"
+  },
+  "oneClickRefundAddress": {
+    "message": "Adresse de remboursement sur le réseau d’origine",
+    "englishSource": "Refund address on the origin network"
+  },
+  "oneClickRefundAccount": {
+    "message": "Compte de remboursement",
+    "englishSource": "Refund account"
+  },
+  "oneClickConnectOriginWallet": {
+    "message": "Connecter le portefeuille $network$",
+    "englishSource": "Connect $network$ wallet",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickChooseForeignNetwork": {
+    "message": "Choisissez un réseau d’origine ou de destination en dehors de Miden.",
+    "englishSource": "Choose an origin or destination network outside Miden."
+  },
+  "oneClickDifferentNetworksRequired": {
+    "message": "Choisissez deux réseaux différents.",
+    "englishSource": "Choose two different networks."
+  },
+  "oneClickMidenAssetRequired": {
+    "message": "Choisissez un jeton Miden vérifié pour l’une des étapes de ce parcours.",
+    "englishSource": "Choose a verified Miden token for one side of this route."
+  },
+  "oneClickSameUnderlyingBridge": {
+    "message": "Il s’agit d’un transfert via un pont. Utilisez le flux de transfert via pont existant pour cet actif.",
+    "englishSource": "This is a bridge transfer. Use the existing bridge flow for this asset."
+  },
   "oneClickQuoteUnavailable": {
     "message": "Aucun devis n’est disponible pour cet itinéraire. Vérifiez les adresses et réessayez.",
     "englishSource": "A quote is unavailable for this route. Check the addresses and try again."
   },
+  "oneClickQuoteExpiresAt": {
+    "message": "La cotation expire",
+    "englishSource": "Quote expires"
+  },
+  "oneClickQuoteExpired": {
+    "message": "Expiré. Actualisez la page avant de continuer.",
+    "englishSource": "Expired. Refresh before continuing."
+  },
+  "oneClickConfirmMidenDeposit": {
+    "message": "Confirmez ce dépôt Miden",
+    "englishSource": "Confirm this Miden deposit"
+  },
   "oneClickSubmitFailed": {
     "message": "Le dépôt n’a pas pu être soumis. Vérifiez le chemin d’accès et réessayez.",
     "englishSource": "The deposit could not be submitted. Review the route and try again."
+  },
+  "oneClickRouteChanged": {
+    "message": "L’itinéraire a changé. Demandez un nouveau devis avant de continuer.",
+    "englishSource": "The route changed. Request a new quote before continuing."
+  },
+  "oneClickArrivalEstimate": {
+    "message": "Environ $minutes$ min",
+    "englishSource": "About $minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefreshQuote": {
+    "message": "Actualiser le cours",
+    "englishSource": "Refresh quote"
   },
   "oneClickMinimumReceived": {
     "message": "Montant minimum reçu",
@@ -8146,13 +8502,108 @@
     "message": "Montant du remboursement",
     "englishSource": "Refund amount"
   },
+  "oneClickNativeFee": {
+    "message": "Frais de réseau Miden estimés",
+    "englishSource": "Estimated Miden network fee"
+  },
+  "oneClickAvailableBalance": {
+    "message": "Solde externe disponible",
+    "englishSource": "Available external balance"
+  },
+  "oneClickBalanceChecking": {
+    "message": "Vérification du solde externe",
+    "englishSource": "Checking external balance"
+  },
+  "oneClickBalanceCheckingBody": {
+    "message": "Vérifier le compte associé et réserver un montant suffisant pour couvrir les frais de réseau.",
+    "englishSource": "Checking the connected account and reserving enough for the network fee."
+  },
+  "oneClickBalanceUnavailable": {
+    "message": "Solde externe indisponible",
+    "englishSource": "External balance unavailable"
+  },
+  "oneClickBalanceUnavailableBody": {
+    "message": "Le portefeuille n’a pas pu vérifier le solde du compte connecté ni les frais de réseau. Reconnectez-vous ou réessayez avant de continuer.",
+    "englishSource": "The wallet could not verify the connected account balance and network fee. Reconnect or try again before continuing."
+  },
+  "oneClickGasReserve": {
+    "message": "Réservé aux frais de réseau : $amount$ $symbol$",
+    "englishSource": "Reserved for network fees: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "oneClickInsufficientTokenBalance": {
+    "message": "Solde de jetons insuffisant",
+    "englishSource": "Insufficient token balance"
+  },
+  "oneClickInsufficientTokenBalanceBody": {
+    "message": "Le compte associé ne dispose pas d’une quantité suffisante de ce token pour effectuer le dépôt demandé.",
+    "englishSource": "The connected account does not have enough of this token for the quoted deposit."
+  },
+  "oneClickInsufficientGasBalance": {
+    "message": "Solde des frais de réseau insuffisant",
+    "englishSource": "Insufficient network fee balance"
+  },
+  "oneClickInsufficientGasBalanceBody": {
+    "message": "Le compte associé a besoin de plus de $symbol$ pour couvrir les frais de réseau estimés.",
+    "englishSource": "The connected account needs more $symbol$ to cover the estimated network fee.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
   "oneClickArrival": {
     "message": "Heure d’arrivée estimée",
     "englishSource": "Estimated arrival"
   },
+  "oneClickRecipient": {
+    "message": "Destinataire",
+    "englishSource": "Recipient"
+  },
+  "oneClickRoute": {
+    "message": "Route",
+    "englishSource": "Route"
+  },
+  "oneClickYouPayFrom": {
+    "message": "Vous payez sur $network$",
+    "englishSource": "You pay on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickYouReceiveOn": {
+    "message": "Vous recevez sur $network$",
+    "englishSource": "You receive on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "oneClickRefundFee": {
+    "message": "Frais de remboursement",
+    "englishSource": "Refund fee"
+  },
+  "oneClickWithdrawFee": {
+    "message": "Frais de retrait",
+    "englishSource": "Withdrawal fee"
+  },
   "oneClickDepositInstructions": {
     "message": "Instructions de dépôt",
     "englishSource": "Deposit instructions"
+  },
+  "oneClickManualDepositNotice": {
+    "message": "Envoyez le montant exact indiqué ci-dessous depuis le réseau sélectionné. L'échange ne commence qu'une fois que le transfert a atteint l'adresse de dépôt.",
+    "englishSource": "Send the exact amount below from the selected network. The swap starts only after the transfer reaches the deposit address."
   },
   "oneClickNetwork": {
     "message": "Réseau",
@@ -8181,6 +8632,42 @@
   "oneClickOriginTransaction": {
     "message": "Transaction d’origine",
     "englishSource": "Origin transaction"
+  },
+  "oneClickTrackingSaved": {
+    "message": "Cet itinéraire est enregistré dans l’historique d’activité afin que vous puissiez le suivre ultérieurement.",
+    "englishSource": "This route is saved in Activity so you can track it later."
+  },
+  "oneClickBroadcastTrackingPending": {
+    "message": "Le portefeuille a soumis ce dépôt, mais n’a pas encore pu enregistrer la transaction. Ne l’envoyez pas à nouveau. Le hachage de la transaction est indiqué ci-dessous.",
+    "englishSource": "The wallet submitted this deposit, but could not save its transaction yet. Do not send it again. The transaction hash is shown below."
+  },
+  "oneClickRefreshingExpiredQuote": {
+    "message": "Actualisation d’une cotation expirée",
+    "englishSource": "Refreshing expired quote"
+  },
+  "oneClickRecoveryUnavailable": {
+    "message": "Cet itinéraire ne peut pas être actualisé",
+    "englishSource": "This route cannot be refreshed"
+  },
+  "oneClickRecoveryUnavailableBody": {
+    "message": "Le compte, le réseau ou l’itinéraire vérifié a changé. Revenez à la transaction et lancez un nouvel itinéraire si nécessaire.",
+    "englishSource": "The account, network, or verified route changed. Return to the transaction and start a new route if needed."
+  },
+  "oneClickExpiredRefreshFailed": {
+    "message": "La cotation a expiré et n’a pas pu être actualisée. Réessayez d’obtenir une nouvelle cotation avant d’envoyer.",
+    "englishSource": "The expired quote could not be refreshed. Retry to get a new quote before sending."
+  },
+  "oneClickQuoteRefreshed": {
+    "message": "Citation mise à jour",
+    "englishSource": "Quote refreshed"
+  },
+  "oneClickExpiredRefreshNotice": {
+    "message": "La cotation précédente a expiré avant l'envoi de votre dépôt. Consultez cet itinéraire mis à jour et confirmez pour continuer.",
+    "englishSource": "The previous quote expired before your deposit was sent. Review this updated route and confirm to continue."
+  },
+  "oneClickDepositSubmitted": {
+    "message": "Dépôt soumis",
+    "englishSource": "Deposit submitted"
   },
   "oneClickStatusKnownDepositTx": {
     "message": "Transaction de dépôt détectée",
@@ -8599,6 +9086,18 @@
     "message": "Liquidité insuffisante pour ce montant. Essayez un autre montant.",
     "englishSource": "Not enough liquidity for this amount. Try a different amount."
   },
+  "availableAmount": {
+    "message": "Disponible : $amount$ $symbol$",
+    "englishSource": "Available: $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
   "amountExceedsTokenDecimals": {
     "message": "Ce montant comporte plus de décimales que ne le permet ce jeton.",
     "englishSource": "This amount has more decimal places than this token allows."
@@ -8932,5 +9431,470 @@
   "arcadePostingPolicy": {
     "message": "Chaque jeu définit ses propres mises, gains et remboursements. Consultez ses règles avant d’approuver une transaction.",
     "englishSource": "Each game sets its own stakes, payouts and refunds. Review its rules before approving a transaction."
+  },
+  "autoLock": {
+    "message": "Verrouillage automatique",
+    "englishSource": "Auto-lock"
+  },
+  "autoLockDescription": {
+    "message": "Verrouille le portefeuille dès qu’il est resté inactif en arrière-plan pendant cette durée.",
+    "englishSource": "Locks the wallet once it has been in the background this long."
+  },
+  "autoLockMinutes": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochAwaitingReturn": {
+    "message": "En attente de retour",
+    "englishSource": "Awaiting Return"
+  },
+  "epochReadyToClaim": {
+    "message": "Prêt à réclamer",
+    "englishSource": "Ready to Claim"
+  },
+  "epochReturningFunds": {
+    "message": "Remboursement des fonds",
+    "englishSource": "Returning Funds"
+  },
+  "epochFundsReturned": {
+    "message": "Fonds restitués",
+    "englishSource": "Funds Returned"
+  },
+  "epochReturnWaiting": {
+    "message": "Vos fonds restent sur Miden. Vous pourrez les récupérer après le bloc $block$.",
+    "englishSource": "Your funds remain on Miden. You can claim them after block $block$.",
+    "placeholders": {
+      "block": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochReturnReady": {
+    "message": "Récupérez vos fonds pour les transférer vers votre portefeuille.",
+    "englishSource": "Claim your funds to return them to your wallet."
+  },
+  "epochReturnPending": {
+    "message": "Vos fonds sont en cours de restitution sur votre portefeuille.",
+    "englishSource": "Your funds are being returned to your wallet."
+  },
+  "epochReturnDone": {
+    "message": "Vos fonds ont été reversés sur votre portefeuille.",
+    "englishSource": "Your funds have returned to your wallet."
+  },
+  "epochReturnPaid": {
+    "message": "Fonds envoyés à votre destinataire.",
+    "englishSource": "Funds sent to your destination."
+  },
+  "epochReturnSpent": {
+    "message": "Cette note a été utilisée, mais le paiement n’est pas confirmé. Vérifiez votre destination et votre solde Miden.",
+    "englishSource": "This note was used, but the payout is not confirmed. Check your destination and your Miden balance."
+  },
+  "epochReturnUnavailable": {
+    "message": "Impossible de vérifier l’état des fonds. Veuillez réessayer.",
+    "englishSource": "Unable to check the funds status. Try again."
+  },
+  "epochDepositLocked": {
+    "message": "Dépôt bloqué",
+    "englishSource": "Deposit locked"
+  },
+  "epochDepositWithdrawn": {
+    "message": "Dépôt retiré",
+    "englishSource": "Deposit withdrawn"
+  },
+  "epochDepositLockedTitle": {
+    "message": "Votre dépôt est en sécurité",
+    "englishSource": "Your deposit is safe"
+  },
+  "epochDepositLockedBody": {
+    "message": "Votre dépôt de $amount$ se trouve dans The Compact sur $network$, mais Epoch n’a pas lancé le pont. Réessayez le pont ou retirez le dépôt vers $address$.",
+    "englishSource": "Your $amount$ deposit is in The Compact on $network$, but Epoch did not start the bridge. Retry the bridge, or withdraw the deposit back to $address$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      },
+      "address": {
+        "content": "$3"
+      }
+    }
+  },
+  "epochDepositConnectSponsor": {
+    "message": "Connectez le portefeuille EVM $address$ pour récupérer ce dépôt.",
+    "englishSource": "Connect the EVM wallet $address$ to recover this deposit.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWrongWallet": {
+    "message": "Le portefeuille connecté n’a pas effectué ce dépôt. Connectez $address$ pour le récupérer.",
+    "englishSource": "The connected wallet did not make this deposit. Connect $address$ to recover it.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositRetry": {
+    "message": "Réessayer le pont",
+    "englishSource": "Retry bridge"
+  },
+  "epochDepositRetrying": {
+    "message": "Nouvelle tentative…",
+    "englishSource": "Retrying…"
+  },
+  "epochDepositWithdraw": {
+    "message": "Retrait de dépôt",
+    "englishSource": "Withdraw deposit"
+  },
+  "epochDepositWithdrawing": {
+    "message": "Retrait…",
+    "englishSource": "Withdrawing…"
+  },
+  "epochDepositWithdrawStarted": {
+    "message": "Retrait disponible dans $time$.",
+    "englishSource": "Withdrawal available in $time$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositWithdrawStartedUnknown": {
+    "message": "Demande de retrait. Les fonds sont disponibles environ une heure après la demande.",
+    "englishSource": "Withdrawal requested. It becomes available about one hour after the request."
+  },
+  "epochDepositWithdrawReady": {
+    "message": "Le retrait est disponible.",
+    "englishSource": "The withdrawal is available."
+  },
+  "epochDepositWithdrawnBody": {
+    "message": "Le dépôt a été reversé à l’$address$.",
+    "englishSource": "The deposit went back to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotRecoverable": {
+    "message": "Ce dépôt ne peut pas être récupéré depuis ce portefeuille.",
+    "englishSource": "This deposit cannot be recovered from this wallet."
+  },
+  "epochDepositErrorWrongChain": {
+    "message": "Changez votre portefeuille EVM pour $network$ et réessayez.",
+    "englishSource": "Switch your EVM wallet to $network$ and try again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "epochDepositErrorNotStarted": {
+    "message": "Commencez par effectuer le retrait.",
+    "englishSource": "Start the withdrawal first."
+  },
+  "epochDepositErrorNotDue": {
+    "message": "Le retrait n’est pas encore disponible.",
+    "englishSource": "The withdrawal is not available yet."
+  },
+  "epochDepositErrorMissing": {
+    "message": "Le Compact ne détient plus ce dépôt.",
+    "englishSource": "The Compact no longer holds this deposit."
+  },
+  "epochDepositErrorLockMismatch": {
+    "message": "Epoch a attribué un verrou différent pour ce dépôt. Procédez plutôt à un retrait de ce dépôt.",
+    "englishSource": "Epoch returned a different lock for this deposit. Withdraw the deposit instead."
+  },
+  "recoverLockedFunds": {
+    "message": "Récupérer des fonds de pont bloqués",
+    "englishSource": "Recover locked bridge funds"
+  },
+  "recoverFundsOpenLock": {
+    "message": "Gérez ce verrouillage dans les Paramètres",
+    "englishSource": "Manage this lock in Settings"
+  },
+  "recoverFundsDescription": {
+    "message": "Un « Fast bridge-in » peut laisser son dépôt dans The Compact lorsque Epoch ne lance pas le pont. Cette page vérifie dans The Compact chaque portefeuille EVM ayant effectué un « bridge-in » à partir de ce portefeuille, ainsi que le portefeuille connecté.",
+    "englishSource": "A Fast bridge-in can leave its deposit in The Compact when Epoch does not start the bridge. This page checks The Compact for each EVM wallet that bridged in from this wallet, and for the connected wallet."
+  },
+  "recoverFundsConnectedWallet": {
+    "message": "Portefeuille connecté",
+    "englishSource": "Connected wallet"
+  },
+  "recoverFundsNothingLocked": {
+    "message": "Rien n’est verrouillé sur ce portefeuille.",
+    "englishSource": "Nothing is locked for this wallet."
+  },
+  "recoverFundsCouldNotCheck": {
+    "message": "Impossible de vérifier $tokens$ sur $network$. Veuillez réessayer plus tard.",
+    "englishSource": "Could not check $tokens$ on $network$. Try again later.",
+    "placeholders": {
+      "tokens": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "recoverFundsConnectAnother": {
+    "message": "Connecter un autre portefeuille",
+    "englishSource": "Connect another wallet"
+  },
+  "recoverFundsNoAddressesTitle": {
+    "message": "Pas de portefeuilles à vérifier",
+    "englishSource": "No wallets to check"
+  },
+  "recoverFundsNoAddressesBody": {
+    "message": "Connectez le portefeuille EVM qui a effectué le dépôt afin de vérifier s’il contient des fonds bloqués.",
+    "englishSource": "Connect the EVM wallet that made the deposit to check it for locked funds."
+  },
+  "recoverFundsLockTitle": {
+    "message": "Fonds bloqués",
+    "englishSource": "Locked funds"
+  },
+  "recoverFundsLockInvalidTitle": {
+    "message": "Ce lien n’est pas valide",
+    "englishSource": "This link is not valid"
+  },
+  "recoverFundsLockInvalidBody": {
+    "message": "Déverrouillez à nouveau le pont à partir de la section « Récupérer les fonds du pont verrouillés ».",
+    "englishSource": "Open the lock again from Recover locked bridge funds."
+  },
+  "recoverFundsLockEmpty": {
+    "message": "Rien n’est verrouillé ici",
+    "englishSource": "Nothing is locked here"
+  },
+  "recoverFundsChecking": {
+    "message": "Vérification…",
+    "englishSource": "Checking…"
+  },
+  "recoverFundsCouldNotCheckShort": {
+    "message": "Impossible de vérifier",
+    "englishSource": "Could not check"
+  },
+  "recoverFundsWallet": {
+    "message": "Portefeuille",
+    "englishSource": "Wallet"
+  },
+  "recoverFundsLocked": {
+    "message": "Verrouillé",
+    "englishSource": "Locked"
+  },
+  "recoverFundsWithdrawal": {
+    "message": "Retrait",
+    "englishSource": "Withdrawal"
+  },
+  "recoverFundsWithdrawOff": {
+    "message": "Non demandé",
+    "englishSource": "Not requested"
+  },
+  "recoverFundsCancelWithdrawal": {
+    "message": "Désactiver les retraits",
+    "englishSource": "Disable withdrawal"
+  },
+  "recoverFundsCancelling": {
+    "message": "Désactiver…",
+    "englishSource": "Disabling…"
+  },
+  "recoverFundsWithdrawBlocksBridge": {
+    "message": "Un retrait forcé bloque les nouveaux transferts Fast vers $token$ depuis $address$. Une fois vos fonds récupérés, désactivez le retrait pour pouvoir effectuer à nouveau des transferts.",
+    "englishSource": "Forced withdrawal blocks new Fast bridge-ins of $token$ from $address$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalTitle": {
+    "message": "Vérifier l’accès rapide au pont",
+    "englishSource": "Check Fast bridge access"
+  },
+  "bridgeWithdrawalChecking": {
+    "message": "Vérification du statut de retrait pour ce jeton et ce portefeuille.",
+    "englishSource": "Checking the withdrawal status for this token and wallet."
+  },
+  "bridgeWithdrawalCheckFailed": {
+    "message": "Impossible de vérifier le statut du retrait. Réessayez avant d’utiliser le Fast Bridge.",
+    "englishSource": "Could not check the withdrawal status. Try again before you use the Fast bridge."
+  },
+  "bridgeWithdrawalBody": {
+    "message": "Le retrait forcé est actif pour $token$ sur $network$. Une fois vos fonds récupérés, désactivez le retrait pour pouvoir effectuer à nouveau des opérations sur Bridge.",
+    "englishSource": "Forced withdrawal is active for $token$ on $network$. After you recover your funds, disable withdrawal to bridge again.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "bridgeWithdrawalDisable": {
+    "message": "Désactiver les retraits",
+    "englishSource": "Disable withdrawal"
+  },
+  "bridgeWithdrawalDisabling": {
+    "message": "Désactiver…",
+    "englishSource": "Disabling…"
+  },
+  "bridgeWithdrawalEffect": {
+    "message": "Cela désactive le retrait forcé pour ce verrou. Les fonds déjà récupérés restent dans votre portefeuille. Une nouvelle demande de récupération déclenche une nouvelle période d’attente. Cette transaction nécessite des frais de réseau.",
+    "englishSource": "This turns off forced withdrawal for this lock. Funds already recovered stay in your wallet. A new recovery request starts a new waiting period. This transaction requires a network fee."
+  },
+  "bridgeWithdrawalWalletPrompt": {
+    "message": "Ouvrez votre portefeuille EVM connecté et validez la transaction sur $network$. Attendez ici la confirmation.",
+    "englishSource": "Open your connected EVM wallet and approve the transaction on $network$. Wait here for confirmation.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeWithdrawalUseCircle": {
+    "message": "Utilisez plutôt Circle",
+    "englishSource": "Use Circle instead"
+  },
+  "bridgeWithdrawalUseSlow": {
+    "message": "Utilisez plutôt « Slow bridge »",
+    "englishSource": "Use Slow bridge instead"
+  },
+  "connectFactsTitle": {
+    "message": "Ce site permettra de",
+    "englishSource": "This site will be able to"
+  },
+  "connectFactSeeBalanceTitle": {
+    "message": "Consultez votre solde et votre historique",
+    "englishSource": "See your balance and history"
+  },
+  "connectFactReadPrivateTitle": {
+    "message": "Lire des données privées sans autorisation",
+    "englishSource": "Read private data without asking"
+  },
+  "connectFactReadPrivateDescription": {
+    "message": "L'accès à $scopes$ sera accordé",
+    "englishSource": "Access to $scopes$ will be granted",
+    "placeholders": {
+      "scopes": {
+        "content": "$1"
+      }
+    }
+  },
+  "connectFactAskPrivateTitle": {
+    "message": "Demandez l’autorisation avant de consulter des données privées",
+    "englishSource": "Ask before reading private data"
+  },
+  "connectFactTxRequestsTitle": {
+    "message": "Vous envoyer des demandes de transaction",
+    "englishSource": "Send you transaction requests"
+  },
+  "connectFactTxRequestsDescription": {
+    "message": "Vous approuvez chacun d’entre eux",
+    "englishSource": "You approve each one"
+  },
+  "connectFactNoFundsTitle": {
+    "message": "Ne transférez jamais de fonds de votre propre initiative",
+    "englishSource": "Never move funds on its own"
+  },
+  "connectFactNoFundsDescription": {
+    "message": "Les fonds ne sont transférés que lorsque vous donnez votre accord",
+    "englishSource": "Funds leave only when you approve"
+  },
+  "connectRetryHint": {
+    "message": "Votre demande est toujours en attente, vous pouvez donc réessayer.",
+    "englishSource": "Your request is still here, so you can retry."
+  },
+  "connectFailedTitle": {
+    "message": "Impossible de se connecter",
+    "englishSource": "Couldn't connect"
+  },
+  "dappNetworkMismatchTitle": {
+    "message": "Réseau différent",
+    "englishSource": "Different network"
+  },
+  "confirmTxRequestFrom": {
+    "message": "Demande de",
+    "englishSource": "Request from"
+  },
+  "confirmTxTokenFaucet": {
+    "message": "faucet de jetons",
+    "englishSource": "Token faucet"
+  },
+  "confirmTxRecallBlocks": {
+    "message": "Rappel des blocs",
+    "englishSource": "Recall blocks"
+  },
+  "confirmTxReceiving": {
+    "message": "Réception",
+    "englishSource": "Receiving"
+  },
+  "confirmTxNoteFromFaucet": {
+    "message": "Note de faucet",
+    "englishSource": "Note from faucet"
+  },
+  "confirmTxYouTag": {
+    "message": "vous",
+    "englishSource": "you"
+  },
+  "confirmTxYouPay": {
+    "message": "Vous payez",
+    "englishSource": "You pay"
+  },
+  "confirmTxYouGet": {
+    "message": "Vous obtenez",
+    "englishSource": "You get"
+  },
+  "confirmTxLeavesAccount": {
+    "message": "Quitte votre compte",
+    "englishSource": "Leaves your account"
+  },
+  "confirmTxArrivesAccount": {
+    "message": "Arrive sur votre compte",
+    "englishSource": "Arrives in your account"
+  },
+  "confirmTxCustomTransaction": {
+    "message": "Transaction personnalisée",
+    "englishSource": "Custom transaction"
+  },
+  "confirmSignTransactionSummary": {
+    "message": "Résumé de la transaction",
+    "englishSource": "Transaction summary"
+  },
+  "confirmTxRetryHint": {
+    "message": "Votre demande est toujours présente, vous pouvez donc réessayer.",
+    "englishSource": "Your request is still here, so you can try again."
+  },
+  "confirmTxFailedTitle": {
+    "message": "Impossible de confirmer",
+    "englishSource": "Couldn't confirm"
+  },
+  "confirmTxNotVerifiedTitle": {
+    "message": "Non vérifié",
+    "englishSource": "Not verified"
+  },
+  "midenNetworkName": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginSignatureTitle": {
+    "message": "Cela ne fait que vous connecter",
+    "englishSource": "This only signs you in"
   }
 }

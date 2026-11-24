@@ -175,6 +175,14 @@ export const notConfirmedHintKey = (row: VerdictRow, nowSec?: number): NotConfir
 export const isUnresolvedEntry = (entry: ISubmitEvidence): boolean =>
   entry.verdict !== 'never-committed' && entry.preSubmitEnd !== true;
 
+/** Block `block` can include this attempt: after its reference block and at or before its expiration, where recorded. */
+export const admitsInclusionAt = (
+  entry: Pick<ISubmitEvidence, 'refBlock' | 'expirationBlock'>,
+  block: number
+): boolean =>
+  (entry.refBlock === undefined || block > entry.refBlock) &&
+  (entry.expirationBlock === undefined || block <= entry.expirationBlock);
+
 /**
  * This attempt may have reached its submit call: a crossing is on record for it, and its leaf did not prove it ended
  * before that call. The row's `stage` cannot say so alone, because the stamp swallows a stage write that fails after
@@ -245,11 +253,12 @@ export interface EvidencePatch {
 }
 
 /**
- * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks; an id never changes once set, because
- * an attempt submits at most one transaction and its stamp precedes any error text about it, so evidence naming
- * another id is a contradiction: logged, not recorded. The first end wins, and `fromExecute` and `preSubmitEnd` are
- * sticky. `raisedFlag` is honoured only when the pin creates the entry. A pre-submit end drops a kept mark an outside
- * end left, since the leaf that proves it abandons that candidate itself; a keep that follows records it again.
+ * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks, a swap's order as a pair, and the
+ * private notes only with the note list they narrow; an id never changes once set, because an attempt submits at most
+ * one transaction and its stamp precedes any error text about it, so evidence naming another id is a contradiction:
+ * logged, not recorded. The first end wins, and `fromExecute` and `preSubmitEnd` are sticky. `raisedFlag` is honoured
+ * only when the pin creates the entry. A pre-submit end drops a kept mark an outside end left, since the leaf that
+ * proves it abandons that candidate itself; a keep that follows records it again.
  */
 export function upsertEvidenceEntry(
   entries: readonly ISubmitEvidence[] | undefined,
@@ -285,6 +294,8 @@ export function upsertEvidenceEntry(
   if (next.initialNonce === undefined && evidence.initialNonce !== undefined) next.initialNonce = evidence.initialNonce;
   if (next.outputNoteIds === undefined && evidence.outputNoteIds !== undefined) {
     next.outputNoteIds = evidence.outputNoteIds;
+    // Only with the list it narrows, so both come from one stamp's read.
+    if (evidence.privateOutputNoteIds !== undefined) next.privateOutputNoteIds = evidence.privateOutputNoteIds;
   }
   if (next.nullifiers === undefined && evidence.nullifiers !== undefined) next.nullifiers = evidence.nullifiers;
   if (next.refBlock === undefined && evidence.refBlock !== undefined) next.refBlock = evidence.refBlock;
@@ -293,6 +304,16 @@ export function upsertEvidenceEntry(
   }
   if (next.expirationBlock === undefined && evidence.expirationBlock !== undefined) {
     next.expirationBlock = evidence.expirationBlock;
+  }
+  // Both or neither, so an order and a note never come from two stamps.
+  if (
+    next.orderId === undefined &&
+    next.orderNoteId === undefined &&
+    evidence.orderId !== undefined &&
+    evidence.orderNoteId !== undefined
+  ) {
+    next.orderId = evidence.orderId;
+    next.orderNoteId = evidence.orderNoteId;
   }
   if (next.guardianProposalNonce === undefined && patch.guardianProposalNonce !== undefined) {
     next.guardianProposalNonce = patch.guardianProposalNonce;
