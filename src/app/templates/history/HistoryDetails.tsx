@@ -817,7 +817,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     expiresAt: swapExpiresAt
   });
 
-  const sectionPolicy = entry ? getHistoryDetailsSectionPolicy(entry) : undefined;
+  const sectionState = entry
+    ? (() => {
+        const policy = getHistoryDetailsSectionPolicy(entry);
+        return {
+          policy,
+          fromAddress: resolvePolicyAddress(policy.from, entry),
+          toAddress: resolvePolicyAddress(policy.to, entry)
+        };
+      })()
+    : undefined;
+  const sectionPolicy = sectionState?.policy;
   // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
@@ -862,8 +872,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // The guardian the rotation ran under, as its record stored it. A row recorded without one names
   // no guardian: the account's current endpoint may belong to a later switch.
   const rotationGuardianEndpoint = isHotKeyRotation ? entry?.rotationGuardianEndpoint : undefined;
-  const fromAddress = sectionPolicy ? resolvePolicyAddress(sectionPolicy.from, entry) : undefined;
-  const toAddress = sectionPolicy ? resolvePolicyAddress(sectionPolicy.to, entry) : undefined;
+  const fromAddress = sectionState?.fromAddress;
+  const toAddress = sectionState?.toAddress;
   const settledTransactions = settlementNotes?.settledTransactions ?? [];
   const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
   const consumedNoteIds = entry?.consumedNoteIds ?? [];
