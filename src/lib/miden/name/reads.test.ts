@@ -1,6 +1,7 @@
 import { getCurrentMidenBlock } from 'lib/epoch/chain';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 
 import { MIDEN_NAME_REGISTER_SCRIPT_ROOT, MIDEN_NAME_SLOTS } from './config';
 import { type Felts4, priceKeyFelts } from './encoding';
@@ -94,7 +95,8 @@ const rpc = {
   getAccountProof: jest.fn(async (_id: AccountId, requirements: AccountStorageRequirements) => fakeProof(requirements)),
   getNetworkNoteStatus: jest.fn<Promise<FakeNoteStatus>, [NoteId]>(),
   syncNotes: jest.fn<Promise<ReturnType<typeof syncResult>>, [number, number, NoteTag[]]>(),
-  getNotesById: jest.fn<Promise<FakeFetchedNote[]>, [NoteId[]]>()
+  getNotesById: jest.fn<Promise<FakeFetchedNote[]>, [NoteId[]]>(),
+  free: jest.fn()
 };
 
 beforeEach(() => {
@@ -457,5 +459,153 @@ describe('getChainTip', () => {
   it('reads the chain head', async () => {
     mockTip.mockResolvedValue(1234);
     await expect(getChainTip()).resolves.toBe(1234);
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    await Promise.resolve();
+  }
+}
+
+describe('RpcClient lifecycle', () => {
+  it('frees the client after proof reads succeed or fail', async () => {
+    await fetchMidenNameQuote('alice');
+    expect(rpc.free).toHaveBeenCalledTimes(1);
+
+    await fetchMidenNameIssued('alice');
+    expect(rpc.free).toHaveBeenCalledTimes(2);
+
+    rpc.getAccountProof.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchMidenNameQuote('bob')).rejects.toThrow('rpc down');
+    expect(rpc.free).toHaveBeenCalledTimes(4);
+  });
+
+  it('defers proof client disposal on timeout until underlying attempts settle', async () => {
+    jest.useFakeTimers();
+    try {
+      const attempt1 = deferred<ReturnType<typeof fakeProof>>();
+      const attempt2 = deferred<ReturnType<typeof fakeProof>>();
+      rpc.getAccountProof.mockReturnValueOnce(attempt1.promise).mockReturnValueOnce(attempt2.promise);
+
+      const outcome = fetchMidenNameQuote('alice').then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+      await jest.advanceTimersByTimeAsync(15_000);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(rpc.free).not.toHaveBeenCalled();
+
+      attempt1.reject(new Error('late failure'));
+      await flushMicrotasks();
+      expect(rpc.free).toHaveBeenCalledTimes(1);
+
+      attempt2.reject(new Error('late failure 2'));
+      await flushMicrotasks();
+      expect(rpc.free).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('frees the client after note-status reads and defers disposal on timeout', async () => {
+    rpc.getNetworkNoteStatus.mockResolvedValueOnce({ status: 'Pending', attemptCount: 0, lastError: undefined });
+    await fetchRegistrationNoteState('0xnote');
+    expect(rpc.free).toHaveBeenCalledTimes(1);
+
+    rpc.getNetworkNoteStatus.mockRejectedValueOnce(new Error('unavailable'));
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toThrow('unavailable');
+    expect(rpc.free).toHaveBeenCalledTimes(2);
+
+    jest.useFakeTimers();
+    try {
+      const pending = deferred<FakeNoteStatus>();
+      rpc.getNetworkNoteStatus.mockReturnValueOnce(pending.promise);
+      const outcome = fetchRegistrationNoteState('0xnote').then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(rpc.free).toHaveBeenCalledTimes(2);
+
+      pending.resolve({ status: 'Pending', attemptCount: 1, lastError: undefined });
+      await flushMicrotasks();
+      expect(rpc.free).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('frees the scan client after delivery scan with notesCarryingLabel, error, and empty range', async () => {
+    mockWalletId.mockImplementation(() => new AccountId('0xacc', 1n, 2n));
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xnote1' }]]));
+    rpc.getNotesById.mockResolvedValueOnce([fetchedNote('0xnote1')]);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await findRegistryDeliveryNoteIds({
+      accountId: 'mtst1account',
+      fromBlock: 164937,
+      toBlock: 165137,
+      label: 'alice'
+    });
+    expect(rpc.free).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+
+    rpc.syncNotes.mockRejectedValue(new Error('scan down'));
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: 'mtst1account', fromBlock: 164937, toBlock: 165137 })
+    ).rejects.toThrow('scan down');
+    expect(rpc.free).toHaveBeenCalledTimes(2);
+
+    await findRegistryDeliveryNoteIds({ accountId: 'mtst1account', fromBlock: 165237, toBlock: 165137 });
+    expect(rpc.free).toHaveBeenCalledTimes(2);
+  });
+
+  it('defers delivery-scan client disposal when notesCarryingLabel times out until all attempts settle', async () => {
+    jest.useFakeTimers();
+    try {
+      mockWalletId.mockImplementation(() => new AccountId('0xacc', 1n, 2n));
+      rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xnote1' }]]));
+      const getNotes1 = deferred<FakeFetchedNote[]>();
+      const getNotes2 = deferred<FakeFetchedNote[]>();
+      rpc.getNotesById.mockReturnValueOnce(getNotes1.promise).mockReturnValueOnce(getNotes2.promise);
+
+      const outcome = findRegistryDeliveryNoteIds({
+        accountId: 'mtst1account',
+        fromBlock: 164937,
+        toBlock: 165137,
+        label: 'alice'
+      }).then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(rpc.free).not.toHaveBeenCalled();
+
+      getNotes1.resolve([]);
+      await flushMicrotasks();
+      expect(rpc.free).not.toHaveBeenCalled();
+
+      getNotes2.resolve([]);
+      await flushMicrotasks();
+      expect(rpc.free).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
