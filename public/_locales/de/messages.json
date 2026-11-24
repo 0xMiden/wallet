@@ -7316,6 +7316,10 @@
     "message": "Diese Wallet ist im Miden-Mainnet nicht zugelassen. Für eine neue Wallet ist ein Zugangscode erforderlich.",
     "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
   },
+  "mainnetAdmissionPending": {
+    "message": "Wir konnten den Zugriff auf das Mainnet nicht bestätigen. Bitte versuchen Sie es später erneut.",
+    "englishSource": "We could not confirm Mainnet access. Try again later."
+  },
   "mainnetSecondAccountRefused": {
     "message": "Das Miden-Mainnet lässt nur das Konto und den registrierten Zugangscode zu.",
     "englishSource": "Miden mainnet admits only the account an access code registered."

@@ -1608,6 +1608,7 @@
   "mainnetAccessCodeRejected": "Bu kod çalışmadı. Kontrol edin ve tekrar deneyin.",
   "mainnetAccessCheckFailed": "Bu kodu kontrol edemedik. Daha sonra tekrar deneyin.",
   "mainnetAccountNotAdmitted": "Bu cüzdan, Miden ana ağında kabul edilmez. Yeni bir cüzdan için erişim kodu gereklidir.",
+  "mainnetAdmissionPending": "Mainnet erişimini doğrulayamadık. Lütfen daha sonra tekrar deneyin.",
   "mainnetSecondAccountRefused": "Miden ana ağı, yalnızca kayıtlı bir erişim kodu olan hesapları kabul eder.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Mainnet erişim kodunuz var mı?",

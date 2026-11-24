@@ -1600,6 +1600,7 @@
   "mainnetAccessCodeRejected": "Dieser Code hat nicht funktioniert. Überprüfe ihn und versuche es erneut.",
   "mainnetAccessCheckFailed": "Wir konnten diesen Code nicht überprüfen. Versuchen Sie es später erneut.",
   "mainnetAccountNotAdmitted": "Diese Wallet ist im Miden-Mainnet nicht zugelassen. Für eine neue Wallet ist ein Zugangscode erforderlich.",
+  "mainnetAdmissionPending": "Wir konnten den Zugriff auf das Mainnet nicht bestätigen. Bitte versuchen Sie es später erneut.",
   "mainnetSecondAccountRefused": "Das Miden-Mainnet lässt nur das Konto und den registrierten Zugangscode zu.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Haben Sie einen Mainnet-Zugangscode?",

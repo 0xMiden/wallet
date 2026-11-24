@@ -1609,6 +1609,7 @@
   "mainnetAccessCodeRejected": "This code did not work. Check it and try again.",
   "mainnetAccessCheckFailed": "We could not check this code. Try again later.",
   "mainnetAccountNotAdmitted": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code.",
+  "mainnetAdmissionPending": "We could not confirm Mainnet access. Try again later.",
   "mainnetSecondAccountRefused": "Miden mainnet admits only the account an access code registered.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Have a mainnet access code?",

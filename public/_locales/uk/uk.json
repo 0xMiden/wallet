@@ -1607,6 +1607,7 @@
   "mainnetAccessCodeRejected": "Цей код не спрацював. Перевірте його та спробуйте ще раз.",
   "mainnetAccessCheckFailed": "Ми не змогли перевірити цей код. Спробуйте ще раз пізніше.",
   "mainnetAccountNotAdmitted": "Цей гаманець не підтримується в основній мережі Miden. Для нового гаманця потрібен код доступу.",
+  "mainnetAdmissionPending": "Ми не змогли підтвердити доступ до Mainnet. Спробуйте пізніше.",
   "mainnetSecondAccountRefused": "Мережа Miden mainnet допускає лише той обліковий запис, для якого зареєстровано код доступу.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Маєте код доступу до мейннету?",

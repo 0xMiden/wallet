@@ -1609,6 +1609,7 @@
   "mainnetAccessCodeRejected": "このコードは動作しませんでした。コードを確認して、もう一度試してください。",
   "mainnetAccessCheckFailed": "このコードを確認できませんでした。後ほどもう一度お試しください。",
   "mainnetAccountNotAdmitted": "このウォレットはMidenメインネットでは利用できません。新しいウォレットにはアクセスコードが必要です。",
+  "mainnetAdmissionPending": "メインネットへのアクセスを確認できませんでした。後ほど再度お試しください。",
   "mainnetSecondAccountRefused": "Midenメインネットでは、登録済みのアカウントおよびアクセスコードのみが認められます。",
   "mainnet": "メインネット",
   "mainnetAccessTitle": "メインネットへのアクセスコードをお持ちですか？",

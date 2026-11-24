@@ -1609,6 +1609,7 @@
   "mainnetAccessCodeRejected": "此代碼無法運作。請檢查並重新嘗試。",
   "mainnetAccessCheckFailed": "我們無法驗證此程式碼。請稍後再試。",
   "mainnetAccountNotAdmitted": "此錢包未獲准在 Miden 主網使用。新錢包需要存取碼。",
+  "mainnetAdmissionPending": "我們無法確認主網存取權限。請稍後再試。",
   "mainnetSecondAccountRefused": "Miden 主網僅接受已註冊的帳戶及存取碼。",
   "mainnet": "主網",
   "mainnetAccessTitle": "您有主網存取碼嗎？",

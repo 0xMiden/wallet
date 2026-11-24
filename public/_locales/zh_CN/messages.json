@@ -7307,6 +7307,10 @@
     "message": "该钱包不被 Miden 主网接受。新钱包需要访问码。",
     "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
   },
+  "mainnetAdmissionPending": {
+    "message": "我们无法确认主网访问状态。请稍后重试。",
+    "englishSource": "We could not confirm Mainnet access. Try again later."
+  },
   "mainnetSecondAccountRefused": {
     "message": "Miden 主网仅允许已注册访问码的账户登录。",
     "englishSource": "Miden mainnet admits only the account an access code registered."

@@ -7309,6 +7309,10 @@
     "message": "Цей гаманець не підтримується в основній мережі Miden. Для нового гаманця потрібен код доступу.",
     "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
   },
+  "mainnetAdmissionPending": {
+    "message": "Ми не змогли підтвердити доступ до Mainnet. Спробуйте пізніше.",
+    "englishSource": "We could not confirm Mainnet access. Try again later."
+  },
   "mainnetSecondAccountRefused": {
     "message": "Мережа Miden mainnet допускає лише той обліковий запис, для якого зареєстровано код доступу.",
     "englishSource": "Miden mainnet admits only the account an access code registered."

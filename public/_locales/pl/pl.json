@@ -1607,6 +1607,7 @@
   "mainnetAccessCodeRejected": "Ten kod nie zadziałał. Sprawdź go i spróbuj ponownie.",
   "mainnetAccessCheckFailed": "Nie udało nam się sprawdzić tego kodu. Spróbuj ponownie później.",
   "mainnetAccountNotAdmitted": "Ten portfel nie jest dopuszczony do sieci głównej Miden. Nowy portfel wymaga kodu dostępu.",
+  "mainnetAdmissionPending": "Nie udało się potwierdzić dostępu do sieci Mainnet. Spróbuj ponownie później.",
   "mainnetSecondAccountRefused": "Sieć główna Miden dopuszcza wyłącznie konto zarejestrowane wraz z kodem dostępu.",
   "mainnet": "Sieć główna",
   "mainnetAccessTitle": "Masz kod dostępu do sieci głównej?",

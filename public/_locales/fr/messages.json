@@ -7311,6 +7311,10 @@
     "message": "Ce portefeuille n’est pas autorisé sur le réseau principal Miden. Un nouveau portefeuille nécessite un code d’accès.",
     "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
   },
+  "mainnetAdmissionPending": {
+    "message": "Nous n’avons pas pu confirmer l’accès au Mainnet. Veuillez réessayer plus tard.",
+    "englishSource": "We could not confirm Mainnet access. Try again later."
+  },
   "mainnetSecondAccountRefused": {
     "message": "Le réseau principal Miden n’accepte que le compte et le code d’accès enregistrés.",
     "englishSource": "Miden mainnet admits only the account an access code registered."

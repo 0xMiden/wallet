@@ -7307,6 +7307,10 @@
     "message": "このウォレットはMidenメインネットでは利用できません。新しいウォレットにはアクセスコードが必要です。",
     "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
   },
+  "mainnetAdmissionPending": {
+    "message": "メインネットへのアクセスを確認できませんでした。後ほど再度お試しください。",
+    "englishSource": "We could not confirm Mainnet access. Try again later."
+  },
   "mainnetSecondAccountRefused": {
     "message": "Midenメインネットでは、登録済みのアカウントおよびアクセスコードのみが認められます。",
     "englishSource": "Miden mainnet admits only the account an access code registered."

@@ -1605,6 +1605,7 @@
   "mainnetAccessCodeRejected": "Ce code n'a pas fonctionné. Vérifiez-le et réessayez.",
   "mainnetAccessCheckFailed": "Nous n’avons pas pu vérifier ce code. Veuillez réessayer plus tard.",
   "mainnetAccountNotAdmitted": "Ce portefeuille n’est pas autorisé sur le réseau principal Miden. Un nouveau portefeuille nécessite un code d’accès.",
+  "mainnetAdmissionPending": "Nous n’avons pas pu confirmer l’accès au Mainnet. Veuillez réessayer plus tard.",
   "mainnetSecondAccountRefused": "Le réseau principal Miden n’accepte que le compte et le code d’accès enregistrés.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Disposez-vous d’un code d’accès au réseau principal ?",
