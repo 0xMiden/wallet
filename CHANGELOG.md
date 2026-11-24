@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
 - [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
 - [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
 - [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
