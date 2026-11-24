@@ -1,7 +1,9 @@
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
+  IOneClickTrackingData,
   IBridgedReceivePhase,
+  IEpochLockedDeposit,
   IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
@@ -13,6 +15,9 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
+import type { PaybackClaimStuckReason } from 'lib/miden/swap/payback-claim';
+import type { CompletedHistoryCursor } from 'lib/miden/transaction/get';
+import type { SubmissionMessageKey } from 'lib/miden/transaction/submission-feedback';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
@@ -43,11 +48,21 @@ export interface IHistoryEntry {
   key: string;
   address: string;
   timestamp: number;
-  message: string;
+  /**
+   * Completed-history key from the source transaction. Newest-first display order is the reverse of
+   * unlimited `getCompletedTransactions`: Completed, then Failed, then Unconfirmed, with Failed and
+   * Unconfirmed ordered by `initiatedAt` and then id. Absent on pending rows and when the source has
+   * no `initiatedAt`; those keep the timestamp and type comparison.
+   */
+  historyOrder?: CompletedHistoryCursor;
+  /** Recovered and legacy transactions may have no stored display message. */
+  message?: string;
   type: HistoryEntryType;
   txType: ITransactionType;
 
   // Optional properties
+  /** Recorded request origins; display classification only, not proof of a valid game result. */
+  dappOrigins?: string[];
   /** Raw transaction status; set by the detail page for the status pill. */
   status?: ITransactionStatus;
   /** Failure reason (`tx.error`); set for failed transactions. */
@@ -56,10 +71,10 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
-  /** A row whose outcome is unknown rather than confirmed-failed (`isOutcomeUnconfirmed`). */
+  /** A row whose outcome is unknown rather than confirmed-failed (`readsAsNotConfirmed`). */
   isUnconfirmed?: boolean;
   /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
-  notConfirmedHint?: NotConfirmedHintKey;
+  notConfirmedHint?: NotConfirmedHintKey | SubmissionMessageKey;
   /**
    * `tx.noteDelivery` - whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
@@ -113,7 +128,11 @@ export interface IHistoryEntry {
    * status chip. Absent (rendered Confirmed) once settled, and for legacy /
    * manual-claim orders.
    */
-  swapSettlement?: 'pending' | 'reclaimed';
+  swapSettlement?: 'pending' | 'reclaimed' | 'reclaiming';
+  /** Requested-token execution ratio, independent of token display decimals. Unknown is omitted. */
+  swapFillProgress?: string;
+  /** Swap only: a failed payout claim's notes are still unclaimed and no payout claim is live (`getPaybackClaimStates`). */
+  paybackClaimStuck?: { failedClaimId: string; reason: PaybackClaimStuckReason };
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;
@@ -146,6 +165,8 @@ export interface IHistoryEntry {
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
+  /** When the row settled, in ms: the clock a burn confirmed before `confirmedAt` existed counts from. */
+  bridgeSettledAt?: number;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
   bridgeAgglayerRoute?: AgglayerRecoveryConfig;
@@ -186,13 +207,19 @@ export interface IHistoryEntry {
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
+  oneClickTracking?: IOneClickTrackingData;
   bridgeInSourceAddress?: string;
   bridgeInSourceChainId?: number;
   bridgeInSourceConfig?: UsdcxSourceChain;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
+  /** agglayer: the deposited ERC-20's address, lowercase; absent on ETH and older rows. */
+  bridgeInSourceToken?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
+  bridgeInStoppedBeforeSource?: boolean;
+  /** epoch: a deposit in The Compact that has no allocation, which Activity lets the sponsor recover (#2120). */
+  bridgeInLockedDeposit?: IEpochLockedDeposit;
   /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */
   bridgeInCctp?: IUsdcxCctpLeg;
   bridgeInOutputAmount?: string;

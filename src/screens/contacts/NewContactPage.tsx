@@ -20,12 +20,14 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
+import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error';
 import useIsMounted from 'lib/ui/useIsMounted';
-import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
+import { BridgeNetworkId, defaultBridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
+import { useContactBridgeNetworks } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
 import { ContactNameInput } from './ContactNameInput';
 
@@ -47,7 +49,9 @@ export const NewContactPage: React.FC = () => {
   // does not flash on every keystroke of an address still being typed.
   const [addressTouched, setAddressTouched] = useState(false);
   const [name, setName] = useState('');
-  const [network, setNetwork] = useState<BridgeNetworkId>(DEFAULT_BRIDGE_NETWORK.id);
+  const [network, setNetwork] = useState<BridgeNetworkId>(() => defaultBridgeNetwork().id);
+  const networks = useContactBridgeNetworks();
+  const selectedNetwork = networks.find(option => option.id === network)?.id ?? defaultBridgeNetwork().id;
   const [scanError, setScanError] = useState<string>();
   const [pasteError, setPasteError] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
@@ -66,11 +70,23 @@ export const NewContactPage: React.FC = () => {
     : undefined;
 
   let addressError: string | undefined;
-  if (scanError) addressError = t(scanError);
-  else if (pasteError) addressError = t(pasteError);
-  else if (trimmedAddress && !isValid && addressTouched) addressError = t('invalidAddress');
-  else if (existing?.accountInWallet) addressError = t('contactIsYourAccount');
-  else if (existing) addressError = t('contactAlreadySaved', { name: existing.name });
+  let addressErrorId: UserErrorId | null = null;
+  if (scanError) {
+    addressError = t(scanError);
+    addressErrorId = isUserErrorId(scanError) ? scanError : 'raw_contact_scan_failed';
+  } else if (pasteError) {
+    addressError = t(pasteError);
+    addressErrorId = 'nothingToPaste';
+  } else if (trimmedAddress && !isValid && addressTouched) {
+    addressError = t('invalidAddress');
+    addressErrorId = 'invalidAddress';
+  } else if (existing?.accountInWallet) {
+    addressError = t('contactIsYourAccount');
+    addressErrorId = 'contactIsYourAccount';
+  } else if (existing) {
+    addressError = t('contactAlreadySaved', { name: existing.name });
+    addressErrorId = 'contactAlreadySaved';
+  }
 
   const canSave = isValid && !existing && Boolean(trimmedName) && !saving;
 
@@ -118,7 +134,7 @@ export const NewContactPage: React.FC = () => {
         address: trimmedAddress,
         name: trimmedName,
         addedAt: Date.now(),
-        ...(isEvm ? { network } : {})
+        ...(isEvm ? { network: selectedNetwork } : {})
       });
       // Pop our own entry, and only while this page is still live - see the delete in
       // ContactDetailPage for why a named Replace duplicates the address book in history.
@@ -191,6 +207,7 @@ export const NewContactPage: React.FC = () => {
           className="break-all"
           data-testid="address-book-address-input"
           error={addressError}
+          errorId={addressErrorId}
           errorTestId="contact-address-error"
           trailing={
             !trimmedAddress && (isMobile() || isScanAvailable()) ? (
@@ -221,7 +238,8 @@ export const NewContactPage: React.FC = () => {
             <motion.div key="network" {...reveal} className="overflow-hidden">
               <NetworkField
                 chain={isEvm ? 'ethereum' : 'miden'}
-                network={network}
+                network={selectedNetwork}
+                networks={networks}
                 onSelect={setNetwork}
                 testIdPrefix="new-contact"
               />
@@ -231,7 +249,9 @@ export const NewContactPage: React.FC = () => {
 
         <ContactNameInput value={name} onChange={setName} />
 
-        <ErrorLine className="-mt-2">{saveError}</ErrorLine>
+        <ErrorLine className="-mt-2" errorId="raw_contact_save_failed">
+          {saveError}
+        </ErrorLine>
       </SubPageLayout>
 
       <ScanQrDrawer

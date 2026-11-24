@@ -3,6 +3,8 @@ import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/
 import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
 import { canonicalGuardianEndpoint, isValidGuardianUrl, sameGuardianEndpoint } from 'lib/settings/helpers';
 
+import { GuardianHistoryDataError } from './history-errors';
+import { compareAccountIds } from '../activity/utils';
 import type { IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
@@ -14,11 +16,11 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-history';
+import { isRecoveredSwapOrder } from '../swap/recovered-order';
 import type { ConsumableNote, NoteType } from '../types';
 import { NoteTypeEnum } from '../types';
-import { GuardianHistoryDataError } from './history-errors';
 
-export const GUARDIAN_HISTORY_VERSION = 4;
+export const GUARDIAN_HISTORY_VERSION = 6;
 export { GuardianHistoryDataError };
 
 export interface GuardianHistoryRecovery {
@@ -242,6 +244,20 @@ function transferNotes(
   }
 }
 
+// Every input note is a PSWAP note of one order, sent by this account: the creator taking its own offer back.
+function reclaimsOwnSwapOrder(accountId: string, notes: GuardianHistoryNote[]): boolean {
+  const orderId = notes[0]?.swap?.orderId;
+  return (
+    orderId !== undefined &&
+    notes.every(
+      note =>
+        note.swap?.orderId === orderId &&
+        note.swap?.requestedAsset !== undefined &&
+        compareAccountIds(note.sender ?? '', accountId)
+    )
+  );
+}
+
 /**
  * Builds the Activity row for one recovered delta, taken as the operator serves it. Its checks reject an inconsistent
  * answer, not a forged one: a delta push carries only its transaction summary, so an ordinary delta has no signer
@@ -288,7 +304,7 @@ export function recoveredHistoryRecord(
     proposal?.proposalType === 'switch_guardian' && payloadProposal?.proposalType === 'switch_guardian'
       ? { ...proposal, newGuardianEndpoint: proposal.newGuardianEndpoint ?? payloadProposal.newGuardianEndpoint }
       : proposal;
-  const type = recoveredAction(resolvedProposal);
+  const action = recoveredAction(resolvedProposal);
   const inputNotes: GuardianHistoryNote[] =
     summary?.inputNotes ??
     entry.inputNotes.map(note => ({
@@ -303,6 +319,13 @@ export function recoveredHistoryRecord(
       assets: [],
       visibility: note.noteType
     }));
+  // A Guardian zero-fill reclaim is proposed as a custom transaction. Recorded as the consume it is, it carries its
+  // input notes where reconcileRecoveredSwaps and every settlement reader look for a reclaim. One that also creates a
+  // user note (the fee note is split off) did more than reclaim, and as a consume it would drop that note.
+  const type =
+    action === 'execute' && outputNotes.length === 0 && reclaimsOwnSwapOrder(accountId, inputNotes)
+      ? 'consume'
+      : action;
   const selectedNotes = transferNotes(type, inputNotes, outputNotes);
   const totals = sumHistoryAssets(selectedNotes);
   const first = totals.length === 1 ? totals[0] : undefined;
@@ -317,7 +340,9 @@ export function recoveredHistoryRecord(
   const recipient = recipients.size === 1 ? [...recipients][0] : undefined;
   const noteIds = selectedNotes.map(note => note.id);
   const reclaimed =
-    type === 'consume' && inputNotes.length > 0 && inputNotes.every(note => note.sender === accountId.split('_')[0]);
+    type === 'consume' &&
+    inputNotes.length > 0 &&
+    inputNotes.every(note => compareAccountIds(note.sender ?? '', accountId));
   const secondaryAccountId =
     recipient ?? (type !== 'consume' && outputNotes.length <= 1 ? proposal?.recipientId : undefined);
   const noteType = selectedNotes[0] ? historyNoteVisibility(selectedNotes[0]) : NoteTypeEnum.Public;
@@ -409,7 +434,7 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
     const orders = rows.filter(
       row =>
         row.type === 'swap' &&
-        row.accountId === consume.accountId &&
+        compareAccountIds(row.accountId, consume.accountId) &&
         row.recovery?.network === consume.recovery?.network &&
         row.extraInputs?.orderId === first.orderId
     );
@@ -418,7 +443,9 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
     const faucetId = reclaim ? order.faucetId : order.extraInputs?.requestedFaucetId;
     if (
       !faucetId ||
-      notes.some(note => note.assets.length === 0 || note.assets.some(asset => asset.faucetId !== faucetId))
+      notes.some(
+        note => note.assets.length === 0 || note.assets.some(asset => !compareAccountIds(asset.faucetId, faucetId))
+      )
     )
       continue;
     touch(consume);
@@ -428,6 +455,7 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
       swapOrderTxId: order.id,
       swapSettleKind: reclaim ? 'reclaim' : 'settle'
     };
+    if (isRecoveredSwapOrder(order)) continue;
     const completedAt = consume.completedAt ?? consume.initiatedAt;
     order.extraInputs = {
       ...order.extraInputs,

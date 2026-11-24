@@ -12,6 +12,7 @@ import wasm from 'vite-plugin-wasm';
 import { copyClassicWorkerWasm } from './src/lib/build-assets/worker-wasm-assets';
 
 import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { devEligibilityOpen } from './src/lib/remote-config/dev-eligibility-open';
 import { walletCrashArtifactRegistry } from './src/lib/build-assets/crash-artifact-registry';
 
 const walletBuildIdentity = readWalletBuildIdentity(__dirname);
@@ -118,6 +119,10 @@ export default defineConfig({
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
     'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'false'),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_TESTNET': JSON.stringify(process.env.MIDEN_E2E_ONE_CLICK_TESTNET ?? 'false'),
+    'process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY': JSON.stringify(
+      process.env.MIDEN_E2E_ONE_CLICK_MANAGER_PUBLIC_KEY ?? ''
+    ),
     // Bridge config E2E source; see vite.extension.config.ts.
     'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
     // Explore catalog E2E source; see vite.extension.config.ts.
@@ -127,7 +132,7 @@ export default defineConfig({
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
     // defined (default OFF) so shared code that reads it resolves cleanly.
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
-    'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
+    'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '180000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
@@ -153,6 +158,8 @@ export default defineConfig({
     'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
     'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
     'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
+    'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
+    'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : ''),
     'process.browser': 'true',
     global: 'globalThis'
   },

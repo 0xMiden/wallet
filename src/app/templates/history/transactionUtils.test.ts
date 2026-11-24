@@ -8,11 +8,14 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET
 } from 'lib/epoch/testing/bridge-config';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { IOneClickTrackingData, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS } from 'lib/one-click/expiry';
+import { paymentTracking } from 'lib/one-click/testing/payment-tracking';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
@@ -29,11 +32,13 @@ import {
   fontColorForType,
   formatDate,
   formatMoneyAmount,
+  hasOwnBridgeBadge,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
+  networkHasFaucetClaims,
   isReceiveEntry,
   labelHistoryEntry,
   MoneyKind,
@@ -70,6 +75,15 @@ jest.mock('lib/miden/swap/tokens', () => ({
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
 // sync accessor with a steerable jest.fn.
+// The effective network: Testnet unless a case puts the wallet on Mainnet, which has no faucet.
+let mockWalletNetwork = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockWalletNetwork
+}));
+afterEach(() => {
+  mockWalletNetwork = 'testnet';
+});
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn()
 }));
@@ -350,6 +364,24 @@ describe('isFaucetRequest', () => {
     };
     expect(isFaucetRequest(entry)).toBe(true);
   });
+
+  // On Mainnet the native faucet is the USDCx minter, so a note it sent is a bridge-in: an
+  // ordinary receive, never a faucet claim.
+  it('is never a faucet claim on Mainnet', () => {
+    mockWalletNetwork = 'mainnet';
+    mockGetNativeAssetIdSync.mockReturnValue('native-id');
+    const entry: any = { transactionIcon: 'RECEIVE', faucetId: 'native-id', secondaryAddress: 'native-id' };
+    expect(isFaucetRequest(entry)).toBe(false);
+  });
+});
+
+describe('networkHasFaucetClaims', () => {
+  it('is false on Mainnet only', () => {
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.MAINNET)).toBe(false);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.TESTNET)).toBe(true);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.DEVNET)).toBe(true);
+    expect(networkHasFaucetClaims(MIDEN_NETWORK_NAME.LOCALNET)).toBe(true);
+  });
 });
 
 describe('isReceiveEntry', () => {
@@ -380,6 +412,13 @@ describe('isFaucetMintTransaction', () => {
   it('is not a faucet mint while the native faucet is unknown and the row names no faucet', () => {
     const transaction: any = { type: 'consume', faucetId: null, secondaryAccountId: null };
     expect(isFaucetMintTransaction(transaction, null)).toBe(false);
+  });
+
+  it('is a faucet mint off Mainnet and an ordinary claim on Mainnet', () => {
+    const transaction: any = { type: 'consume', faucetId: 'native', secondaryAccountId: 'native' };
+    expect(isFaucetMintTransaction(transaction, 'native')).toBe(true);
+    mockWalletNetwork = 'mainnet';
+    expect(isFaucetMintTransaction(transaction, 'native')).toBe(false);
   });
 });
 
@@ -485,12 +524,23 @@ describe('formatDate', () => {
   });
 
   it('parses a non-numeric but valid date string directly', () => {
-    // parseFloat('Jan 1 2021') is NaN => the `new Date(timestamp)` branch.
     expect(formatDate('Jan 1 2021 12:00')).toBe(expected(new Date('Jan 1 2021 12:00').getTime()));
+    expect(formatDate('2021-01-01T12:00:00Z')).toBe(expected(new Date('2021-01-01T12:00:00Z').getTime()));
   });
 
-  it('returns "Invalid Date" for an unparseable string', () => {
+  it('returns "Invalid Date" for an unparseable or malformed numeric string', () => {
     expect(formatDate('not-a-real-date')).toBe('Invalid Date');
+    expect(formatDate('1000abc')).toBe('Invalid Date');
+    expect(formatDate('1700000000ms')).toBe('Invalid Date');
+    expect(formatDate('0x65f00000')).toBe('Invalid Date');
+    expect(formatDate('0X65F00000')).toBe('Invalid Date');
+    expect(formatDate('0b1010')).toBe('Invalid Date');
+    expect(formatDate('0B1010')).toBe('Invalid Date');
+    expect(formatDate('0o777')).toBe('Invalid Date');
+    expect(formatDate('0O777')).toBe('Invalid Date');
+    expect(formatDate('')).toBe('Invalid Date');
+    expect(formatDate('   ')).toBe('Invalid Date');
+    expect(formatDate('Infinity')).toBe('Invalid Date');
   });
 
   it('returns "Invalid Date" for a NaN number (invalid resulting date)', () => {
@@ -675,6 +725,24 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
   });
 
+  it('reads Stopped before sending for a proven original pre-source stop, not a pending or failed delivery', () => {
+    const stopped = Object.assign(deposit({ bridgeInPhase: 'submitting' }), { bridgeInStoppedBeforeSource: true });
+    expect(bridgeBadgeStatusOf(stopped)).toBe('stoppedBeforeSource');
+    expect(hasOwnBridgeBadge(stopped)).toBe(true);
+  });
+
+  it('does not turn a restored, unresolved, or failed receive into a proven pre-source stop', () => {
+    const cases: Partial<IHistoryEntry>[] = [
+      { restoredFromBackup: true, bridgeInPhase: 'submitting' },
+      { bridgeInPhase: 'delivering' },
+      { bridgeInPhase: 'failed' }
+    ];
+    for (const overrides of cases) {
+      const entry = Object.assign(deposit(overrides), { bridgeInStoppedBeforeSource: true });
+      expect(bridgeBadgeStatusOf(entry)).toBe(overrides.bridgeInPhase === 'failed' ? 'failed' : 'pending');
+    }
+  });
+
   it('reads Failed for a failed deposit', () => {
     expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
   });
@@ -685,6 +753,85 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
         bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'epoch', bridgeInPhase: 'received' })
       )
     ).toBe('confirmed');
+  });
+});
+
+describe('bridgeBadgeStatusOf for a NEAR Intents deposit', () => {
+  const deadline = Date.parse(paymentTracking().fundingDeadline ?? '');
+  const pastGrace = deadline + NEAR_INTENTS_DEPOSIT_EXPIRY_GRACE_MS + 60_000;
+  const deposit = (tracking: Partial<IOneClickTrackingData>, overrides: Partial<IHistoryEntry> = {}) =>
+    bridgeEntry({
+      txType: 'bridged-receive',
+      bridgeInProvider: 'near-intents',
+      bridgeInPhase: 'submitting',
+      oneClickTracking: paymentTracking(tracking),
+      ...overrides
+    });
+
+  it('reads Pending before the funding deadline and its grace time', () => {
+    expect(bridgeBadgeStatusOf(deposit({}), deadline)).toBe('pending');
+  });
+
+  it('reads Expired once the deadline and its grace time pass with no deposit, before the reconciler records it', () => {
+    expect(bridgeBadgeStatusOf(deposit({}), pastGrace)).toBe('expired');
+    expect(bridgeBadgeStatusOf(deposit({ providerStatus: 'PENDING_DEPOSIT' }), pastGrace)).toBe('expired');
+  });
+
+  it('reads Expired, not Failed, once the reconciler records the expiry', () => {
+    const expired = deposit({ phase: 'expired' }, { bridgeInPhase: 'failed' });
+    expect(bridgeBadgeStatusOf(expired, deadline)).toBe('expired');
+    expect(bridgeStatusOf(expired)).toBe('expired');
+  });
+
+  it('keeps Pending past the deadline once 1Click saw a deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ providerStatus: 'PROCESSING' }), pastGrace)).toBe('pending');
+    expect(bridgeBadgeStatusOf(deposit({ originTransactionHash: '0xhash' }), pastGrace)).toBe('pending');
+  });
+
+  it('keeps Failed for a failed or refunded deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ phase: 'refunded' }, { bridgeInPhase: 'failed' }), pastGrace)).toBe('failed');
+  });
+});
+
+describe('bridgeBadgeStatusOf for an Epoch deposit locked in The Compact (#2120)', () => {
+  const lock = {
+    sponsorAddress: '0x00000000000000000000000000000000000000aa',
+    chainId: 11155111,
+    lockId: '42',
+    tokenAddress: '0x0000000000000000000000000000000000000002',
+    isNative: false,
+    amount: '1000000',
+    taskTypeString: 'task',
+    intentData: {},
+    lockedAt: 1
+  };
+  const locked = (overrides: Partial<IHistoryEntry>) =>
+    bridgeEntry({
+      txType: 'bridged-receive',
+      bridgeInProvider: 'epoch',
+      bridgeInPhase: 'failed',
+      bridgeInLockedDeposit: lock,
+      ...overrides
+    });
+
+  it('reads Deposit locked, and Deposit withdrawn once the deposit went back', () => {
+    expect(hasOwnBridgeBadge(locked({}))).toBe(true);
+    expect(bridgeBadgeStatusOf(locked({}))).toBe('depositLocked');
+    expect(bridgeBadgeStatusOf(locked({ bridgeInLockedDeposit: { ...lock, withdrawnAt: 2 } }))).toBe(
+      'depositWithdrawn'
+    );
+  });
+
+  it('reads the normal bridge status after a retry registered the deposit again', () => {
+    const retried = locked({ bridgeInPhase: 'delivering', bridgeInLockedDeposit: { ...lock, reallocatedAt: 2 } });
+    expect(hasOwnBridgeBadge(retried)).toBe(false);
+    expect(bridgeBadgeStatusOf(retried)).toBe('pending');
+  });
+
+  it('reads plain Failed for a restored row', () => {
+    const restored = locked({ restoredFromBackup: true });
+    expect(hasOwnBridgeBadge(restored)).toBe(false);
+    expect(bridgeBadgeStatusOf(restored)).toBe('failed');
   });
 });
 
@@ -708,6 +855,74 @@ describe('USDCx withdrawal stages', () => {
     };
     expect(bridgeBadgeStatusOf(arrived)).toBe('confirmed');
     expect(bridgeStatusOf(arrived)).toBe('confirmed');
+  });
+});
+
+describe('USDCx payout badge', () => {
+  const HOUR = 3_600_000;
+  const NOW = 1_800_000_000_000;
+  const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' } as const;
+  const burn = (extra: Partial<NonNullable<IHistoryEntry['usdcxBurn']>> = {}): IHistoryEntry =>
+    bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      bridgeSettledAt: NOW - 3 * HOUR,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+        ...extra
+      }
+    });
+
+  it('reads Confirmed on a recorded payout', () => {
+    const paid = burn({ payout });
+    expect(bridgeBadgeStatusOf(paid, NOW)).toBe('confirmed');
+    expect(bridgeStatusOf(paid)).toBe('confirmed');
+  });
+
+  it('reads Confirmed on a legacy balance confirmation', () => {
+    const legacy = burn({ destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } });
+    expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
+    expect(bridgeStatusOf(legacy)).toBe('confirmed');
+  });
+
+  it('reads Payout delayed 2 hours after the burn confirmed without a payout', () => {
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR }), NOW)).toBe('payoutDelayed');
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR }), NOW)).not.toBe('burnConfirmed');
+    // A row confirmed before confirmedAt existed counts from when it settled.
+    expect(bridgeBadgeStatusOf(burn(), NOW)).toBe('payoutDelayed');
+  });
+
+  it('reads Burn confirmed before 2 hours', () => {
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 2 * HOUR + 1 }), NOW)).toBe('burnConfirmed');
+    expect(bridgeBadgeStatusOf({ ...burn(), bridgeSettledAt: NOW - HOUR }, NOW)).toBe('burnConfirmed');
+    expect(bridgeBadgeStatusOf({ ...burn(), bridgeSettledAt: undefined }, NOW)).toBe('burnConfirmed');
+  });
+
+  it('never reads Payout delayed on a balance-confirmed row', () => {
+    const legacy = burn({
+      confirmedAt: NOW - 30 * HOUR,
+      destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+    });
+    expect(bridgeBadgeStatusOf(legacy, NOW)).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(burn({ confirmedAt: NOW - 30 * HOUR, payout }), NOW)).toBe('confirmed');
+  });
+
+  it('a restored row never reads Payout delayed', () => {
+    const restored = { ...burn({ confirmedAt: NOW - 30 * HOUR }), restoredFromBackup: true };
+    expect(bridgeBadgeStatusOf(restored, NOW)).toBe('burnConfirmed');
+  });
+
+  it('a row without a saved snapshot never reads Payout delayed', () => {
+    const old = burn({ confirmedAt: NOW - 30 * HOUR, destinationBalanceBefore: undefined });
+    expect(bridgeBadgeStatusOf(old, NOW)).toBe('burnConfirmed');
+  });
+
+  it('never reads Payout delayed before the burn confirmed', () => {
+    expect(bridgeBadgeStatusOf(burn({ phase: 'consuming' }), NOW)).toBe('burnConsuming');
+    expect(bridgeBadgeStatusOf(burn({ phase: 'pending' }), NOW)).toBe('burnPending');
   });
 });
 
@@ -754,6 +969,41 @@ describe('bridgeStatusOf', () => {
 });
 
 describe('bridgeRowDisplay', () => {
+  it.each([
+    { chainId: 1, network: 'Ethereum' },
+    { chainId: 11155111, network: 'Sepolia' },
+    { chainId: 8453, network: 'Base' },
+    { chainId: 999999, network: '999999' }
+  ])('shows the saved Agglayer destination chain $chainId', ({ chainId, network }) => {
+    const entry = bridgeEntry({
+      token: 'ETH',
+      bridgeProvider: 'agglayer',
+      bridgeDestinationNetwork: 0,
+      bridgeAgglayerRoute: {
+        chainId,
+        contractAddress: '0x0000000000000000000000000000000000000001',
+        midenBridgeId: '0xbridge',
+        indexerUrl: 'https://indexer.example',
+        rollupId: 1,
+        evmNetworkId: 0
+      }
+    });
+
+    expect(bridgeRowDisplay(UNLOADED, entry).network).toBe(network);
+  });
+
+  it('keeps Sepolia for an older Agglayer row without a saved route', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'agglayer', bridgeDestinationNetwork: 0 })).network
+    ).toBe('Sepolia');
+  });
+
+  it('shows the saved Epoch destination chain', () => {
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'epoch', bridgeDestinationNetwork: 8453 })).network
+    ).toBe('Base');
+  });
+
   it('renders an epoch row from its quoted output', () => {
     expect(
       bridgeRowDisplay(
@@ -792,22 +1042,31 @@ describe('bridgeRowDisplay', () => {
     expect(quoted('0.00')).toBe('0');
   });
 
-  it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
+  it.each(['NEAR', 'WBTC', 'USDC', 'ETH', 'MIDEN'])(
+    'uses %s on both sides of an Agglayer withdrawal without an output symbol',
+    token => {
+      expect(
+        bridgeRowDisplay(
+          UNLOADED,
+          bridgeEntry({ token, amount: '1.2', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+        )
+      ).toEqual({
+        inSymbol: token,
+        outSymbol: token,
+        inLabel: token,
+        outLabel: token,
+        outAmount: '1.2',
+        providerLabel: 'Agglayer',
+        network: 'Sepolia',
+        status: 'confirmed'
+      });
+    }
+  );
+
+  it('keeps the saved Agglayer output symbol', () => {
     expect(
-      bridgeRowDisplay(
-        UNLOADED,
-        bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
-      )
-    ).toEqual({
-      inSymbol: 'MIDEN',
-      outSymbol: 'ETH',
-      inLabel: 'MIDEN',
-      outLabel: 'ETH',
-      outAmount: '7',
-      providerLabel: 'Agglayer',
-      network: 'Sepolia',
-      status: 'confirmed'
-    });
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'WETH', bridgeProvider: 'agglayer', bridgeOutputSymbol: 'ETH' }))
+    ).toMatchObject({ inSymbol: 'WETH', outSymbol: 'ETH', outLabel: 'ETH' });
   });
 
   it('falls back to em dash / USDC / "Bridge" when the row carries no provider or token', () => {
@@ -1076,6 +1335,23 @@ describe('bridge rows testnet bridge USDC label', () => {
     });
   });
 
+  // An AggLayer row saves the ERC-20 it deposited: only the bridge's own USDC takes the testnet label.
+  it('names an AggLayer ERC-20 bridge-in by its own symbol unless it is the bridge USDC', () => {
+    const agglayerIn = (symbol: string, token: string) =>
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: symbol,
+          bridgeInSourceToken: token
+        })
+      ).inLabel;
+    expect(agglayerIn('WBTC', '0x00000000000000000000000000000000000000d1')).toBe('WBTC');
+    expect(agglayerIn('USDC', TEST_EVM_USDC.address.toLowerCase())).toBe('Test Epoch USDC');
+  });
+
   it.each(['USDC', TEST_EVM_USDC.address])(
     'labels an old Epoch bridge-in row saved with USDC or with the token address (%s)',
     saved => {
@@ -1109,6 +1385,47 @@ describe('bridge rows testnet bridge USDC label', () => {
         })
       )
     ).toMatchObject({ inLabel: 'Test Epoch USDC', outLabel: 'Test Epoch USDC' });
+  });
+
+  it('labels an Epoch output whose symbol is the route USDC read, and keeps ETH and WETH', () => {
+    const derived = TEST_BRIDGE_CONFIG_SNAPSHOT.derived;
+    const chain = derived?.chains[11155111];
+    const read = chain?.epoch.tokens.USDC;
+    if (!derived || !chain || !read || read.state !== 'ok') throw new Error('The test USDC read is missing');
+    const usdcE: BridgeConfigSnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      derived: {
+        ...derived,
+        chains: {
+          ...derived.chains,
+          11155111: {
+            ...chain,
+            epoch: {
+              ...chain.epoch,
+              tokens: {
+                ...chain.epoch.tokens,
+                USDC: { state: 'ok', value: { ...read.value, symbol: 'USDC.e' } }
+              }
+            }
+          }
+        }
+      }
+    };
+    expect(
+      bridgeRowDisplay(usdcE, bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'USDC.e' })).outLabel
+    ).toBe('Test Epoch USDC');
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'ETH', bridgeOutputAmount: '2' })
+      )
+    ).toMatchObject({ outSymbol: 'ETH', outLabel: 'ETH' });
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ bridgeProvider: 'epoch', bridgeOutputSymbol: 'WETH', bridgeOutputAmount: '2' })
+      ).outLabel
+    ).toBe('WETH');
   });
 
   it('leaves an Agglayer ETH row on ETH', () => {
@@ -1197,6 +1514,21 @@ describe('swap settlement state', () => {
   // Same minimal-shape casting as the helpers above; only these fields are read.
   const swap = (extraInputs: Record<string, unknown>, status = 2): any => ({ type: 'swap', status, extraInputs });
 
+  it('reports the queued return instead of continuing to advertise matching', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 }))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101, reclaimedAt: 110 }))).toBe(
+      'reclaimed'
+    );
+  });
+
+  // Settlement never acts on a restored row (localSwapOrders drops it), so its stamp cannot become reclaimed.
+  it('reports the return only for an order the settlement acts on', () => {
+    const stamped = { orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 };
+    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('pending');
+    expect(swapSettlementOf(swap(stamped))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ expiresAt: 100, expiryTriggeredAt: 101 }))).toBeUndefined();
+  });
+
   it('reports pending only for an auto-consumed order with an expiry and no stamp', () => {
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }))).toBe('pending');
   });
@@ -1230,6 +1562,88 @@ describe('swap settlement state', () => {
     expect(swapSettlementOf(swap({ expiresAt: 1_700_000_120 }))).toBeUndefined();
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }, 0))).toBeUndefined();
     expect(swapSettlementOf({ type: 'send', status: 2, extraInputs: { orderId: 42n } } as any)).toBeUndefined();
+  });
+
+  describe('a Guardian-recovered order', () => {
+    // Recovery records every order with Auto accept off and no expiry, so the rule above read each one Confirmed
+    // while the placing device read it Pending (#1487).
+    const recovered = (
+      extraInputs: Record<string, unknown> = {},
+      overrides: Partial<ITransaction> = {}
+    ): ITransaction => ({
+      id: 'guardian-history:testnet:account:0xcommitment',
+      type: 'swap',
+      accountId: 'account',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 100,
+      displayIcon: 'DEFAULT',
+      amount: 70n,
+      outputNoteIds: ['order-note'],
+      restoredFromBackup: true,
+      recovered: true,
+      recovery: {
+        version: 5,
+        network: 'testnet',
+        operators: [],
+        nonce: 2,
+        inputNotes: [],
+        outputNotes: [
+          {
+            id: 'order-note',
+            assets: [],
+            visibility: 'public',
+            swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+          }
+        ],
+        completeness: 'decoded',
+        reclaimed: false
+      },
+      extraInputs: { orderId: '42', requestedAmount: 30n, autoConsume: false, ...extraInputs },
+      ...overrides
+    });
+
+    it('reads open while no fill or reclaim was found', () => {
+      expect(swapSettlementOf(recovered())).toBe('pending');
+    });
+
+    it('reads open while a fill has left a remainder on offer', () => {
+      expect(
+        swapSettlementOf(recovered({ recoveredTip: { noteId: 'remainder', depth: 1, remainingOffered: 20n } }))
+      ).toBe('pending');
+    });
+
+    it('reads Returning funds once this wallet asked for its return', () => {
+      expect(swapSettlementOf(recovered({ expiresAt: 150, expiryTriggeredAt: 150 }))).toBe('reclaiming');
+    });
+
+    it('reads the settlement or reclaim its lineage closed it with, as any order does', () => {
+      expect(swapSettlementOf(recovered({ settledAt: 160, lineageClosedAt: 160 }))).toBeUndefined();
+      expect(swapSettlementOf(recovered({ reclaimedAt: 160, lineageClosedAt: 160 }))).toBe('reclaimed');
+      expect(swapSettlementOf(recovered({ expiryTriggeredAt: 150, reclaimedAt: 160, lineageClosedAt: 160 }))).toBe(
+        'reclaimed'
+      );
+    });
+
+    // The pre-fix recovery reconcile stamped an order closed from a linked payout or reclaim with no lineage read, so a
+    // partial fill's payout read Confirmed while the remainder was still on offer (#1487).
+    it.each([
+      ['settledAt', { settledAt: 160 }, undefined],
+      ['reclaimedAt', { reclaimedAt: 160 }, 'reclaimed']
+    ])('reads open over a %s no lineage read recorded, until a read decides', (_label, stamp, closed) => {
+      expect(swapSettlementOf(recovered(stamp))).toBe('pending');
+      // An open read cleared it.
+      expect(swapSettlementOf(recovered())).toBe('pending');
+      // A finished read recorded it.
+      expect(swapSettlementOf(recovered({ ...stamp, lineageClosedAt: 170 }))).toBe(closed);
+    });
+
+    it('reads Confirmed once the node showed its order note spent with nothing of this wallet behind it', () => {
+      expect(swapSettlementOf(recovered({ orderNoteSpentAt: 170 }))).toBeUndefined();
+    });
+
+    it('reads Confirmed for a recovered order whose order note it cannot name, which it cannot track', () => {
+      expect(swapSettlementOf(recovered({}, { outputNoteIds: [] }))).toBeUndefined();
+    });
   });
 });
 

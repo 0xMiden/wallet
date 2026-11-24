@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { OnboardingType } from 'screens/onboarding/types';
 
 import { ConfirmationScreen } from './Confirmation';
@@ -74,6 +75,24 @@ const renderComponent = (props: Partial<React.ComponentProps<typeof Confirmation
 // Tests
 // ---------------------------------------------------------------------------
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
+
 describe('ConfirmationScreen', () => {
   describe('creating (side-panel handoff) branch', () => {
     it('renders the spinner and creating copy while creating', () => {
@@ -119,16 +138,15 @@ describe('ConfirmationScreen', () => {
 
     it('renders the hero illustration, decorative and capped at 280px', () => {
       const { container } = renderComponent();
-      const svg = container.querySelector('svg');
-      expect(svg).toHaveClass('max-w-[280px]');
-      expect(svg).toHaveAttribute('aria-hidden', 'true');
+      const img = container.querySelector('img');
+      expect(img).toHaveClass('max-w-[280px]');
+      expect(img).toHaveAttribute('aria-hidden', 'true');
     });
 
     it('renders the translated ready heading and reminder copy', () => {
       renderComponent();
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('yourWalletIsReady');
       expect(screen.getByText('recoveryPhraseSevenDayReminder')).toBeInTheDocument();
-      expect(screen.getByText('recoveryPhraseDailyReminder')).toBeInTheDocument();
     });
 
     it('tells an import that opening the wallet finishes the restore, with no create reminder', () => {
@@ -143,7 +161,7 @@ describe('ConfirmationScreen', () => {
       renderComponent({ onboardingType: OnboardingType.Create });
 
       expect(screen.getByText('recoveryPhraseSevenDayReminder')).toBeInTheDocument();
-      expect(screen.getByTestId('onboarding-confirmation-reminder')).toBeInTheDocument();
+      expect(screen.queryByTestId('onboarding-confirmation-reminder')).not.toBeInTheDocument();
     });
 
     it('renders a single primary submit button titled "openWallet"', () => {
@@ -190,14 +208,11 @@ describe('ConfirmationScreen', () => {
 
     it('draws the outcome hero with the reminders and pins the CTA in the footer', () => {
       renderComponent();
-      // The page title's size: the hero is the screen's only heading.
-      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
+      // The xl hero size: the screen's only heading, a step up from the page title.
+      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-hero-value', 'font-extrabold');
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('yourWalletIsReady');
-      // The daily reminder is one quiet caption line under the subtitle, not a Notice panel.
-      const reminder = screen.getByTestId('onboarding-confirmation-reminder');
-      expect(reminder).toHaveTextContent('recoveryPhraseDailyReminder');
-      expect(reminder).toHaveClass('text-explainer', 'font-semibold', 'text-muted');
-      expect(reminder.closest('[role="note"]')).toBeNull();
+      // The daily reminder line is gone; the seven-day subtitle is the only reminder.
+      expect(screen.queryByTestId('onboarding-confirmation-reminder')).not.toBeInTheDocument();
       expect(screen.getByText('recoveryPhraseSevenDayReminder')).toHaveClass('text-balance');
       expect(screen.getByTestId('onboarding-confirmation-submit').closest('[data-slot="footer"]')).not.toBeNull();
     });
@@ -337,6 +352,20 @@ describe('ConfirmationScreen', () => {
         expect(screen.getByRole('alert')).toHaveTextContent('biometricFailed');
       });
 
+      // The iOS E2E driver recognizes a failed create by this id and presses Retry through the submit button's id.
+      it('marks the failure for E2E and keeps the Retry on the submit id', () => {
+        renderComponent({ recoveryError: 'Failed to sync state' });
+
+        expect(screen.getByTestId('onboarding-confirmation-failed')).toHaveTextContent('Failed to sync state');
+        expect(screen.getByTestId('onboarding-confirmation-submit')).toHaveTextContent('retry');
+      });
+
+      it('has no failure mark while the wallet is ready', () => {
+        renderComponent();
+
+        expect(screen.queryByTestId('onboarding-confirmation-failed')).not.toBeInTheDocument();
+      });
+
       it('announces a registration failure that is also a biometric attempt as one alert', () => {
         renderComponent({ recoveryError: 'hardware key rejected', biometricError: 'boom', biometricAttempts: 1 });
 
@@ -379,5 +408,59 @@ describe('ConfirmationScreen', () => {
         expect(onSwitchToPassword).not.toHaveBeenCalled();
       });
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  it('reports one display when recovery and biometric failures share a notice', () => {
+    renderComponent({ recoveryError: privateErrorFixture, biometricError: privateErrorFixture, biometricAttempts: 1 });
+    expect(screen.getByText('biometricFailed')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-recovery-error')).toHaveTextContent(privateErrorFixture);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('raw_onboarding_recovery_failed', 'notice');
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports recovery failure using its site identity without leaking the message', () => {
+    renderComponent({ recoveryError: privateErrorFixture });
+    expect(screen.getByTestId('onboarding-recovery-error')).toHaveTextContent(privateErrorFixture);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('raw_onboarding_recovery_failed', 'notice');
+  });
+  it('reports the translated biometric failure once', () => {
+    renderComponent({ biometricError: privateErrorFixture, biometricAttempts: 1 });
+    expect(screen.getByText('biometricFailed')).toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('biometricFailed', 'notice');
+  });
+  it.each([
+    { creating: true, recoveryError: privateErrorFixture },
+    { biometricError: privateErrorFixture, biometricAttempts: 0 },
+    {}
+  ])('does not report progress or ready state %j', props => {
+    renderComponent(props);
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+  it('cancels a recovery error episode unmounted before dwell', () => {
+    const view = renderComponent({ recoveryError: privateErrorFixture });
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    view.unmount();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

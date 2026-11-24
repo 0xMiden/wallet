@@ -1,10 +1,14 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { createLocationState, HistoryAction, navigate, resetHistoryPosition } from 'lib/woozie';
 
 import { BridgeDeposit } from './BridgeDeposit';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
@@ -13,7 +17,7 @@ import { BridgeDeposit } from './BridgeDeposit';
 let mockEffectiveNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getTestNetworkNameKey: () => 'testnet',
+  getTestNetworkNameKey: () => (mockEffectiveNetwork === 'mainnet' ? null : 'testnet'),
   getEffectiveNetworkName: () => mockEffectiveNetwork
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
@@ -24,17 +28,25 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('@reown/appkit/react', () => ({
   useAppKit: () => ({ open: jest.fn() }),
-  useDisconnect: () => ({ disconnect: jest.fn() })
+  useDisconnect: () => ({ disconnect: () => mockDisconnect() })
 }));
+let mockDisconnect: jest.Mock = jest.fn();
 
+let mockConnectionError: string | null = null;
 let mockConnection: { address: string | undefined; connected: boolean } = { address: undefined, connected: false };
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({
     ...mockConnection,
     status: 'idle',
-    nativeReown: { error: null },
+    nativeReown: { error: mockConnectionError },
     useNativeReownWallet: false
   })
+}));
+
+let mockOpenConnectModal: jest.Mock = jest.fn();
+jest.mock('lib/walletconnect/appkit', () => ({
+  prepareAppKitConnection: jest.fn(async () => undefined),
+  openConnectModal: () => mockOpenConnectModal()
 }));
 
 jest.mock('lib/store', () => ({
@@ -42,10 +54,7 @@ jest.mock('lib/store', () => ({
     select({ currentAccount: { publicKey: 'miden-account' } })
 }));
 
-const mockNavigate = jest.fn();
-jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(...args) }));
-
-jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
 
 let mockUsdcxDepositAvailable = false;
 let mockBridgeIn: FeatureAvailability = { state: 'available' };
@@ -78,19 +87,17 @@ jest.mock('components/ui/Button', () => ({
   )
 }));
 
-jest.mock('components/PageHeader', () => ({
-  PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
-    <div>
-      {title}
-      <button type="button" aria-label="close" onClick={onClose}>
-        close
+jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
+  EvmBridgeDepositScreen: ({ onClose, onConnectAnother }: { onClose: () => void; onConnectAnother: () => void }) => (
+    <div data-testid="bridge-deposit-screen">
+      <button type="button" onClick={onConnectAnother}>
+        switch
+      </button>
+      <button type="button" onClick={onClose}>
+        back
       </button>
     </div>
   )
-}));
-
-jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
-  EvmBridgeDepositScreen: () => <div data-testid="bridge-deposit-screen" />
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -104,7 +111,8 @@ describe('BridgeDeposit (#875)', () => {
     mockBridgeIn = { state: 'available' };
     mockUsdcxDepositAvailable = false;
     mockEffectiveNetwork = 'testnet';
-    mockNavigate.mockClear();
+    navigate('/bridge/deposit', HistoryAction.Replace);
+    resetHistoryPosition();
   });
 
   // The NOT-YET-CONNECTED prompt. `beforeEach` sets `connected: false`, and this suite stubs
@@ -118,11 +126,53 @@ describe('BridgeDeposit (#875)', () => {
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 
-  it('closes via the header, falling back to /receive with no onClose prop', () => {
+  it('keeps the active bridge step number legible on the receive tint', () => {
     render(<BridgeDeposit />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'close' }));
-    expect(mockNavigate).toHaveBeenCalledWith('/receive');
+    const currentStep = screen.getByText('1').parentElement;
+    const nextStep = screen.getByText('2').parentElement;
+    expect(currentStep).toHaveClass('bg-accent-receive-tint', 'text-accent-receive-ink');
+    expect(nextStep).not.toHaveClass('bg-accent-receive-tint', 'text-accent-receive-ink');
+  });
+
+  it.each([
+    { origin: '/', connected: false },
+    { origin: '/receive', connected: false },
+    { origin: '/', connected: true },
+    { origin: '/receive', connected: true }
+  ])('returns to $origin on back with connected=$connected', async ({ origin, connected }) => {
+    mockConnection = connected ? { address: '0xabc', connected: true } : { address: undefined, connected: false };
+    navigate(origin, HistoryAction.Replace);
+    navigate('/bridge/deposit');
+
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    await waitFor(() => expect(createLocationState().pathname).toBe(origin));
+    expect(createLocationState()).toMatchObject({ trigger: HistoryAction.Pop, historyPosition: 0 });
+  });
+
+  it('returns a deposit opened without history to Home without adding a history entry', () => {
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(createLocationState()).toMatchObject({
+      pathname: '/',
+      trigger: HistoryAction.Replace,
+      historyPosition: 0
+    });
+  });
+
+  it('uses an explicit close handler when provided', () => {
+    const onClose = jest.fn();
+    render(<BridgeDeposit onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(createLocationState().pathname).toBe('/bridge/deposit');
   });
 
   it('warns to connect a test wallet only while no EVM wallet is connected', () => {
@@ -130,15 +180,24 @@ describe('BridgeDeposit (#875)', () => {
 
     const warning = screen.getByTestId('evm-connect-test-wallet-warning');
     expect(warning).toHaveAttribute('role', 'note');
-    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning).toHaveAttribute('data-tone', 'caution');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
-    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeConnectTestWalletBody');
+  });
+
+  it('shows no test-wallet warning on mainnet, where the funds are real', () => {
+    mockEffectiveNetwork = 'mainnet';
+    render(<BridgeDeposit />);
+
+    // The title heads the page and names step 1.
+    expect(screen.getAllByText('bridgeConnectWalletTitle')).toHaveLength(2);
+    expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
 
   it('opens a wallet while a bridge-in route can start', () => {
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeEnabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
   });
 
@@ -148,7 +207,7 @@ describe('BridgeDeposit (#875)', () => {
     mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeDisabled();
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
   });
 
@@ -158,7 +217,7 @@ describe('BridgeDeposit (#875)', () => {
     mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
     render(<BridgeDeposit />);
 
-    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeEnabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
     expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
       hold: true
@@ -187,5 +246,77 @@ describe('BridgeDeposit (#875)', () => {
 
     expect(screen.getByTestId('bridge-deposit-screen')).toBeInTheDocument();
     expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
+  });
+});
+
+it('reports a displayed wallet connection failure after 1000 ms without its text', async () => {
+  jest.useFakeTimers();
+  mockConnectionError = 'private connection failure';
+  mockConnection = { address: undefined, connected: false };
+  jest.mocked(reportUserVisibleError).mockClear();
+  try {
+    render(<BridgeDeposit />);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1000);
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_bridge_connect_failed', 'notice');
+  } finally {
+    mockConnectionError = null;
+    jest.useRealTimers();
+  }
+});
+
+describe('BridgeDeposit web connect failure (#2109)', () => {
+  beforeEach(() => {
+    mockConnection = { address: undefined, connected: false };
+    mockBridgeIn = { state: 'available' };
+    mockOpenConnectModal = jest.fn();
+    mockDisconnect = jest.fn();
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('shows the failure when the connect modal cannot open instead of leaving the button dead', async () => {
+    mockOpenConnectModal = jest.fn().mockRejectedValue(new Error('WalletConnect relay unreachable'));
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'bridgeConnectWalletAction' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('WalletConnect relay unreachable');
+  });
+
+  it('clears the failure on the next attempt that opens', async () => {
+    mockOpenConnectModal = jest.fn().mockRejectedValueOnce(new Error('first failure')).mockResolvedValue(undefined);
+    render(<BridgeDeposit />);
+    const connect = screen.getByRole('button', { name: 'bridgeConnectWalletAction' });
+
+    fireEvent.click(connect);
+    expect(await screen.findByRole('alert')).toHaveTextContent('first failure');
+    fireEvent.click(connect);
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('shows a localized fallback when the failure carries no message', async () => {
+    mockOpenConnectModal = jest.fn().mockRejectedValue('refused');
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'bridgeConnectWalletAction' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('bridgeConnectPickerFailed');
+  });
+
+  it('shows the failure when switching wallets cannot reopen the picker', async () => {
+    mockConnection = { address: '0xabc', connected: true };
+    mockDisconnect = jest.fn(async () => {
+      mockConnection = { address: undefined, connected: false };
+    });
+    mockOpenConnectModal = jest.fn().mockRejectedValue(new Error('picker refused'));
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'switch' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('picker refused');
   });
 });

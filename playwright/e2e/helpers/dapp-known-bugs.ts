@@ -1,4 +1,4 @@
-import type { AxisLabel, FailureEvidence } from './dapp-cells';
+import type { AxisLabel, FailureEvidence, Surface } from './dapp-cells';
 import pinned from './dapp-pinned.json';
 
 /**
@@ -14,108 +14,64 @@ export interface FailureFacts {
   readonly evidence: FailureEvidence;
 }
 
+/** One place a known bug is red: an axis on a surface. */
+export interface CellPlacement {
+  readonly axis: AxisLabel;
+  readonly surface: Surface;
+}
+
 export interface KnownBug {
   readonly id: string;
   readonly title: string;
   /** Where the fix lives; the entry goes when it lands. */
   readonly tracking: string;
-  /** Each affected cell id and the axes it is red on. */
-  readonly cells: Readonly<Record<string, readonly AxisLabel[]>>;
+  /** Each affected cell and where it is red; a phase-1 entry covers a mobile cell only once a mobile run showed it. */
+  readonly cells: Readonly<Record<string, readonly CellPlacement[]>>;
+  /** The e2e-dapp.yml run id whose records showed this signature on iOS or Android; set once any placement is mobile. */
+  readonly mobileEvidenceRun?: string;
   /** True only for this bug's failure, so the same cell failing any other way stays new. */
   signature(facts: FailureFacts): boolean;
 }
 
 export interface KnownBugRegistry {
-  bugsFor(cellId: string, axis: AxisLabel): readonly KnownBug[];
+  bugsFor(cellId: string, surface: Surface, axis: AxisLabel): readonly KnownBug[];
 }
 
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
-const GUARDIAN: readonly AxisLabel[] = ['guardian'];
-const on = (ids: readonly string[], axes: readonly AxisLabel[]): Record<string, readonly AxisLabel[]> =>
-  Object.fromEntries(ids.map(id => [id, axes]));
+const EXTENSION: readonly Surface[] = ['extension'];
+const on = (
+  ids: readonly string[],
+  axes: readonly AxisLabel[],
+  surfaces: readonly Surface[] = EXTENSION
+): Record<string, readonly CellPlacement[]> =>
+  Object.fromEntries(ids.map(id => [id, surfaces.flatMap(surface => axes.map(axis => ({ axis, surface })))]));
+
+// The adapter's wrapper class for each refusal kind, shared with the cell assertions.
+// Keeping runtime imports JSON-only lets the mobile cells share these names without loading their journey here.
+export const REFUSAL_WRAPPERS = { connect: 'WalletConnectionError', transaction: 'WalletTransactionError' };
 
 export const KNOWN_BUGS: readonly KnownBug[] = [
   {
-    id: 'K1',
-    title: 'MidenWalletAdapter never follows the provider accountChange',
-    tracking: '0xMiden/web-sdk#469 (open)',
-    cells: on(['S7', 'M1'], BOTH),
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      // With no address from before the switch there is nothing the adapter could have kept.
-      evidence.previousAddress !== undefined &&
-      evidence.providerAddress !== evidence.previousAddress &&
-      evidence.adapterAddress === evidence.previousAddress
-  },
-  {
-    id: 'K2',
-    title: 'requestConsume with noteBytes of an unheld note fails after approval',
-    tracking: '0xMiden/wallet#1413 (open)',
-    cells: on(['W6'], BOTH),
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.popupOpened === true &&
-      (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-      (evidence.dappError?.message ?? '').includes('not found')
-  },
-  {
-    id: 'K5',
-    title: 'Send, consume, custom and note or asset reads while locked are refused before any prompt as INVALID_PARAMS',
-    tracking: '0xMiden/wallet#1414 (open)',
-    cells: on(['S9'], BOTH),
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.popupOpened === false &&
-      (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-      (evidence.dappError?.message ?? '').includes('Wallet is locked')
-  },
-  {
-    id: 'K7',
-    title: 'waitForTransaction has no session or origin gate',
-    tracking: '0xMiden/wallet#1416 (open)',
-    cells: on(['M7'], BOTH),
-    signature: ({ source, evidence }) => source === 'hard' && evidence.crossOriginWaitServed === true
-  },
-  {
-    id: 'K8',
+    id: 'K13',
     title:
-      'Guardian signBytes(signingInputs) fails after approval with an opaque keystore miss instead of signing with the hot key',
-    tracking: '0xMiden/wallet#1417 (open)',
-    cells: on(['G2a', 'G2b', 'G2c'], GUARDIAN),
-    // Only a `word` reaches the hot key (src/lib/miden/back/vault.ts:2227); signingInputs reads the keystore under the
-    // connect commitment (:2250), which the hot key is not stored under, and the dApp gets the miss as INVALID_PARAMS.
+      'MidenFiSignerProvider cannot set up its signer account for a private wallet account, so MidenProvider never readies',
+    tracking: '0xMiden/web-sdk#400 (open)',
+    cells: on(['MF3'], BOTH),
+    // importAccountId is the wallet's raw address (MidenFiSignerProvider.tsx:712) and initializeSignerAccount tolerates
+    // only two import errors (@miden-sdk/react index.mjs:435-451). The settled error names the account id between its
+    // pinned parts, so each part is matched on its own.
     signature: ({ source, evidence }) =>
       source === 'hard' &&
-      evidence.popupOpened === true &&
-      evidence.dappError?.causeName === 'InvalidParamsMidenWalletError' &&
-      (evidence.dappError?.message ?? '').includes(pinned.texts.G2.guardian.error)
-  },
-  {
-    id: 'K10',
-    title: 'A note imported details-only or bare cannot be consumed or listed by the id its import returned',
-    tracking: '0xMiden/wallet#1389 (open)',
-    cells: on(['W5b', 'W5c', 'N4'], BOTH),
-    // The consume preview and the private-note list both look the returned details commitment up as a note id
-    // (`src/lib/miden/back/dapp.ts:2732-2739` and `:909, 953`), so a consume is refused before any popup.
-    signature: ({ cellId, source, evidence }) =>
-      source === 'hard' &&
-      (cellId === 'N4'
-        ? evidence.returnedIdUnlisted === true
-        : evidence.popupOpened === false &&
-          (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-          (evidence.dappError?.message ?? '').includes('could not be resolved'))
-  },
-  {
-    id: 'K11',
-    title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
-    tracking: '0xMiden/wallet#1418 (open)',
-    cells: on(['R3-customUndecodable'], BOTH),
-    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2920-2931) and the popup says it could
-    // not decode the request, so the refusal check sees a confirm page open.
-    signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
+      Object.values(pinned.texts.MF3).some(({ error, reason }) =>
+        [error, reason].every(part => part.length > 0 && (evidence.signerInitError ?? '').includes(part))
+      )
   }
 ];
 
-export const knownBugRegistry: KnownBugRegistry = {
-  bugsFor: (cellId, axis) => KNOWN_BUGS.filter(bug => bug.cells[cellId]?.includes(axis))
-};
+/** A registry over `bugs`: an entry explains a cell only on the surface and the axis it names. */
+export const registryOf = (bugs: readonly KnownBug[]): KnownBugRegistry => ({
+  bugsFor: (cellId, surface, axis) =>
+    bugs.filter(bug => (bug.cells[cellId] ?? []).some(at => at.surface === surface && at.axis === axis))
+});
+
+export const knownBugRegistry: KnownBugRegistry = registryOf(KNOWN_BUGS);

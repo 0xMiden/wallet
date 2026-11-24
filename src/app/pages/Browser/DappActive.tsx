@@ -13,7 +13,7 @@
  * the webview — the bubble takes over.
  */
 
-import React, { type FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { type FC, type Ref, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -22,6 +22,7 @@ import { useDappBrowser, useHideForegroundDappWhileOpen } from 'app/providers/Da
 import { createDappSession } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 import { CapsuleBar } from './CapsuleBar';
 import { DappActionsSheet } from './DappActionsSheet';
@@ -35,7 +36,7 @@ const SETTLE_RETRY_MS = 50;
  * How long to keep re-checking before measuring anyway.
  *
  * The ancestor that moves is the `MobilePageLayers` layer holding the tab panes,
- * which a slide page above it moves between `x: '-24%'` and `0` on
+ * which a slide page above it moves between `translateX(-24%)` and none on
  * `pageSlideEntrance`, a 340ms tween. 3s is an order of magnitude beyond that,
  * wide enough to absorb an animation whose start was deferred on a loaded device.
  *
@@ -46,7 +47,12 @@ const SETTLE_RETRY_MS = 50;
  */
 const SETTLE_TIMEOUT_MS = 3000;
 
-export const DappActive: FC = () => {
+interface DappActiveProps {
+  /** Reaches the capsule's header, for the morph's companions. */
+  capsuleRef?: Ref<HTMLElement>;
+}
+
+export const DappActive: FC<DappActiveProps> = ({ capsuleRef }) => {
   const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates, reportPresentationLayout } =
     useDappBrowser();
   const { t } = useTranslation();
@@ -74,6 +80,7 @@ export const DappActive: FC = () => {
   const policyLifetime = sessionState?.policyLifetime;
   const sessionId = session?.id;
   const error = sessionState?.error ?? null;
+  useUserVisibleError(error && !hiddenHost ? 'dappLoadFailed' : null, 'inline');
   const cachedSnapshot = session ? getSnapshot(session.id) : undefined;
 
   // Hardware back from `<DappActive>`: park (not close) so the session
@@ -262,12 +269,14 @@ export const DappActive: FC = () => {
   return (
     <div
       ref={surfaceRef}
-      className="flex h-full flex-col"
+      // Above the launcher BrowserScreen draws behind a moving page.
+      className="relative z-[1] flex h-full flex-col"
       data-testid="dapp-active"
       aria-hidden={hiddenHost || undefined}
       style={hiddenHost ? { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' } : undefined}
     >
       <CapsuleBar
+        ref={capsuleRef}
         session={session}
         onClose={() => void close()}
         onReload={handleReload}

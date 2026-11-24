@@ -18,6 +18,7 @@ import {
   evidenceJson,
   exactlyOne,
   explainSettleFailure,
+  grantFundingProblem,
   jsonObject,
   jsonString,
   ledgerLine,
@@ -484,6 +485,26 @@ describe('depositClaimProblem', () => {
         'its mint unclaimed: raise DEPOSIT_UNITS'
     );
     expect(depositClaimProblem(1_000n, 34)).toContain("the wallet's claim floor 1020 (base fee 34 x 30)");
+  });
+});
+
+describe('grantFundingProblem', () => {
+  it('passes a vault that leaves each requested burn its own fee margin', () => {
+    expect(grantFundingProblem(2_000_000n, 1_000_000n)).toBeUndefined();
+    expect(grantFundingProblem(3_000_000n, 2_000_000n)).toBeUndefined();
+    expect(grantFundingProblem(6_000_000n, 5_000_000n)).toBeUndefined();
+  });
+
+  it('names what the burn and its fees need when the vault falls short of them', () => {
+    expect(grantFundingProblem(5_999_999n, 5_000_000n)).toBe(
+      'the vault holds 5.999999 USDCx, under the 6 a 5 USDCx burn and its fees need'
+    );
+    expect(grantFundingProblem(2_999_999n, 2_000_000n)).toBe(
+      'the vault holds 2.999999 USDCx, under the 3 a 2 USDCx burn and its fees need'
+    );
+    expect(grantFundingProblem(1_999_999n, 1_000_000n)).toBe(
+      'the vault holds 1.999999 USDCx, under the 2 a 1 USDCx burn and its fees need'
+    );
   });
 });
 

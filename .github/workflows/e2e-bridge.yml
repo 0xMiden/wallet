@@ -1,7 +1,7 @@
 name: E2E Bridge
 
-# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge) on
-# every push to main. UI-only, real Miden testnet. Two routes, and only one of
+# Runs the cross-chain bridge-OUT E2E suite (playwright/e2e/tests/bridge) when
+# Release E2E dispatches it. UI-only, real Miden testnet. Two routes, and only one of
 # them runs here:
 #   - Slow/AggLayer (bridge-out-agglayer) is THIS job's signal: the wallet's real
 #     work is the Miden leg - build + prove + submit the B2AGG note → the
@@ -17,16 +17,13 @@ name: E2E Bridge
 #     quote before it builds anything.
 #
 # Testnet-only by nature — it depends on LIVE external services (Miden testnet,
-# the Epoch allocator/solver, a public Sepolia RPC), so it is a post-merge
-# signal on main, not a per-PR gate. It needs NO secrets: bridge-out is
+# the Epoch allocator/solver, a public Sepolia RPC), so it is a nightly
+# and release signal on main, not a per-PR gate. It needs NO secrets: bridge-out is
 # solver-fulfilled / Miden-side, so the test signs nothing on EVM and only reads
 # a public Sepolia RPC — there is no funded key to inject. `--retries=1` absorbs
 # transient testnet/RPC hiccups so a one-off external blip doesn't red main.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -50,25 +47,26 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 100 || 70 }}
     env:
       E2E_NETWORK: testnet
+      E2E_FIXTURE_PRELAUNCH_TESTNET: 'true'
       # Optional: pin a keyed / higher-rate-limit Sepolia RPC so the EVM-side read
       # doesn't hit a 429 from the shared runner IP. Falls back to the public node
       # in playwright/e2e/helpers/sepolia.ts when this secret is unset.
       E2E_SEPOLIA_RPC_URL: ${{ secrets.E2E_SEPOLIA_RPC_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       # cargo is needed to install the miden-client CLI that funds the Miden
       # account (the bridge's Miden-side input token is self-minted per run).
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Cache miden-client-cli
         # Key follows package.json so a SDK/CLI-pin bump invalidates naturally —
         # the CLI is installed version-matched by playwright/e2e/helpers/miden-cli.ts.
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
@@ -118,6 +116,9 @@ jobs:
         timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (testnet, e2e flags)
         run: yarn test:e2e:blockchain:build
 
@@ -143,7 +144,7 @@ jobs:
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bridge-e2e-testnet-${{ github.run_id }}
           path: test-results/

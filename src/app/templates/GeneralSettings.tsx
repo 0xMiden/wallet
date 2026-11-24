@@ -8,8 +8,10 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
-import { isMobile } from 'lib/platform';
+import { BACKGROUND_LOCK_DELAYS, backgroundLockDelay, type BackgroundLockDelay } from 'lib/lock-up';
+import { isDesktop, isMobile } from 'lib/platform';
 import type { ThemeSetting } from 'lib/settings/constants';
+import { setHideDustTokensSetting, useHideDustTokens } from 'lib/settings/dust';
 import {
   getThemeSetting,
   isAutoConsumeEnabled,
@@ -22,9 +24,7 @@ import {
   setTelemetrySetting
 } from 'lib/settings/helpers';
 import { setTheme } from 'lib/settings/theme';
-// Deep imports rather than the `lib/telemetry` barrel: the barrel would pull
-// `@sentry/browser` and the bip39 wordlist into the settings chunk.
-import { initCrashReporting, stopCrashReporting } from 'lib/telemetry/crash';
+// Deep import to keep unrelated telemetry modules out of the settings chunk.
 import { dropQueue } from 'lib/telemetry/sink';
 
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
@@ -33,6 +33,8 @@ import SettingToggle from './SettingToggle';
 const GeneralSettings: FC = () => {
   const { t } = useTranslation();
   const mobile = isMobile();
+  // The extension keeps its fixed page-closure lock; the apps lock on time spent in the background.
+  const showAutoLock = mobile || isDesktop();
 
   const [themeSetting, setThemeSettingState] = useState<ThemeSetting>(() => getThemeSetting());
   const themeItems = useMemo<SegmentedControlItem<ThemeSetting>[]>(
@@ -47,6 +49,16 @@ const GeneralSettings: FC = () => {
     setThemeSettingState(next);
     setTheme(next);
   }, []);
+
+  const hideDustEnabled = useHideDustTokens();
+  const handleHideDustChange = useCallback((evt: React.ChangeEvent<HTMLInputElement>) => {
+    setHideDustTokensSetting(evt.target.checked);
+  }, []);
+  const autoLockItems = useMemo<SegmentedControlItem<BackgroundLockDelay>[]>(
+    () => BACKGROUND_LOCK_DELAYS.map(minutes => ({ id: minutes, label: t('autoLockMinutes', { minutes }) })),
+    [t]
+  );
+  const autoLockDelay = backgroundLockDelay.useValue();
 
   const delegateEnabled = isDelegateProofEnabled();
   const delegateChangingRef = useRef(false);
@@ -77,11 +89,10 @@ const GeneralSettings: FC = () => {
   const handleTelemetryChange = useCallback(async (evt: React.ChangeEvent<HTMLInputElement>) => {
     const nextEnabled = evt.target.checked;
 
-    // Stop-sharing first. Both are needed and neither is sufficient: the queue
+    // Stop usage sharing first. Both are needed and neither is sufficient: the queue
     // holds payloads already built, the mirror is what gates the next one.
     if (!nextEnabled) {
       dropQueue();
-      stopCrashReporting();
     }
 
     // Reflected at once so the switch never lags the tap, and the write awaited
@@ -91,8 +102,6 @@ const GeneralSettings: FC = () => {
     // is past this handler's reach. See `setTelemetrySetting`.
     setTelemetryEnabled(nextEnabled);
     await setTelemetrySetting(nextEnabled);
-
-    if (nextEnabled) initCrashReporting();
   }, []);
 
   return (
@@ -125,6 +134,40 @@ const GeneralSettings: FC = () => {
               title={t('hapticFeedback')}
             />
           )}
+        </ListGroup>
+      </SubPageSection>
+
+      {showAutoLock && (
+        <SubPageSection
+          title={t('autoLock')}
+          icon={<Icon name={IconName.Lock} fill="currentColor" />}
+          footnote={t('autoLockDescription')}
+        >
+          <SegmentedControl
+            items={autoLockItems}
+            value={autoLockDelay}
+            onChange={backgroundLockDelay.set}
+            size="sm"
+            layout="fill"
+            aria-label={t('autoLock')}
+            data-testid={GeneralSettingsSelectors.AutoLockSelector}
+          />
+        </SubPageSection>
+      )}
+
+      <SubPageSection
+        title={t('assets')}
+        icon={<Icon name={IconName.Coins} fill="currentColor" />}
+        footnote={t('hideDustTokensDescription')}
+      >
+        <ListGroup surface="plain">
+          <SettingToggle
+            checked={hideDustEnabled}
+            onChange={handleHideDustChange}
+            name="hideDustTokensEnabled"
+            testID={GeneralSettingsSelectors.HideDustToggle}
+            title={t('hideDustTokens')}
+          />
         </ListGroup>
       </SubPageSection>
 

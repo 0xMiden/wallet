@@ -1,26 +1,34 @@
 import { useMemo } from 'react';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { useClaimFloorBaseFee } from 'app/hooks/useVerificationBaseFee';
+import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isAutoConsumeEnabled } from 'lib/settings/helpers';
 
 import { useClaimableNotes } from './claimable-notes';
 import type { ConsumableNote } from '../types';
 
-type AutoConsumeNoteShape = Pick<ConsumableNote, 'faucetId' | 'swapOrder' | 'isBeingClaimed' | 'amount' | 'fromCache'>;
+type AutoConsumeNoteShape = Pick<
+  ConsumableNote,
+  'faucetId' | 'swapOrder' | 'isBeingClaimed' | 'amount' | 'fromCache' | 'standardPayment'
+>;
 
 function isNativeNonSwapNote(note: AutoConsumeNoteShape, nativeFaucetId: string | null): boolean {
   return nativeFaucetId !== null && note.faucetId === nativeFaucetId && !note.swapOrder;
 }
 
-/** The batch rule of `selectAutoConsumeBatch`, applied as though every entry were confirmed live. */
+/** The batch rule of `selectAutoConsumeBatch`, applied as though every entry were confirmed live.
+ * Only a standard payment (P2ID or P2IDE) is taken: the consumable list also holds other
+ * traders' public PSWAP orders on a pair tag the account still tracks, and consuming one
+ * fills that order from this account's balance (#2118). A note with no flag is not taken. */
 function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
   notes: readonly T[],
   nativeFaucetId: string | null,
   verificationBaseFee: number | null
 ): T[] {
-  const batch = notes.filter(note => isNativeNonSwapNote(note, nativeFaucetId) && !note.isBeingClaimed);
+  const batch = notes.filter(
+    note => isNativeNonSwapNote(note, nativeFaucetId) && note.standardPayment === true && !note.isBeingClaimed
+  );
   return isWorthClaiming(totalClaimableAmount(batch.map(note => note.amount)), verificationBaseFee) ? batch : [];
 }
 
@@ -41,22 +49,28 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
  * None of the three calls this for a seed-recovered account whose everyday-key rotation
  * is pending: its rotation gate claims those notes with the recovery key (#805).
  *
- * The value check runs on the BATCH TOTAL, because the batch is one transaction paying
- * one fee; judged per note, a backlog of individually marginal notes was refused in
- * full. It fails open on an unknown fee, like `isWorthClaiming`: on an SDK build whose
- * block header has no fee accessor the fee stays null for good, so refusing on null
- * would switch auto-consume off permanently.
+ * The value check runs on the BATCH TOTAL, because a batch of up to
+ * MAX_NOTES_PER_UNATTENDED_CLAIM notes is one transaction paying one fee; judged per note, a backlog of
+ * individually marginal notes was refused in full. The consumers queue a larger batch in chunks of that size,
+ * each measured on its own (`chunkAutoConsumeBatch`, #1644). The fee is the claim floor's (`getClaimFloorBaseFee`):
+ * it claims nothing while the fee is unknown, and a chain proven to report no fee reads 0, so auto-consume stays on
+ * there.
  */
 export function selectAutoConsumeBatch<T extends AutoConsumeNoteShape>(
   notes: readonly T[],
   nativeFaucetId: string | null,
   verificationBaseFee: number | null
 ): T[] {
-  return nativeBatchWorthClaiming(
-    notes.filter(note => !note.fromCache),
-    nativeFaucetId,
-    verificationBaseFee
+  const live = notes.filter(note => !note.fromCache);
+  // Home and the mobile manager share this key, so the realm logs the unknown floor once.
+  noteUnknownClaimFloor(
+    'auto-consume',
+    verificationBaseFee,
+    live.some(
+      note => isNativeNonSwapNote(note, nativeFaucetId) && note.standardPayment === true && !note.isBeingClaimed
+    )
   );
+  return nativeBatchWorthClaiming(live, nativeFaucetId, verificationBaseFee);
 }
 
 /**
@@ -100,12 +114,12 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
 export function useManuallyClaimableNotes(publicAddress: string, enabled: boolean = true) {
   const { data: allNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
   const nativeFaucetId = useNativeFeeFaucetId();
-  const verificationBaseFee = useVerificationBaseFee();
+  const claimFloorBaseFee = useClaimFloorBaseFee();
   const autoConsumeEnabled = isAutoConsumeEnabled();
 
   const data = useMemo(
-    () => excludeAutoManagedNotes(allNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee),
-    [allNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee]
+    () => excludeAutoManagedNotes(allNotes, nativeFaucetId, autoConsumeEnabled, claimFloorBaseFee),
+    [allNotes, nativeFaucetId, autoConsumeEnabled, claimFloorBaseFee]
   );
 
   return { data, allNotes, isFallback };

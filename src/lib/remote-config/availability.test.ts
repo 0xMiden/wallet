@@ -47,7 +47,8 @@ function ready(): BridgeConfigSnapshot {
       ]
     },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true },
+    depositTokens: { state: 'skipped' }
   };
   derived.agglayer = { indexer: { state: 'ok', value: true } };
   return snapshot;
@@ -75,11 +76,11 @@ function withProbes({ agglayer = {}, epoch = {} }: DerivedPatch): BridgeConfigSn
   const chain = snapshot.derived.chains[11155111];
   if (!chain) throw new Error('The test chain is missing');
   const { indexer, ...chainAgglayer } = agglayer;
-  const { evmUsdc, ...providerEpoch } = epoch;
+  const { tokens, ...providerEpoch } = epoch;
   if (indexer) snapshot.derived.agglayer.indexer = indexer;
   snapshot.derived.epoch = { ...snapshot.derived.epoch, ...providerEpoch };
   chain.agglayer = { ...chain.agglayer, ...chainAgglayer };
-  if (evmUsdc) chain.epoch.evmUsdc = evmUsdc;
+  if (tokens) chain.epoch.tokens = { ...chain.epoch.tokens, ...tokens };
   return snapshot;
 }
 
@@ -131,6 +132,38 @@ it.each<[string, BridgeFeature[]]>([
   expectOnly(snapshot, affected, { state: 'unavailable', reason: 'off' });
 });
 
+it.each<[string, (snapshot: BridgeConfigSnapshot) => void]>([
+  [
+    'no vault',
+    snapshot => {
+      if (snapshot.config) snapshot.config.earn = undefined;
+    }
+  ],
+  [
+    'a vault on another chain only',
+    snapshot => {
+      if (snapshot.config) {
+        snapshot.config.earn = {
+          vaults: [
+            {
+              id: 'aave-v3-base-usdc',
+              marketUid: 'aave_v3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+              name: 'Aave V3 USDC',
+              protocol: '1delta',
+              depositsEnabled: true
+            }
+          ]
+        };
+      }
+    }
+  ]
+])('reads Earn deposits as not configured when the document lists %s on the chain', (_label, change) => {
+  const snapshot = ready();
+  change(snapshot);
+  expectOnly(snapshot, ['earnDeposit'], { state: 'unavailable', reason: 'not-configured' });
+  expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'not-configured' });
+});
+
 it('requires the shared allocator only for Epoch operations', () => {
   const snapshot = ready();
   if (!snapshot.config) throw new Error('The test document is missing');
@@ -139,14 +172,22 @@ it('requires the shared allocator only for Epoch operations', () => {
 });
 
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
-  ['the testnet output faucet', { epoch: { midenUsdcFaucet: ABSENT } }, ['earnDeposit', 'fastBridgeIn']],
-  ['the Epoch EVM token', { epoch: { evmUsdc: ABSENT } }, ['fastBridgeOut', 'fastBridgeIn']],
+  ['the Epoch EVM token', { epoch: { tokens: { USDC: ABSENT } } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ABSENT } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ABSENT } }, ['bridgeIn']],
   ['the Miden bridge account', { agglayer: { rollupId: ABSENT, tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']],
   ['the token registry', { agglayer: { tokens: ABSENT } }, ['bridgeIn', 'bridgeOut']]
 ])('reports a confirmed absence of %s as not deployed', (_name, patch, affected) => {
   expectOnly(withProbes(patch), affected, { state: 'unavailable', reason: 'not-deployed' });
+});
+
+it('takes no Fast deposit while no Epoch token has a Miden faucet whose scale was read', () => {
+  const unscaled = withProbes({ epoch: { tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } } });
+  expectOnly(unscaled, ['fastBridgeIn'], { state: 'unavailable', reason: 'not-configured' });
+});
+
+it('needs no testnet output faucet for a Fast deposit, as a mainnet document names none', () => {
+  expectOnly(withProbes({ epoch: { midenUsdcFaucet: SKIPPED } }), [], AVAILABLE);
 });
 
 it('refuses an empty registry even when the account exists', () => {
@@ -158,9 +199,9 @@ it('refuses an empty registry even when the account exists', () => {
 
 it.each<[string, DerivedPatch, BridgeFeature[]]>([
   ['allocator health', { epoch: { allocator: ERROR } }, ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn']],
+  ['the allocator account', { epoch: { allocatorAccount: ERROR } }, ['earnDeposit', 'fastBridgeOut']],
   ['indexer health', { agglayer: { indexer: ERROR } }, ['bridgeIn']],
-  ['the output faucet', { epoch: { midenUsdcFaucet: ERROR } }, ['earnDeposit', 'fastBridgeIn']],
-  ['the EVM token', { epoch: { evmUsdc: ERROR } }, ['fastBridgeOut', 'fastBridgeIn']],
+  ['the EVM token', { epoch: { tokens: { USDC: ERROR } } }, ['fastBridgeOut', 'fastBridgeIn']],
   ['the service market', { epoch: { market: ERROR } }, ['earnDeposit']],
   ['the L1 contract', { agglayer: { l1BridgeCode: ERROR } }, ['bridgeIn']],
   ['the bridge account', { agglayer: { rollupId: ERROR, tokens: ERROR } }, ['bridgeIn', 'bridgeOut']]
@@ -192,8 +233,18 @@ it.each<BridgeFeature>(['bridgeIn', 'fastBridgeIn', 'earnDeposit'])(
   }
 );
 
+it.each<[Probe<never>, string]>([
+  [ABSENT, 'not-deployed'],
+  [ERROR, 'service-down']
+])('never needs the output faucet for Earn, off Testnet either (%p)', midenUsdcFaucet => {
+  const snapshot = withProbes({ epoch: { midenUsdcFaucet } });
+  if (!snapshot.config) throw new Error('The test document is missing');
+  snapshot.config.network = 'devnet';
+  expect(featureAvailability('earnDeposit', snapshot, NO_OVERRIDES, 11155111)).toEqual(AVAILABLE);
+});
+
 it('reports an absent dependency before a failed call', () => {
-  const snapshot = withProbes({ epoch: { allocator: ERROR, midenUsdcFaucet: ABSENT } });
+  const snapshot = withProbes({ epoch: { allocator: ERROR, tokens: { USDC: ABSENT } } });
   expect(featureAvailability('fastBridgeIn', snapshot, NO_OVERRIDES, 11155111)).toMatchObject({
     reason: 'not-deployed'
   });
@@ -219,8 +270,11 @@ describe('the E2E collateral faucet', () => {
   const collateral: E2eOverrides = {
     earnCollateralFaucet: { faucetId: '0xab000000000000ab00000000000001', symbol: 'USDC', decimals: 6 }
   };
+  // No output faucet and a token with no Miden faucet scale: only the override makes a Fast deposit possible.
   function noFaucet() {
-    const snapshot = withProbes({ epoch: { midenUsdcFaucet: SKIPPED } });
+    const snapshot = withProbes({
+      epoch: { midenUsdcFaucet: SKIPPED, tokens: { USDC: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } }
+    });
     if (!snapshot.config) throw new Error('The test document is missing');
     snapshot.config['bridge-providers'].epoch.outputs = undefined;
     return snapshot;
@@ -228,18 +282,69 @@ describe('the E2E collateral faucet', () => {
   it('replaces the document output and its probe', () => {
     expect(featureAvailability('earnDeposit', noFaucet(), collateral)).toEqual(AVAILABLE);
     expect(featureAvailability('fastBridgeIn', noFaucet(), collateral)).toEqual(AVAILABLE);
-    expect(featureAvailability('earnDeposit', noFaucet(), NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
+    expect(featureAvailability('earnDeposit', noFaucet(), NO_OVERRIDES)).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeIn', noFaucet(), NO_OVERRIDES)).toMatchObject({ reason: 'not-configured' });
   });
   it('reads the installed override only for E2E', () => {
     const saved = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     try {
       setEarnCollateralFaucetOverride({ faucetId: '0xab000000000000ab00000000000001' });
-      expect(featureAvailability('earnDeposit', noFaucet())).toEqual(AVAILABLE);
+      // Testnet Earn skips the output faucet anyway, so only Fast bridge-in shows the override was read.
+      expect(featureAvailability('fastBridgeIn', noFaucet())).toEqual(AVAILABLE);
     } finally {
       _resetE2eOverridesForTest();
       if (saved === undefined) delete process.env.MIDEN_E2E_TEST;
       else process.env.MIDEN_E2E_TEST = saved;
     }
+  });
+});
+
+describe('startup feature eligibility', () => {
+  function withDecision(geo: BridgeConfigSnapshot['geo']) {
+    return { ...ready(), geo };
+  }
+  const decision = (earn: boolean): BridgeConfigSnapshot['geo'] => ({
+    state: 'ready',
+    network: 'testnet',
+    version: 1,
+    allowed: { wallet: true, earn, swap: true }
+  });
+
+  it('keeps legacy availability when the backend snapshot has no startup decision', () => {
+    expect(featureAvailability('earnDeposit', withDecision(undefined))).toEqual(AVAILABLE);
+  });
+
+  it('keeps Earn off while the startup decision is pending and reports a failed lookup', () => {
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'loading' }))).toEqual({
+      state: 'unavailable',
+      reason: 'pending',
+      detail: 'startup feature eligibility is pending'
+    });
+    expect(featureAvailability('earnDeposit', withDecision({ state: 'failed' }))).toMatchObject({
+      reason: 'service-down'
+    });
+  });
+
+  it('uses the startup Earn boolean without requiring local block rules', () => {
+    const denied = withDecision(decision(false));
+    expect(denied.config?.geo).toBeUndefined();
+    expect(featureAvailability('earnDeposit', denied)).toMatchObject({ reason: 'restricted' });
+    expect(featureAvailability('earnDeposit', withDecision(decision(true)))).toEqual(AVAILABLE);
+  });
+
+  it('keeps the startup decision when the accepted config version changes', () => {
+    const snapshot = withDecision(decision(false));
+    if (!snapshot.config || !snapshot.derived) throw new Error('Missing test configuration');
+    snapshot.config.version += 1;
+    snapshot.derived.version = snapshot.config.version;
+    expect(featureAvailability('earnDeposit', snapshot)).toMatchObject({ reason: 'restricted' });
+    snapshot.geo = decision(true);
+    expect(featureAvailability('earnDeposit', snapshot)).toEqual(AVAILABLE);
+  });
+
+  it('does not apply the Earn decision to withdrawals or other features', () => {
+    expect(featureAvailability('fastBridgeOut', withDecision(decision(false)))).toEqual(AVAILABLE);
+    expect(featureAvailability('fastBridgeOut', withDecision({ state: 'failed' }))).toEqual(AVAILABLE);
   });
 });

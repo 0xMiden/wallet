@@ -1,14 +1,19 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
+import type { TxAssetView } from './decode';
+import type { NoteFlow } from './note-flow';
 import { TransactionAssetView } from './TransactionAssetView';
+import { TransactionNoteFlow } from './TransactionNoteFlow';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
 jest.mock('lib/miden/metadata/fetch', () => ({ fetchTokenMetadata: jest.fn() }));
-jest.mock('lib/shared/format', () => ({ formatAmount: (a: bigint, d: number) => `${a}/${d}` }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: jest.fn() }));
 jest.mock('utils/string', () => ({ truncateAddress: (s: string) => `trunc(${s})` }));
 jest.mock('app/icons/v2', () => ({
   Icon: () => <i />,
@@ -27,35 +32,61 @@ const view = {
   account: 'mtst1acct',
   outgoing: [{ faucetId: 'fA', amount: 10n }],
   incoming: [{ faucetId: 'fB', amount: 3n }],
+  outgoingNfts: [],
+  incomingNfts: [],
+  unlistedAssets: 0,
   inputNotesConsumed: 1,
   outputNotesCreated: 2,
   storageChanged: false
 };
 
 beforeEach(() => {
+  jest.mocked(getEffectiveRpcUrl).mockReturnValue('https://rpc.example');
   (fetchTokenMetadata as jest.Mock).mockImplementation(async (id: string) => ({
     decimals: 6,
     symbol: id === 'fA' ? 'miZK' : 'rETH'
   }));
 });
 
+// The story chip repeats an amount. The asset row is the one that carries the verified marker.
+const rowAmount = (text: string | RegExp) => screen.getByText(text, { selector: '[data-verified]' });
+
 it('renders outgoing and incoming asset rows with symbol + amount (verified)', async () => {
   render(<TransactionAssetView view={view as any} mode="verified" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
-  expect(screen.getByText('3/6 rETH')).toBeInTheDocument();
+  await waitFor(() => expect(rowAmount('0.00001 miZK')).toBeInTheDocument());
+  expect(rowAmount('0.000003 rETH')).toBeInTheDocument();
   expect(screen.getByText('trunc(mtst1acct)')).toBeInTheDocument();
   expect(screen.getByText('outputNotesCreated')).toBeInTheDocument();
 
   // Outgoing row shows a leading minus, incoming row shows a leading plus.
-  const outgoingRow = screen.getByText('10/6 miZK').closest('div');
-  expect(outgoingRow).toHaveTextContent('-10/6 miZK');
-  const incomingRow = screen.getByText('3/6 rETH').closest('div');
-  expect(incomingRow).toHaveTextContent('+3/6 rETH');
+  const outgoingRow = rowAmount('0.00001 miZK').closest('div');
+  expect(outgoingRow).toHaveTextContent('-0.00001 miZK');
+  const incomingRow = rowAmount('0.000003 rETH').closest('div');
+  expect(incomingRow).toHaveTextContent('+0.000003 rETH');
 
   // Verified amounts carry the confident, verified styling marker.
-  expect(screen.getByText('10/6 miZK')).toHaveAttribute('data-verified', 'true');
-  expect(screen.getByText('3/6 rETH')).toHaveAttribute('data-verified', 'true');
+  expect(rowAmount('0.00001 miZK')).toHaveAttribute('data-verified', 'true');
+  expect(rowAmount('0.000003 rETH')).toHaveAttribute('data-verified', 'true');
   expect(screen.queryByText('unverified')).not.toBeInTheDocument();
+});
+
+it('shows how many unclaimed notes the outflow includes, only when there are some', async () => {
+  const { rerender } = render(<TransactionAssetView view={{ ...view, heldNotesSpent: 1 }} mode="verified" />);
+  await waitFor(() => expect(rowAmount('0.00001 miZK')).toBeInTheDocument());
+
+  expect(screen.getByTestId('tx-held-notes-spent')).toHaveTextContent(/^1$/);
+  const label = screen.getByText('includesUnclaimedNotes');
+  // Above the notes consumed, as the mobile and desktop sheets order it.
+  expect(label.compareDocumentPosition(screen.getByText('inputNotesConsumed'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+  for (const heldNotesSpent of [0, undefined]) {
+    rerender(<TransactionAssetView view={{ ...view, heldNotesSpent }} mode="verified" />);
+    expect(screen.queryByTestId('tx-held-notes-spent')).not.toBeInTheDocument();
+    expect(screen.queryByText('includesUnclaimedNotes')).not.toBeInTheDocument();
+  }
+
+  rerender(<TransactionAssetView view={{ ...view, heldNotesSpent: 1 }} mode="declared" />);
+  expect(screen.queryByTestId('tx-held-notes-spent')).not.toBeInTheDocument();
 });
 
 it('renders the network fee as its own row, outside the asset totals', async () => {
@@ -64,15 +95,15 @@ it('renders the network fee as its own row, outside the asset totals', async () 
   // before: the value was decoded, threaded through `TxAssetView.fee`, and rendered nowhere.
   render(<TransactionAssetView view={{ ...view, fee: { faucetId: 'fN', amount: 2n } } as any} mode="verified" />);
 
-  await waitFor(() => expect(screen.getByTestId('tx-network-fee')).toHaveTextContent('2/6 rETH'));
+  await waitFor(() => expect(screen.getByTestId('tx-network-fee')).toHaveTextContent('0.000002 rETH'));
   expect(screen.getByText('networkFee')).toBeInTheDocument();
   // Not folded into the transfer: the outgoing row is still exactly what the user is sending.
-  expect(screen.getByText('10/6 miZK')).toBeInTheDocument();
+  expect(rowAmount('0.00001 miZK')).toBeInTheDocument();
 });
 
 it('renders no fee row when the transaction pays none', async () => {
   render(<TransactionAssetView view={view as any} mode="verified" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('0.00001 miZK')).toBeInTheDocument());
   // An empty pill on a zero-fee chain is worse than no pill.
   expect(screen.queryByTestId('tx-network-fee')).not.toBeInTheDocument();
   expect(screen.queryByText('networkFee')).not.toBeInTheDocument();
@@ -80,10 +111,10 @@ it('renders no fee row when the transaction pays none', async () => {
 
 it('renders declared (unverified) amounts with muted styling, not the confident verified styling', async () => {
   render(<TransactionAssetView view={{ ...view, account: undefined } as any} mode="declared" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('0.00001 miZK')).toBeInTheDocument());
 
-  const outgoingAmount = screen.getByText('10/6 miZK');
-  const incomingAmount = screen.getByText('3/6 rETH');
+  const outgoingAmount = rowAmount('0.00001 miZK');
+  const incomingAmount = rowAmount('0.000003 rETH');
 
   expect(outgoingAmount).toHaveAttribute('data-verified', 'false');
   expect(incomingAmount).toHaveAttribute('data-verified', 'false');
@@ -138,7 +169,7 @@ it('falls back to the unknown label when a resolved asset has no symbol', async 
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('10/6 unknown')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('0.00001 unknown')).toBeInTheDocument());
 });
 
 it('falls back to the unknown label for an incoming asset with no symbol', async () => {
@@ -149,7 +180,7 @@ it('falls back to the unknown label for an incoming asset with no symbol', async
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('5/6 unknown')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('0.000005 unknown')).toBeInTheDocument());
 });
 
 it('still renders (with the unknown fallback) when fetchTokenMetadata rejects for one asset', async () => {
@@ -163,8 +194,8 @@ it('still renders (with the unknown fallback) when fetchTokenMetadata rejects fo
   // The failed lookup falls back to the unknown symbol; the sibling asset
   // (whose lookup succeeded) still renders correctly — the rejection is
   // isolated, not fatal to the whole row set.
-  await waitFor(() => expect(screen.getByText('3/6 rETH')).toBeInTheDocument());
-  expect(screen.getByText(/unknown/)).toBeInTheDocument();
+  await waitFor(() => expect(rowAmount('0.000003 rETH')).toBeInTheDocument());
+  expect(rowAmount(/unknown/)).toBeInTheDocument();
 });
 
 it('shows the "Unknown" label (not native MIDEN) for an on-chain-resolved unknown token', async () => {
@@ -188,7 +219,7 @@ it('shows the "Unknown" label (not native MIDEN) for an on-chain-resolved unknow
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('? Unknown')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('? Unknown')).toBeInTheDocument());
   expect(screen.queryByText(/7/)).not.toBeInTheDocument();
   expect(screen.queryByText(/MIDEN/)).not.toBeInTheDocument();
 });
@@ -203,14 +234,160 @@ it('withholds the quantity when the metadata lookup fails outright', async () =>
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('? unknown')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('? unknown')).toBeInTheDocument());
 });
 
 it('exposes its mode and the output-note count to E2E', async () => {
   const { rerender } = render(<TransactionAssetView view={view as any} mode="verified" />);
-  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  await waitFor(() => expect(rowAmount('0.00001 miZK')).toBeInTheDocument());
   expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
   expect(screen.getByTestId('tx-output-notes-created')).toHaveTextContent('2');
   rerender(<TransactionAssetView view={view as any} mode="declared" />);
   expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'declared');
+});
+
+it('exposes the storage-changed value to E2E, in verified mode only', async () => {
+  const verifiedView: TxAssetView = view;
+  const { rerender } = render(<TransactionAssetView view={verifiedView} mode="verified" />);
+  await waitFor(() => expect(rowAmount('0.00001 miZK')).toBeInTheDocument());
+  expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'false');
+  expect(screen.getByTestId('tx-storage-changed')).toHaveTextContent(/^no$/);
+  rerender(<TransactionAssetView view={{ ...verifiedView, storageChanged: true }} mode="verified" />);
+  expect(screen.getByTestId('tx-storage-changed')).toHaveAttribute('data-changed', 'true');
+  expect(screen.getByTestId('tx-storage-changed')).toHaveTextContent(/^yes$/);
+  rerender(<TransactionAssetView view={verifiedView} mode="declared" />);
+  expect(screen.queryByTestId('tx-storage-changed')).not.toBeInTheDocument();
+});
+
+describe('NFTs and unlisted assets (#1600)', () => {
+  // The asset hooks resolve metadata asynchronously, so let that settle inside act.
+  const renderSettled = (ui: React.ReactElement) =>
+    act(async () => {
+      render(ui);
+    });
+
+  const nftOnly: TxAssetView = {
+    account: 'mtst1acct',
+    outgoing: [],
+    incoming: [],
+    outgoingNfts: [{ faucetId: 'mtst1nftfaucet', assetId: '0xaa11bb22…cc33dd' }],
+    incomingNfts: [{ faucetId: 'mtst1otherfaucet', assetId: '0x01020304…050607' }],
+    unlistedAssets: 0,
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    storageChanged: false
+  };
+
+  it('lists an NFT that leaves and one that enters, each with its asset id and faucet, when no token moves', async () => {
+    await renderSettled(<TransactionAssetView view={nftOnly} mode="verified" />);
+
+    expect(screen.getByText('assetChanges')).toBeInTheDocument();
+    const [leaving, entering] = screen.getAllByTestId('tx-nft-row');
+    expect(leaving).toHaveAttribute('data-direction', 'out');
+    expect(leaving).toHaveTextContent('-nft 0xaa11bb22…cc33dd');
+    expect(leaving).toHaveTextContent('nftFaucet trunc(mtst1nftfaucet)');
+    expect(entering).toHaveAttribute('data-direction', 'in');
+    expect(entering).toHaveTextContent('+nft 0x01020304…050607');
+    expect(entering).toHaveTextContent('nftFaucet trunc(mtst1otherfaucet)');
+    expect(screen.queryByTestId('tx-unlisted-assets')).not.toBeInTheDocument();
+  });
+
+  it('marks a declared NFT row unverified', async () => {
+    await renderSettled(<TransactionAssetView view={nftOnly} mode="declared" />);
+
+    expect(screen.getAllByText('unverified')).toHaveLength(2);
+  });
+
+  it('warns instead of staying silent when the vault change holds assets it cannot list', async () => {
+    await renderSettled(
+      <TransactionAssetView
+        view={{ ...nftOnly, outgoingNfts: [], incomingNfts: [], unlistedAssets: 1 }}
+        mode="verified"
+      />
+    );
+
+    expect(screen.getByTestId('tx-unlisted-assets')).toHaveTextContent('unlistedAssetsWarning');
+    expect(screen.getByText('assetChanges')).toBeInTheDocument();
+  });
+});
+
+describe('confirmation metadata request sharing', () => {
+  const metadata: AssetMetadata = { name: 'Shared token', symbol: 'SHARED', decimals: 6 };
+  const sharedView: TxAssetView = { ...view, incoming: [] };
+  const noteFlow = (amount: bigint): NoteFlow => ({
+    inputCount: 0,
+    inputs: [],
+    outputs: [{ kind: 'P2ID', visibility: 'public', assets: [{ faucetId: 'fA', amount }] }]
+  });
+  const deferred = () => {
+    let resolve!: (value: AssetMetadata) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<AssetMetadata>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    return { promise, resolve, reject };
+  };
+
+  beforeEach(() => {
+    jest.mocked(fetchTokenMetadata).mockReset();
+  });
+
+  it('shares one pending lookup across summary and note rows while preserving each amount', async () => {
+    const pending = deferred();
+    jest.mocked(fetchTokenMetadata).mockReturnValue(pending.promise);
+    render(<TransactionAssetView view={sharedView} mode="verified" noteFlow={noteFlow(2n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve(metadata));
+    expect(screen.getByText('0.00001 SHARED')).toBeInTheDocument();
+    expect(screen.getByText('0.000002 SHARED')).toBeInTheDocument();
+  });
+
+  it('keeps equal faucets on different RPC URLs in separate pending requests', async () => {
+    const first = deferred();
+    const second = deferred();
+    jest
+      .mocked(getEffectiveRpcUrl)
+      .mockReturnValueOnce('https://rpc-one.example')
+      .mockReturnValue('https://rpc-two.example');
+    jest.mocked(fetchTokenMetadata).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    render(<TransactionAssetView view={sharedView} mode="verified" />);
+    render(<TransactionNoteFlow flow={noteFlow(2n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      first.resolve({ ...metadata, symbol: 'FIRST' });
+      second.resolve({ ...metadata, symbol: 'SECOND' });
+    });
+    expect(rowAmount('0.00001 FIRST')).toBeInTheDocument();
+    expect(screen.getByText('0.000002 SECOND')).toBeInTheDocument();
+  });
+
+  it('keeps a pending request available to a new subscriber after another unmounts', async () => {
+    const pending = deferred();
+    jest.mocked(fetchTokenMetadata).mockReturnValue(pending.promise);
+    const { rerender } = render(<TransactionAssetView view={sharedView} mode="verified" noteFlow={noteFlow(2n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    rerender(<TransactionAssetView view={sharedView} mode="verified" />);
+    render(<TransactionNoteFlow flow={noteFlow(3n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve(metadata));
+    expect(rowAmount('0.00001 SHARED')).toBeInTheDocument();
+    expect(screen.getByText('0.000003 SHARED')).toBeInTheDocument();
+    expect(screen.queryByText('0.000002 SHARED')).not.toBeInTheDocument();
+  });
+
+  it('releases a rejected shared request so a subsequent lookup can recover', async () => {
+    const pending = deferred();
+    jest.mocked(fetchTokenMetadata).mockReturnValueOnce(pending.promise).mockResolvedValue(metadata);
+    const first = render(<TransactionAssetView view={sharedView} mode="verified" noteFlow={noteFlow(2n)} />);
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    await act(async () => pending.reject(new Error('metadata unavailable')));
+    expect(screen.getByText('? unknown')).toBeInTheDocument();
+    expect(screen.getByText(/2 baseUnits/)).toBeInTheDocument();
+    first.unmount();
+    render(<TransactionAssetView view={sharedView} mode="verified" noteFlow={noteFlow(2n)} />);
+    await waitFor(() => expect(screen.getByText('0.00001 SHARED')).toBeInTheDocument());
+    expect(screen.getByText('0.000002 SHARED')).toBeInTheDocument();
+    expect(fetchTokenMetadata).toHaveBeenCalledTimes(2);
+  });
 });

@@ -22,14 +22,16 @@ import {
   requestConsume,
   requestDisconnect,
   requestGuardianInfo,
+  requestLoginKey,
   requestPermission,
   requestPrivateNotes,
   requestSend,
   requestTransaction,
   signBytes,
+  signLoginBytes,
   waitForTransaction
 } from 'lib/adapter/client';
-import { MidenDAppCurrentPermission, MidenDAppPermission } from 'lib/adapter/types';
+import { DAppConsumableNote, MidenDAppCurrentPermission, MidenDAppPermission } from 'lib/adapter/types';
 import { TransactionOutput } from 'lib/miden/db/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo } from 'lib/shared/types';
@@ -75,11 +77,28 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     return res;
   }
 
-  async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array }> {
+  async signBytes(data: Uint8Array, kind: SignKind): Promise<{ signature: Uint8Array; signedCommitment?: Uint8Array }> {
     const publicKeyAsHex = bytesToHex(this.publicKey!);
     const messageAsB64 = u8ToB64(data);
 
-    const signatureAsB64 = await signBytes(this.address!, publicKeyAsHex, messageAsB64, kind);
+    const res = await signBytes(this.address!, publicKeyAsHex, messageAsB64, kind);
+    const signature = b64ToU8(res.signature);
+    // An older wallet sends no commitment; the key is omitted rather than set to undefined.
+    return res.signedCommitment === undefined
+      ? { signature }
+      : { signature, signedCommitment: b64ToU8(res.signedCommitment) };
+  }
+
+  async requestLoginKey(): Promise<{ loginKey: Uint8Array }> {
+    const loginKeyAsB64 = await requestLoginKey(this.address!);
+    const loginKeyAsU8Array = b64ToU8(loginKeyAsB64);
+    return { loginKey: loginKeyAsU8Array };
+  }
+
+  async signLoginBytes(data: Uint8Array, kind: 'word'): Promise<{ signature: Uint8Array }> {
+    const messageAsB64 = u8ToB64(data);
+
+    const signatureAsB64 = await signLoginBytes(this.address!, messageAsB64, kind);
     const signatureAsU8Array = b64ToU8(signatureAsB64);
     return { signature: signatureAsU8Array };
   }
@@ -101,7 +120,7 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     return { guardianInfo: res };
   }
 
-  async requestConsumableNotes(): Promise<{ consumableNotes: InputNoteDetails[] }> {
+  async requestConsumableNotes(): Promise<{ consumableNotes: DAppConsumableNote[] }> {
     const res = await requestConsumableNotes(this.address!);
     return { consumableNotes: res };
   }
@@ -190,10 +209,10 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
    * Not supported by this wallet.
    *
    * `createAccount` has been on the published `MidenWallet` interface since
-   * adapter 0.13.2, but no Miden wallet provider implements it: the extension,
-   * the mobile injection script and the Tauri provider all lack it, and there
-   * is no `CREATE_ACCOUNT_REQUEST` in `MidenDAppMessageType`. Before this the
-   * method was simply absent, so a dApp calling it got
+   * adapter 0.13.2, but no Miden wallet provider implements it, and there is
+   * no `CREATE_ACCOUNT_REQUEST` in `MidenDAppMessageType`. The extension and
+   * the mobile injection script reject it with this message; the Tauri
+   * provider lacks the method, so a dApp there still gets
    * `TypeError: wallet.createAccount is not a function`.
    *
    * Rejecting with a named error is not a fix — it is a clearer failure. The

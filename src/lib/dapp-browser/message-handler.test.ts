@@ -17,6 +17,8 @@ jest.mock('lib/miden/back/actions', () => ({
   processDApp: (...args: unknown[]) => mockProcessDApp(...args)
 }));
 
+import { MidenDAppErrorType, MidenDAppMessageType } from 'lib/adapter/types';
+
 import type { WebViewMessage } from './message-handler';
 import { handleWebViewMessage } from './message-handler';
 
@@ -132,6 +134,23 @@ describe('error wrapping', () => {
     expect(res.type).toBe('MIDEN_PAGE_ERROR_RESPONSE');
     expect(res.error).toBe('NotGranted');
     expect(res.reqId).toBe('req-reject');
+    expect(res.payload).toBeNull();
+  });
+
+  it('passes a login key refusal to the in-app page with its code', async () => {
+    mockProcessDApp.mockRejectedValue(
+      new Error(`${MidenDAppErrorType.LoginKeyUnavailable}: this account's root key is not on this device`)
+    );
+    const msg: WebViewMessage = {
+      type: 'MIDEN_PAGE_REQUEST',
+      payload: { type: MidenDAppMessageType.LoginKeyRequest, sourceAccountId: 'miden-account-1' },
+      reqId: 'req-login-key'
+    };
+    const res = await handleWebViewMessage(msg, ORIGIN, 'session-abc');
+    expect(mockProcessDApp).toHaveBeenCalledWith(ORIGIN, msg.payload, 'session-abc');
+    expect(res.type).toBe('MIDEN_PAGE_ERROR_RESPONSE');
+    expect(res.error).toContain(MidenDAppErrorType.LoginKeyUnavailable);
+    expect(res.reqId).toBe('req-login-key');
     expect(res.payload).toBeNull();
   });
 

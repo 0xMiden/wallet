@@ -1,8 +1,12 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { PasscodeScreen } from './PasscodeScreen';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -191,5 +195,96 @@ describe('refused keys', () => {
 
     expect(screen.getByTestId('numpad-biometric')).toBeDisabled();
     expect(screen.getByTestId('numpad-1')).not.toBeDisabled();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the passcode surface after the dwell', () => {
+    render(
+      <PasscodeScreen
+        errorId="usdcxFaucetUnavailable"
+        isError
+        title="Unlock"
+        message="Failed"
+        filled={0}
+        length={6}
+        onDigit={noop}
+        onDelete={noop}
+      />
+    );
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'passcode');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(
+      <PasscodeScreen
+        errorId={errorId}
+        isError
+        title="Unlock"
+        message="Failed"
+        filled={0}
+        length={6}
+        onDigit={noop}
+        onDelete={noop}
+      />
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(
+      <PasscodeScreen
+        errorId="usdcxFaucetUnavailable"
+        title="Unlock"
+        message="Enter passcode"
+        filled={0}
+        length={6}
+        onDigit={noop}
+        onDelete={noop}
+      />
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(
+      <PasscodeScreen
+        errorId="usdcxFaucetUnavailable"
+        isError
+        title="Unlock"
+        message="Failed"
+        filled={0}
+        length={6}
+        onDigit={noop}
+        onDelete={noop}
+      />
+    );
+    act(() => jest.advanceTimersByTime(999));
+    rerender(
+      <PasscodeScreen
+        errorId="usdcxFaucetUnavailable"
+        title="Unlock"
+        message="Enter passcode"
+        filled={0}
+        length={6}
+        onDigit={noop}
+        onDelete={noop}
+      />
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

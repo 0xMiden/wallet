@@ -24,6 +24,7 @@ import { Card, CardButton } from './Card';
 import { CheckboxIndicator, CheckboxRow } from './Checkbox';
 import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
 import { ClearFieldButton } from './ClearFieldButton';
+import { CodeInput } from './CodeInput';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
@@ -43,6 +44,7 @@ import { ListRow } from './ListRow';
 import { Notice } from './Notice';
 import { Pill } from './Pill';
 import { Popover } from './Popover';
+import { ProgressMeter } from './ProgressMeter';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
@@ -60,6 +62,7 @@ import { TabHeader, TabHeaderAction } from './TabHeader';
 import { TabRootHeader } from './TabRootHeader';
 import { TextAction } from './TextAction';
 import { TextField } from './TextField';
+import { TokenAmount, UsdAmount } from './TokenAmount';
 import { UnreadDot } from './UnreadDot';
 import { WaveDots } from './WaveDots';
 
@@ -81,6 +84,8 @@ describe('components/ui barrel', () => {
   // Every runtime (value) export the barrel is expected to forward. Types are
   // compile-time only and never appear on the module object.
   const EXPECTED_COMPONENTS = {
+    TokenAmount,
+    UsdAmount,
     AccountsDrawer,
     AlertSheet,
     AnimatedNumber,
@@ -94,6 +99,7 @@ describe('components/ui barrel', () => {
     CopyChip,
     AnimatedCopyIcon,
     CopyLabel,
+    ProgressMeter,
     PromptCard,
     PromptCarousel,
     AssetListItem,
@@ -139,6 +145,7 @@ describe('components/ui barrel', () => {
     SubPageLayout,
     ErrorLine,
     ErrorDetails,
+    CodeInput,
     SeedPhraseGrid,
     DappOrigin
   } as const;

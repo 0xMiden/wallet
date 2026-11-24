@@ -7,6 +7,7 @@ import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { webviewToolbarColors } from 'lib/mobile/webview-theme';
 import { isMobile } from 'lib/platform';
+import { alertUserError } from 'lib/telemetry/browser-alert';
 
 // PR-4 chunk 9: faucet uses its own instance id so its messageFromWebview
 // listener can filter out events from any concurrently-open multi-instance
@@ -213,7 +214,7 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
               dialogTitle: 'Save ' + fileTitle
             });
           } catch (e) {
-            alert('Share error: ' + (e as Error).message);
+            alertUserError('raw_faucet_share_failed', 'Share error: ' + (e as Error).message);
           }
         }, 1000);
       }
@@ -226,7 +227,7 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
     } catch (error) {
       // Show alert with error for debugging
       if (typeof alert !== 'undefined') {
-        alert('Error: ' + (error as Error).message);
+        alertUserError('raw_faucet_download_failed', 'Error: ' + (error as Error).message);
       }
     }
   });

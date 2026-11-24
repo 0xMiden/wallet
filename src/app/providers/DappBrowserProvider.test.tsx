@@ -43,6 +43,7 @@ const mockSetRect: jest.Mock = jest.fn(() => Promise.resolve());
 const mockExecuteScript: jest.Mock = jest.fn(() => Promise.resolve());
 const mockInstanceClose: jest.Mock = jest.fn(() => Promise.resolve());
 const mockNativeClose = jest.fn(async (_options: unknown) => {});
+const mockMorph: jest.Mock = jest.fn(async () => ({ accepted: false }));
 
 function makeInstance(id: string) {
   return {
@@ -50,6 +51,7 @@ function makeInstance(id: string) {
     setVisible: (...args: unknown[]) => mockSetVisible(id, ...args),
     setRect: (...args: unknown[]) => mockSetRect(id, ...args),
     executeScript: (...args: unknown[]) => mockExecuteScript(id, ...args),
+    morph: (...args: unknown[]) => mockMorph(id, ...args),
     close: () => mockInstanceClose(id)
   };
 }
@@ -71,6 +73,11 @@ jest.mock('@miden/dapp-browser', () => ({
       return makeInstance(opts.id);
     }
   }
+}));
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
 }));
 
 // ── isMobile must be true so the provider runs its full lifecycle ──
@@ -101,6 +108,7 @@ jest.mock('framer-motion', () => ({
 // ── UI subcomponents — return empty divs; we don't test their render ──
 // The confirmation modal records its props, so a test can drive the onResolve the provider hands it.
 let mockModalProps: { onResolve: (result: { confirmed: boolean }, requestId: string) => void } | null = null;
+jest.mock('app/pages/Browser/DappIncomingTransferSheet', () => ({ DappIncomingTransferSheet: () => null }));
 jest.mock('app/pages/Browser/DappConfirmationModal', () => ({
   DappConfirmationModal: (props: { onResolve: (result: { confirmed: boolean }, requestId: string) => void }) => {
     mockModalProps = props;
@@ -472,7 +480,8 @@ describe('park / restore lifecycle', () => {
     );
 
     let parking: Promise<void> = Promise.resolve();
-    act(() => {
+    // Async: the park asks native for the morph first, and starts the snapshot once that is refused.
+    await act(async () => {
       parking = hook.result.current.park('dapp-a');
     });
     // DappActive re-measures the slot on timers after it mounts, so a minimize right after opening can land one
@@ -499,6 +508,82 @@ describe('park / restore lifecycle', () => {
   });
 });
 
+describe('bridge traffic', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const LANDSCAPE = { x: 0, y: 0, width: 667, height: 375 };
+  const flush = () =>
+    act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  const hides = (id: string) =>
+    mockSetVisible.mock.calls.filter(([callId, visible]) => callId === id && !visible).length;
+  const injections = (id: string) =>
+    mockExecuteScript.mock.calls.filter(([callId, code]) => callId === id && code === 'INJECTED;').length;
+
+  async function openTwo() {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    act(() => hook.result.current.open(makeSession('dapp-b')));
+    await flush();
+    return hook;
+  }
+
+  it('keeps the same slotRect object for an equal rect', () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    const first = hook.result.current.slotRect;
+
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    expect(hook.result.current.slotRect).toBe(first);
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    expect(hook.result.current.slotRect).toEqual(LANDSCAPE);
+  });
+
+  it('does not re-send hides to other instances when the slot rect value repeats', async () => {
+    const hook = await openTwo();
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    await flush();
+
+    expect(hides('dapp-a')).toBe(0);
+  });
+
+  it('does not re-send hides to other instances when the slot rect changes', async () => {
+    const hook = await openTwo();
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    await flush();
+
+    expect(hides('dapp-a')).toBe(0);
+  });
+
+  it('injects the bridge once per foreground change, not per rect change', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    const loaded = mockAddListener.mock.calls.find(call => call[0] === 'browserPageLoaded')?.[1];
+    await act(async () => loaded?.({ id: 'dapp-a' }));
+    mockExecuteScript.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    expect(injections('dapp-a')).toBe(0);
+
+    await act(async () => hook.result.current.park('dapp-a'));
+    await act(async () => hook.result.current.restore('dapp-a'));
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+    await flush();
+    expect(injections('dapp-a')).toBe(1);
+  });
+});
+
 // ── SEC-03: the security principal must follow the page actually loaded ──
 
 describe('session origin is derived from the URL being loaded, not a carried-over value', () => {
@@ -514,6 +599,30 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
   async function settle() {
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
+
+  function responseScripts(): string[] {
+    return mockExecuteScript.mock.calls
+      .map(call => String(call[1]))
+      .filter(code => code.includes('__midenWalletResponse'));
+  }
+
+  function expectDatalessRefusal(reqId: string, origin: string) {
+    const scripts = responseScripts();
+    const script = scripts[0] ?? '';
+    expect(script).toContain('NOT_GRANTED');
+    expect(scripts).toHaveLength(1);
+    expect(script).not.toContain('location.origin');
+    const refusal = jest.fn();
+    // eslint-disable-next-line no-new-func -- executes the response script as the WebView does
+    new Function('location', 'window', script)({ origin }, { __midenWalletResponse: refusal });
+    expect(refusal).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(refusal.mock.calls[0]![0]))).toEqual({
+      type: 'MIDEN_PAGE_ERROR_RESPONSE',
+      payload: null,
+      reqId,
+      error: 'NOT_GRANTED'
     });
   }
 
@@ -561,6 +670,8 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     await act(async () => {
       await onMessage({
         id: 'dapp-a',
+        frameOrigin: 'https://dapp-a.test',
+        mainFrame: true,
         detail: JSON.stringify({
           type: 'MIDEN_PAGE_REQUEST',
           payload: { type: 'PRIVATE_NOTES_REQUEST' },
@@ -574,6 +685,134 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     expect(refusal).toContain('NOT_GRANTED');
   });
 
+  const validRequest = JSON.stringify({
+    type: 'MIDEN_PAGE_REQUEST',
+    payload: { type: 'PRIVATE_NOTES_REQUEST' },
+    reqId: 'r3'
+  });
+
+  it.each([
+    ['a frame that is not the main frame', { frameOrigin: 'https://dapp-a.test', mainFrame: false }, validRequest],
+    ['a message without the main-frame flag', { frameOrigin: 'https://dapp-a.test' }, validRequest],
+    ['a message without native frame metadata', {}, validRequest],
+    ['malformed JSON from another origin', { frameOrigin: 'https://other.example', mainFrame: true }, '{'],
+    [
+      'an envelope without a string request ID from another origin',
+      { frameOrigin: 'https://other.example', mainFrame: true },
+      { type: 'MIDEN_PAGE_REQUEST', payload: { type: 'PRIVATE_NOTES_REQUEST' }, reqId: 3 }
+    ],
+    [
+      'an internal title message from another origin',
+      { frameOrigin: 'https://other.example', mainFrame: true },
+      { __midenInternal: 'title', title: 'Untrusted title' }
+    ]
+  ])('ignores %s', async (_label, frame, detail) => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url: 'https://dapp-a.test/' });
+    });
+    await settle();
+    const before = hook.result.current.sessionStates[0]!;
+    const originalTitle = before.session.title;
+    const originalUrl = before.session.url;
+    const originalOrigin = before.origin;
+    const originalOriginConfirmed = before.originConfirmed;
+    mockExecuteScript.mockClear();
+
+    await act(async () => {
+      await listenerFor('messageFromWebview')({
+        id: 'dapp-a',
+        ...frame,
+        detail
+      });
+    });
+
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(mockExecuteScript).not.toHaveBeenCalled();
+    const after = hook.result.current.sessionStates[0]!;
+    expect(after.session.title).toBe(originalTitle);
+    expect(after.session.url).toBe(originalUrl);
+    expect(after.origin).toBe(originalOrigin);
+    expect(after.originConfirmed).toBe(originalOriginConfirmed);
+  });
+
+  it.each([
+    ['a different origin', { frameOrigin: 'https://redirected.example', mainFrame: true }],
+    ['a missing native frame origin', { mainFrame: true }]
+  ])('refuses a valid main-frame request from %s and does not replay it after navigation', async (_label, frame) => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url: 'https://dapp-a.test/' });
+    });
+    await settle();
+
+    const onMessage = listenerFor('messageFromWebview');
+    mockHandleWebViewMessage.mockClear();
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        ...frame,
+        detail: validRequest
+      });
+    });
+
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expectDatalessRefusal('r3', 'https://redirected.example');
+    expect(hook.result.current.sessionStates[0]!.origin).toBe('https://dapp-a.test');
+    expect(hook.result.current.sessionStates[0]!.originConfirmed).toBe(true);
+
+    mockHandleWebViewMessage.mockClear();
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await listenerFor('urlChangeEvent')({ id: 'dapp-a', url: 'https://redirected.example/next' });
+    });
+    await settle();
+
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(mockExecuteScript).not.toHaveBeenCalled();
+    expect(hook.result.current.sessionStates[0]!.origin).toBe('https://redirected.example');
+  });
+
+  it('catches a failed dataless refusal delivery', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url: 'https://dapp-a.test/' });
+    });
+    await settle();
+
+    const onMessage = listenerFor('messageFromWebview');
+    const error = new Error('execute failed');
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockExecuteScript.mockClear();
+    mockExecuteScript.mockRejectedValueOnce(error).mockRejectedValueOnce(error).mockRejectedValueOnce(error);
+    try {
+      await act(async () => {
+        await expect(
+          onMessage({
+            id: 'dapp-a',
+            frameOrigin: 'https://redirected.example',
+            mainFrame: true,
+            detail: validRequest
+          })
+        ).resolves.toBeUndefined();
+      });
+      expect(mockExecuteScript).toHaveBeenCalledTimes(3);
+      expect(errorSpy).toHaveBeenCalledWith('[DappBrowserProvider] Error refusing WebView message:', error);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('answers PING before confirmation — it is the bridge probe, not an origin-scoped request', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
@@ -584,11 +823,81 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     await act(async () => {
       await onMessage({
         id: 'dapp-a',
+        frameOrigin: 'https://dapp-a.test',
+        mainFrame: true,
         detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
       });
     });
 
     expect(mockHandleWebViewMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a main-frame PING whose frame origin the session has not caught up to', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url: 'https://dapp-a.test/' });
+    });
+    await settle();
+
+    const onMessage = listenerFor('messageFromWebview');
+    mockHandleWebViewMessage.mockClear();
+    mockHandleWebViewMessage.mockResolvedValueOnce({ type: 'MIDEN_PAGE_RESPONSE', payload: 'PONG', reqId: 'p1' });
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        mainFrame: true,
+        frameOrigin: 'https://redirected.example',
+        detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
+      });
+    });
+
+    expect(mockHandleWebViewMessage).toHaveBeenCalledTimes(1);
+    expect(mockHandleWebViewMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' }),
+      'https://dapp-a.test',
+      'dapp-a'
+    );
+    expect(mockExecuteScript.mock.calls.map(c => String(c[1])).join('\n')).toContain('PONG');
+
+    mockHandleWebViewMessage.mockClear();
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        mainFrame: true,
+        frameOrigin: 'https://redirected.example',
+        detail: JSON.stringify({
+          type: 'MIDEN_PAGE_REQUEST',
+          payload: { type: 'PRIVATE_NOTES_REQUEST' },
+          reqId: 'r1'
+        })
+      });
+    });
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expectDatalessRefusal('r1', 'https://redirected.example');
+    expect(hook.result.current.sessionStates[0]!.origin).toBe('https://dapp-a.test');
+    mockExecuteScript.mockClear();
+
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        mainFrame: false,
+        frameOrigin: 'https://redirected.example',
+        detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p2' })
+      });
+    });
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(mockExecuteScript).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await onMessage({ id: 'dapp-a', mainFrame: true, frameOrigin: 'https://redirected.example', detail: '{' });
+    });
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(mockExecuteScript).not.toHaveBeenCalled();
   });
 
   it('handles the request once urlChangeEvent confirms it, and moves url + origin together', async () => {
@@ -611,6 +920,8 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     await act(async () => {
       await listenerFor('messageFromWebview')({
         id: 'dapp-a',
+        frameOrigin: 'https://moved.example',
+        mainFrame: true,
         detail: JSON.stringify({
           type: 'MIDEN_PAGE_REQUEST',
           payload: { type: 'PRIVATE_NOTES_REQUEST' },
@@ -623,11 +934,163 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
   });
 });
 
+// #1416: a wait lasts up to five minutes and the next document numbers its requests from req_1 too.
+
+describe('an answer goes only to the origin that asked (#1416)', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const WAIT = JSON.stringify({
+    type: 'MIDEN_PAGE_REQUEST',
+    payload: { type: 'WAIT_FOR_TRANSACTION_REQUEST', txId: 'tx-1' },
+    reqId: 'req_1'
+  });
+
+  function listenerFor(event: string): (e: unknown) => void | Promise<void> {
+    const call = mockAddListener.mock.calls.find(c => c[0] === event);
+    if (!call) throw new Error(`no listener registered for ${event}`);
+    return call[1] as (e: unknown) => void | Promise<void>;
+  }
+
+  async function settle() {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
+
+  async function navigate(url: string) {
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url });
+    });
+    await settle();
+  }
+
+  const answers = () =>
+    mockExecuteScript.mock.calls.map(c => String(c[1])).filter(code => code.includes('__midenWalletResponse'));
+
+  // Opens dapp-a with its origin confirmed and starts a wait whose answer the test releases.
+  async function startWait(): Promise<{ release: () => void; handled: Promise<void> }> {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    await navigate('https://dapp-a.test/');
+    let release: () => void = () => undefined;
+    mockHandleWebViewMessage.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = () =>
+            resolve({ type: 'MIDEN_PAGE_RESPONSE', payload: { outputNotes: ['private-note'] }, reqId: 'req_1' });
+        })
+    );
+    mockExecuteScript.mockClear();
+    const handled = Promise.resolve(
+      listenerFor('messageFromWebview')({
+        id: 'dapp-a',
+        frameOrigin: 'https://dapp-a.test',
+        mainFrame: true,
+        detail: WAIT
+      })
+    );
+    await settle();
+    return { release: () => release(), handled };
+  }
+
+  async function finish(wait: { release: () => void; handled: Promise<void> }) {
+    await act(async () => {
+      wait.release();
+      await wait.handled;
+    });
+  }
+
+  it('delivers the answer while the instance still shows the origin that asked', async () => {
+    const wait = await startWait();
+    await finish(wait);
+    expect(answers()).toHaveLength(1);
+    expect(answers()[0]).toContain('private-note');
+  });
+
+  it('still delivers it after a route change within the same origin', async () => {
+    const wait = await startWait();
+    await navigate('https://dapp-a.test/history');
+    await finish(wait);
+    expect(answers()).toHaveLength(1);
+  });
+
+  it('drops it once the instance shows another origin', async () => {
+    const wait = await startWait();
+    await navigate('https://evil.example/');
+    await finish(wait);
+    expect(mockHandleWebViewMessage).toHaveBeenCalledWith(expect.anything(), 'https://dapp-a.test', 'dapp-a');
+    expect(answers()).toEqual([]);
+  });
+
+  // Evaluates an answer script in a document of `origin`, returning the response hook it may call.
+  function runIn(code: string, origin: string): jest.Mock {
+    const hook = jest.fn();
+    // eslint-disable-next-line no-new-func -- runs the shipped script, as the WebView does
+    new Function('location', 'window', code)({ origin }, { __midenWalletResponse: hook });
+    return hook;
+  }
+
+  // A navigation can commit after the host-side check and before the script is evaluated.
+  it('hands the answer over only in a document of the origin that asked', async () => {
+    const wait = await startWait();
+    await finish(wait);
+    expect(answers()).toHaveLength(1);
+    const asked = runIn(answers()[0]!, 'https://dapp-a.test');
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(asked.mock.calls[0]![0]))).toEqual({
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { outputNotes: ['private-note'] },
+      reqId: 'req_1'
+    });
+    expect(runIn(answers()[0]!, 'https://evil.example')).not.toHaveBeenCalled();
+  });
+
+  it('never confirms an opaque document, so its requests get the refusal', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    await navigate('https://dapp-a.test/');
+    await navigate('data:text/html,<h1>hi</h1>');
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await listenerFor('messageFromWebview')({ id: 'dapp-a', frameOrigin: 'null', mainFrame: true, detail: WAIT });
+    });
+    expect(answers()).toHaveLength(1);
+    expect(answers()[0]).toContain('NOT_GRANTED');
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(hook.result.current.sessionStates[0]!.originConfirmed).toBe(false);
+  });
+
+  it('delivers the PONG to a PING sent before the origin is confirmed, in any document', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    mockHandleWebViewMessage.mockResolvedValueOnce({ type: 'MIDEN_PAGE_RESPONSE', payload: 'PONG', reqId: 'p1' });
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await listenerFor('messageFromWebview')({
+        id: 'dapp-a',
+        frameOrigin: 'https://dapp-a.test',
+        mainFrame: true,
+        detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
+      });
+    });
+    expect(answers()).toHaveLength(1);
+    expect(answers()[0]).toContain('PONG');
+    // It carries no data, so it is not bound to the origin the session was opened at.
+    expect(runIn(answers()[0]!, 'https://redirected.example')).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ── The faucet's top inset style ──────────────────────────────────
 
 describe('faucet top inset style', () => {
   const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
-  const FAUCET_URL = getEffectiveFaucetUrl();
+  // The suite runs on the build's network, which has a faucet.
+  const FAUCET_URL = getEffectiveFaucetUrl() ?? '';
   const FAUCET_SCRIPT = faucetNoTopInsetScript(new URL(FAUCET_URL).origin);
 
   function listenerFor(event: string): (e: unknown) => void | Promise<void> {
@@ -809,6 +1272,26 @@ describe('E2E screen-key publishing', () => {
     await pending;
     expect(probe.pendingConfirmationCount).toBe(0);
     expect(probe.hasPendingConfirmation('probe')).toBe(false);
+  });
+
+  it('publishes the motion while one runs', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+    const probe = () => Object.getOwnPropertyDescriptor(globalThis, '__TEST_DAPP_BROWSER__')?.value.motion;
+    expect(probe()).toBeNull();
+    mockMorph.mockResolvedValueOnce({ accepted: true });
+
+    act(() => void hook.result.current.park('dapp-a'));
+    await flush();
+
+    expect(probe()).toEqual({
+      id: 'dapp-a',
+      target: 'collapsed',
+      started: false,
+      acknowledging: false,
+      progress: 1,
+      tracking: false
+    });
   });
 
   it('stays on the bare route while the dApp is still loading', async () => {
@@ -1063,8 +1546,22 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       act(() => hook.result.current.setSlotRect(LANDSCAPE));
       await settle();
 
-      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 1]);
+      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 0]);
       expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
+    });
+
+    it('on the bridge injection of a warm restore', async () => {
+      const hook = renderHarness();
+      await openForeground(hook);
+      const loaded = mockAddListener.mock.calls.find(call => call[0] === 'browserPageLoaded')?.[1];
+      await act(async () => loaded?.({ id: 'dapp-a' }));
+      await act(async () => hook.result.current.park('dapp-a'));
+      failNative();
+
+      await act(async () => hook.result.current.restore('dapp-a'));
+      await settle();
+
+      expect(warned('executeScript')).toBe(1);
     });
 
     it('when the switcher opens', async () => {
@@ -1297,9 +1794,11 @@ describe('native presentation lifecycle', () => {
     });
     await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
     let parking: Promise<void> | undefined;
-    act(() => {
+    // Async, so the refused morph hands over to the legacy park and its snapshot starts before the close.
+    await act(async () => {
       parking = hook.result.current.park('dapp-a');
     });
+    expect(finishSnapshot).toBeDefined();
     await act(async () => {
       await listenerFor('closeEvent')({
         id: 'dapp-a',
@@ -1366,7 +1865,7 @@ describe('native presentation lifecycle', () => {
           finish = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1420,7 +1919,7 @@ describe('native presentation lifecycle', () => {
           finishSnapshot = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1473,7 +1972,7 @@ describe('native presentation lifecycle', () => {
           finishSnapshot = resolve;
         })
     );
-    let restoring: Promise<void> | undefined;
+    let restoring: Promise<boolean> | undefined;
     act(() => {
       restoring = hook.result.current.restore('target');
     });
@@ -1523,5 +2022,143 @@ describe('native presentation lifecycle', () => {
       errorLabel: 'breadPresentationError',
       readinessTimeoutMs: 30000
     });
+  });
+});
+
+describe('native permission-denied toast reporting', () => {
+  type Listener = { callback: (payload: unknown) => unknown; remove: jest.Mock; active: boolean };
+  let listeners: Map<string, Listener[]>;
+
+  beforeEach(() => {
+    listeners = new Map();
+    mockReportUserVisibleError.mockClear();
+    mockAddListener.mockImplementation((event: string, callback: Listener['callback']) => {
+      const listener: Listener = {
+        callback,
+        active: true,
+        remove: jest.fn(() => {
+          listener.active = false;
+        })
+      };
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+      return Promise.resolve({ remove: listener.remove });
+    });
+  });
+
+  afterEach(() => {
+    mockAddListener.mockImplementation(() => Promise.resolve({ remove: jest.fn() }));
+  });
+
+  async function registered() {
+    await waitFor(() => expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(1));
+    return listeners.get('permissionDeniedToast')![0]!;
+  }
+
+  async function emit(event: string, payload: unknown) {
+    await act(async () => {
+      for (const listener of listeners.get(event) ?? []) {
+        if (listener.active) await listener.callback(payload);
+      }
+    });
+  }
+
+  it('reports exactly the fixed pair only after an empty native event arrives', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+  });
+
+  it('reports each native display once across rerenders without duplicate listeners', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    hook.rerender();
+    hook.rerender();
+    expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(1);
+    await emit('permissionDeniedToast', {});
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([
+      ['raw_dapp_permission_denied', 'native_toast'],
+      ['raw_dapp_permission_denied', 'native_toast']
+    ]);
+  });
+
+  it('removes the listener on unmount and leaves only the remounted provider active', async () => {
+    const first = renderHook(() => useDappBrowser(), { wrapper });
+    const old = await registered();
+    first.unmount();
+    expect(old.remove).toHaveBeenCalledTimes(1);
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+    const second = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(listeners.get('permissionDeniedToast') ?? []).toHaveLength(2));
+    expect(listeners.get('permissionDeniedToast')!.filter(listener => listener.active)).toHaveLength(1);
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+    second.unmount();
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores callbacks delivered after provider disposal', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    const listener = await registered();
+    hook.unmount();
+    await act(async () => {
+      await listener.callback({});
+    });
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('removes a permission listener whose registration resolves after unmount', async () => {
+    const register = mockAddListener.getMockImplementation()!;
+    let finishRegistration: (() => void) | undefined;
+    mockAddListener.mockImplementation((event: string, callback: Listener['callback']) => {
+      const handle = register(event, callback);
+      if (event !== 'permissionDeniedToast') return handle;
+      return new Promise(resolve => {
+        finishRegistration = () => resolve(handle);
+      });
+    });
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    const listener = await registered();
+    hook.unmount();
+    await act(async () => {
+      finishRegistration?.();
+    });
+    await waitFor(() => expect(listener.remove).toHaveBeenCalledTimes(1));
+    await emit('permissionDeniedToast', {});
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('forwards no raw payload fields or values to the final reporter boundary', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await registered();
+    await emit('permissionDeniedToast', {
+      id: 'private-instance',
+      url: 'https://private.fixture.example/path?secret=value',
+      origin: 'https://private.fixture.example',
+      permission: 'private-permission',
+      message: 'private denial text',
+      errorId: 'raw_startup_init_failed',
+      surface: 'inline'
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_dapp_permission_denied', 'native_toast']]);
+  });
+
+  it('keeps unrelated successful native events silent', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(listeners.get('closeEvent')).toHaveLength(1));
+    await emit('browserPageLoaded', { id: 'absent' });
+    await emit('urlChangeEvent', { id: 'absent', url: 'https://private.fixture.example' });
+    await emit('presentationChanged', {
+      id: 'absent',
+      display: 'browser',
+      policyResolved: true,
+      policyRevision: 1
+    });
+    await emit('closeEvent', { id: 'absent' });
+    expect(mockReportUserVisibleError).not.toHaveBeenCalled();
   });
 });

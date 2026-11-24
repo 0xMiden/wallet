@@ -19,6 +19,8 @@ import {
 
 import { getNetworkId } from 'lib/miden-chain/constants';
 
+import { selectFungibleAssetSlot } from './fungible-asset-slot';
+
 export function getBech32AddressFromAccountId(accountId: AccountId): string {
   const accountAddress = Address.fromAccountId(accountId, 'BasicWallet');
   return accountAddress.toBech32(getNetworkId());
@@ -54,6 +56,17 @@ export function walletAccountIdToSdk(id: string): AccountId {
   return accountRefToSdk(id);
 }
 
+const MAX_CANONICAL_ACCOUNT_ID_CACHE = 256;
+const canonicalAccountIdCache = new Map<string, string>();
+
+/** Test-only: clear cached canonical account id parses between cases. */
+export const _resetCanonicalWalletAccountIdsForTest = (): void => canonicalAccountIdCache.clear();
+
+const stripAccountTag = (id: string): string => {
+  const separator = id.indexOf('_');
+  return separator === -1 ? id : id.slice(0, separator);
+};
+
 /**
  * Canonicalize a wallet-account identifier so the two id forms that meet inside
  * the wallet compare equal. dApp/adapter-initiated transactions arrive with the
@@ -70,9 +83,24 @@ export function walletAccountIdToSdk(id: string): AccountId {
  * guardian misroute (AUTH_UNAUTHORIZED) it exists to prevent.
  */
 export function canonicalWalletAccountId(id: string): string {
-  const address = id.split('_')[0] ?? id;
+  const address = stripAccountTag(id);
+  if (!address) {
+    return address;
+  }
+  const cached = canonicalAccountIdCache.get(address);
+  if (cached !== undefined) {
+    canonicalAccountIdCache.delete(address);
+    canonicalAccountIdCache.set(address, cached);
+    return cached;
+  }
   try {
-    return accountRefToSdk(address).toString();
+    const canonical = accountRefToSdk(address).toString();
+    if (canonicalAccountIdCache.size >= MAX_CANONICAL_ACCOUNT_ID_CACHE) {
+      const oldest = canonicalAccountIdCache.keys().next().value;
+      if (oldest !== undefined) canonicalAccountIdCache.delete(oldest);
+    }
+    canonicalAccountIdCache.set(address, canonical);
+    return canonical;
   } catch {
     return address;
   }
@@ -87,6 +115,9 @@ export function canonicalWalletAccountId(id: string): string {
  * guardian auth fails as AUTH_UNAUTHORIZED).
  */
 export function sameWalletAccountId(a: string, b: string): boolean {
+  if (stripAccountTag(a) === stripAccountTag(b)) {
+    return true;
+  }
   return canonicalWalletAccountId(a) === canonicalWalletAccountId(b);
 }
 
@@ -104,7 +135,7 @@ export function sameWalletAccountId(a: string, b: string): boolean {
  * non-composite forms because neither bech32 nor hex can contain an underscore.
  */
 export function accountRefToSdk(accountRef: string): AccountId {
-  const ref = accountRef.split('_')[0] ?? accountRef;
+  const ref = stripAccountTag(accountRef);
   if (ref.startsWith('0x') || ref.startsWith('0X')) {
     // Lowercased prefix: `AccountId.fromHex` requires a literal '0x' and rejects
     // '0X…' outright ("hex encoded data must start with 0x"), even though the
@@ -177,12 +208,7 @@ export function resolveHeldFungibleAsset(
   // faucet both could, this decides which CALLBACK FLAG the outgoing asset
   // carries — the largest-slot fallback below would otherwise pick by size and
   // could hand back the wrong variant.
-  const held =
-    heldForFaucet.find(asset => asset.amount() >= amount) ??
-    heldForFaucet.reduce<FungibleAsset | undefined>(
-      (largest, asset) => (largest && largest.amount() >= asset.amount() ? largest : asset),
-      undefined
-    );
+  const held = selectFungibleAssetSlot(heldForFaucet, amount);
   if (!held) {
     // The local vault shows nothing from this faucet. Usually stale local state
     // rather than a real shortfall, so this still builds the request and lets
@@ -223,11 +249,13 @@ export function randomFeeSalt(): Word {
  *
  * Since protocol 0.17 a multisig, which every guardian account is, resolves THREE words of auth
  * args (`[bound_block, approval_expiration, 0, 0] || SALT || CONVERSION_INFO`) at any base fee.
- * A bare `withFeeConversionSalt` commits two, so the auth procedure ran the advice stack dry
- * (`advice stack read failed`) at the proposal's first execution. The SDK's fee-aware builder
- * commits the full preimage for a multisig, bound to the store's sync height, and returns an
- * untouched builder for any other account, which miden-client then settles by itself. The salt
- * is serialized with the request, so persisted bytes reproduce the co-signed summary.
+ * For a bare `withFeeConversionSalt` request miden-client (0.17.4) derives them at execution, bound
+ * to that execution's reference block, so the approvers' signatures stop authorizing it once it
+ * executes at a later tip (`transaction is unauthorized`). The SDK's fee-aware builder binds the
+ * store's sync height once, when the request is built, and declares that block, so a tip execution
+ * matches what the approvers signed; for any other account it returns an untouched builder, which
+ * miden-client then settles by itself. The salt and the bound block are serialized with the
+ * request, so persisted bytes reproduce the co-signed summary.
  *
  * `approvalExpirationDelta` (multisig only) expires the approvers' signatures that many blocks after the bound
  * block, so the transaction must be included by `bound_block + delta` wherever it executes (#1081). It is bound by the

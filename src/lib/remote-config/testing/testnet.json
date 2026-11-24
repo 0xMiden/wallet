@@ -5,9 +5,6 @@
     "enabled": false,
     "launchAt": "2026-10-26T16:00:00Z"
   },
-  "onboarding": {
-    "inviteOnly": false
-  },
   "swap": {
     "etaUrl": "https://35-175-40-181.sslip.io",
     "tokens": [
@@ -44,6 +41,16 @@
     "fastBridge": true,
     "bridgeIn": true,
     "bridgeOut": true
+  },
+  "earn": {
+    "vaults": [
+      {
+        "id": "dummy-lending-sepolia-usdc",
+        "marketUid": "DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69",
+        "name": "Dummy Lending USDC",
+        "protocol": "dummy-lending"
+      }
+    ]
   },
   "bridge-providers": {
     "epoch": {
@@ -95,7 +102,6 @@
           "domain": 0,
           "deposit": {
             "route": "executor",
-            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
             "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
             "executorChain": "arc-testnet"
           },
@@ -132,7 +138,6 @@
           "domain": 6,
           "deposit": {
             "route": "executor",
-            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
             "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
             "executorChain": "arc-testnet"
           },
@@ -153,7 +158,6 @@
           "domain": 3,
           "deposit": {
             "route": "executor",
-            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
             "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
             "executorChain": "arc-testnet"
           },

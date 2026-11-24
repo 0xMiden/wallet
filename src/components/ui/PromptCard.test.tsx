@@ -4,8 +4,11 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { PROMPT_CARD_VARIANT_STYLE, PromptCard } from './PromptCard';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The real Card, with the props PromptCard hands it recorded: the card's surface is Card's to draw.
 const mockCardProps: Array<Record<string, unknown>> = [];
@@ -546,5 +549,45 @@ describe('PromptCard', () => {
 
       expect(document.activeElement).toBe(elsewhere);
     });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the prompt surface after the dwell', () => {
+    render(<PromptCard errorId="usdcxFaucetUnavailable" title="Funding" status="failure" body="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'prompt');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<PromptCard errorId={errorId} title="Funding" status="failure" body="Failed" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<PromptCard errorId="usdcxFaucetUnavailable" title="Funding" status="success" body="Success" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(
+      <PromptCard errorId="usdcxFaucetUnavailable" title="Funding" status="failure" body="Failed" />
+    );
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<PromptCard errorId="usdcxFaucetUnavailable" title="Funding" status="success" body="Success" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

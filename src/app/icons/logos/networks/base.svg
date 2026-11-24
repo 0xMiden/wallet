@@ -1,0 +1,34 @@
+<!--
+MIT License
+
+Copyright (c) 2024 0xa3k5
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_328_57686)">
+<path d="M24 0H0V24H24V0Z" fill="#0000FF"/>
+<path d="M4.0008 5.51665C4.0008 4.9967 4.0008 4.73673 4.09839 4.53755C4.19198 4.34637 4.34717 4.19118 4.53835 4.09759C4.73753 4 4.9975 4 5.51665 4H18.4834C19.0033 4 19.2625 4 19.4625 4.09759C19.6536 4.19118 19.808 4.34717 19.9016 4.53755C20 4.73753 20 4.9975 20 5.51665V18.4834C20 19.0033 20 19.2625 19.9016 19.4625C19.808 19.6536 19.6528 19.808 19.4625 19.9016C19.2625 20 19.0025 20 18.4834 20H5.51665C4.9967 20 4.73753 20 4.53755 19.9016C4.34637 19.808 4.19198 19.6528 4.09839 19.4625C4 19.2625 4 19.0025 4 18.4834V5.51665H4.0008Z" fill="white"/>
+</g>
+<defs>
+<clipPath id="clip0_328_57686">
+<rect width="24" height="24" fill="white"/>
+</clipPath>
+</defs>
+</svg>

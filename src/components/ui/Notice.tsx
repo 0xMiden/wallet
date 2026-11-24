@@ -2,26 +2,39 @@ import React from 'react';
 
 import { cva } from 'class-variance-authority';
 
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 /**
  * What the notice says about its content:
  * - `neutral` — a quiet aside, `fill` with a `muted` body.
  * - `warning` — something to act on with care (test funds, a pending state).
+ * - `caution` — a calm heads-up before an action (use a test wallet): the sand `pending-tint`, quieter than `warning`.
  * - `negative` — an error or a destructive consequence.
  * - `positive` — a confirmation.
  */
-export type NoticeTone = 'neutral' | 'warning' | 'negative' | 'positive';
+export type NoticeTone = 'neutral' | 'warning' | 'caution' | 'negative' | 'positive';
 
 /**
  * How much room the notice takes:
  * - `block` — the tinted card, for copy the page wants read.
  * - `inline` — a caption line with the tone's glyph and no surface, for a footnote under the thing
  *   it qualifies (the Receive page's test-funds warning). Same tone, same meaning, less weight.
+ * - `fact` — the tinted card in the anatomy of a `FactRow`: the glyph in a solid 24px circle of the
+ *   tone's ink, an extrabold title and a `muted` body, with a soft edge in the tone's ink. For a
+ *   notice that sits beside a list of facts (the dApp connect window) and has to read as one family
+ *   with it.
  */
-export type NoticeVariant = 'block' | 'inline';
+export type NoticeVariant = 'block' | 'inline' | 'fact';
 
 export interface NoticeProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
+  /** Stable identity for one failure; a new object restarts the same error's visible dwell. */
+  errorOccurrence?: object;
+  errorDiagnostics?: UiEvidenceInput;
   /**
    * The body copy: one or two short lines. Optional, so a notice whose whole message is its
    * `title` — an explanation with nothing subordinate under it — renders as that one line rather
@@ -32,13 +45,22 @@ export interface NoticeProps {
   title?: React.ReactNode;
   /** Leading glyph, drawn 16px in the tone's ink. Decorative: the text carries the meaning. */
   icon?: React.ReactNode;
+  /**
+   * Beside the copy and outside `role`: a value that changes too often to announce, such as a countdown. With it the
+   * role sits on the copy alone, so a tick inside a `status` or `alert` notice never reaches a screen reader.
+   */
+  trailing?: React.ReactNode;
   tone?: NoticeTone;
   variant?: NoticeVariant;
   /** `note` (default) for standing copy; `alert` only for something that just went wrong. */
   role?: 'note' | 'status' | 'alert';
   /** Layout only (margins, width). */
   className?: string;
+  /** Lets a control point at the notice with `aria-describedby`. */
+  id?: string;
   'data-testid'?: string;
+  /** Why a feature notice shows, for the e2e harness. */
+  'data-reason'?: string;
 }
 
 // The tinted card's own box; `inline` drops the surface and the padding and is a caption line.
@@ -46,9 +68,18 @@ const noticeVariants = cva('flex w-full items-start text-left', {
   variants: {
     variant: {
       block: 'gap-2.5 rounded-2xl px-3.5 py-3',
+      fact: 'gap-2.5 rounded-2xl border px-3.5 py-3',
       // 4px of inset only, so the glyph lines up with the copy above it rather than the group edge.
       inline: 'gap-2 px-1'
     } satisfies Record<NoticeVariant, string>
+  },
+  defaultVariants: { variant: 'block' }
+});
+
+// The copy's own box beside a `trailing` value, at the gap the notice would have given it.
+const noticeCopyVariants = cva('flex min-w-0 flex-1 items-start', {
+  variants: {
+    variant: { block: 'gap-2.5', fact: 'gap-2.5', inline: 'gap-2' } satisfies Record<NoticeVariant, string>
   },
   defaultVariants: { variant: 'block' }
 });
@@ -61,8 +92,37 @@ const noticeSurfaceVariants = cva('', {
     tone: {
       neutral: 'bg-fill',
       warning: 'bg-status-pending/10',
+      caution: 'bg-pending-tint',
       negative: 'bg-status-negative/10',
       positive: 'bg-status-positive/10'
+    } satisfies Record<NoticeTone, string>
+  },
+  defaultVariants: { tone: 'neutral' }
+});
+
+// The `fact` card's surface: the tone's opaque tint with its ink at 30% for the edge. The circle
+// inverts the pair (tint-ink disc, tint glyph), the treatment of `GuardianInfoDrawer`'s facts.
+const noticeFactSurfaceVariants = cva('', {
+  variants: {
+    tone: {
+      neutral: 'border-hairline bg-fill',
+      warning: 'border-accent-tint-ink/30 bg-accent-tint',
+      caution: 'border-pending-tint-ink/30 bg-pending-tint',
+      negative: 'border-negative-tint-ink/30 bg-negative-tint',
+      positive: 'border-positive-tint-ink/30 bg-positive-tint'
+    } satisfies Record<NoticeTone, string>
+  },
+  defaultVariants: { tone: 'neutral' }
+});
+
+const noticeFactCircleVariants = cva('flex size-6 shrink-0 items-center justify-center rounded-full [&>svg]:size-3', {
+  variants: {
+    tone: {
+      neutral: 'bg-ink text-page',
+      warning: 'bg-accent-tint-ink text-accent-tint',
+      caution: 'bg-pending-tint-ink text-pending-tint',
+      negative: 'bg-negative-tint-ink text-negative-tint',
+      positive: 'bg-positive-tint-ink text-positive-tint'
     } satisfies Record<NoticeTone, string>
   },
   defaultVariants: { tone: 'neutral' }
@@ -74,6 +134,7 @@ const noticeInkVariants = cva('', {
     tone: {
       neutral: 'text-ink',
       warning: 'text-pending-ink',
+      caution: 'text-pending-tint-ink',
       negative: 'text-negative-ink',
       positive: 'text-positive-ink'
     } satisfies Record<NoticeTone, string>
@@ -87,6 +148,7 @@ const noticeBodyVariants = cva('text-caption', {
       // `muted` on `fill` is 4.7:1.
       neutral: 'text-muted',
       warning: 'text-ink',
+      caution: 'text-pending-tint-ink',
       negative: 'text-ink',
       positive: 'text-ink'
     } satisfies Record<NoticeTone, string>
@@ -105,48 +167,98 @@ export const Notice: React.FC<NoticeProps> = ({
   children,
   title,
   icon,
+  trailing,
   tone = 'neutral',
+  errorId,
+  errorOccurrence,
+  errorDiagnostics,
   variant = 'block',
   role = 'note',
   className,
-  'data-testid': dataTestId
-}) => (
-  <div
-    role={role}
-    data-tone={tone}
-    data-variant={variant}
-    data-testid={dataTestId}
-    className={cn(noticeVariants({ variant }), variant === 'block' && noticeSurfaceVariants({ tone }), className)}
-  >
-    {icon && (
-      <span
-        aria-hidden="true"
-        data-slot="icon"
-        // 17px line box, 16px glyph: a 0.5px nudge centres it on the first line.
-        className={cn(
-          'mt-px flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
-          noticeInkVariants({ tone })
-        )}
-      >
-        {icon}
-      </span>
-    )}
-    <div className="flex min-w-0 flex-col gap-0.5">
-      {title && (
-        <span data-slot="title" className={cn('text-label', noticeInkVariants({ tone }))}>
-          {title}
+  id,
+  'data-testid': dataTestId,
+  'data-reason': dataReason
+}) => {
+  useUserVisibleError(tone === 'negative' ? errorId : null, 'notice', errorOccurrence, errorDiagnostics);
+  const copy = (
+    <>
+      {icon && variant === 'fact' && (
+        <span aria-hidden="true" data-slot="icon" className={noticeFactCircleVariants({ tone })}>
+          {icon}
         </span>
       )}
-      {/* Off a surface there is nothing for `ink` to carry, and a caption is meant to be quiet:
-          every inline tone takes `muted` (5.3:1 on `page`). */}
-      {children !== undefined && (
+      {icon && variant !== 'fact' && (
         <span
-          data-slot="body"
-          className={variant === 'inline' ? 'text-caption text-muted' : noticeBodyVariants({ tone })}
+          aria-hidden="true"
+          data-slot="icon"
+          // 17px line box, 16px glyph: a 0.5px nudge centres it on the first line.
+          className={cn(
+            'mt-px flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
+            noticeInkVariants({ tone })
+          )}
         >
-          {children}
+          {icon}
         </span>
+      )}
+      <div className="flex min-w-0 flex-col gap-0.5">
+        {title && (
+          <span
+            data-slot="title"
+            className={
+              variant === 'fact'
+                ? cn(children === undefined ? 'text-row-title' : 'text-action', 'font-extrabold text-ink')
+                : cn('text-label', noticeInkVariants({ tone }))
+            }
+          >
+            {title}
+          </span>
+        )}
+        {/* Off a surface there is nothing for `ink` to carry, and a caption is meant to be quiet:
+          every inline tone takes `muted` (5.3:1 on `page`). */}
+        {children !== undefined && (
+          <span
+            data-slot="body"
+            className={
+              variant === 'inline'
+                ? 'text-caption text-muted'
+                : variant === 'fact'
+                  ? 'text-caption-heading text-muted'
+                  : noticeBodyVariants({ tone })
+            }
+          >
+            {children}
+          </span>
+        )}
+      </div>
+    </>
+  );
+  return (
+    <div
+      id={id}
+      role={trailing === undefined ? role : undefined}
+      data-tone={tone}
+      data-variant={variant}
+      data-testid={dataTestId}
+      data-reason={dataReason}
+      className={cn(
+        noticeVariants({ variant }),
+        variant === 'block' && noticeSurfaceVariants({ tone }),
+        variant === 'fact' && noticeFactSurfaceVariants({ tone }),
+        // A fact notice that is only its title is one line beside the circle: centre the two.
+        variant === 'fact' && children === undefined && 'items-center',
+        className
+      )}
+    >
+      {trailing === undefined ? (
+        copy
+      ) : (
+        <>
+          <div role={role} className={noticeCopyVariants({ variant })}>
+            {copy}
+          </div>
+          {trailing}
+        </>
       )}
     </div>
-  </div>
-);
+  );
+};

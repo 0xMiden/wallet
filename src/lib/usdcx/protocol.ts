@@ -1,5 +1,7 @@
 import type { Hex } from 'viem';
 
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
+
 /** The 24-byte hook name the Generic Executor looks for in composable hook data (`circle-generic-executor`). */
 export const CCTP_EXECUTOR_HOOK_NAME = 'circle-generic-executor';
 /** The hook name Circle's forwarding service looks for; its frame carries no payload for an EVM destination. */
@@ -21,8 +23,9 @@ export const USDCX_DECIMALS = 6;
 export const USDCX_BURN_TAG = 0x4255524e;
 /** The withdrawal attachment's scheme: `StandardNoteAttachment::UsdcxBurn` in the 0.17.1 standards. */
 export const USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME = 5;
+/** The smallest burn the wallet accepts: 5 USDCx, or the faucet's own minimum when that is larger. */
+export const USDCX_MIN_BURN = 5n * 10n ** BigInt(USDCX_DECIMALS);
 export const USDCX_MIN_BURN_SLOT = 'miden::standards::faucets::policies::burn::min_burn_amount::min_burn_amount';
-export const USDCX_ALLOWED_NOTE_SCRIPTS_SLOT = 'miden::standards::auth::network_account::allowed_note_scripts';
 
 /** The fee ceiling passed to `depositToRemote`. Circle's fee for Miden is not confirmed yet. */
 export const USDCX_DEPOSIT_MAX_FEE = 0n;
@@ -99,32 +102,9 @@ export const ERC20_BALANCE_OF_ABI = [
 ] as const;
 
 /**
- * The CCTP V2 `TokenMessengerV2` entry point the executor route burns through: a standard transfer whose
- * mint recipient and destination caller are both the executor, with the xReserve deposit as hook data.
- */
-export const TOKEN_MESSENGER_V2_ABI = [
-  {
-    type: 'function',
-    name: 'depositForBurnWithHook',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'amount', type: 'uint256' },
-      { name: 'destinationDomain', type: 'uint32' },
-      { name: 'mintRecipient', type: 'bytes32' },
-      { name: 'burnToken', type: 'address' },
-      { name: 'destinationCaller', type: 'bytes32' },
-      { name: 'maxFee', type: 'uint256' },
-      { name: 'minFinalityThreshold', type: 'uint32' },
-      { name: 'hookData', type: 'bytes' }
-    ],
-    outputs: []
-  }
-] as const;
-
-/**
  * Circle's Generic Executor on Arc (`GenericExecutor.execute`): receives the attested CCTP message, which
  * mints to the executor, then hands the minted USDC to the handler named in the executor hook. Anyone may
- * call it, so the wallet does when Circle's forwarder does not.
+ * call it, so the wallet does when Circle's forwarder gave up on a burn, or its execute reverted or stalled.
  */
 export const GENERIC_EXECUTOR_ABI = [
   {
@@ -180,3 +160,19 @@ export const TOKEN_MESSENGER_WITH_FEES_ABI = [
     outputs: []
   }
 ] as const;
+
+/** Circle did not register the remote domain on the xReserve contract. No gas was spent. */
+export class UsdcxDomainNotRegisteredError extends Error {
+  readonly remoteDomain: number;
+
+  constructor(remoteDomain: number) {
+    super(`xReserve remote domain ${remoteDomain} is not registered`);
+    this.name = 'UsdcxDomainNotRegisteredError';
+    this.remoteDomain = remoteDomain;
+    walletRaised(this);
+  }
+}
+
+export function isUsdcxDomainNotRegisteredError(error: unknown): error is UsdcxDomainNotRegisteredError {
+  return error instanceof UsdcxDomainNotRegisteredError;
+}

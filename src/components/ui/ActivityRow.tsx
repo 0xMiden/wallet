@@ -1,17 +1,16 @@
 import React, { FC, ReactNode } from 'react';
 
-import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useSettleLayoutTransition } from 'app/layouts/page-active';
-import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
 import { FOCUSABLE_CLASSES } from './Card';
 import { Status, StatusBadge } from './StatusBadge';
+import { TokenAmount } from './TokenAmount';
 
 /** Extra batch-claim assets rendered inline before the row collapses to a count. */
 const EXTRA_ASSET_PREVIEW_COUNT = 2;
@@ -97,18 +96,6 @@ const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
 
 const DISPLAY_DECIMAL_PLACES = 3;
 
-function formatDisplayAmount(value: string): string {
-  const sign = value.startsWith('+') ? '+' : '';
-  const amount = new BigNumber(sign ? value.slice(1) : value);
-
-  if (!amount.isFinite()) {
-    return value;
-  }
-
-  const decimalPlaces = getAdaptiveDecimalPlaces(amount, DISPLAY_DECIMAL_PLACES);
-  return `${sign}${amount.decimalPlaces(decimalPlaces, BigNumber.ROUND_DOWN).toFixed()}`;
-}
-
 export const ActivityRow: FC<ActivityRowProps> = ({
   icon,
   iconBg = 'bg-fill',
@@ -178,19 +165,35 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {title}
           </span>
           {subtitle && (
-            <span data-testid={testId && `${testId}-subtitle`} className="truncate text-caption text-muted">
+            <span data-testid={testId && `${testId}-subtitle`} className="truncate text-caption-heading text-muted">
               {subtitle}
             </span>
           )}
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-1">
+      {/* Never shrinks and is capped at half the row, so a short amount or badge keeps its width and a long amount,
+          token name or asset list truncates inside the cap instead of starving the title. The line takes `text-ink`
+          for its ellipsis, which would otherwise draw in the button's default colour. */}
+      <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {amount && (
-          <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
+          <span
+            data-testid={testId && `${testId}-amount`}
+            className="max-w-full truncate text-value text-right text-ink"
+          >
             {amount.value !== '' && (
               <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>
-                {amount.preformatted ? amount.value : formatDisplayAmount(amount.value)}
+                {amount.preformatted ? (
+                  amount.value
+                ) : (
+                  <TokenAmount
+                    amount={amount.value}
+                    minimumFractionDigits={DISPLAY_DECIMAL_PLACES}
+                    rounding={amount.direction === 'negative' ? 'up' : 'down'}
+                    preserveSign
+                    className={AMOUNT_COLOR[amount.direction ?? 'neutral']}
+                  />
+                )}
               </span>
             )}
             {amount.symbol ? (
@@ -207,7 +210,17 @@ export const ActivityRow: FC<ActivityRowProps> = ({
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
                 <span className="text-ink">, </span>
                 {line.value !== '' && (
-                  <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
+                  <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>
+                    {
+                      <TokenAmount
+                        amount={line.value}
+                        minimumFractionDigits={DISPLAY_DECIMAL_PLACES}
+                        rounding={amount.direction === 'negative' ? 'up' : 'down'}
+                        preserveSign
+                        className={AMOUNT_COLOR[amount.direction ?? 'neutral']}
+                      />
+                    }
+                  </span>
                 )}
                 {line.symbol ? (
                   <span className="text-ink">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>

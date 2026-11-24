@@ -8,7 +8,7 @@ import {
   PageOnScreenContext,
   PageRevealedByLayerContext
 } from 'app/layouts/page-active';
-import { pageSlideDim, pageSlideParallax, reducedMotionTransition, usePreset } from 'lib/animation';
+import { pageSlideCovered, pageSlideDim, reducedMotionTransition, usePreset } from 'lib/animation';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { HistoryAction } from 'lib/woozie/history';
@@ -59,7 +59,7 @@ interface PageLayerProps extends PropsWithChildren {
 }
 
 // The page beneath a slide page. The slide page itself moves on the `page` preset.
-const coveredTarget: TargetAndTransition = { x: pageSlideParallax };
+const coveredTarget = pageSlideCovered;
 
 const PageLayer: FC<PageLayerProps> = ({
   pageKey,

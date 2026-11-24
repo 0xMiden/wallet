@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { EvmConnectModal } from './EvmConnectModal';
 
@@ -12,11 +12,26 @@ jest.mock('@reown/appkit/react', () => ({
   useAppKit: () => ({ open: jest.fn() })
 }));
 
+let mockNativeError: string | null = null;
+let mockConnectionStatus = 'idle';
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
-  useEvmWalletConnection: () => ({ status: 'idle', nativeReown: { error: null }, useNativeReownWallet: false })
+  useEvmWalletConnection: () => ({
+    status: mockConnectionStatus,
+    nativeReown: { error: mockNativeError },
+    useNativeReownWallet: false
+  })
 }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
+
+// The effective network: a test network unless a case switches to mainnet.
+let mockTestNetworkKey: 'testnet' | null = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getTestNetworkNameKey: () => mockTestNetworkKey
+}));
+afterEach(() => {
+  mockTestNetworkKey = 'testnet';
+});
 
 jest.mock('components/ui/Button', () => ({
   Button: ({
@@ -86,6 +101,14 @@ describe('EvmConnectModal (#875)', () => {
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
   });
 
+  it('shows no test-wallet warning on mainnet, where the funds are real', () => {
+    mockTestNetworkKey = null;
+    render(<EvmConnectModal open onOpenChange={jest.fn()} />);
+
+    expect(screen.getByTestId('evm-connect-body')).toBeInTheDocument();
+    expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
+  });
+
   it('keeps the warning in the scroll region and "Open wallet" in the pinned footer', () => {
     // Structure only: the stand-in drawer has no layout. network-banner.spec measures the
     // same DrawerContent / DrawerFooter pattern on the real drawer. Landscape leaves 80vh
@@ -116,5 +139,83 @@ describe('EvmConnectModal (#875)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'close' }));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible WalletConnect errors', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    mockNativeError = null;
+    mockConnectionStatus = 'idle';
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    mockNativeError = null;
+    mockConnectionStatus = 'idle';
+  });
+
+  it('reports the native connection error as one closed inline tuple', async () => {
+    mockNativeError = 'private connect 42 https://synthetic.invalid/0xabc';
+    render(<EvmConnectModal open onOpenChange={jest.fn()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(mockNativeError);
+    await expectErrorAfterDwell('raw_bridge_connect_failed', 'inline');
+  });
+
+  it('keeps a hidden error, connecting progress and the test-wallet warning quiet', async () => {
+    mockNativeError = 'hidden connection failure';
+    const view = render(<EvmConnectModal open={false} onOpenChange={jest.fn()} />);
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    mockNativeError = null;
+    mockConnectionStatus = 'connecting';
+    view.rerender(<EvmConnectModal open onOpenChange={jest.fn()} />);
+    expect(screen.getByText('preparing')).toBeInTheDocument();
+    expect(screen.getByTestId('evm-connect-test-wallet-warning')).toHaveAttribute('role', 'note');
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it.each(['dismiss', 'recover', 'unmount'])('cancels a connection error on %s before dwell', async action => {
+    mockNativeError = 'temporary connection failure';
+    const view = render(<EvmConnectModal open onOpenChange={jest.fn()} />);
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (action === 'unmount') view.unmount();
+    else {
+      if (action === 'recover') mockNativeError = null;
+      view.rerender(<EvmConnectModal open={action !== 'dismiss'} onOpenChange={jest.fn()} />);
+    }
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
   });
 });

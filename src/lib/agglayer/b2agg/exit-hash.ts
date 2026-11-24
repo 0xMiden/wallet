@@ -1,5 +1,7 @@
-import { FeltArray, type Note, Poseidon2, TransactionRequest, type Word } from '@miden-sdk/miden-sdk/lazy';
+import { type Note, TransactionRequest, type Word } from '@miden-sdk/miden-sdk/lazy';
 import { concat, keccak256, stringToBytes } from 'viem';
+
+import { normalizedCommitment, noteDetailsCommitmentWord } from 'lib/miden/sdk/note-details-commitment';
 
 /**
  * The domain gateway's bridge-out service hashes a B2AGG note's details commitment under. The indexer files a Miden
@@ -10,10 +12,7 @@ export const AGGLAYER_EXIT_TX_HASH_DOMAIN = 'miden-agglayer/bridge-out/v1\0';
 /** keccak256(utf8(DOMAIN) ++ utf8(lowercase unprefixed hex of the commitment)) */
 export function agglayerExitTxHashFromDetailsCommitment(detailsCommitmentHex: string): `0x${string}` {
   return keccak256(
-    concat([
-      stringToBytes(AGGLAYER_EXIT_TX_HASH_DOMAIN),
-      stringToBytes(detailsCommitmentHex.replace(/^0x/i, '').toLowerCase())
-    ])
+    concat([stringToBytes(AGGLAYER_EXIT_TX_HASH_DOMAIN), stringToBytes(normalizedCommitment(detailsCommitmentHex))])
   );
 }
 
@@ -27,12 +26,7 @@ export function b2aggDetailsCommitment(recipientDigest: Word, assets: B2aggAsset
   const fungible = assets.fungibleAssets();
   // `createB2AggNote` takes fungible network-faucet assets only, so a note without one is not a B2AGG note.
   if (fungible.length === 0) throw new Error('A B2AGG note carries at least one fungible asset');
-  // Each FeltArray is built for its one hash: the browser binding consumes the array it is given, which the
-  // napi binding the vector tests run on does not.
-  const assetsCommitment = Poseidon2.hashElements(
-    new FeltArray(fungible.flatMap(asset => [...asset.vaultKey().toFelts(), ...asset.intoWord().toFelts()]))
-  );
-  return Poseidon2.hashElements(new FeltArray([...recipientDigest.toFelts(), ...assetsCommitment.toFelts()]));
+  return noteDetailsCommitmentWord(recipientDigest, fungible);
 }
 
 /** The indexer `tx_hash` of the exit this B2AGG note makes. Never `note.id()`: that also commits the metadata. */

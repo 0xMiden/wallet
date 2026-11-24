@@ -4,8 +4,12 @@ import classNames from 'clsx';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { FlowAccent } from 'components/flow/accent';
+import { useFlowPresentation, useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 
 export interface ReviewAction {
   label: string;
@@ -21,6 +25,8 @@ export interface ReviewAction {
 }
 
 export interface ReviewLayoutProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
   /** Hero block — a `Hero` amount (bridge deposit) or a composed swap hero. */
   hero: React.ReactNode;
   /** The flow this review belongs to; colours the primary CTA. Defaults to the brand orange. */
@@ -33,6 +39,8 @@ export interface ReviewLayoutProps {
   secondary?: ReviewAction;
   /** Optional message shown just above the CTAs — e.g. a failed bridge submit. */
   error?: React.ReactNode;
+  /** Advisory content shown directly above the action buttons. */
+  beforeActions?: React.ReactNode;
 }
 
 /**
@@ -43,6 +51,8 @@ export interface ReviewLayoutProps {
  * (hero, rows) and callbacks are passed in, so each flow keeps its own confirm
  * logic while sharing one consistent layout.
  */
+const ignoreBackWhileSubmitting = () => undefined;
+
 export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   hero,
   accent = 'brand',
@@ -50,36 +60,49 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   children,
   primary,
   secondary,
-  error
+  error,
+  errorId,
+  beforeActions
 }) => {
+  useUserVisibleError(error ? errorId : null, 'review');
   // Hide the bottom tab navbar while this review screen is mounted (no-op on
   // full-screen routes that render outside TabLayout).
   useHideNavbarWhileOpen();
+  const command = useFlowPresentation() === 'command';
+  useRegisterCommandFlowBack(secondary?.disabled ? ignoreBackWhileSubmitting : secondary?.onPress);
+  const primaryButton = (
+    <Button
+      type={primary.type ?? 'button'}
+      title={primary.label}
+      variant={ButtonVariant.Primary}
+      accent={accent}
+      onClick={primary.onPress}
+      isLoading={primary.loading}
+      disabled={primary.disabled || primary.loading}
+      data-testid={primary['data-testid']}
+      className="w-full max-w-none"
+    />
+  );
+  const commandFooter = useCommandWorkbenchSlots(
+    command ? <div data-command-review-footer="true">{primaryButton}</div> : null
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-app-bg pb-[calc(1rem+var(--wallet-control-safe-bottom,0px))]">
       <NetworkModeBanner />
       <div className="flex flex-1 min-h-0 flex-col px-4 pt-6">
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
-          {hero}
+          <div className="tx-stage-rise">{hero}</div>
 
-          <div className={classNames(dividers && 'divide-y divide-rule-default')}>{children}</div>
+          <div className={classNames('tx-stage-list', dividers && 'divide-y divide-rule-default')}>{children}</div>
         </div>
 
         <div className="shrink-0 pt-6 flex flex-col gap-y-2">
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
-          <Button
-            type={primary.type ?? 'button'}
-            title={primary.label}
-            variant={ButtonVariant.Primary}
-            accent={accent}
-            onClick={primary.onPress}
-            isLoading={primary.loading}
-            disabled={primary.disabled || primary.loading}
-            data-testid={primary['data-testid']}
-            className="w-full max-w-none"
-          />
-          {secondary && (
+          {beforeActions}
+          {!command && <div className="tx-stage-cta">{primaryButton}</div>}
+          {commandFooter}
+          {!command && secondary && (
             <Button
               type="button"
               title={secondary.label}

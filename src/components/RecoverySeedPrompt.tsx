@@ -11,6 +11,8 @@ import type { ITransaction } from 'lib/miden/db/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { ImportSeedPhraseScreen } from 'screens/onboarding/import-wallet-flow/ImportSeedPhrase';
 
 interface Props {
@@ -22,9 +24,11 @@ export const RecoverySeedPrompt: React.FC<Props> = ({ transaction, onClose }) =>
   const { t } = useTranslation();
   const provideSeed = useWalletStore(s => s.provideRecoverySeed);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [inputVersion, setInputVersion] = useState(0);
   const busy = useRef(false);
+  useUserVisibleError(error ? errorId : null, 'inline');
 
   useMobileBackHandler(() => {
     onClose();
@@ -36,12 +40,14 @@ export const RecoverySeedPrompt: React.FC<Props> = ({ transaction, onClose }) =>
     busy.current = true;
     setSubmitting(true);
     setError(null);
+    setErrorId(null);
     try {
       await provideSeed(transaction.id, mnemonic, getRecoveryAction(transaction));
       setInputVersion(version => version + 1);
       if (isExtension()) requestSWTransactionProcessing();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : t('invalidRecoverySeed'));
+      setErrorId(failure instanceof Error ? 'raw_recovery_seed_submit_failed' : 'invalidRecoverySeed');
     } finally {
       busy.current = false;
       setSubmitting(false);

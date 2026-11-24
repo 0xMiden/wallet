@@ -17,6 +17,9 @@ export class GuardianHttpClient {
 
 export class GuardianHttpError extends Error {}
 
+// The real list, so a test checks the vocabulary the wallet ships. error-codes.js imports nothing.
+export { GUARDIAN_ERROR_CODES } from '../../node_modules/@openzeppelin/guardian-client/dist/error-codes.js';
+
 export class RequestAuthPayload {
   constructor(..._args: unknown[]) {}
   toWord = jest.fn(() => new Uint8Array(32));

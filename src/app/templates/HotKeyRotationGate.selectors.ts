@@ -1,4 +1,4 @@
-import { formatBigInt } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
@@ -9,6 +9,7 @@ import {
   isWalletFailureReason,
   TRANSACTION_VAULT_SHORTFALL_ERROR
 } from 'lib/miden/transaction/constants';
+import { newestRow } from 'lib/miden/transaction/rotation-funding';
 
 export type RotationGateView = 'recovery-seed' | 'funding' | 'failed' | 'rotating';
 export type RotationFundingStatus = 'claiming' | 'activating' | 'claim-failed' | 'too-small' | 'waiting';
@@ -53,16 +54,6 @@ export type RotationGateViewResult =
   | { view: 'recovery-seed' | 'failed' | 'rotating' }
   | { view: 'funding'; status: RotationFundingStatus; reason: RotationFundingReason; failedClaim?: GateRow };
 
-const queuedLater = (a: GateRow, b: GateRow): boolean =>
-  a.initiatedAt > b.initiatedAt || (a.initiatedAt === b.initiatedAt && (a.queuedSeq ?? 0) > (b.queuedSeq ?? 0));
-
-/** The most recently queued of `rows`. */
-export const newestRow = <T extends GateRow>(rows: readonly T[]): T | undefined =>
-  rows.reduce<T | undefined>(
-    (newest, row) => (newest === undefined || queuedLater(row, newest) ? row : newest),
-    undefined
-  );
-
 export const claimNoteIds = (row: GateRow): string[] => row.noteIds ?? [];
 
 /** The balance trigger. The pre-fetch placeholder is a zero native row, so it waits for a real read. */
@@ -79,10 +70,10 @@ export const rotationFundingMinimum = (
   nativeRow: TokenBalanceData | undefined
 ): string | null => {
   if (baseFee === null || baseFee <= 0 || nativeRow === undefined || !hasKnownScale(nativeRow.metadata)) return null;
-  return formatBigInt(
-    BigInt(ROTATION_FUNDING_MIN_FEE_MULTIPLE) * BigInt(Math.trunc(baseFee)),
-    nativeRow.metadata.decimals
-  );
+  return formatAmountDisplay(BigInt(ROTATION_FUNDING_MIN_FEE_MULTIPLE) * BigInt(Math.trunc(baseFee)), {
+    decimals: nativeRow.metadata.decimals,
+    formatting: 'exact'
+  });
 };
 
 const fundingStatus = (

@@ -2,7 +2,17 @@ import React, { createRef, useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import TextFieldDefault, { SECRET_REVEAL_MS, TextField, type TextFieldProps } from './TextField';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+const mockHandleSecretCopy = jest.fn();
+jest.mock('lib/ui/secret-clipboard', () => ({
+  ...jest.requireActual('lib/ui/secret-clipboard'),
+  handleSecretCopyEvent: (...args: unknown[]) => mockHandleSecretCopy(...args)
+}));
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
@@ -71,6 +81,14 @@ describe('TextField — sizes and anatomy', () => {
     expect(box.className).toContain('h-[52px]');
     expect(box.className).toContain('rounded-full');
     expect(box.className).toContain('bg-fill');
+  });
+
+  it('draws the compact 40px pill for a single-line field sized sm', () => {
+    render(<TextField size="sm" value="" onChange={jest.fn()} />);
+    const box = screen.getByRole('textbox').parentElement as HTMLElement;
+    expect(box.className).toContain('h-10');
+    expect(box.className).not.toContain('h-[52px]');
+    expect(box.className).toContain('rounded-full');
   });
 
   it('draws a 16px-radius auto-height box for a multiline field', () => {
@@ -538,6 +556,30 @@ describe('TextField — secret', () => {
     render(<TextField value="not a secret" onChange={jest.fn()} />);
     expect(cover()).toBeNull();
   });
+
+  // For a caller whose own mask decides when the value is on screen: the field keeps every other
+  // secret guard, and only its cover and reveal timer step aside.
+  it('with secretCover off, never covers and keeps focus past the reveal window, still as a secret', () => {
+    jest.useFakeTimers();
+    try {
+      render(<TextField secret secretCover={false} multiline value="my private key" onChange={jest.fn()} />);
+      const field = screen.getByRole('textbox');
+      expect(cover()).toBeNull();
+
+      act(() => field.focus());
+      act(() => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS);
+      });
+      expect(field).toHaveFocus();
+      act(() => field.blur());
+      expect(cover()).toBeNull();
+      expect(field).toHaveAttribute('autocomplete', 'off');
+      expect(field).toHaveAttribute('spellcheck', 'false');
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('TextField: placeholder on focus (#503)', () => {
@@ -664,5 +706,112 @@ describe('TextField: clear action (#503)', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('textbox')).toHaveValue('alice');
     expect(clearButton()).not.toBeNull();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+  });
+
+  it('reports its displayed error once on the field surface after the dwell', () => {
+    render(<TextField errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    expect(reportUserVisibleError).toHaveBeenCalledWith('usdcxFaucetUnavailable', 'field');
+    act(() => jest.advanceTimersByTime(5000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, null])('does not report an error without an identifier: %p', errorId => {
+    render(<TextField errorId={errorId} error="Failed" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report when it is not showing an error', () => {
+    render(<TextField errorId="usdcxFaucetUnavailable" hint="Hint" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels reporting when the error clears within the dwell', () => {
+    const { rerender } = render(<TextField errorId="usdcxFaucetUnavailable" error="Failed" />);
+    act(() => jest.advanceTimersByTime(999));
+    rerender(<TextField errorId="usdcxFaucetUnavailable" hint="Hint" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+});
+
+it('forwards backup evidence once without putting diagnostics on the native field', () => {
+  jest.useFakeTimers();
+  jest.clearAllMocks();
+  const evidence = { kind: 'backup_network_failure', backupNetworkFailureStage: 'genesis_header' } as const;
+  const { rerender } = render(
+    <TextField errorId="encryptedWalletFileWrongNetwork" error="Failed" errorDiagnostics={evidence} />
+  );
+  expect(screen.getByRole('textbox')).not.toHaveAttribute('errorDiagnostics');
+  expect(screen.getByRole('textbox')).not.toHaveAttribute('backupNetworkFailureStage');
+  act(() => jest.advanceTimersByTime(1000));
+  expect(reportUserVisibleError).toHaveBeenCalledWith('encryptedWalletFileWrongNetwork', 'field', evidence);
+  rerender(<TextField errorId="encryptedWalletFileWrongNetwork" error="Failed" errorDiagnostics={evidence} />);
+  act(() => jest.advanceTimersByTime(1000));
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  jest.useRealTimers();
+});
+
+describe('TextField - copy out of a secret', () => {
+  beforeEach(() => {
+    mockHandleSecretCopy.mockReset();
+  });
+
+  it('routes a copy out of a secret field through the secret clipboard', () => {
+    render(<TextField secret multiline readOnly value="abcdef" />);
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
+    field.focus();
+    field.setSelectionRange(1, 4);
+
+    fireEvent.copy(field);
+
+    expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), 'bcd');
+  });
+
+  it('routes a copy out of a single-line secret field too', () => {
+    render(<TextField secret readOnly value="abcdef" />);
+    const field = screen.getByRole<HTMLInputElement>('textbox');
+    field.focus();
+    field.setSelectionRange(0, 2);
+
+    fireEvent.copy(field);
+
+    expect(mockHandleSecretCopy).toHaveBeenCalledWith(expect.any(Event), 'ab');
+  });
+
+  it('leaves a copy out of an ordinary field alone', () => {
+    render(<TextField multiline readOnly value="abcdef" />);
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
+    field.focus();
+    field.setSelectionRange(1, 4);
+
+    fireEvent.copy(field);
+
+    expect(mockHandleSecretCopy).not.toHaveBeenCalled();
+  });
+
+  it("still runs the caller's own onCopy on a secret field", () => {
+    const onCopy = jest.fn();
+    render(<TextField secret multiline readOnly value="abcdef" onCopy={onCopy} />);
+    const field = screen.getByRole<HTMLTextAreaElement>('textbox');
+    field.focus();
+    field.setSelectionRange(1, 4);
+
+    fireEvent.copy(field);
+
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    expect(mockHandleSecretCopy).toHaveBeenCalledTimes(1);
   });
 });

@@ -11,6 +11,8 @@
  *    type prefix (currently hardcoded as 0x01).
  */
 
+import { isHotKeyFailure } from './failure';
+import * as secureHotKey from './index';
 import * as nativePlugin from './nativePlugin';
 
 const mockGenerateHotKey = jest.fn();
@@ -30,7 +32,8 @@ const mockIsIOS = jest.fn();
 const mockIsAndroid = jest.fn();
 jest.mock('lib/platform', () => ({
   isIOS: () => mockIsIOS(),
-  isAndroid: () => mockIsAndroid()
+  isAndroid: () => mockIsAndroid(),
+  isMobile: () => mockIsIOS() || mockIsAndroid()
 }));
 
 const mockReportHotKeyHardwareFailure = jest.fn();
@@ -192,5 +195,46 @@ describe('secure-hot-key nativePlugin (non-mobile guard)', () => {
     expect(mockSignWithHotKey).not.toHaveBeenCalled();
     expect(mockDeleteHotKey).not.toHaveBeenCalled();
     expect(mockRevealHotKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('secure-hot-key nativePlugin (failure marking, through the facade)', () => {
+  beforeEach(() => {
+    mockIsIOS.mockReturnValue(true);
+  });
+
+  it.each([
+    ['generateHotKey', mockGenerateHotKey, () => secureHotKey.generateHotKey()],
+    ['signWithHotKey', mockSignWithHotKey, () => secureHotKey.signHotDigest('tag:payload', '0x00')],
+    ['revealHotKey', mockRevealHotKey, () => secureHotKey.revealHotKey('tag:payload')],
+    ['deleteHotKey', mockDeleteHotKey, () => secureHotKey.deleteHotKey('tag:payload')]
+  ])('rethrows a HotKey.%s rejection unchanged and marks it', async (_name, plugin, op) => {
+    const rejection = Object.assign(new Error('refused by the plugin'), { code: 'USER_CANCELLED' });
+    plugin.mockRejectedValueOnce(rejection);
+
+    await expect(op()).rejects.toBe(rejection);
+    expect(isHotKeyFailure(rejection)).toBe(true);
+  });
+
+  it.each([
+    ['signHotDigest', () => secureHotKey.signHotDigest('tag:payload', '0x00')],
+    ['revealHotKey', () => secureHotKey.revealHotKey('tag:payload')],
+    ['deleteHotKey', () => secureHotKey.deleteHotKey('tag:payload')]
+  ])('does not mark a native %s refused outside iOS/Android', async (_name, op) => {
+    mockIsIOS.mockReturnValue(false);
+
+    const rejection = await op().catch((error: unknown) => error);
+
+    expect(rejection).toEqual(new Error('secure-hot-key native plugin invoked outside iOS/Android'));
+    expect(isHotKeyFailure(rejection)).toBe(false);
+  });
+
+  it('does not mark a commitment derivation failure after a successful generate', async () => {
+    mockGenerateHotKey.mockResolvedValue({ ciphertext: 'tag:payload', publicKeyHex: 'aabbcc' });
+
+    const rejection = await secureHotKey.generateHotKey().catch((error: unknown) => error);
+
+    expect(rejection).toEqual(new Error('unexpected public key length 3 (expected 33)'));
+    expect(isHotKeyFailure(rejection)).toBe(false);
   });
 });

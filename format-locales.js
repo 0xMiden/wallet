@@ -37,11 +37,11 @@ for (const langDir of fs.readdirSync(localesDir)) {
   const formattedMessages = {};
   let stale = 0;
   for (const key of Object.keys(messages)) {
-    // Emit only translations that are CURRENT. `englishSource` is the exact
-    // English text the entry was translated from, so a mismatch against en.json
-    // means the English changed and this translation still describes superseded
-    // copy — `translateWithDiff` re-translates precisely these on the next run.
-    // Omitting a stale entry makes i18next fall back to English (`fallbackLng`),
+    // Emit only translations that are CURRENT. An `englishSource` mismatch means
+    // superseded copy or a rejected translation marked UNTRANSLATED. Both stay out
+    // of the flat bundle. `translateWithDiff` sends a rejected key again only when
+    // its English changes or its entry is deleted; other stale entries are queued.
+    // Omitting either entry makes i18next fall back to English (`fallbackLng`),
     // which is accurate, instead of rendering a confident translation of text the
     // product no longer says. That matters most for security copy: the
     // `confirmPrivateDataPermissionDescription` correction (the grant IS

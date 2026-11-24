@@ -35,5 +35,9 @@
   },
   "peerDependencies": {
     "@capacitor/core": "^8.0.1"
+  },
+  "resolutions": {
+    "deepmerge": "4.1.2",
+    "brace-expansion": "2.1.7"
   }
 }

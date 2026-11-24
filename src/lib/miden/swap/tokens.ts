@@ -1,6 +1,5 @@
-import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -12,7 +11,7 @@ import { isE2eFixtureSymbol } from 'lib/prices/constant';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SwapPairsToken } from 'lib/remote-config/swap-pairs';
 import { selectSwapPairs } from 'lib/remote-config/values';
-import { withRequestTimeout } from 'lib/remote-json';
+import { peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { bridgePriceAllowlist, type PricedFaucet } from './bridge-price-allowlist';
 import { canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
@@ -45,38 +44,41 @@ export interface SwapToken {
    */
   faucetId: string;
   decimals: number;
-  /** Symbol understood by `TokenLogo` (MIDEN/ETH/USDC/BTC) for the round logo. */
-  logoSymbol: string;
   /**
    * The asset this token stands for, as the price feed names it. Set only where the feed prices
-   * that asset; absent means unpriced. Never inferred from `logoSymbol`, which is only a logo.
+   * that asset; absent means unpriced. Never inferred from the ticker.
    */
   priceSymbol?: string;
 }
 
 let _swapTokensOverride: SwapToken[] | undefined;
+let swapTokensVersion = 0;
+const swapTokenListeners = new Set<() => void>();
 
-/** The marks `components/TokenLogo` ships. */
-const TOKEN_MARKS: readonly string[] = ['MIDEN', 'ETH', 'USDC', 'BTC'];
+export const getSwapTokensVersion = (): number => swapTokensVersion;
 
-// The solver names no logo. Its tokens carry the ticker of the asset they stand for behind an 'I'
-// (IETH, IBTC, IMIDEN), so that asset's mark is the fallback; any other token keeps its own ticker.
-function logoSymbolFor(ticker: string): string {
-  const bare = ticker.startsWith('I') ? ticker.slice(1) : ticker;
-  return TOKEN_MARKS.includes(bare) ? bare : ticker;
-}
+/** Subscribe to override changes even when the bridge-config snapshot stays the same. */
+export const subscribeSwapTokens = (listener: () => void): (() => void) => {
+  swapTokenListeners.add(listener);
+  return () => {
+    swapTokenListeners.delete(listener);
+  };
+};
 
 // A faucet the reviewed document prices (bridged ETH, the Earn USDC) keeps the document's symbol: the solver's
-// assets can be stand-ins, and every reader of a token's price must agree with the spending cap.
+// assets can be stand-ins, and every reader of a token's price must agree with the spending cap. A faucet the
+// verified token list prices (USDT, SOL, NEAR, PAXG) is priced as the list says, as home and the cap do; the solver's
+// own asset only counts where the wallet's feed quotes it.
 function listedSwapToken(token: SwapPairsToken, allowlist: readonly PricedFaucet[]): SwapToken {
   const faucetId = normalizedFaucetId(token.faucetId);
   const priceSymbol =
-    allowlist.find(entry => normalizedFaucetId(entry.faucetId) === faucetId)?.priceSymbol ?? token.binanceAsset;
+    allowlist.find(entry => normalizedFaucetId(entry.faucetId) === faucetId)?.priceSymbol ??
+    priceSymbolFor(faucetId, token.ticker) ??
+    token.binanceAsset;
   return {
     symbol: token.ticker,
     faucetId,
     decimals: token.decimals,
-    logoSymbol: logoSymbolFor(token.ticker),
     ...(priceSymbol === undefined ? {} : { priceSymbol })
   };
 }
@@ -113,8 +115,7 @@ export const getSwapTokens = (): SwapToken[] => {
     {
       symbol: nativeMetadata.symbol,
       faucetId: nativeAssetId,
-      decimals: nativeMetadata.decimals,
-      logoSymbol: nativeMetadata.symbol === 'USDCX' ? 'USDC' : 'MIDEN'
+      decimals: nativeMetadata.decimals
     },
     ...listed
   ];
@@ -174,6 +175,8 @@ export const getDefaultSwapPair = (): SwapPair | null => {
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */
 export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => {
   _swapTokensOverride = tokens;
+  swapTokensVersion++;
+  for (const listener of swapTokenListeners) listener();
 };
 
 /** The registry token for a faucet in any spelling of its id (a persisted row's bech32, the solver's hex). */
@@ -183,14 +186,8 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
 
-/**
- * The faucets the wallet knows stand for a quoted asset, each with the symbol the feed prices it
- * under: the Earn collateral USDC and the Agglayer-bridged ETH the bridge config names, then the swap
- * registry's priced tokens (IETH at ETH, IBTC at BTC). The first match wins, so the reviewed document
- * prices a faucet the solver lists too. Identity comes from the faucet id, never from the symbol a
- * faucet gives itself, which anyone minting a token can set (#1131).
- */
-function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
+/** The native fixed quote, verified list assets, then bridge entries. Faucet identity sets coverage. */
+function pricedFaucets(network: string = getEffectiveNetworkName()): { faucetId: string; priceSymbol: string }[] {
   const nativeId = getNativeAssetIdSync();
   const metadata = getNativeAssetMetadataSync();
   const syncedId = !metadata || metadata.symbol === 'USDCX' ? getSdkSyncedNativeAssetIdSync() : null;
@@ -200,19 +197,21 @@ function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
       : [];
   return [
     ...fixedNative,
-    ...bridgePriceAllowlist(),
-    ...getSwapTokens().flatMap(token =>
-      token.priceSymbol ? [{ faucetId: token.faucetId, priceSymbol: token.priceSymbol }] : []
-    )
+    ...Array.from(peekTokenPriceAssets(network) ?? [], ([faucetId, priceSymbol]) => ({
+      faucetId,
+      priceSymbol
+    })),
+    ...bridgePriceAllowlist()
   ];
 }
 
 function matchPriceSymbol(
   canonicalId: string,
   symbol: string,
-  canonicalize: (faucetId: string) => string
+  canonicalize: (faucetId: string) => string,
+  network?: string
 ): string | undefined {
-  const priced = pricedFaucets().find(entry => canonicalize(entry.faucetId) === canonicalId);
+  const priced = pricedFaucets(network).find(entry => canonicalize(entry.faucetId) === canonicalId);
   if (priced) return priced.priceSymbol;
   return isE2eFixtureSymbol(symbol) ? symbol : undefined;
 }
@@ -232,24 +231,31 @@ export function priceSymbolFor(faucetId: string, symbol: string): string | undef
  * and every allowlist entry are canonicalized when it runs, under one network, so an id canonicalized
  * before a network switch still matches.
  * Either side the SDK cannot parse throws rather than dropping out of the match, since its raw text
- * would miss and count a priced spend as nothing.
+ * would miss and count a priced spend as nothing. `network` names the verified list to match, so a
+ * valuation keeps the list of the network it started on.
  */
-export function strictPriceSymbolFor(faucetId: string, symbol: string): string | undefined {
-  return matchPriceSymbol(canonicalFaucetId(faucetId), symbol, canonicalFaucetId);
+export function strictPriceSymbolFor(faucetId: string, symbol: string, network?: string): string | undefined {
+  return matchPriceSymbol(canonicalFaucetId(faucetId), symbol, canonicalFaucetId, network);
 }
 
-/**
- * The distinct price symbols the allowlist matches faucets against - read by a test to catch a
- * registry token whose `priceSymbol` the feed does not quote before it ships; the spending cap
- * would otherwise refuse every spend of that faucet, and display surfaces would show it no price
- * (#1131).
- */
-export function _allowlistedPriceSymbolsForTest(): string[] {
-  return [...new Set(pricedFaucets().map(entry => entry.priceSymbol))];
+/** The distinct assets for the current network. The first entry for each faucet wins. */
+export function getPriceAssets(): Map<string, string> {
+  const assets = new Map<string, string>();
+  for (const entry of pricedFaucets()) {
+    const id = normalizedFaucetId(entry.faucetId);
+    if (!assets.has(id)) assets.set(id, entry.priceSymbol);
+  }
+  return assets;
 }
 
+export function getPriceSymbols(): string[] {
+  return [...new Set(getPriceAssets().values())];
+}
+
+export const _allowlistedPriceSymbolsForTest = getPriceSymbols;
+
 /**
- * A held token's quote: its price symbol's (IETH at ETH), or none when the feed does not quote it or
+ * A held token's quote uses its verified price asset, or none when the feed does not quote it or
  * the faucet is not one the wallet prices. A token without a faucet id has no quote.
  */
 export function tokenQuote(
@@ -258,102 +264,4 @@ export function tokenQuote(
   symbol: string
 ): TokenPriceInfo | undefined {
   return faucetId ? quotedPrice(prices, priceSymbolFor(faucetId, symbol)) : undefined;
-}
-
-/**
- * A single quote for an (offered, requested) pair from the DEX `swap-eta`
- * endpoint. It rolls the oracle fair rate together with live fill signals, so
- * the swap flow needs just this one call instead of two per-token price fetches.
- */
-export interface SwapEta {
-  /** Does the order cross resting liquidity right now (at the asked price)? */
-  canFill: boolean;
-  /** Next-batch ETA in seconds, set when `canFill` is true. */
-  estimatedSeconds: number | null;
-  /** Is the asked price worse than the live oracle? */
-  offMarket: boolean | null;
-  /** Oracle fair rate: requested whole tokens per 1 offered whole token. */
-  marketPrice: string | null;
-  /** Median settle time (s) for this pair over the last 24h, null if no data. */
-  median24hSeconds: number | null;
-}
-
-/**
- * Fetch a `SwapEta` for an offered → requested pair from the quote service the
- * network's bridge config names (`swap.etaUrl`). Amounts are raw base units
- * (bigint); faucets are converted to their canonical hex account ids. The
- * oracle `marketPrice` is amount-independent, so passing `0n` for
- * `requestAmountRaw` still returns a usable rate to seed the receive field.
- * Rejects at once, with no request, while the document names no service: the
- * form then reads the quote as unavailable and takes the amounts by hand.
- */
-
-/** Abort a quote request whose response and body have not both arrived within this window. */
-const SWAP_ETA_FETCH_TIMEOUT_MS = 10_000;
-
-/** Thrown by `getSwapEta` while the accepted document names no quote service. */
-export class SwapEtaUnavailableError extends Error {
-  constructor() {
-    super('The bridge config names no swap quote service (swap.etaUrl).');
-    this.name = 'SwapEtaUnavailableError';
-  }
-}
-
-export async function getSwapEta(
-  offerToken: SwapToken,
-  offerAmountRaw: bigint,
-  requestToken: SwapToken,
-  requestAmountRaw: bigint
-): Promise<SwapEta> {
-  const etaUrl = getBridgeConfigSnapshot().config?.swap?.etaUrl;
-  if (etaUrl === undefined) throw new SwapEtaUnavailableError();
-  const params = new URLSearchParams({
-    offered_faucet: accountIdStringToSdk(offerToken.faucetId).toString(),
-    offered_amount: offerAmountRaw.toString(),
-    requested_faucet: accountIdStringToSdk(requestToken.faucetId).toString(),
-    requested_amount: requestAmountRaw.toString()
-  });
-
-  return withRequestTimeout(SWAP_ETA_FETCH_TIMEOUT_MS, async signal => {
-    const res = await fetch(`${etaUrl}/v1/swap-eta?${params.toString()}`, { signal });
-    if (!res.ok) {
-      throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
-    }
-    const json: SwapEta = await res.json();
-    return json;
-  });
-}
-
-/**
- * Fraction shaved off the fair USD-derived quote so a filler/solver that
- * consumes the PSWAP note has margin to do so profitably. The user receives
- * `1 - SOLVER_MARGIN` of the price-fair amount.
- */
-export const SOLVER_MARGIN = 0.05;
-
-/**
- * Derive the requested-token amount from the offered amount and the oracle
- * `marketPrice` (requested whole tokens per 1 offered whole token): the fair
- * quote is `offered * marketPrice`, discounted by `SOLVER_MARGIN` so a filler
- * has margin to take the order. Rounded down to the requested token's
- * precision; returns '' when the inputs aren't usable yet (no amount, no rate,
- * or a non-positive result).
- */
-export function deriveRequestAmount(
-  offerAmount: string,
-  marketPrice: string | null | undefined,
-  decimals: number
-): string {
-  const offered = Number(offerAmount);
-  const rate = Number(marketPrice);
-  if (!offered || !rate || !Number.isFinite(rate)) {
-    return '';
-  }
-  const quote = offered * rate * (1 - SOLVER_MARGIN);
-  if (!Number.isFinite(quote) || quote <= 0) {
-    return '';
-  }
-  const fixed = toFixedRoundedDown(quote, decimals);
-  const formatted = fixed.includes('.') ? fixed.replace(/\.?0+$/, '') : fixed;
-  return formatted === '0' ? '' : formatted;
 }

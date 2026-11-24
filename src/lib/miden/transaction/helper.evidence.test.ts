@@ -45,12 +45,19 @@ describe('recordSubmitCrossing (#1081)', () => {
       expect.objectContaining({
         attemptId: 'a1',
         source: 'stage',
+        raisedFlag: true,
         transactionId: hex(1),
         refBlock: 10,
         guardianProposalNonce: 3
       })
     ]);
     expect(row?.submitEvidence?.[0]?.fromExecute).toBeUndefined();
+  });
+
+  it('does not claim ownership of a crossing raised by an earlier attempt', async () => {
+    await Repo.transactions.put(generating({ mayHaveSubmitted: true }));
+    await recordSubmitCrossing('tx-1', undefined, attempt);
+    expect((await read())?.submitEvidence?.[0]?.raisedFlag).toBeUndefined();
   });
 
   it('records through a terminal row, because a cancel does not stop the pipeline', async () => {

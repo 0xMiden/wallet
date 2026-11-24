@@ -3,7 +3,7 @@ import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
-import { getEvmConnection } from './client';
+import { buildEpochWalletClient, getEvmConnection } from './client';
 import { ensureEpochSmartAccount, getEpochReadOnlySdk, getEpochSdk, getEpochSigningSdk, resetEpochSdk } from './sdk';
 import { TEST_ALLOCATOR_URL } from './testing/bridge-config';
 
@@ -26,6 +26,7 @@ jest.mock('@reown/appkit/react', () => ({ useAppKitAccount: jest.fn() }));
 jest.mock('./client', () => ({
   buildEpochReadOnlyWalletClient: jest.fn(),
   buildEpochWalletClient: jest.fn(),
+  epochChain: (chainId = 11155111) => ({ id: chainId }),
   getEvmConnection: jest.fn()
 }));
 jest.mock('./evm-account', () => ({ buildVaultEvmWalletClient: jest.fn(() => ({})) }));
@@ -37,6 +38,21 @@ describe('ensureEpochSmartAccount', () => {
     resetEpochSdk();
     mockGetWalletGaslessStatus.mockReset();
     mockConvertToSmartAccount.mockReset();
+  });
+
+  it('uses the supplied guarded SDK for smart-account setup', async () => {
+    const guarded = {
+      getWalletGaslessStatus: jest
+        .fn()
+        .mockResolvedValueOnce({ delegation: 'none' })
+        .mockResolvedValueOnce({ delegation: 'epoch' }),
+      convertToSmartAccount: jest.fn().mockRejectedValueOnce(new Error('earnWithdrawRefresh'))
+    };
+    await expect(
+      ensureEpochSmartAccount('miden-account', EVM_ADDRESS, guarded as unknown as EpochIntentSDK)
+    ).rejects.toThrow('earnWithdrawRefresh');
+    expect(guarded.convertToSmartAccount).toHaveBeenCalledTimes(1);
+    expect(mockConvertToSmartAccount).not.toHaveBeenCalled();
   });
 
   it('is idempotent when the Epoch delegation is already active', async () => {
@@ -71,11 +87,49 @@ describe('ensureEpochSmartAccount', () => {
     await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('relay unavailable');
   });
 
-  it('rejects when setup returns before the delegation becomes active', async () => {
-    mockGetWalletGaslessStatus.mockResolvedValue({ delegation: 'none', canRelayDeposit: false });
-    mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
+  describe('after the relay accepted the setup', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
 
-    await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('delegation is not active');
+    it('waits until the delegation lands on chain (#2117)', async () => {
+      // The relay accepted the setup; the chain shows it two reads later, one of which fails.
+      mockGetWalletGaslessStatus
+        .mockResolvedValueOnce({ delegation: 'none', canRelayDeposit: false })
+        .mockResolvedValueOnce({ delegation: 'none', canRelayDeposit: false })
+        .mockRejectedValueOnce(new Error('rpc flake'))
+        .mockResolvedValueOnce({ delegation: 'epoch', canRelayDeposit: true });
+      mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
+      let settled = false;
+      const ensuring = ensureEpochSmartAccount('miden-account', EVM_ADDRESS).finally(() => {
+        settled = true;
+      });
+
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(2_000);
+      await expect(ensuring).resolves.toBeDefined();
+      expect(mockGetWalletGaslessStatus).toHaveBeenCalledTimes(4);
+    });
+
+    it('rejects when the delegation has not landed after 60 s', async () => {
+      mockGetWalletGaslessStatus.mockResolvedValue({ delegation: 'none', canRelayDeposit: false });
+      mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
+      const failure = ensureEpochSmartAccount('miden-account', EVM_ADDRESS).catch((error: Error) => error.message);
+
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(await failure).toBe('Epoch smart-account setup completed but the delegation is not active.');
+    });
+
+    it('rejects at once when another implementation takes the delegation meanwhile', async () => {
+      mockGetWalletGaslessStatus
+        .mockResolvedValueOnce({ delegation: 'none', canRelayDeposit: false })
+        .mockResolvedValueOnce({ delegation: 'other', canRelayDeposit: false });
+      mockConvertToSmartAccount.mockResolvedValue({ ok: true, delegation: 'epoch' });
+
+      await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow(
+        'unsupported smart-account implementation'
+      );
+    });
   });
 });
 
@@ -131,5 +185,50 @@ describe('the configured allocator', () => {
     await expect(getEpochReadOnlySdk(EVM_ADDRESS)).rejects.toThrow('no allocator');
     await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('no allocator');
     expect(EpochIntentSDK).not.toHaveBeenCalled();
+  });
+});
+
+describe('the SDK bound to an expected account', () => {
+  const OTHER_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+
+  beforeEach(() => {
+    resetEpochSdk();
+    jest.mocked(EpochIntentSDK).mockClear();
+    jest.mocked(buildEpochWalletClient).mockClear();
+    jest.mocked(getEpochAllocatorUrl).mockReset();
+    jest.mocked(getEpochAllocatorUrl).mockReturnValue(TEST_ALLOCATOR_URL);
+  });
+
+  it('gives nothing and builds nothing when another account is connected', async () => {
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: OTHER_ADDRESS, chainId: 11155111, isNative: false });
+
+    await expect(getEpochSdk({ account: EVM_ADDRESS })).resolves.toBeNull();
+
+    expect(buildEpochWalletClient).not.toHaveBeenCalled();
+    expect(EpochIntentSDK).not.toHaveBeenCalled();
+  });
+
+  it('leaves the cache alone when it refuses', async () => {
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: EVM_ADDRESS, chainId: 11155111, isNative: false });
+    const cached = await getEpochSdk();
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: OTHER_ADDRESS, chainId: 11155111, isNative: false });
+    await expect(getEpochSdk({ account: EVM_ADDRESS })).resolves.toBeNull();
+
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: EVM_ADDRESS, chainId: 11155111, isNative: false });
+    expect(await getEpochSdk()).toBe(cached);
+    expect(EpochIntentSDK).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds for the given account when the connected one differs only in letter case', async () => {
+    jest.mocked(getEvmConnection).mockResolvedValue({
+      address: EVM_ADDRESS.toLowerCase(),
+      chainId: 11155111,
+      isNative: false
+    });
+
+    await expect(getEpochSdk({ account: EVM_ADDRESS })).resolves.toBeDefined();
+
+    expect(buildEpochWalletClient).toHaveBeenCalledTimes(1);
+    expect(buildEpochWalletClient).toHaveBeenCalledWith(EVM_ADDRESS, expect.anything());
   });
 });

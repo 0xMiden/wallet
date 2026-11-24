@@ -14,7 +14,11 @@ jest.mock('react-i18next', () => ({
     t: (key: string, options?: { count?: number }) => (options?.count === undefined ? key : `${key}:${options.count}`)
   })
 }));
-jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => FAUCET }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => FAUCET,
+  getNativeAssetId: () => Promise.resolve(FAUCET),
+  onNativeAssetChanged: () => () => {}
+}));
 
 const mockBack = jest.fn();
 const backFallback = { path: '' };

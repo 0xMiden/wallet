@@ -7,7 +7,7 @@ export { ensureEpochSmartAccount, getEpochSdk, getEpochSigningSdk, resetEpochSdk
 export { buildVaultEvmWalletClient } from './evm-account';
 export { useEpochStore } from './store';
 export type { EpochFlow, EpochStatus } from './store';
-export { bridgeEpochSend, quoteEpochSendOutput, pollEpochIntentFill } from './epoch-send';
+export { bridgeEpochSend, reviewedEpochMinimum, quoteEpochSendOutput, pollEpochIntentFill } from './epoch-send';
 export type { EpochSendArgs, EpochQuoteOutput, EpochIntentFill } from './epoch-send';
 export {
   openEarnPosition,
@@ -30,8 +30,11 @@ export {
   reconcileEarnWithdrawals
 } from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
-export { carryForward, fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
-export type { EarnPosition, EarnPositionsResult, EarnVaultInfo, FetchEarnPositionsArgs } from './positions';
+export { carryForward, fetchEarnPositions, positionsBudgetDelayMs, notePositionsRequests } from './positions';
+export { POSITIONS_LIMIT, POSITIONS_REVIEW_RESERVE, POSITIONS_PAGE_LIMIT } from './positions-budget';
+export type { EarnPosition, EarnPositionsResult, FetchEarnPositionsArgs } from './positions';
+export { EARN_LENDER_FAMILY_NAMES, earnLenderFamily, earnMarketForVault, earnVaultTakesDeposits } from './pools';
+export type { EarnLenderFamily, EarnVaultInfo } from './pools';
 export {
   buildEpochTaskDataParams,
   buildEVMToMidenTaskDataParams,
@@ -46,6 +49,8 @@ export {
 export type { CrossChainQuote, EVMToMidenQuote } from './bridge';
 export type {
   CrossChainIntentParams,
+  EpochReviewedQuote,
+  EpochReviewedOutput,
   EVMToMidenIntentParams,
   IntentResult,
   MidenAccount,

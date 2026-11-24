@@ -1,11 +1,21 @@
+import { isHash } from 'viem';
+
 import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import { routeMatchesRecovery } from 'lib/bridge/core/routes';
+import { bridgeOperationOf, findAdmittedBridgeOperation, hasBridgeOperation } from 'lib/bridge/operation';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import type { BridgeToken } from 'lib/remote-config/derive';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
-import { selectNativeEthFaucets, selectNativeEthToken } from 'lib/remote-config/values';
+import {
+  registeredToken,
+  selectAgglayerDeliveryFaucets,
+  selectAgglayerRegistryToken,
+  selectNativeEthToken
+} from 'lib/remote-config/values';
 import { DEFAULT_CHAIN_ID } from 'lib/walletconnect/config';
 
 import { withinDeliveryWindow } from './bridge-receive-window';
@@ -118,10 +128,45 @@ export async function applyBridgeInToConsumeRow(consumeId: string, info: IBridge
     applied = true;
   });
   if (!applied) throw new Error('Bridge receipt requires a completed local consume');
+  await settleLinkedRows(info, delivered);
+}
+
+/**
+ * Settle a registry delivery that a batch claimed at its own note's asset and the batch's transaction id. `note` is
+ * undefined for a batch that kept no per-note facts. A bridge receive whose note has no amount or faucet is released
+ * unsettled, since a retry reads the same stored facts and the batch total is no delivered amount.
+ */
+export async function applyBridgeInToBatchNote(
+  consumeId: string,
+  info: IBridgeInInfo,
+  note: AdoptableNote | undefined
+): Promise<void> {
+  const consume = await Repo.transactions.where({ id: consumeId }).first();
+  if (consume?.type !== 'consume' || consume.status !== ITransactionStatus.Completed || consume.restoredFromBackup)
+    throw new Error('Bridge receipt requires a completed local consume');
+  const delivered = { amount: note?.amount, faucetId: note?.faucetId, transactionId: consume.transactionId };
+  let linked = info;
+  if (info.bridgeReceiveTxId && (delivered.amount === undefined || !delivered.faucetId)) {
+    console.warn(
+      '[bridge-in] a batch kept no delivered amount for a bridge receive, so its intent is released',
+      consumeId,
+      info.bridgeReceiveTxId
+    );
+    linked = { ...info, bridgeReceiveTxId: undefined };
+  }
+  // Never the batch row's receipt: tagged, it would hide itself and every other note it claimed from Activity.
+  await settleLinkedRows(linked, delivered);
+}
+
+async function settleLinkedRows(
+  info: IBridgeInInfo,
+  delivered: Pick<ITransaction, 'amount' | 'faucetId' | 'transactionId'>
+): Promise<void> {
   if (!info.earnWithdrawTxId && !info.bridgeReceiveTxId) return;
   const { updateEarnWithdrawPhase, updateBridgedReceivePhase } = await import('../transaction/complete');
   if (info.earnWithdrawTxId) {
     if (!info.intentOwner) throw new Error('Bridge withdrawal has no intent owner');
+    // Epoch named this note as the delivery, so with no delivered amount the withdrawal lands at the one it asked for.
     await updateEarnWithdrawPhase(
       info.earnWithdrawTxId,
       'received',
@@ -157,7 +202,16 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
     .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed && !tx.restoredFromBackup)
     .first();
   if (!row) return false;
-  await applyBridgeInToConsumeRow(row.id, info);
+  const notes = adoptableNotesOf(row);
+  if (claimedSeveral(row.noteIds, notes)) {
+    await applyBridgeInToBatchNote(
+      row.id,
+      info,
+      notes?.find(note => noteIdKey(note.id) === key)
+    );
+  } else {
+    await applyBridgeInToConsumeRow(row.id, info);
+  }
   return true;
 }
 
@@ -199,27 +253,27 @@ function sentByFaucet(sender: string, faucet: string): boolean {
 }
 
 /**
- * Whether `sender` sent an AggLayer delivery, by the config this realm holds: the registered faucet whose origin is
- * native ETH on network 0 mints bridged ETH and sends its delivery notes, on any listed AggLayer chain. Matching stays
- * off while the config names no such faucet, so an ordinary incoming note is never mistaken for a bridge delivery.
+ * Whether `sender` sent an AggLayer delivery, by the config this realm holds: every faucet the bridge registry of a
+ * listed AggLayer chain holds mints one bridged token and sends its delivery notes. Matching stays off while the config
+ * holds no registry, so an ordinary incoming note is never mistaken for a bridge delivery.
  */
 export function isAgglayerBridgeDelivery(sender: string): boolean {
   if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
-  return selectNativeEthFaucets(getBridgeConfigSnapshot()).some(faucet => sentByFaucet(sender, faucet));
+  return selectAgglayerDeliveryFaucets(getBridgeConfigSnapshot()).some(faucet => sentByFaucet(sender, faucet));
 }
 
-// The native-ETH faucet an open AggLayer tracker saved with its route. A restored tracker names nothing: its backup's
-// author wrote the route.
+// The faucet an open AggLayer tracker saved: the deposited ERC-20's delivery, else the native-ETH faucet of its route.
+// A restored tracker names nothing: its backup's author wrote the route.
 function savedDeliveryFaucet(tx: ITransaction): string | undefined {
   const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
   if (tx.restoredFromBackup || inputs?.provider !== 'agglayer') return undefined;
   if (inputs.phase === 'received' || inputs.phase === 'failed') return undefined;
-  return inputs.agglayerRoute?.nativeEthFaucetId;
+  return inputs.agglayerDelivery?.faucetId ?? inputs.agglayerRoute?.nativeEthFaucetId;
 }
 
 /**
- * Whether a sender sent an AggLayer delivery, as `isAgglayerBridgeDelivery` decides it plus the native-ETH faucet each
- * open tracker saved with its route: a deposit made on a chain the document has since dropped still delivers from it.
+ * Whether a sender sent an AggLayer delivery, as `isAgglayerBridgeDelivery` decides it plus the faucet each open
+ * tracker saved: a deposit made on a chain the document has since dropped still delivers from it.
  * Never rejects: a failed read of the trackers leaves the live faucets alone.
  */
 export async function agglayerDeliverySenders(): Promise<(sender: string) => boolean> {
@@ -238,24 +292,101 @@ export async function agglayerDeliverySenders(): Promise<(sender: string) => boo
   } catch (error) {
     console.warn('[bridge-in] could not read the saved delivery faucets', error);
   }
-  const faucets = [...new Set([...selectNativeEthFaucets(getBridgeConfigSnapshot()), ...saved])];
+  const faucets = [...new Set([...selectAgglayerDeliveryFaucets(getBridgeConfigSnapshot()), ...saved])];
   return sender => faucets.some(faucet => sentByFaucet(sender, faucet));
 }
 
 /**
- * The faucet that delivers a tracker's bridged ETH, and its scale: the ones its route saved, else the registry of the
- * chain it was made on (DEFAULT_CHAIN_ID for a row saved before its route was). Undefined while neither names one.
+ * The faucet that delivers a tracker's deposit, and its scale: the ERC-20 delivery the row saved, else the native-ETH
+ * faucet its route saved, else the registry of the chain it was made on (DEFAULT_CHAIN_ID for a row saved before its
+ * route was). An ERC-20 row that saved no faucet takes it from the snapshot's registry, else from `live`, a registry
+ * read of its bridge (`readLiveRegistries`), on the network it deposited from. Undefined while none names one.
  */
 function deliveryOf(
   snapshot: BridgeConfigSnapshot,
-  inputs: IBridgedReceiveExtraInputs
+  inputs: IBridgedReceiveExtraInputs,
+  live?: ReadonlyMap<string, BridgeToken[]>
 ): { faucet: string; scale: number } | undefined {
+  const delivery = inputs.agglayerDelivery;
   const route = inputs.agglayerRoute;
+  if (delivery) {
+    if (delivery.faucetId !== undefined && delivery.scale !== undefined) {
+      return { faucet: delivery.faucetId, scale: delivery.scale };
+    }
+    // A test network registers the faucet on the first deposit: the registry of the row's chain names it since.
+    const registered =
+      selectAgglayerRegistryToken(
+        snapshot,
+        delivery.originToken,
+        route?.chainId ?? DEFAULT_CHAIN_ID,
+        route?.evmNetworkId
+      ) ??
+      (route ? registeredToken(live?.get(route.midenBridgeId) ?? [], delivery.originToken, route.evmNetworkId) : null);
+    return registered ? { faucet: registered.midenFaucetId, scale: registered.scale } : undefined;
+  }
   if (route?.nativeEthFaucetId !== undefined && route.nativeEthScale !== undefined) {
     return { faucet: route.nativeEthFaucetId, scale: route.nativeEthScale };
   }
   const token = selectNativeEthToken(snapshot, route?.chainId ?? DEFAULT_CHAIN_ID);
   return token ? { faucet: token.midenFaucetId, scale: token.scale } : undefined;
+}
+
+// A read that holds every token its rows asked for is shared for a minute; one that lacks a token, for the ten seconds
+// a batch's notes take, so a faucet registered meanwhile is seen. A failed read is not kept.
+const LIVE_REGISTRY_TTL_MS = 60_000;
+const LIVE_REGISTRY_MISS_TTL_MS = 10_000;
+const liveRegistryReads = new Map<string, { at: number; tokens: BridgeToken[] }>();
+
+export function _resetLiveRegistryReadsForTest(): void {
+  liveRegistryReads.clear();
+}
+
+/**
+ * The registry of each bridge an open ERC-20 row whose token the snapshot holds no faucet for yet was made through: a
+ * test network registers a token's faucet when its first deposit is claimed, usually before this realm's hourly
+ * refresh. A failed read leaves those rows unmatched.
+ */
+async function readLiveRegistries(
+  snapshot: BridgeConfigSnapshot,
+  rows: readonly ITransaction[]
+): Promise<Map<string, BridgeToken[]>> {
+  const wanted = new Map<string, { originToken: string; network: number }[]>();
+  for (const tx of rows) {
+    const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+    const route = inputs?.agglayerRoute;
+    if (!inputs?.agglayerDelivery || !route || deliveryOf(snapshot, inputs) !== undefined) continue;
+    const tokens = wanted.get(route.midenBridgeId) ?? [];
+    tokens.push({ originToken: inputs.agglayerDelivery.originToken, network: route.evmNetworkId });
+    wanted.set(route.midenBridgeId, tokens);
+  }
+  const live = new Map<string, BridgeToken[]>();
+  if (wanted.size === 0) return live;
+  const [{ readBridgeRegistry }, { getEffectiveRpcUrl }] = await Promise.all([
+    import('lib/remote-config/derive'),
+    import('lib/miden-chain/effective-endpoints')
+  ]);
+  const rpcUrl = getEffectiveRpcUrl();
+  for (const [bridge, tokens] of wanted) {
+    const key = `${rpcUrl} ${bridge}`;
+    const kept = liveRegistryReads.get(key);
+    const holdsAll = (read: BridgeToken[]) =>
+      tokens.every(({ originToken, network }) => registeredToken(read, originToken, network) !== null);
+    const fresh =
+      kept !== undefined &&
+      Date.now() - kept.at < (holdsAll(kept.tokens) ? LIVE_REGISTRY_TTL_MS : LIVE_REGISTRY_MISS_TTL_MS);
+    if (fresh) {
+      live.set(bridge, kept.tokens);
+      continue;
+    }
+    try {
+      const read = (await readBridgeRegistry(bridge, rpcUrl)).tokens;
+      liveRegistryReads.set(key, { at: Date.now(), tokens: read });
+      live.set(bridge, read);
+    } catch (error) {
+      console.warn('[bridge-in] could not read the bridge registry for a first deposit', bridge, error);
+    }
+  }
+  return live;
 }
 
 /**
@@ -264,9 +395,10 @@ function deliveryOf(
  * row's chain (`deliveryOf`). Amount + recipient prevent two deposits to the
  * same wallet from being paired in the wrong order. A tracker holds the deposit
  * in wei and the bridge delivers it at that faucet's registry scale, so the two
- * are compared through `agglayerDeliveredAmount`. The sender delivers bridged
- * ETH, so only native ETH trackers are compatible: an ERC-20 deposit with the
- * same amount must not adopt its note.
+ * are compared through `agglayerDeliveredAmount`. Each faucet delivers one
+ * token, so a tracker is compatible only with its own delivery faucet: an
+ * ERC-20 row names it, and a row without one is a native-ETH deposit, so a
+ * deposit of another token with the same amount must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
@@ -284,7 +416,7 @@ export async function takeAgglayerBridgeInInfo(args: {
   // long ago would otherwise take the next deposit of the same amount.
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
-  const matches = await Repo.transactions
+  const open = await Repo.transactions
     .where('type')
     .equals('bridged-receive')
     .filter(tx => {
@@ -293,26 +425,73 @@ export async function takeAgglayerBridgeInInfo(args: {
       // rewrites that row to `received` and makes the real consume hide beneath
       // it in history, so an honest receive would be filed under, and titled by,
       // whatever the backup's author wrote.
-      if (tx.restoredFromBackup) return false;
+      if (tx.restoredFromBackup || tx.recovered) return false;
       const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
-      if (
+      return !(
         inputs?.provider !== 'agglayer' ||
-        inputs.sourceSymbol !== AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL ||
+        (inputs.agglayerDelivery === undefined && inputs.sourceSymbol !== AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL) ||
         inputs.phase === 'received' ||
         inputs.phase === 'failed' ||
         tx.initiatedAt < cutoffSec ||
         tx.amount === undefined
-      ) {
-        return false;
-      }
-      const delivery = deliveryOf(snapshot, inputs);
-      return (
-        delivery !== undefined &&
-        agglayerDeliveredAmount(tx.amount, delivery.scale) === args.amount &&
-        sentBy(delivery.faucet)
       );
     })
     .toArray();
+  const live = await readLiveRegistries(snapshot, open);
+  const matches: ITransaction[] = [];
+  for (const tx of open) {
+    const inputs: IBridgedReceiveExtraInputs = tx.extraInputs;
+    let delivery = deliveryOf(snapshot, inputs, live);
+    let amount = tx.amount !== undefined && delivery ? agglayerDeliveredAmount(tx.amount, delivery.scale) : undefined;
+    if (hasBridgeOperation(tx)) {
+      try {
+        const operation = bridgeOperationOf(tx);
+        const route = operation?.review.route;
+        const source = operation?.sourceAttempt;
+        const quote = operation?.review.quote;
+        if (
+          !operation ||
+          !route ||
+          quote?.kind !== 'agglayer' ||
+          quote.request.amount !== operation.review.amount ||
+          route.mode !== 'receive' ||
+          route.provider !== 'agglayer' ||
+          route.destination.kind !== 'miden' ||
+          !routeMatchesRecovery(route) ||
+          source?.phase !== 'known' ||
+          typeof source.hash !== 'string' ||
+          !isHash(source.hash) ||
+          !inputs.evmTxHash ||
+          noteIdKey(inputs.evmTxHash) !== noteIdKey(source.hash)
+        )
+          continue;
+        const original = await findAdmittedBridgeOperation(operation);
+        if (!original || original.id !== tx.id || bridgeOperationOf(original)?.revision !== operation.revision)
+          continue;
+        const saved = { ...route.recovery, status: 'ready', lastFetch: null } satisfies BridgeConfigSnapshot;
+        delivery = deliveryOf(saved, inputs);
+        const chainId = inputs.agglayerRoute?.chainId;
+        const token =
+          route.source.kind === 'erc20' ? route.source.address : '0x0000000000000000000000000000000000000000';
+        const registered = selectAgglayerRegistryToken(saved, token, chainId, inputs.agglayerRoute?.evmNetworkId);
+        if (
+          !delivery ||
+          !registered ||
+          !compareAccountIds(delivery.faucet, route.destination.faucetId) ||
+          !compareAccountIds(registered.midenFaucetId, delivery.faucet) ||
+          registered.scale !== delivery.scale ||
+          (route.source.kind === 'erc20' && inputs.agglayerDelivery?.originToken.toLowerCase() !== token.toLowerCase())
+        )
+          continue;
+        // Owned admission stores destination base units; only legacy rows store source units to rescale.
+        amount = original.amount;
+      } catch {
+        continue;
+      }
+    }
+    if (delivery && amount === args.amount && sentBy(delivery.faucet)) matches.push(tx);
+  }
+  if (matches.length > 1 && matches.some(hasBridgeOperation)) return undefined;
   matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
   const match = matches[0];
   if (!match) return undefined;
@@ -321,6 +500,7 @@ export async function takeAgglayerBridgeInInfo(args: {
     provider: 'agglayer',
     sourceAmount: inputs.sourceAmount,
     sourceSymbol: inputs.sourceSymbol,
+    ...(inputs.agglayerDelivery ? { sourceToken: inputs.agglayerDelivery.originToken } : {}),
     evmTxHash: inputs.evmTxHash,
     bridgeReceiveTxId: match.id
   };
@@ -411,6 +591,11 @@ export function adoptableNotesOf(
   return [{ id: noteId, senderAddress: secondaryAccountId ?? '', faucetId: faucetId ?? '', amount }];
 }
 
+/** Whether a consume claimed more than one note; a batch from before the per-note facts has no `notes`. */
+function claimedSeveral(noteIds: readonly string[] | undefined, notes: readonly AdoptableNote[] | undefined): boolean {
+  return notes === undefined || notes.length > 1 || (noteIds?.length ?? notes.length) > 1;
+}
+
 async function takeDeliveryInfo(accountId: string, note: AdoptableNote): Promise<IBridgeInInfo | undefined> {
   const { senderAddress, faucetId, amount } = note;
   // A note missing a pairing fact can only be a registry delivery, which the registry pass pairs by id.
@@ -440,6 +625,41 @@ async function adoptedNoteKeys(notes: readonly AdoptableNote[]): Promise<Set<str
 }
 
 /**
+ * Settle every registry delivery a batch claimed, each at its own note's facts (`notes` is undefined for a batch that
+ * kept none), one intent per registry call until a call settles nothing: nothing re-runs this pass for a note the
+ * batch claimed. A delivery that fails stays registered for a replay and is not tried again here, so it holds up no
+ * other. Returns the keys of the notes tried.
+ */
+async function settleBatchRegistry(
+  consumeId: string,
+  noteIds: readonly string[],
+  notes: readonly AdoptableNote[] | undefined
+): Promise<Set<string>> {
+  const tried = new Set<string>();
+  let settled = true;
+  while (settled) {
+    const triedBefore = tried.size;
+    settled = await applyBridgeInInfoForNotes(
+      noteIds.filter(id => !tried.has(noteIdKey(id))),
+      info => {
+        const key = info.midenNoteId === undefined ? undefined : noteIdKey(info.midenNoteId);
+        if (key !== undefined) tried.add(key);
+        return applyBridgeInToBatchNote(
+          consumeId,
+          info,
+          notes?.find(note => noteIdKey(note.id) === key)
+        );
+      }
+    ).catch((err: unknown) => {
+      console.warn('[bridge-in] registry delivery of a batch not settled (kept for retry)', consumeId, err);
+      // A failure before any delivery was tried is the registry's own, which another call would meet again.
+      return tried.size > triedBefore;
+    });
+  }
+  return tried;
+}
+
+/**
  * Settle the bridge deliveries a completed consume claimed: the intent registry first, then a single note by its own
  * sender and amount, which makes the consume the deposit's receipt, then each note of a batch by its own sender,
  * faucet and amount, one at a time so two same-amount mints take two rows (only the tracking rows move). Six landing
@@ -453,27 +673,27 @@ export async function adoptBridgeDeliveries(consumeId: string, notes: readonly A
     const adopted = await adoptedNoteKeys(notes);
     const open = notes.filter(note => !adopted.has(noteIdKey(note.id)));
     if (open.length === 0) return;
-    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
-    let registryNoteKey: string | undefined;
-    const applied = await applyBridgeInInfoForNotes(
-      open.map(note => note.id),
-      info => {
-        if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
-        return applyBridgeInToConsumeRow(consumeId, info);
-      }
-    );
-    const batch = notes.length > 1 || (consume.noteIds?.length ?? notes.length) > 1;
     const [single] = open;
-    if (!batch) {
-      if (applied || !single) return;
+    if (!claimedSeveral(consume.noteIds, notes)) {
+      const registry = await applyBridgeInInfoForNotes(
+        open.map(note => note.id),
+        info => applyBridgeInToConsumeRow(consumeId, info)
+      );
+      if (registry || !single) return;
       // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
       const info = await takeDeliveryInfo(consume.accountId, single);
       if (info) await applyBridgeInToConsumeRow(consumeId, { ...info, midenNoteId: single.id });
       return;
     }
+    // The registry pairs by canonical id, so a note it tried is never paired by sender as well, settled or not.
+    const tried = await settleBatchRegistry(
+      consumeId,
+      open.map(note => note.id),
+      open
+    );
     // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together.
     for (const note of open) {
-      if (registryNoteKey !== undefined && noteIdKey(note.id) === registryNoteKey) continue;
+      if (tried.has(noteIdKey(note.id))) continue;
       const info = await takeDeliveryInfo(consume.accountId, note);
       if (!info?.bridgeReceiveTxId || note.amount === undefined) continue;
       const { updateBridgedReceivePhase } = await import('../transaction/complete');
@@ -500,7 +720,9 @@ export async function adoptLandedConsume(consumeId: string): Promise<void> {
       return;
     const notes = adoptableNotesOf(consume);
     if (notes === undefined) {
-      console.warn('[bridge-in] a landed batch consume kept no per-note facts, so none is adopted', consumeId);
+      // Only the registry pairs a note by its id alone.
+      console.warn('[bridge-in] a landed batch consume kept no per-note facts, so only the registry adopts', consumeId);
+      await settleBatchRegistry(consumeId, consume.noteIds ?? [], undefined);
       return;
     }
     await adoptBridgeDeliveries(consumeId, notes);

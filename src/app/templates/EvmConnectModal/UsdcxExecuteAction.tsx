@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +6,12 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { IBridgedReceivePhase, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId, type UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { cctpAllowsManualExecution } from 'lib/usdcx/cctp';
 import { usdcxSourceChains, UsdcxSourceChain } from 'lib/usdcx/constant';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
+import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 
 import { useCctpExecute } from './useCctpExecute';
 
@@ -19,8 +24,19 @@ export interface UsdcxExecuteActionProps {
   className?: string;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+interface ExecuteSelection {
+  txId: string;
+  sourceChainId?: number;
+}
+
+interface ExecuteOperation {
+  owner: ExecuteSelection;
+}
+
+interface ExecuteState {
+  operation: ExecuteOperation;
+  busy: boolean;
+  error?: { text: string; id: UserErrorId };
 }
 
 /**
@@ -39,23 +55,67 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
   const { t } = useTranslation();
   const execute = useCctpExecute();
   const source = sourceConfig ?? (sourceChainId === undefined ? undefined : usdcxSourceChains().get(sourceChainId));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const selectionRef = useRef<ExecuteSelection>({ txId, sourceChainId });
+  // A return to the same row is a new visit, so an earlier operation cannot own its display.
+  if (selectionRef.current.txId !== txId || selectionRef.current.sourceChainId !== sourceChainId) {
+    selectionRef.current = { txId, sourceChainId };
+  }
+  const selection = selectionRef.current;
+  const operationRef = useRef<ExecuteOperation | null>(null);
+  const [execution, setExecution] = useState<ExecuteState>();
+  const ownedExecution = execution?.operation.owner === selection ? execution : undefined;
+  const busy = ownedExecution?.busy ?? false;
+  const error = ownedExecution?.error;
+  useEffect(
+    () => () => {
+      if (operationRef.current?.owner === selection) operationRef.current = null;
+    },
+    [selection]
+  );
+  const ready =
+    sourceChainId !== undefined &&
+    source?.route === 'cctp-executor' &&
+    phase === 'delivering' &&
+    !!cctp &&
+    !cctp.executeTxHash &&
+    cctpAllowsManualExecution(cctp) &&
+    !!cctp.message &&
+    !!cctp.attestation;
+  useUserVisibleError(ready ? error?.id : null, 'inline');
 
   const handleExecute = useCallback(async () => {
-    if (busy || sourceChainId === undefined || !cctp) return;
+    if (!ready || busy || operationRef.current?.owner === selection || sourceChainId === undefined || !cctp) return;
+    const operation: ExecuteOperation = { owner: selection };
+    operationRef.current = operation;
     hapticMedium();
-    setBusy(true);
-    setError(null);
+    setExecution({ operation, busy: true });
     try {
       await execute(txId, sourceChainId, cctp);
     } catch (cause) {
       console.error('[UsdcxExecuteAction] execute failed', cause);
-      setError(errorMessage(cause));
+      if (operationRef.current === operation && selectionRef.current === selection) {
+        setExecution({
+          operation,
+          busy: true,
+          error: {
+            text:
+              cause instanceof UsdcxBurnError
+                ? t(cause.translationKey, cause.values)
+                : nativeSigningErrorMessage(cause, t),
+            id:
+              cause instanceof UsdcxBurnError && isUserErrorId(cause.translationKey)
+                ? cause.translationKey
+                : (nativeSigningErrorId(cause) ?? 'raw_usdcx_execute_failed')
+          }
+        });
+      }
     } finally {
-      setBusy(false);
+      if (operationRef.current === operation && selectionRef.current === selection) {
+        operationRef.current = null;
+        setExecution(current => (current?.operation === operation ? { ...current, busy: false } : current));
+      }
     }
-  }, [busy, cctp, execute, sourceChainId, txId]);
+  }, [busy, cctp, execute, ready, selection, sourceChainId, t, txId]);
 
   if (sourceChainId === undefined || source?.route !== 'cctp-executor' || phase !== 'delivering' || !cctp) {
     return null;
@@ -69,10 +129,10 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
       </p>
     );
   }
-  if (!cctp.message || !cctp.attestation) {
+  if (!ready) {
     // A forwarded burn is Circle's to execute: the reconciler records the Arc hash when Circle sends it and
     // keeps the message on the row only if Circle gives up, which is when the button below appears.
-    const forwarding = cctp.forwarded === true;
+    const forwarding = cctp.forwarded === true || cctp.sourceMessage !== undefined;
     return (
       <p
         className={clsx('text-center text-sm text-gray', className)}
@@ -86,6 +146,7 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
     <div className={clsx('flex flex-col gap-3', className)} data-testid="usdcx-execute-ready">
       <p className="text-center text-sm text-gray">{t('usdcxExecuteNeeded', { network })}</p>
       <Button
+        accent="receive"
         title={busy ? t('usdcxExecuting') : t('usdcxExecuteOnNetwork', { network })}
         variant={ButtonVariant.Primary}
         onClick={handleExecute}
@@ -94,8 +155,8 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
         className="w-full max-w-none"
       />
       {error && (
-        <p role="alert" className="text-center text-sm text-negative-ink break-words">
-          {error}
+        <p role="alert" className="text-center text-sm text-negative-ink wrap-anywhere select-text">
+          {error.text}
         </p>
       )}
     </div>

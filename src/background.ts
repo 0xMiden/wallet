@@ -1,8 +1,11 @@
+import 'lib/extension/toolbar-action';
+
 import './xhr-shim';
 
 import browser, { tabs, runtime } from 'webextension-polyfill';
 
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
+import { ensurePlatformUnlockStartup } from 'lib/extension/platform-unlock-startup';
 import { start } from 'lib/miden/back/main';
 import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
@@ -12,29 +15,7 @@ import { registerChromeUpdateListener } from 'lib/update/chrome';
 // NOTE: onInstalled and other synchronous MV3 listeners are registered in
 // background-entry.ts (the actual SW entry point) before this module loads.
 
-// Chrome: restore side panel preference on startup
-if (process.env.TARGET_BROWSER === 'chrome') {
-  const chromeApi = (globalThis as any).chrome;
-  chromeApi.storage.local.get('sidepanel_mode', (result: { sidepanel_mode?: boolean }) => {
-    if (result.sidepanel_mode) {
-      chromeApi.action
-        .setPopup({ popup: '' })
-        .catch((err: Error) => console.warn('[Background] Side panel restore could not clear the popup:', err));
-      chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: Error) => {
-        // Restore popup if side panel setup fails. A failed popup restore leaves the action button doing nothing, so it
-        // warns; a failed storage write keeps sidepanel_mode set, so the next start retries the restore.
-        chromeApi.action
-          .setPopup({ popup: 'popup.html' })
-          .catch((popupErr: Error) =>
-            console.warn('[Background] Side panel restore could not restore the popup:', popupErr)
-          );
-        chromeApi.storage.local.set({ sidepanel_mode: false }).catch(() => {});
-        console.warn('[Background] Side panel restore failed, reverting to popup:', err);
-      });
-    }
-  });
-  registerChromeUpdateListener();
-}
+if (process.env.TARGET_BROWSER === 'chrome') registerChromeUpdateListener();
 
 // A real browser/profile cold-start (NOT an SW idle-wake) means any transaction
 // an earlier browser session left in `GeneratingTransaction` was orphaned when
@@ -48,7 +29,9 @@ if (process.env.TARGET_BROWSER === 'chrome') {
 // up to 30 min waiting on the age-based reaper (issue #282). Registered
 // synchronously at the top level so it survives MV3 SW eviction.
 runtime.onStartup.addListener(() => {
-  failInterruptedTransactions().catch(err => console.warn('[Background] Interrupted-transaction sweep error:', err));
+  ensurePlatformUnlockStartup()
+    .then(() => failInterruptedTransactions())
+    .catch(err => console.warn('[Background] Interrupted-transaction sweep error:', err));
 });
 
 // IMPORTANT: Chrome MV3 requires event listeners to be registered synchronously
@@ -58,16 +41,20 @@ runtime.onStartup.addListener(() => {
 // init factory, so the cold-start race documented in #212 is handled there.
 browser.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === 'miden-sync') {
-    doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));
+    ensurePlatformUnlockStartup()
+      .then(() => doSync())
+      .catch(err => console.warn('[SyncManager] Alarm sync error:', err));
   }
   // 'miden-tx-processor' and 'miden-guardian-wait-keepalive' are keepalives only: no action needed
 });
 
 // Chain sync manager + transaction processor setup after start() to ensure Actions.init() completes first
-start().then(() => {
-  setupSyncManager();
-  setupTransactionProcessor();
-});
+start()
+  .then(() => {
+    setupSyncManager();
+    setupTransactionProcessor();
+  })
+  .catch(err => console.warn('[Background] Startup remains blocked:', err));
 
 if (process.env.TARGET_BROWSER === 'safari') {
   browser.browserAction.onClicked.addListener(() => {

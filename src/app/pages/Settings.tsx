@@ -1,8 +1,10 @@
-import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { usePlatformUnlock } from 'app/hooks/usePlatformUnlock';
+import { useTapUnlock } from 'app/hooks/useTapUnlock';
 import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
 import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
 import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
@@ -15,6 +17,7 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
+import PasskeyUnlockSettings from 'app/templates/PasskeyUnlockSettings';
 import RecoveryPhraseSettings from 'app/templates/RecoveryPhraseSettings';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
@@ -27,12 +30,12 @@ import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayou
 // Imported from the module rather than the `components/ui` barrel: the barrel
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
-import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
+import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
-import { isMobile } from 'lib/platform';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
@@ -41,13 +44,13 @@ import { WalletType } from 'screens/onboarding/types';
 import AdvancedSettings from './AdvancedSettings';
 import ExportAccountFile from './ExportAccountFile';
 import NetworksSettings from './Networks';
+import RecoverLockedFunds from './RecoverLockedFunds';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
 import { FEEDBACK_URL, PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '../constants';
 
 type SettingsProps = {
   tabSlug?: string | null;
-  rootScrollTop?: React.MutableRefObject<number>;
 };
 
 /** A tab that only opens something outside the wallet: the shared header, and nothing under it. */
@@ -102,11 +105,12 @@ type Tab = {
   /** The page has no meaning for a Guardian account: blocks the route as well as the row. */
   standardOnly?: boolean;
   /**
-   * Offered only while the wallet holds a non-Guardian account, whichever account is
-   * current: blocks the route as well as the row. See the encrypted-wallet-file tab.
+   * Offered only while the wallet holds an account a wallet file restores (anything but a
+   * key-imported Guardian account), whichever account is current: blocks the route as well as the row. See the encrypted-wallet-file tab.
    */
   requiresFileBackup?: boolean;
   requiresSeedPhrase?: boolean;
+  requiresPlatformUnlock?: boolean;
   /**
    * This tab's panel renders its OWN notice when the seed phrase is not 'stored'
    * (an interrupted removal, or a finished one), so its route must keep resolving
@@ -200,10 +204,18 @@ const TAB_GROUPS: TabGroup[] = [
         testID: SettingsSelectors.KeysButton
       },
       {
+        slug: 'passkey-unlock',
+        titleI18nKey: 'passkeyUnlock',
+        Component: PasskeyUnlockSettings,
+        testID: SettingsSelectors.PasskeyUnlockButton,
+        requiresPlatformUnlock: true
+      },
+      {
         // The file is the only backup of an OffChain account's private state and of an
-        // imported key; the recovery phrase restores neither. A wallet of Guardian
-        // accounts only has nothing the file could restore (a seed-derived one comes
-        // back from the phrase, a hot-key one is not restored from the file), so it gets no row.
+        // imported key; the recovery phrase restores neither. It is also the only copy of a
+        // Guardian account's state outside the device that does not depend on the Guardian
+        // operator, so a seed-derived Guardian account gets the row too. A wallet whose
+        // accounts are all key-imported Guardian accounts has nothing the file restores, so it gets none.
         slug: 'encrypted-wallet-file',
         titleI18nKey: 'encryptedWalletFile',
         Component: EncryptedFileFlow,
@@ -352,6 +364,13 @@ const HIDDEN_TABS: Tab[] = [
     titleI18nKey: 'exportAccountFile',
     Component: ExportAccountFile
   },
+  // Opened from Advanced settings and from a Deposit locked row in Activity. One lock of it is the explicit route
+  // `/settings/recover-funds/:chainId/:lockId` in PageRouter.
+  {
+    slug: 'recover-funds',
+    titleI18nKey: 'recoverLockedFunds',
+    Component: RecoverLockedFunds
+  },
   {
     slug: 'networks',
     titleI18nKey: 'networks',
@@ -371,14 +390,18 @@ export async function shouldShowDevEndpointsRow(): Promise<boolean> {
   return isEndpointOverrideActive();
 }
 
-const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTop }) => {
+const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
+  const { state: platformState, loading: platformLoading } = usePlatformUnlock();
+  const showPasskeySettings =
+    (process.env.TARGET_BROWSER === 'chrome' && isExtension()) ||
+    (platformState.available && platformState.hasPassword);
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
   const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
-  const walletNeedsFileBackup = useWalletStore(s => s.accounts.some(a => a.type !== WalletType.Guardian));
+  const walletNeedsFileBackup = useWalletStore(s => s.accounts.some(a => !isExcludedFromWalletFile(a)));
 
   // Whether the account HAS this page at all. A non-Guardian account has no
   // Guardian page in any sense, so these gates block the route as well as the row.
@@ -388,9 +411,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
       if (tab.standardOnly && isGuardianAccount) return false;
       if (tab.requiresFileBackup && !walletNeedsFileBackup) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
+      if (tab.requiresPlatformUnlock && !showPasskeySettings) return false;
       return true;
     },
-    [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey]
+    [isGuardianAccount, walletNeedsFileBackup, hasActivatedHotKey, showPasskeySettings]
   );
 
   // Whether the MENU offers it. The seed gate is only about the row: see allTabs.
@@ -466,21 +490,17 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     () => allTabs.find(tab => tab.slug === tabSlug && !tab.actionOnly) || null,
     [allTabs, tabSlug]
   );
-  const handleSubPageBack = useBackWithFallback('/settings');
+  const handleSubPageBack = useBackWithFallback('/me');
   const languageLabel = getCurrentLanguageLabel();
-  // PageRouter owns the root offset because changing between TabLayout and
-  // FullScreenPage remounts Settings. Standalone instances keep a local fallback.
-  const localRootScrollTop = useRef(0);
-  const rootScrollTop = savedRootScrollTop ?? localRootScrollTop;
-  const invalidTab = Boolean(tabSlug) && !activeTab;
+  const waitingForPlatform = tabSlug === 'passkey-unlock' && platformLoading;
+  const invalidTab = Boolean(tabSlug) && !activeTab && !waitingForPlatform;
 
   useEffect(() => {
-    // The root menu needs TabLayout's footer. Do not render it inside the
-    // full-screen route when a slug is unknown or unavailable to this account.
-    if (invalidTab) navigate('/settings', HistoryAction.Replace);
+    // Return to the menu when a slug is unknown or unavailable to this account.
+    if (invalidTab) navigate('/me', HistoryAction.Replace);
   }, [invalidTab]);
 
-  // On mobile, move parked dApp trays out while a settings sub-page owns the
+  // On mobile, move parked dApp trays out while Settings owns the
   // screen. The sub-pages need it for the same
   // reason the drawers they replaced did: the tray floats above the bottom of
   // the viewport, which is where these screens pin their primary action.
@@ -490,31 +510,36 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // Setting it here by hand meant a confirmation closing over a settings sub-page (the
   // one in Address Book, say) dropped the count to zero and cleared the flag
   // while this page still wanted it.
-  useHideDappBubblesWhileOpen(activeTab !== null);
+  useHideDappBubblesWhileOpen(Boolean(tabSlug));
 
-  // Mark Settings as an edge-to-edge page. The list container below
-  // adds its own bottom padding so the last item can still scroll above
-  // the React BottomNav.
-  const showSettingsRoot = !tabSlug;
-  useEffect(() => {
-    if (!isMobile()) return;
-    if (showSettingsRoot) {
-      document.body.setAttribute('data-edge-to-edge', '');
-    } else {
-      document.body.removeAttribute('data-edge-to-edge');
-    }
-    return () => {
-      document.body.removeAttribute('data-edge-to-edge');
-    };
-  }, [showSettingsRoot]);
+  // The existing-wallet way into Developer Settings, the Welcome logo's hidden gesture on the version line.
+  const openDeveloperSettings = useTapUnlock(() => navigate('/developer-settings'));
 
-  if (invalidTab) return null;
+  if (invalidTab || waitingForPlatform) return null;
 
   const subPageTitle = activeTab ? t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey) : undefined;
   // As drawers these screens were dialogs, so they took focus and were announced by name. Routes
   // are not announced and the row that opened them unmounts with the list, dropping focus to
   // <body>. Skipped for the pages that focus a field themselves — see `ownsInitialFocus`.
   const focusSubPageTitle = activeTab ? !activeTab.ownsInitialFocus?.() : false;
+
+  const renderRow = (tab: Tab) => {
+    const isExternal = tab.linksOutsideOfWallet;
+    const isSupport = tab.slug === 'support';
+    const handleClick = isSupport ? () => openExternalUrl({ url: SUPPORT_URL, title: t('support') }) : tab.onClick;
+    return (
+      <ListRow
+        key={tab.slug + tab.titleI18nKey}
+        title={t(tab.titleI18nKey)}
+        to={isExternal || handleClick ? undefined : `/settings/${tab.slug}`}
+        href={isExternal ? tab.slug : undefined}
+        onClick={isExternal ? undefined : handleClick}
+        value={tab.slug === 'language' ? languageLabel : undefined}
+        chevron
+        data-testid={tab.testID}
+      />
+    );
+  };
 
   if (activeTab) {
     return (
@@ -536,75 +561,30 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     );
   }
 
-  return (
+  const menu = (
     <>
-      {/* Settings root is a primary tab destination, so it wears the same header as Activity and
-          Explore: the shared `TabRootHeader`, here without a filter row, a plain title and no back
-          button. A sub-page above keeps `PageHeader`, drawn by its own layout. */}
-      <TabRootHeader title={t('settings')} />
-      <div
-        // A ref avoids re-rendering the page on every scroll event.
-        ref={node => {
-          if (node) node.scrollTop = rootScrollTop.current;
-        }}
-        onScroll={event => {
-          rootScrollTop.current = event.currentTarget.scrollTop;
-        }}
-        className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col"
-      >
-        {
-          // pb-22 reserves space at the bottom so the last row can scroll above
-          // the React BottomNav. No top padding: the 8px under the rule is
-          // TabRootHeader's, the same 8px the other tab roots' filter rows get.
-          <div className="flex w-full flex-col gap-5 px-4 pb-[calc(5.5rem+var(--wallet-control-safe-bottom,0px))]">
-            {tabGroups.map(group => (
-              <section key={group.titleI18nKey}>
-                {/* h2: the only heading above these is the page title the header
+      {tabGroups.map(group => (
+        <section key={group.titleI18nKey}>
+          {/* h2: the only heading above these is the page title the header
                     renders as h1. `lg` + the group's own coloured glyph: these are
                     page-level section titles, not the plain 13px list-group label. */}
-                <SectionHeader size="lg" icon={<group.Icon />} className="px-0">
-                  {t(group.titleI18nKey)}
-                </SectionHeader>
-                <ListGroup surface="plain">
-                  {group.tabs.map(tab => {
-                    const isExternal = tab.linksOutsideOfWallet;
-                    const isSupport = tab.slug === 'support';
-                    // A tab may carry its own onClick (e.g. Send feedback →
-                    // openExternalUrl); such rows never route to a /settings page.
-                    // Recovery phrase routes like every other row: its sub-page
-                    // opens on the privacy warning, full screen, so the tab bar
-                    // never covers the warning's buttons.
-                    const hasCustomClick = isSupport || !!tab.onClick;
-                    // Support's webview title needs `t`, which the module-level
-                    // TAB_GROUPS can't reach, so its click is built here.
-                    const handleClick = isSupport
-                      ? () => openExternalUrl({ url: SUPPORT_URL, title: t('support') })
-                      : tab.onClick;
-                    return (
-                      <ListRow
-                        key={tab.slug + tab.titleI18nKey}
-                        title={t(tab.titleI18nKey)}
-                        to={isExternal || hasCustomClick ? undefined : `/settings/${tab.slug}`}
-                        href={isExternal ? tab.slug : undefined}
-                        // No `hapticLight()` here: ListRow fires one for every branch
-                        // it renders, so adding one buzzed twice per tap.
-                        onClick={isExternal ? undefined : handleClick}
-                        value={tab.slug === 'language' ? languageLabel : undefined}
-                        // Every row opens something: a page, a sheet or a site.
-                        chevron
-                        data-testid={tab.testID}
-                      />
-                    );
-                  })}
-                </ListGroup>
-              </section>
-            ))}
+          <SectionHeader size="lg" icon={<group.Icon />} className="px-0">
+            {t(group.titleI18nKey)}
+          </SectionHeader>
+          <ListGroup surface="plain">{group.tabs.map(renderRow)}</ListGroup>
+        </section>
+      ))}
 
-            <p className="px-1 text-caption text-muted">{t('settingsVersion', { version: pkg.version })}</p>
-          </div>
-        }
-      </div>
+      <p className="px-1 text-caption text-muted" onClick={openDeveloperSettings}>
+        {t('settingsVersion', { version: pkg.version })}
+      </p>
     </>
+  );
+
+  return (
+    <div className="flex flex-col gap-5" data-testid="profile-settings-menu">
+      {menu}
+    </div>
   );
 };
 

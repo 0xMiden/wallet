@@ -5,8 +5,8 @@ name: E2E Android
 # regression that only reproduced on Android could ship without anything going
 # red.
 #
-# This runs the Android emulator suite on every push to main, mirroring what
-# e2e-blockchain.yml does for Chrome and iOS.
+# Release E2E (release-e2e.yml) dispatches the Android emulator suite nightly and
+# on each release, as it does e2e-blockchain.yml for Chrome and iOS.
 #
 # Why ubuntu and NOT macOS: the emulator needs hardware acceleration, and on
 # GitHub-hosted runners only Linux can give it. macos-26-xlarge was tried and the
@@ -43,9 +43,6 @@ name: E2E Android
 # rest and reuses an already-booted pair if one is present.
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       network:
@@ -89,7 +86,7 @@ jobs:
       # all three read the same path.
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # KVM is what makes the emulator usable rather than merely present. Without
       # this the boot either fails outright or is slow enough to blow every wait.
@@ -101,16 +98,16 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '21'
 
       # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platform-tools
 
@@ -162,7 +159,7 @@ jobs:
       # miden-client-cli from source, and the cache key below names the rustc
       # version, so leaving it to the runner image's default made that key a
       # claim nothing enforced.
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
 
       # Same shared cache + pre-install every other E2E workflow uses. Without
       # it the harness compiles miden-client-cli lazily on FIRST USE — i.e.
@@ -187,7 +184,7 @@ jobs:
           echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
 
       - name: Cache cargo (cli)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin
@@ -203,14 +200,69 @@ jobs:
         # a drained chain. No marker, no rebuild, and nothing about this step changes.
         uses: ./.github/actions/install-miden-client-cli
 
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
+
       - name: Build debug APK
         run: yarn test:e2e:android:build
+
+      - name: Build native Reown instrumentation APK
+        run: |
+          cd android
+          ./gradlew :app:assembleDebugAndroidTest
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 
       # Reclaim the Gradle daemon's heap before two emulators start competing
       # for the runner's 16 GB. The daemon lingers after `assembleDebug` holding
       # a GB or two it will never use again in this job.
       - name: Stop the Gradle daemon
-        run: cd android && ./gradlew --stop || true
+        working-directory: android
+        run: ./gradlew --stop || true
+
+      # The host fixture keeps the startup eligibility decision deterministic (without it Earn and Swap
+      # read unavailable), so the emulator must reach it; the E2E harness reverses the same port.
+      - name: Run native Reown bridge smoke
+        id: reown-native-smoke
+        timeout-minutes: 10
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          avd-name: Pixel_API_34
+          force-avd-creation: false
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          script: >-
+            bash -euo pipefail -c '
+            mkdir -p test-results-android/reown-native-origin;
+            adb reverse tcp:8551 tcp:8551;
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk;
+            adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk;
+            adb shell pm clear com.miden.wallet;
+            adb shell am instrument -w -r -e class com.miden.wallet.ReownNativeFailureBridgeTest
+            com.miden.wallet.test/androidx.test.runner.AndroidJUnitRunner 2>&1
+            | tr -d "\r" | tee test-results-android/reown-native-origin/instrumentation.txt;
+            if grep -Eq "FAILURES|INSTRUMENTATION_FAILED" test-results-android/reown-native-origin/instrumentation.txt;
+            then exit 1; fi;
+            grep -Fxq "OK (2 tests)" test-results-android/reown-native-origin/instrumentation.txt
+            '
+
+      - name: Stop native Reown smoke emulator
+        if: ${{ always() && steps.reown-native-smoke.outcome != 'skipped' }}
+        run: |
+          adb -s emulator-5554 emu kill || true
+          for _ in $(seq 1 30); do
+            if ! adb -s emulator-5554 get-state >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo '::error::Native Reown smoke emulator did not stop'
+          exit 1
 
       - name: Run Android E2E
         run: yarn test:e2e:android:run
@@ -224,27 +276,28 @@ jobs:
       # a raw tail so the step can never come back empty again.
       - name: Collect emulator logs on failure
         if: failure()
+        timeout-minutes: 10
         run: |
-          adb devices || true
+          timeout 15s adb devices || true
           for serial in emulator-5554 emulator-5556; do
             echo "::group::$serial — app process"
-            adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            timeout 15s adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
             echo "::endgroup::"
             echo "::group::$serial — crash buffer"
-            adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
+            timeout 15s adb -s "$serial" logcat -b crash -d -t 200 2>/dev/null || true
             echo "::endgroup::"
             echo "::group::$serial — wallet/chromium/OOM lines (whole buffer)"
-            adb -s "$serial" logcat -d 2>/dev/null \
+            timeout 15s adb -s "$serial" logcat -d 2>/dev/null \
               | grep -iE "miden|chromium|console|fatal|ANR|lowmemorykiller|Killed" | tail -300 || true
             echo "::endgroup::"
             echo "::group::$serial — raw tail (fallback, never filtered)"
-            adb -s "$serial" logcat -d -t 150 2>/dev/null || true
+            timeout 15s adb -s "$serial" logcat -d -t 150 2>/dev/null || true
             echo "::endgroup::"
           done
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-e2e-${{ github.run_id }}
           path: |

@@ -5,17 +5,39 @@ import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
 
 import {
+  defaultUsdcxChainId,
   getUsdcxExecutorSource,
   getUsdcxRemoteDomain,
   listUsdcxDestinations,
   listUsdcxSourceChains,
   minimumUsdcxPayout,
+  usdcxArrivalKey,
+  usdcxPayoutFeeShortfall,
   usdcxSourceChains
 } from './constant';
 
 jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
-beforeEach(() => jest.mocked(getBridgeConfigSnapshot).mockReturnValue(testBridgeSnapshot()));
+let mockNetworkName = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
+beforeEach(() => {
+  mockNetworkName = 'testnet';
+  jest.mocked(getBridgeConfigSnapshot).mockReturnValue(testBridgeSnapshot());
+});
+
+// The opening chain is keyed per Miden network as the RPC endpoints are: Ethereum on mainnet, Arc Testnet elsewhere.
+it('opens USDCx on Arc Testnet on the test networks and on Ethereum on mainnet', () => {
+  expect(defaultUsdcxChainId()).toBe(5042002);
+  mockNetworkName = 'devnet';
+  expect(defaultUsdcxChainId()).toBe(5042002);
+  mockNetworkName = 'mainnet';
+  expect(defaultUsdcxChainId()).toBe(1);
+});
+
+it('estimates a one-minute arrival from Arc on either network family', () => {
+  expect(usdcxArrivalKey(5042002)).toBe('usdcxArrivalArc');
+  expect(usdcxArrivalKey(5042)).toBe('usdcxArrivalArc');
+  expect(usdcxArrivalKey(1)).toBe('usdcxArrival');
+});
 
 it('builds source routes and executor targets from the remote document', () => {
   expect([...usdcxSourceChains().keys()]).toEqual([5042002, 11155111, 84532, 421614]);
@@ -59,6 +81,12 @@ it('has no compiled fallback when the remote document is missing', () => {
 it('keeps the accepted destination payout fee allowance', () => {
   expect(minimumUsdcxPayout(11155111, 3_000_000n)).toBe(1_500_000n);
   expect(minimumUsdcxPayout(84532, 3_000_000n)).toBe(2_900_000n);
+});
+
+// Circle took 2.5635 USDC from a Sepolia payout, so the review promises no fee bound; the allowance only refuses a burn.
+it('refuses a 1 USDCx burn to Sepolia and accepts one above the allowance', () => {
+  expect(usdcxPayoutFeeShortfall(11155111, 1_000_000n)).toEqual({ amount: '1.5', network: 'Sepolia' });
+  expect(usdcxPayoutFeeShortfall(11155111, 1_500_001n)).toBeUndefined();
 });
 
 it('builds source snapshots that IndexedDB can store', () => {

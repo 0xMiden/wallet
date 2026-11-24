@@ -1,6 +1,7 @@
 import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import type { BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
@@ -26,7 +27,9 @@ import { balancePrice } from './balancePrice';
  */
 export async function updateBalancesFromSyncData(
   accountPublicKey: string,
-  vaultAssets: SerializedVaultAsset[]
+  vaultAssets: SerializedVaultAsset[],
+  snapshot?: BalanceSnapshot,
+  isCurrent: () => boolean = () => true
 ): Promise<void> {
   const store = useWalletStore.getState();
   /* c8 ignore next -- tokenPrices always initialized in store */
@@ -38,6 +41,8 @@ export async function updateBalancesFromSyncData(
     console.warn('Token metadata overrides read failed', error);
     return {};
   });
+
+  if (!isCurrent()) return;
 
   const balances: TokenBalanceData[] = [];
   // The faucets whose rows took an override from the storage read; the landing applies the store's current ones.
@@ -97,7 +102,8 @@ export async function updateBalancesFromSyncData(
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
       ...balancePrice(tokenPrices, asset.faucetId, tokenMetadata.symbol),
-      balance: balance.toNumber()
+      balance: balance.toNumber(),
+      balanceBaseUnits: asset.amountBaseUnits
     });
   }
 
@@ -116,9 +122,12 @@ export async function updateBalancesFromSyncData(
       tokenSlug: displayMetadata.symbol,
       metadata: displayMetadata,
       ...balancePrice(tokenPrices, midenFaucetId, displayMetadata.symbol),
-      balance: 0
+      balance: 0,
+      balanceBaseUnits: '0'
     });
   }
 
-  useWalletStore.setState(state => withLandedBalances(state, accountPublicKey, balances, midenFaucetId, overridden));
+  useWalletStore.setState(state =>
+    withLandedBalances(state, accountPublicKey, balances, midenFaucetId, overridden, snapshot)
+  );
 }

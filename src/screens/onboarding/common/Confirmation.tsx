@@ -2,13 +2,13 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation-illustrantion.svg';
-import { Icon, IconName } from 'app/icons/v2';
+import walletReadyPerson from 'app/icons/onboarding/wallet-ready-person.png';
 import { Button, ButtonVariant } from 'components/Button';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { OnboardingType } from 'screens/onboarding/types';
 
 const MAX_BIOMETRIC_ATTEMPTS = 3;
@@ -25,6 +25,7 @@ export interface ConfirmationScreenProps {
    * leaving the user on a wiped wallet with no explanation (#630).
    */
   recoveryError?: string | null;
+  recoveryErrorId?: UserErrorId | null;
   /**
    * Side panel handoff (Chrome): the wallet is being registered (created or
    * restored) in the background before the user opens it. While true, show a
@@ -45,6 +46,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   biometricAttempts = 0,
   biometricError,
   recoveryError,
+  recoveryErrorId = 'raw_onboarding_recovery_failed',
   creating = false,
   onboardingType,
   onSubmit,
@@ -122,31 +124,27 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
       <div className="my-auto flex flex-col items-center gap-4 pt-6 pb-24 text-center face-heading">
         <Hero
           nameAs="h1"
-          nameSize="lg"
-          visual={<ConfirmationHero aria-hidden="true" className="h-auto w-full max-w-[280px]" />}
+          nameSize="xl"
+          visual={<img src={walletReadyPerson} alt="" aria-hidden="true" className="h-auto w-full max-w-[280px]" />}
           name={hasFailure ? t('smthWentWrong') : t('yourWalletIsReady')}
           subtitle={
             hasFailure ? undefined : (
               // Held to a readable measure and balanced, so the sentence breaks into two even lines.
-              <span className="mx-auto block max-w-[320px] text-body font-semibold text-balance">
+              <span className="mx-auto block max-w-[320px] text-body font-semibold text-balance face-heading">
                 {t(isRecovery ? 'finishRestoringOnOpen' : 'recoveryPhraseSevenDayReminder')}
               </span>
             )
           }
         />
-        {/* The daily reminder only makes sense for a create: a recovery isn't newly generated, so there's nothing to remind about. */}
-        {!hasFailure && !isRecovery && (
-          <p
-            className="flex max-w-[320px] items-start justify-center gap-1.5 text-explainer font-semibold text-muted"
-            data-testid="onboarding-confirmation-reminder"
-          >
-            <Icon name={IconName.Calendar} size="xs" className="mt-px shrink-0" />
-            <span className="text-balance">{t('recoveryPhraseDailyReminder')}</span>
-          </p>
-        )}
-
         {hasFailure && (
-          <Notice tone="negative" role="alert" className="text-left">
+          // E2E drivers read a failed attempt here. Retry keeps the submit id, which passImportConfirmation relies on.
+          <Notice
+            errorId={hasRecoveryError ? recoveryErrorId : 'biometricFailed'}
+            tone="negative"
+            role="alert"
+            className="text-left"
+            data-testid="onboarding-confirmation-failed"
+          >
             <span className="flex flex-col gap-1">
               {hasRecoveryError && (
                 <span className="select-text" data-testid="onboarding-recovery-error">

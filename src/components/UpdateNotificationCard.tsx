@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UpdateNotice } from 'lib/update/types';
 
 export interface UpdateNotificationCardProps {
@@ -29,6 +30,7 @@ const actionKey = (platform: UpdateNotice['platform']): string => {
 export const UpdateNotificationCard: FC<UpdateNotificationCardProps> = ({ notice, onDismiss }) => {
   const { t } = useTranslation();
   const [actionState, setActionState] = useState<ActionState>('idle');
+  useUserVisibleError(actionState === 'failure' ? 'updateNotificationActionFailed' : null, 'inline');
 
   const runAction = useCallback(async () => {
     setActionState('loading');

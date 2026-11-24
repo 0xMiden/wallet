@@ -43,6 +43,9 @@ jest.mock('./source', () => ({
 const mockDerive = jest.fn<Promise<DerivedBridgeConfig>, [BridgeConfig]>();
 jest.mock('./derive', () => ({ deriveBridgeConfig: (config: BridgeConfig) => mockDerive(config) }));
 
+const mockLookup = jest.fn();
+jest.mock('./geo-lookup', () => ({ lookupFeatureEligibility: (...args: unknown[]) => mockLookup(...args) }));
+
 let mockDegraded = false;
 const mockDown: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator' };
 jest.mock('./availability', () => ({
@@ -58,7 +61,7 @@ const config = (version: number): BridgeConfig => ({
   version,
   'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
   supportedEvmChains: {},
-  features: { earn: false }
+  features: { earn: false, nearIntents: false }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;
@@ -68,7 +71,13 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
     derivedAt,
     chains: {},
     agglayer: { indexer: skipped },
-    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: skipped },
+    epoch: {
+      allocator: skipped,
+      allocatorAccount: skipped,
+      market: skipped,
+      midenUsdcFaucet: skipped,
+      vaults: skipped
+    },
     swap: { pairs: skipped }
   };
 };
@@ -79,7 +88,7 @@ const storeEntry = (version: number, fetchedAt = Date.now()): StoredBridgeConfig
 };
 const seed = (version: number, fetchedAt = NOW) => {
   const entry = storeEntry(version, fetchedAt);
-  mockStorage.set('bridge_config_derived_v1:testnet', derivedFor(entry.config, fetchedAt));
+  mockStorage.set('bridge_config_derived_v2:testnet', derivedFor(entry.config, fetchedAt));
 };
 const flush = () => jest.advanceTimersByTimeAsync(0);
 
@@ -89,6 +98,7 @@ beforeEach(() => {
   _resetBridgeConfigRuntimeForTest();
   jest.useFakeTimers({ now: NOW });
   mockStorage.clear();
+  mockLookup.mockReset();
   mockDegraded = false;
   mockFetch.mockReset().mockImplementation(async () => storeEntry(1));
   mockDerive.mockReset().mockImplementation(async source => derivedFor(source, Date.now()));
@@ -166,4 +176,18 @@ it('after a wipe, keeps the copy and fetches nothing', async () => {
   await flush();
   expect(getBridgeConfigSnapshot()).toBe(before);
   expect(mockFetch).not.toHaveBeenCalled();
+});
+
+it('never requests eligibility from backend initialization, elapsed time or reset recovery', async () => {
+  seed(13);
+  await initBridgeConfig();
+  await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS * 2);
+  await initBridgeConfig();
+  await flush();
+  mockStorage.clear();
+  await Promise.all(mockRereads.map(reread => reread()));
+  await initBridgeConfig();
+  expect(mockLookup).not.toHaveBeenCalled();
+  expect(getBridgeConfigSnapshot().geo).toBeUndefined();
+  expect(jest.getTimerCount()).toBe(0);
 });

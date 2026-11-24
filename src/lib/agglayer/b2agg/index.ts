@@ -8,6 +8,10 @@ import {
   TransactionRequest
 } from '@miden-sdk/miden-sdk/lazy';
 
+import { assertReviewedBridge } from 'lib/bridge/core/review';
+import { configKey } from 'lib/bridge/core/routes';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
+import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -23,8 +27,10 @@ import {
   randomFeeSalt
 } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { isExtension } from 'lib/platform';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { getAgglayerBridgeOut } from 'lib/remote-config/values';
 
 import { agglayerExitTxHash } from './exit-hash';
@@ -54,7 +60,7 @@ export async function createB2AggNote(
 }
 
 export interface B2AggBridgeDeps {
-  /** `signTransaction` from `useMidenContext()` — used by the background processor (mobile/desktop). */
+  /** `signTransaction` from `useMidenContext()` - used by the background processor (mobile/desktop). */
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   /** Guardian provider from `lib/miden/front/guardian-sync`. */
   guardianProvider: GuardianAccountProvider;
@@ -89,8 +95,34 @@ export async function initiateB2AggBridge(args: {
   guardianProvider: GuardianAccountProvider;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
   destinationChainId?: number;
+  operation?: BridgeOperationInput;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }): Promise<string> {
   const { amount, faucetId, destinationAddress, senderPublicKey, guardianProvider, spendingLimitAuthorization } = args;
+  const operation = args.operation && structuredClone(args.operation);
+  const scopeBeforeBuild = operation && captureBridgeWalletScope();
+  if (operation) {
+    const original = await findAdmittedBridgeOperation(operation);
+    if (original) return original.id;
+  }
+  const assertReviewCurrent = async () => {
+    if (!operation) return;
+    if (!args.checks) throw new Error('Agglayer live review unavailable');
+    const live = await args.checks.readCurrent();
+    const route = operation.review.route;
+    const current = getBridgeConfigSnapshot();
+    if (
+      configKey(scopeBeforeBuild) !== configKey(captureBridgeWalletScope()) ||
+      route.provider !== 'agglayer' ||
+      route.mode !== 'send' ||
+      current.status !== 'ready' ||
+      configKey([current.network, current.config, current.derived]) !==
+        configKey([route.recovery.network, route.recovery.config, route.recovery.derived])
+    )
+      throw new Error('Agglayer bridge review changed');
+    assertReviewedBridge(operation.review, live, args.checks.now());
+  };
+  await assertReviewCurrent();
   // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its
   // destination, which the row records too.
   const { midenBridge, evmNetworkId, recovery } = getAgglayerBridgeOut(args.destinationChainId);
@@ -114,7 +146,7 @@ export async function initiateB2AggBridge(args: {
   // Decided before the WASM hold: the bytes go to a Guardian proposal, inside its pending hold, or straight to the
   // node (#1081).
   const expirationDelta = expirationDeltaBlocks(await isGuardianAccount(senderPublicKey, guardianProvider));
-  const { requestBytes, faucetBech32, exitTxHash } = await withWasmClientLock(async hold => {
+  const { requestBytes, faucetBech32, exitTxHash, ownNoteId } = await withWasmClientLock(async hold => {
     const note = await createB2AggNote(
       amount,
       faucetId,
@@ -125,10 +157,10 @@ export async function initiateB2AggBridge(args: {
     );
     // The awaited note build parks (the lazy SDK load can be the long one), and
     // an eviction during it hands the mutex to a successor without stopping this
-    // callback — everything below is WASM work that would then run alongside the
+    // callback - everything below is WASM work that would then run alongside the
     // successor's, unmutexed. Everything in this hold is write PREP: the request
     // is only built and serialized here, submission happens later in the
-    // transaction pipeline, so aborting is always safe — and it must happen
+    // transaction pipeline, so aborting is always safe - and it must happen
     // BEFORE `initiateBridgedSendTransaction` queues a row, since a queued row
     // would hand the abandoned request to the processor as a fresh write.
     assertWasmHoldCurrent(hold, 'before the bridge request build');
@@ -147,22 +179,19 @@ export async function initiateB2AggBridge(args: {
       .withOwnOutputNotes(new NoteArray([note]))
       .withExpirationDelta(expirationDelta)
       .build();
+    // Signing may create only this note; a request that does not create exactly one queues no row.
+    const ownNoteId = soleOwnOutputNoteId(request);
     const serialisedReq = request.serialize();
-    console.log('Got the serialised transaction request', serialisedReq);
-    try {
-      TransactionRequest.deserialize(serialisedReq);
-      console.log('Deserialisation test passes');
-    } catch (err) {
-      console.log('Basic deser ser failed', err);
-      throw err;
-    }
+    TransactionRequest.deserialize(serialisedReq);
     return {
       requestBytes: serialisedReq,
       faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(faucetId)),
-      exitTxHash
+      exitTxHash,
+      ownNoteId
     };
   });
 
+  await assertReviewCurrent();
   // Delegate to the remote prover (mobile always delegates anyway) to avoid
   // OOMing the SW / WebView while proving the bridge note.
   return initiateBridgedSendTransaction(
@@ -172,13 +201,16 @@ export async function initiateB2AggBridge(args: {
     destinationAddress,
     evmNetworkId,
     'agglayer',
+    ownNoteId,
     requestBytes,
     true,
     undefined,
     spendingLimitAuthorization,
     exitTxHash,
     undefined,
-    recovery
+    recovery,
+    undefined,
+    operation
   );
 }
 

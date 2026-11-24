@@ -63,6 +63,9 @@ export { StatusBadge } from './StatusBadge';
 // vocabularies have no importer, so they stay internal until one exists.
 export type { Status, StatusBadgeProps } from './StatusBadge';
 
+export { ProgressMeter } from './ProgressMeter';
+export type { ProgressMeterProps } from './ProgressMeter';
+
 export { PromptCard } from './PromptCard';
 export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
 
@@ -145,4 +148,9 @@ export type { SubPageLayoutProps } from './SubPageLayout';
 export { ErrorLine } from './ErrorLine';
 export { ErrorDetails } from './ErrorDetails';
 export type { ErrorDetailsProps } from './ErrorDetails';
+export { CodeInput } from './CodeInput';
+export type { CodeInputProps } from './CodeInput';
 export { SeedPhraseGrid } from './SeedPhraseGrid';
+
+export { TokenAmount, UsdAmount } from './TokenAmount';
+export type { TokenAmountProps, UsdAmountProps } from './TokenAmount';

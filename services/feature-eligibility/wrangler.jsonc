@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
+  "name": "miden-wallet-feature-eligibility",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false,
+    "logs": { "enabled": false, "invocation_logs": false },
+    "traces": { "enabled": false }
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "[]",
+    "MAXMIND_DAILY_QUERY_LIMIT": "0",
+    "DEPLOYMENT_REVISION": "unknown"
+  },
+  "ratelimits": [
+    { "name": "CALLER_RATE_LIMIT", "namespace_id": "189401", "simple": { "limit": 60, "period": 60 } },
+    { "name": "COLO_RATE_LIMIT", "namespace_id": "189402", "simple": { "limit": 5000, "period": 10 } }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ELIGIBILITY_GUARD", "class_name": "EligibilityGuard" },
+      { "name": "CALLER_GUARD", "class_name": "CallerEligibilityGuard" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["EligibilityGuard"] },
+    { "tag": "v2", "new_sqlite_classes": ["CallerEligibilityGuard"] }
+  ]
+}

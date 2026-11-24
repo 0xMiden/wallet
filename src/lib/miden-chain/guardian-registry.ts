@@ -56,8 +56,7 @@ const sameList = (a: readonly ResolvedGuardianOption[], b: readonly ResolvedGuar
 
 /**
  * The operators of `network` in picker order, the first being the default: the accepted document's list, else the
- * bundled one. Empty for a network with neither (mainnet today). The same array until the list changes; do not
- * mutate it.
+ * bundled one. Empty for a network with neither. The same array until the list changes; do not mutate it.
  */
 export function getNetworkGuardians(network: string): readonly ResolvedGuardianOption[] {
   return documentLists.get(network) ?? bundledGuardians(network);

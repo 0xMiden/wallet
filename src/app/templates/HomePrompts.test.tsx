@@ -4,19 +4,19 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { IconName } from 'app/icons/v2';
 import {
-  publishMockBridgeSnapshot,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
-  testSnapshotWithSwapPairs
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
 } from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
+  clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
-import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import {
   FaucetAmountOverCapError,
@@ -70,8 +70,26 @@ const mockUnresolvedRefusal = (address: string, marker: FaucetFundingMarker, rep
 };
 
 let mockBaseFee: number | null = 0;
+// The effective network's own answer unless a case puts the wallet on a network with no faucet.
+let mockFaucetConfigured: boolean | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, isFaucetConfigured: () => mockFaucetConfigured ?? actual.isFaucetConfigured() };
+});
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// Set verified price assets directly. Swap metadata does not set price assets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+});
+
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () =>
   jest
@@ -83,71 +101,97 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: { amount?: string; count?: number; seconds?: string }) => {
       const value = values?.amount ?? values?.count ?? values?.seconds;
-      return value === undefined ? key : `${key}:${value}`;
+      const text =
+        mockRealTelemetryDisplays &&
+        [
+          'faucetRateLimited',
+          'faucetRateLimitedWait',
+          'faucetOverCap',
+          'guardianHistoryFailed',
+          'guardianHistoryPartial',
+          'hotKeyRotationPromptBody',
+          'hotKeyHardwareErrorPromptBody'
+        ].includes(key)
+          ? `Visible ${key}`
+          : key;
+      return value === undefined ? text : `${text}:${value}`;
     }
   })
 }));
 
-jest.mock('components/ui', () => ({
-  PromptCarousel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  PromptCard: ({
-    title,
-    body,
-    bodyValue,
-    hero,
-    onClick,
-    actionLabel,
-    onAction,
-    actionDisabled,
-    status,
-    onDismiss,
-    variant,
-    icon
-  }: {
-    title: string;
-    body?: string;
-    bodyValue?: string;
-    hero?: { icon: string; label: string; subLabel?: string; tone: string };
-    onClick?: () => void;
-    actionLabel?: string;
-    onAction?: () => void;
-    actionDisabled?: boolean;
-    status?: string;
-    onDismiss?: () => void;
-    variant?: string;
-    icon?: string;
-  }) => (
-    <section
-      data-testid="prompt-card"
-      data-title={title}
-      data-status={status}
-      data-variant={variant}
-      data-icon={icon}
-      data-hero={hero?.label}
-      data-hero-sub={hero?.subLabel}
-      // The real PromptCard renders no action button at all without onClick, but
-      // this double always renders one - so tests must read actionability here,
-      // or a removed readiness gate still passes behind fundWallet's own guard.
-      data-actionable={onClick ? 'true' : 'false'}
-    >
-      <button type="button" onClick={onClick}>
-        {title}
-      </button>
-      {body && <p>{body}</p>}
-      {bodyValue && <p data-testid="prompt-card-value">{bodyValue}</p>}
-      {actionLabel && (
-        <button type="button" onClick={onAction} disabled={actionDisabled}>
-          {actionLabel}
+let mockRealTelemetryDisplays = false;
+jest.mock('components/ui', () => {
+  const legacy = {
+    PromptCarousel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    PromptCard: ({
+      title,
+      body,
+      bodyValue,
+      hero,
+      onClick,
+      actionLabel,
+      onAction,
+      actionDisabled,
+      status,
+      onDismiss,
+      variant,
+      icon
+    }: {
+      title: string;
+      body?: string;
+      bodyValue?: string;
+      hero?: { icon: string; label: string; subLabel?: string; tone: string };
+      onClick?: () => void;
+      actionLabel?: string;
+      onAction?: () => void;
+      actionDisabled?: boolean;
+      status?: string;
+      onDismiss?: () => void;
+      variant?: string;
+      icon?: string;
+    }) => (
+      <section
+        data-testid="prompt-card"
+        data-title={title}
+        data-status={status}
+        data-variant={variant}
+        data-icon={icon}
+        data-hero={hero?.label}
+        data-hero-sub={hero?.subLabel}
+        // The real PromptCard renders no action button at all without onClick, but
+        // this double always renders one - so tests must read actionability here,
+        // or a removed readiness gate still passes behind fundWallet's own guard.
+        data-actionable={onClick ? 'true' : 'false'}
+      >
+        <button type="button" onClick={onClick}>
+          {title}
         </button>
-      )}
-      {onDismiss && (
-        <button type="button" onClick={onDismiss} aria-label={`dismiss-${title}`}>
-          dismiss
-        </button>
-      )}
-    </section>
-  )
-}));
+        {body && <p>{body}</p>}
+        {bodyValue && <p data-testid="prompt-card-value">{bodyValue}</p>}
+        {actionLabel && (
+          <button type="button" onClick={onAction} disabled={actionDisabled}>
+            {actionLabel}
+          </button>
+        )}
+        {onDismiss && (
+          <button type="button" onClick={onDismiss} aria-label={`dismiss-${title}`}>
+            dismiss
+          </button>
+        )}
+      </section>
+    )
+  };
+  return {
+    ...legacy,
+    PromptCard: (props: React.ComponentProps<typeof import('components/ui/PromptCard').PromptCard>) =>
+      mockRealTelemetryDisplays
+        ? React.createElement(
+            jest.requireActual<typeof import('components/ui/PromptCard')>('components/ui/PromptCard').PromptCard,
+            props
+          )
+        : React.createElement(legacy.PromptCard, props)
+  };
+});
 
 const mockHiddenNotes = { ids: new Set<string>(), loaded: true, failed: false };
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({
@@ -183,9 +227,15 @@ jest.mock('lib/wallet-prompts', () => {
 
 // Backs the real note-recovery progress module, whose record and dismissal the recovery card reads.
 const mockStorageValues = new Map<string, unknown>();
+let mockRecoveryProgressRead: ((snapshot: unknown) => Promise<unknown>) | null = null;
 jest.mock('lib/miden/front/storage', () => ({
   ...jest.requireActual('lib/miden/front/storage'),
-  fetchFromStorage: async (key: string) => mockStorageValues.get(key) ?? null,
+  fetchFromStorage: async (key: string) => {
+    const snapshot = mockStorageValues.get(key) ?? null;
+    return key === GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY && mockRecoveryProgressRead
+      ? mockRecoveryProgressRead(snapshot)
+      : snapshot;
+  },
   putToStorage: async (key: string, value: unknown) => {
     mockStorageValues.set(key, value);
   }
@@ -209,7 +259,7 @@ jest.mock('lib/miden/activity', () => ({
 }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { tag: 'zustand-provider' } }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => true }));
-jest.mock('lib/platform', () => ({ isExtension: () => false }));
+jest.mock('lib/platform', () => ({ isExtension: () => false, isMobile: () => false }));
 
 // The banner has its own suite; here only whether Home mounts it matters.
 jest.mock('app/templates/GuardianNeedsUrlBanner', () => ({
@@ -286,16 +336,10 @@ const unquotedNote: PendingNoteValue = {
   metadata: { decimals: 6, symbol: 'OTHER', name: 'Other' }
 };
 const tokenPrices = {
-  MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
-  ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
-  USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
+  MIDEN: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+  ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+  USDC: { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
 };
-
-const iethPriceSnapshot = (priceSymbol?: string): BridgeConfigSnapshot =>
-  testSnapshotWithSwapPairs({
-    tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol })],
-    pairs: []
-  });
 
 // The faucet prompt's status is per account, so its writes are asserted with the
 // account they belong to rather than through the wallet-wide prompt spies.
@@ -316,6 +360,7 @@ const makePromptState = ({ storage, ...overrides }: { storage?: object } & Recor
 describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFaucetConfigured = undefined;
     // The hidden (declined) set is module-scoped state, so a test that declines something must
     // not leave it declined for the next one.
     mockHiddenNotes.ids = new Set<string>();
@@ -403,6 +448,48 @@ describe('HomePrompts', () => {
       'verifySeedPhrasePromptTitle'
     ]);
     expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Pending);
+  });
+
+  // Mainnet has no faucet: the card would send the mainnet address to another network's faucet.
+  describe('on a network with or without a faucet', () => {
+    const renderFeeBroke = () =>
+      render(
+        <HomePrompts
+          account={account}
+          balances={[{ tokenId: NATIVE_FAUCET_ID, balance: 0 }] as TokenBalanceData[]}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+    beforeEach(() => {
+      mockBaseFee = 7;
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    });
+    afterEach(() => {
+      mockBaseFee = 0;
+    });
+
+    it('offers no Fund card and requests nothing where the network has no faucet (mainnet)', async () => {
+      mockFaucetConfigured = false;
+      renderFeeBroke();
+      await act(async () => {});
+
+      expect(screen.getByText('verifySeedPhrasePromptTitle')).toBeInTheDocument();
+      expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+      expect(mockFaucet).not.toHaveBeenCalled();
+    });
+
+    it("offers the Fund card and requests on the build's network, which has one (testnet)", async () => {
+      renderFeeBroke();
+      const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+      await act(async () => {});
+
+      expect(faucetCard).toHaveAttribute('data-title', 'faucetPromptTitle');
+      fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+      await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(1));
+    });
   });
 
   it('re-offers a dismissed faucet prompt once the account can no longer pay a fee', () => {
@@ -730,11 +817,7 @@ describe('HomePrompts', () => {
   });
 
   it('says what the mint brought in dollars once an allowlist entry names the native faucet', async () => {
-    // The registry entry a future allowlist listing of the native asset would add.
-    _setSwapTokensForTest([
-      { symbol: 'MIDEN', faucetId: NATIVE_FAUCET_ID, decimals: 6, logoSymbol: 'MIDEN', priceSymbol: 'MIDEN' },
-      ...TEST_SWAP_TOKENS
-    ]);
+    mockVerifiedPriceAssets.set(NATIVE_FAUCET_ID, 'MIDEN');
     try {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
       const renderWith = (notes: PendingNoteValue[]) => (
@@ -764,14 +847,14 @@ describe('HomePrompts', () => {
     }
   });
 
-  it('revalues the funded hero on config-only price changes and removes an unavailable total', async () => {
+  it('revalues the funded hero on verified price asset changes and removes an unavailable total', async () => {
     _setSwapTokensForTest(undefined);
-    mockBridgeSnapshot = iethPriceSnapshot('ETH');
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
     mockLegacyFeeIdentity = TEST_TOKEN_IETH.faucetId;
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const prices = {
-      ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
-      BTC: { price: 4, change24h: 0, percentageChange24h: 0 }
+      ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+      BTC: { price: 4, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
     };
     const notes: PendingNoteValue[] = [
       {
@@ -802,16 +885,12 @@ describe('HomePrompts', () => {
       await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
       expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$2.50');
 
-      act(() => {
-        mockBridgeSnapshot = iethPriceSnapshot('BTC');
-        publishMockBridgeSnapshot();
-      });
+      mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'BTC');
+      view.rerender(renderWith(notes));
       expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSub:$5.00');
 
-      act(() => {
-        mockBridgeSnapshot = iethPriceSnapshot();
-        publishMockBridgeSnapshot();
-      });
+      mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
+      view.rerender(renderWith(notes));
       expect(faucetCard).toHaveAttribute('data-hero-sub', 'faucetPromptFundedSubGeneric');
     } finally {
       jest.useRealTimers();
@@ -3733,9 +3812,37 @@ describe('HomePrompts', () => {
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
   });
 
-  it('revalues stable pending notes on config-only price changes and removes an unavailable total', async () => {
+  it('keeps the pending-notes notice but hides its monetary body in Command privacy mode', async () => {
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const notes: PendingNoteValue[] = [
+      {
+        id: 'pending-price',
+        amount: '125000000',
+        faucetId: TEST_TOKEN_IETH.faucetId,
+        metadata: { symbol: TEST_TOKEN_IETH.symbol, name: 'Ether', decimals: TEST_TOKEN_IETH.decimals }
+      }
+    ];
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={{ ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }}
+        maskMonetaryValues
+      />
+    );
+    await act(async () => {});
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('commandMaskedBalance');
+    expect(screen.queryByText('$2.50')).not.toBeInTheDocument();
+  });
+
+  it('revalues stable pending notes on verified price asset changes and removes an unavailable total', async () => {
     _setSwapTokensForTest(undefined);
-    mockBridgeSnapshot = iethPriceSnapshot('ETH');
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const notes: PendingNoteValue[] = [
       {
@@ -3746,33 +3853,30 @@ describe('HomePrompts', () => {
       }
     ];
     const prices = {
-      ETH: { price: 2, change24h: 0, percentageChange24h: 0 },
-      BTC: { price: 4, change24h: 0, percentageChange24h: 0 }
+      ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+      BTC: { price: 4, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
     };
+    const content = (
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={prices}
+      />
+    );
     try {
-      render(
-        <HomePrompts
-          account={account}
-          balances={fundedBalance}
-          balancesLoading={false}
-          claimableNotes={notes}
-          fundingNotes={notes}
-          tokenPrices={prices}
-        />
-      );
+      const view = render(content);
       await act(async () => {});
       expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$2.50');
 
-      act(() => {
-        mockBridgeSnapshot = iethPriceSnapshot('BTC');
-        publishMockBridgeSnapshot();
-      });
+      mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'BTC');
+      view.rerender(React.cloneElement(content));
       expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$5.00');
 
-      act(() => {
-        mockBridgeSnapshot = iethPriceSnapshot();
-        publishMockBridgeSnapshot();
-      });
+      mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
+      view.rerender(React.cloneElement(content));
       expect(screen.queryByTestId('prompt-card-value')).not.toBeInTheDocument();
       expect(screen.getByText('pendingNotesPromptBodyReview:1')).toBeInTheDocument();
     } finally {
@@ -3821,6 +3925,54 @@ describe('HomePrompts', () => {
 
     expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
     expect(screen.queryByTestId('prompt-card-value')).not.toBeInTheDocument();
+  });
+
+  it('hides Command pending-note count, value and action while the declined-note preference is unreadable', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    mockHiddenNotes.loaded = false;
+    mockHiddenNotes.failed = true;
+    const content = (
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
+        tokenPrices={tokenPrices}
+        requireReadableHiddenNotes
+      />
+    );
+    const view = render(content);
+    expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
+    expect(screen.queryByText('pendingNotesPromptBodyReview:2')).not.toBeInTheDocument();
+    expect(screen.queryByText('$4.50')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'pendingNotesPromptTitle' })).not.toBeInTheDocument();
+
+    mockHiddenNotes.loaded = true;
+    mockHiddenNotes.failed = false;
+    mockHiddenNotes.ids = new Set(['note-1']);
+    view.rerender(React.cloneElement(content));
+    expect(screen.getByText('pendingNotesPromptTitle')).toBeInTheDocument();
+    expect(screen.getByText('pendingNotesPromptBodyReview:1')).toBeInTheDocument();
+    expect(screen.queryByText('$4.50')).not.toBeInTheDocument();
+  });
+
+  it('keeps the existing Compact pending-note fallback when the hidden-note preference is unreadable', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    mockHiddenNotes.loaded = false;
+    mockHiddenNotes.failed = true;
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    expect(screen.getByText('pendingNotesPromptBodyReview:2')).toBeInTheDocument();
+    expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
   });
 
   it('leaves a declined transfer out of the count and out of the total, until it is restored', () => {
@@ -4373,9 +4525,282 @@ describe('HomePrompts', () => {
       }
     );
   });
+  describe('user-visible real home prompt errors', () => {
+    const settleTelemetry = () =>
+      act(async () => {
+        for (let tick = 0; tick < 40; tick++) {
+          await Promise.resolve();
+        }
+      });
+    const renderTelemetryHome = (who: WalletAccount = account) => (
+      <HomePrompts
+        account={who}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    beforeEach(async () => {
+      await clearGuardianNoteRecoveryProgress(account.publicKey);
+      mockRealTelemetryDisplays = true;
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      mockInitiateReplaceHotKeyTransaction.mockReset().mockResolvedValue('synthetic-rotation');
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    });
+    afterEach(() => {
+      mockRealTelemetryDisplays = false;
+      jest.useRealTimers();
+    });
+
+    it.each([
+      [
+        new Error('private faucet amount 42 at https://synthetic.invalid'),
+        'private faucet amount 42 at https://synthetic.invalid',
+        'raw_home_faucet_failed'
+      ],
+      [new FaucetRateLimitedError('private refusal', null), 'Visible faucetRateLimited', 'faucetRateLimited'],
+      [new FaucetRateLimitedError('private refusal', 15), 'Visible faucetRateLimitedWait:15', 'faucetRateLimitedWait'],
+      [new FaucetAmountOverCapError('private cap', 42n), 'Visible faucetOverCap', 'faucetOverCap']
+    ])('reports a real faucet PromptCard failure using its producer identity, branch %#', async (failure, text, id) => {
+      mockFaucet.mockRejectedValueOnce(failure);
+      render(renderTelemetryHome());
+      await settleTelemetry();
+      fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+      await settleTelemetry();
+      expect(screen.getByText(text)).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'failed' })).toBeInTheDocument();
+      await expectErrorAfterDwell(id, 'prompt');
+    });
+
+    it.each([
+      [
+        WalletPromptType.HotKeyRotationNeeded,
+        'hotKeyRotationPromptAction',
+        'Visible hotKeyRotationPromptBody',
+        'hotKeyRotationPromptBody'
+      ],
+      [
+        WalletPromptType.HotKeyHardwareUnavailable,
+        'hotKeyHardwareErrorPromptAction',
+        'Visible hotKeyHardwareErrorPromptBody',
+        'hotKeyHardwareErrorPromptBody'
+      ]
+    ])('reports the real action failure PromptCard for %s', async (type, action, text, id) => {
+      mockUseWalletPromptStorage.mockReturnValue(
+        makePromptState({ isPromptPending: (candidate: WalletPromptType) => candidate === type })
+      );
+      if (type === WalletPromptType.HotKeyRotationNeeded)
+        mockInitiateReplaceHotKeyTransaction.mockRejectedValueOnce(new Error('private rotation cause'));
+      if (type === WalletPromptType.HotKeyHardwareUnavailable)
+        mockClipboardWrite.mockRejectedValueOnce(new Error('private clipboard cause'));
+      render(
+        <HomePrompts
+          account={account}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await settleTelemetry();
+      fireEvent.click(screen.getByRole('button', { name: action }));
+      await settleTelemetry();
+      expect(screen.getByText(text)).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'failed' })).toBeInTheDocument();
+      await expectErrorAfterDwell(id, 'prompt');
+    });
+
+    it.each([
+      ['history-failed', 'guardianHistoryFailed', 'Visible guardianHistoryFailed'],
+      ['history-partial', 'guardianHistoryPartial', 'Visible guardianHistoryPartial:2']
+    ] as const)('reports the actual recovery prompt failure body for %s', async (step, id, text) => {
+      const recovering: WalletAccount = { ...account, guardianNoteRecoveryPending: true };
+      render(renderTelemetryHome(recovering));
+      await settleTelemetry();
+      await act(async () => {
+        await reportGuardianNoteRecoveryProgress({
+          accountId: account.publicKey,
+          step,
+          restored: 2,
+          sourcesClean: true
+        });
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      await settleTelemetry();
+      expect(screen.getByText(text)).toBeInTheDocument();
+      await expectErrorAfterDwell(id, 'prompt');
+    });
+
+    it.each<{ outcome: 'delayed' | 'rejected' }>([{ outcome: 'delayed' }, { outcome: 'rejected' }])(
+      'keeps a persisted recovery failure silent on A-to-B-to-A with a $outcome baseline read',
+      async ({ outcome }) => {
+        await clearGuardianNoteRecoveryProgress(accountB.publicKey);
+        const recoveringA: WalletAccount = { ...account, guardianNoteRecoveryPending: true };
+        const recoveringB: WalletAccount = { ...accountB, guardianNoteRecoveryPending: true };
+        const held: { releaseB?: () => void; releaseA?: () => void; rejectA?: (reason: Error) => void } = {};
+        const reads: Array<{ visit: string; ordinal: number; snapshot: unknown; status: string }> = [];
+        let visit = 'B';
+        let ordinal = 0;
+        const view = render(renderTelemetryHome(recoveringA));
+        try {
+          await settleTelemetry();
+          expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toBeNull();
+          expect(screen.queryByText('Visible guardianHistoryFailed')).not.toBeInTheDocument();
+          await act(async () => {
+            await reportGuardianNoteRecoveryProgress({
+              accountId: account.publicKey,
+              step: 'history-failed',
+              restored: 0
+            });
+            jest.advanceTimersByTime(2000);
+          });
+          await settleTelemetry();
+          const storedFailure = await fetchGuardianNoteRecoveryProgress(account.publicKey);
+          expect(storedFailure).toMatchObject({ accountId: account.publicKey, step: 'history-failed', restored: 0 });
+          expect(screen.getByText('Visible guardianHistoryFailed')).toBeInTheDocument();
+          await act(async () => {
+            jest.advanceTimersByTime(999);
+          });
+          expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+
+          mockRecoveryProgressRead = async snapshot => {
+            const read = { visit, ordinal: ++ordinal, snapshot, status: 'resolved' };
+            reads.push(read);
+            if (read.ordinal !== 2) return snapshot;
+            read.status = 'pending';
+            return new Promise<unknown>((resolve, reject) => {
+              const release = () => {
+                read.status = 'resolved';
+                resolve(snapshot);
+              };
+              if (read.visit === 'B') held.releaseB = release;
+              else {
+                held.releaseA = release;
+                held.rejectA = reason => {
+                  read.status = 'rejected';
+                  reject(reason);
+                };
+              }
+            });
+          };
+          view.rerender(renderTelemetryHome(recoveringB));
+          await settleTelemetry();
+          expect(reads.map(read => `${read.visit}:${read.ordinal}:${read.status}`)).toEqual([
+            'B:1:resolved',
+            'B:2:pending'
+          ]);
+          expect(screen.queryByText('Visible guardianHistoryFailed')).not.toBeInTheDocument();
+          visit = 'return-A';
+          ordinal = 0;
+          view.rerender(renderTelemetryHome(recoveringA));
+          await settleTelemetry();
+          expect(reads.map(read => `${read.visit}:${read.ordinal}:${read.status}`)).toEqual([
+            'B:1:resolved',
+            'B:2:pending',
+            'return-A:1:resolved',
+            'return-A:2:pending'
+          ]);
+          expect(reads[2]?.snapshot).toEqual({ [account.publicKey]: storedFailure });
+          expect(reads[3]?.snapshot).toEqual(reads[2]?.snapshot);
+          expect(screen.getByText('Visible guardianHistoryFailed')).toBeInTheDocument();
+          expect(typeof held.rejectA).toBe('function');
+          if (outcome === 'rejected') {
+            await act(async () => {
+              held.rejectA?.(new Error('synthetic baseline read unavailable'));
+            });
+            await settleTelemetry();
+          }
+          expect(reads[1]?.status).toBe('pending');
+          expect(reads[3]?.status).toBe(outcome === 'rejected' ? 'rejected' : 'pending');
+          await act(async () => {
+            jest.advanceTimersByTime(999);
+          });
+          expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+          await act(async () => {
+            jest.advanceTimersByTime(2);
+          });
+          expect(screen.getByText('Visible guardianHistoryFailed')).toBeInTheDocument();
+          expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+        } finally {
+          mockRecoveryProgressRead = null;
+          view.unmount();
+          held.releaseB?.();
+          held.releaseA?.();
+        }
+      }
+    );
+
+    it.each(['retry', 'unmount', 'account switch'])(
+      'clears a short faucet failure on %s without a report',
+      async control => {
+        mockFaucet.mockRejectedValueOnce(new Error('short faucet failure'));
+        const view = render(renderTelemetryHome());
+        await settleTelemetry();
+        fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+        await settleTelemetry();
+        expect(screen.getByText('short faucet failure')).toBeInTheDocument();
+        await act(async () => {
+          jest.advanceTimersByTime(999);
+        });
+        if (control === 'retry') {
+          fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+          await settleTelemetry();
+        } else if (control === 'account switch') {
+          view.rerender(renderTelemetryHome(accountB));
+          await settleTelemetry();
+        } else view.unmount();
+        expect(screen.queryByText('short faucet failure')).not.toBeInTheDocument();
+        await act(async () => {
+          jest.advanceTimersByTime(2000);
+        });
+        expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+      }
+    );
+
+    it('keeps idle safety prompts, loading funding and a successful faucet request silent', async () => {
+      render(renderTelemetryHome());
+      await settleTelemetry();
+      await act(async () => {
+        jest.advanceTimersByTime(1500);
+      });
+      fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+      await settleTelemetry();
+      expect(screen.getByText('faucetPromptFunding')).toBeInTheDocument();
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+    });
+  });
 });
 
 beforeEach(() => {
   mockLegacyFeeIdentity = undefined;
   mockBridgeSnapshot = undefined;
 });
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};

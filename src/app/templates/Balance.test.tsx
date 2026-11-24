@@ -1,19 +1,10 @@
 import React, { ReactElement } from 'react';
 
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import {
-  publishMockBridgeSnapshot,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
-  testSnapshotWithSwapPairs
-} from 'lib/epoch/testing/bridge-config';
-import {
-  TEST_SWAP_TOKENS,
-  TEST_TOKEN_IBTC,
-  TEST_TOKEN_IETH,
-  testSwapPairsToken
-} from 'lib/miden/swap/testing/registry';
+import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -21,7 +12,20 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import Balance from './Balance';
 
-// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
 
@@ -67,6 +71,11 @@ let mockStoreState: { tokenPrices: TokenPrices } = { tokenPrices: {} };
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
+let mockCachedQuotes: TokenPrices | undefined;
+jest.mock('lib/prices/display-cache', () => ({
+  ...jest.requireActual('lib/prices/display-cache'),
+  useCachedDisplayQuotes: () => mockCachedQuotes
+}));
 
 // The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
 const mockHiddenIds = new Set<string>();
@@ -108,7 +117,7 @@ const renderChild =
     </span>
   );
 
-const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0, kind: 'market' as const });
 
 const total = () => screen.getByTestId('total');
 
@@ -118,43 +127,81 @@ beforeEach(() => {
   mockUseAllTokensBaseMetadata.mockReturnValue({ ETH: {} });
   mockUseAllBalances.mockReturnValue(balancesReturn([]));
   mockStoreState = { tokenPrices: { ETH: quote(100), BTC: quote(50) } };
+  mockCachedQuotes = undefined;
   capturedTransitionProps = null;
   mockHiddenIds.clear();
   mockBridgeSnapshot = undefined;
 });
 
 describe('Balance', () => {
-  it('revalues a stable portfolio when the configured price symbol changes or is removed', () => {
-    _setSwapTokensForTest(undefined);
-    const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot =>
-      testSnapshotWithSwapPairs({
-        tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol })],
-        pairs: []
-      });
-    mockBridgeSnapshot = snapshotFor('ETH');
+  it('revalues a stable portfolio when the verified price asset changes or is removed', () => {
     const balances: TokenBalance[] = [
       { tokenId: TEST_TOKEN_IETH.faucetId, balance: 1, metadata: { symbol: TEST_TOKEN_IETH.symbol, decimals: 8 } }
     ];
     mockUseAllBalances.mockReturnValue(balancesReturn(balances));
     const child = renderChild();
-    try {
-      render(<Balance>{child}</Balance>);
-      expect(total()).toHaveTextContent(/^100$/);
+    const view = render(<Balance>{child}</Balance>);
+    expect(total()).toHaveTextContent(/^100$/);
 
-      act(() => {
-        mockBridgeSnapshot = snapshotFor('BTC');
-        publishMockBridgeSnapshot();
-      });
-      expect(total()).toHaveTextContent(/^50$/);
+    mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'BTC');
+    mockStoreState = { tokenPrices: { ...mockStoreState.tokenPrices } };
+    view.rerender(<Balance>{renderChild()}</Balance>);
+    expect(total()).toHaveTextContent(/^50$/);
 
-      act(() => {
-        mockBridgeSnapshot = snapshotFor();
-        publishMockBridgeSnapshot();
-      });
-      expect(total()).toHaveTextContent('no figure');
-    } finally {
-      _setSwapTokensForTest(TEST_SWAP_TOKENS);
-    }
+    mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
+    mockStoreState = { tokenPrices: { ...mockStoreState.tokenPrices } };
+    view.rerender(<Balance>{renderChild()}</Balance>);
+    expect(total()).toHaveTextContent('no figure');
+  });
+
+  it('values a fresher cached quote and keeps its unknown daily change', () => {
+    const now = Date.now();
+    const live = {
+      price: 100,
+      change24h: 5,
+      percentageChange24h: 5,
+      observedAt: now - 16 * 60_000,
+      kind: 'market' as const
+    };
+    const cached = {
+      price: 40,
+      change24h: Number.NaN,
+      percentageChange24h: Number.NaN,
+      observedAt: now - 1_000,
+      kind: 'market' as const
+    };
+    mockCachedQuotes = { ETH: cached };
+    mockStoreState = { tokenPrices: { ETH: live } };
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([{ tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } }])
+    );
+    let seen: { absolute: number; percentage: number } | null = { absolute: 1, percentage: 1 };
+    const view = render(
+      <Balance>
+        {(totalValue, change) => {
+          seen = change;
+          return <span data-testid="total">{totalValue === null ? 'no figure' : totalValue.toString()}</span>;
+        }}
+      </Balance>
+    );
+    expect(total()).toHaveTextContent('80');
+    expect(seen).toBeNull();
+
+    mockStoreState = {
+      tokenPrices: {
+        ETH: { price: 100, change24h: 5, percentageChange24h: 5, observedAt: now, kind: 'market' }
+      }
+    };
+    view.rerender(
+      <Balance>
+        {(totalValue, change) => {
+          seen = change;
+          return <span data-testid="total">{totalValue === null ? 'no figure' : totalValue.toString()}</span>;
+        }}
+      </Balance>
+    );
+    expect(total()).toHaveTextContent('200');
+    expect(seen).toEqual({ absolute: 10, percentage: (10 / 190) * 100 });
   });
 
   it('yields a zero fiat total when there are no balances', () => {

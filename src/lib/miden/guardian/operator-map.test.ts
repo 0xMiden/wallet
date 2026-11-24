@@ -32,6 +32,7 @@ const KEY_C = 'c'.repeat(64);
 const KEY_D = 'd'.repeat(64);
 const KEY_E = 'e'.repeat(64);
 const KEY_F = 'f'.repeat(64);
+const KEY_G = '9'.repeat(64);
 const served = (key: string) => `0x${key.toUpperCase()}`;
 
 // `unknown`, not `string`: the guardian client returns this field off an
@@ -42,6 +43,7 @@ const MOCK_DEFAULT_PUBKEYS: Record<string, unknown> = {
   'https://miden-guardian.dev.eu-north-3.gateway.fm': served(KEY_B),
   'https://miden-guardian.lambdaclass.com': served(KEY_C),
   'https://guardian-testnet.kodax.com': served(KEY_D),
+  'https://miden-guardian.beta.getpara.com': served(KEY_G),
   // The devnet OpenZeppelin endpoint, so a lookup that resolved the wrong
   // network answers with a DIFFERENT key rather than with nothing.
   'https://guardian-devnet.openzeppelin.com': served(KEY_E),
@@ -234,7 +236,7 @@ describe('identifyGuardianOperator', () => {
   // rather than as `'none'`, which a caller would read as licence to believe a
   // stored endpoint instead.
   it('names no operator when two built-ins serve the same commitment', async () => {
-    // kodax, probed LAST, claims the key open-zeppelin already served. Under
+    // kodax, probed after it, claims the key open-zeppelin already served. Under
     // arrival-order insertion the outcome depended on which reply landed first;
     // now neither is named, in either order.
     mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = served(KEY_A);

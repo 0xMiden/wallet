@@ -1,0 +1,11 @@
+name: Start wallet eligibility fixture
+description: Serve matching loopback policy and wallet eligibility for E2E builds and tests
+runs:
+  using: composite
+  steps:
+    - name: Verify fixture planning and policy
+      shell: bash
+      run: node --test scripts/start-e2e-eligibility.test.mjs scripts/feature-eligibility-fixture.test.mjs
+    - name: Start the shared fixture before building the wallet
+      shell: bash
+      run: node scripts/start-e2e-eligibility.mjs

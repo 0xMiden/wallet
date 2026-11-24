@@ -1,17 +1,39 @@
 // Light mocks so importing cancel.ts doesn't pull in Dexie / the WASM client proxy.
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  __resetBackgroundTimeForTest,
+  hiddenSecondsSince,
+  initBackgroundTimeTracking
+} from 'lib/mobile/background-time';
+import { captureDiagnosticLog } from 'lib/telemetry/crash';
+import { _resetDiagnosticLogLimitsForTest } from 'lib/telemetry/diagnostic-log';
 
-import { cancelTransaction, cancelTransactionAfterPipelineStopped, isTransactionStuck } from './cancel';
-import { TRANSACTION_STUCK_ERROR, USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import {
+  cancelTransaction,
+  cancelTransactionAfterPipelineStopped,
+  cancelStuckTransactions,
+  queueHiddenBucket,
+  SESSION_STARTED_AT,
+  isTransactionStuck
+} from './cancel';
+import {
+  CLAIM_VAULT_SHORTFALL_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
 import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, recordKillEnd } from './helper';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
 } from '../back/background-notification';
-import { ITransactionStatus, Transaction } from '../db/types';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
+import { NoteTypeEnum } from '../types';
 
 // A table of rows keyed by id, enough for cancelTransaction's read and its guarded modify.
 const mockRows = new Map<string, Record<string, unknown>>();
@@ -42,13 +64,18 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/telemetry/crash', () => ({
+  ...jest.requireActual('lib/telemetry/crash'),
+  captureDiagnosticLog: jest.fn()
+}));
 jest.mock('../back/background-notification', () => ({
   notifyBackgroundTransactionFailed: jest.fn(),
   notifyBackgroundTransactionNotConfirmed: jest.fn(),
   showBackgroundNotification: jest.fn()
 }));
+jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
-jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => true) }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: jest.fn(() => true) }));
 jest.mock('lib/mobile/background-time', () => ({
   ...jest.requireActual('lib/mobile/background-time'),
   hiddenSecondsSince: jest.fn(() => 0)
@@ -209,6 +236,55 @@ describe('cancelTransaction background notification', () => {
 });
 
 // A kill wrapped in another error is still a kill: the pipeline may still submit (#1313).
+describe('the end of a swap, recorded when its row fails (#1660)', () => {
+  const swapRow = (id: string): Transaction => {
+    const row = {
+      id,
+      type: 'swap',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      stage: 'creating-proposal',
+      initiatedAt: Math.floor(Date.now() / 1000) - 3,
+      displayIcon: 'SWAP'
+    };
+    mockRows.set(id, row);
+    return row as unknown as Transaction;
+  };
+  const ends = () => jest.mocked(captureDiagnosticLog).mock.calls.map(([event, attributes]) => [event, attributes]);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRows.clear();
+    _resetDiagnosticLogLimitsForTest();
+  });
+
+  it.each([
+    ['a user cancel', USER_CANCELLED_TRANSACTION_REASON, 'cancelled'],
+    ['the stuck reaper', TRANSACTION_STUCK_ERROR, 'timeout'],
+    ['the startup sweep', TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted'],
+    ['a proof that kept going stale', new StaleProofError(), 'timeout'],
+    ['a failure that timed out', new Error('guardian request timed out'), 'timeout'],
+    ['any other failure', new Error('mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe refused'), 'failed']
+  ])('names %s as %s', async (_label, error, outcome) => {
+    await cancelTransaction(swapRow('swap-1'), error);
+    expect(ends()).toEqual([['operation_end', { operation: 'swap', outcome, duration: '1_to_5s' }]]);
+  });
+
+  it('records nothing for a row that was not failed', async () => {
+    const row = swapRow('swap-2');
+    mockRows.set('swap-2', { ...row, status: ITransactionStatus.Completed });
+    await cancelTransaction(row, new Error('late'));
+    expect(captureDiagnosticLog).not.toHaveBeenCalled();
+  });
+
+  it('records nothing for a transaction other than a swap', async () => {
+    const row = swapRow('send-1');
+    mockRows.set('send-1', { ...row, type: 'send' });
+    await cancelTransaction(row, new Error('failed'));
+    expect(captureDiagnosticLog).not.toHaveBeenCalled();
+  });
+});
+
 describe('cancelTransactionAfterPipelineStopped with a kill wrapped in another error', () => {
   const sendRow = (fields: Record<string, unknown> = {}): Transaction => {
     const row = {
@@ -270,5 +346,185 @@ describe('cancelTransactionAfterPipelineStopped with a kill wrapped in another e
     expect(markMayHaveSubmitted).not.toHaveBeenCalled();
     expect(markCancelledInFlight).not.toHaveBeenCalled();
     expect(clearCancelledInFlight).toHaveBeenCalledWith('tx-1');
+  });
+});
+
+// A claim has no amount sent, so its shortfall stores the claim copy whatever scripts its notes run.
+describe('cancelTransactionAfterPipelineStopped storing a vault shortfall', () => {
+  const shortfall = new Error('assertion failed with error code: 644413868907058392');
+  const failingRow = (fields: Record<string, unknown>): Transaction => {
+    const row = {
+      ...fields,
+      id: 'tx-1',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      stage: 'creating-proposal',
+      processingStartedAt: 1,
+      initiatedAt: 0
+    };
+    mockRows.set('tx-1', row);
+    return row as unknown as Transaction;
+  };
+  const standardPayment = {
+    id: 'note-1',
+    faucetId: 'faucet-1',
+    amount: '10',
+    senderAddress: 'sender-1',
+    isBeingClaimed: false,
+    type: NoteTypeEnum.Public,
+    standardPayment: true
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRows.clear();
+    mockRaceRow = undefined;
+  });
+
+  it.each([
+    ['queued by id or by a dApp, which carries no note verdicts', () => ({ type: 'consume' })],
+    ['of standard payments', () => ({ ...new ConsumeTransaction('acc-1', [standardPayment]) })]
+  ])('stores the claim copy on a claim %s', async (_label, fields) => {
+    await cancelTransactionAfterPipelineStopped(failingRow(fields()), shortfall);
+
+    const row = mockRows.get('tx-1');
+    expect(row?.error).not.toContain('amount sent');
+    expect(row?.error).toBe(CLAIM_VAULT_SHORTFALL_ERROR);
+    expect(row?.rawError).toBe(`Error: ${shortfall.message}`);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(notifyBackgroundTransactionFailed).toHaveBeenCalledTimes(1);
+    expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('keeps the generic copy on a send, which withdraws the amount sent as well as the fee', async () => {
+    await cancelTransactionAfterPipelineStopped(failingRow({ type: 'send' }), shortfall);
+
+    expect(mockRows.get('tx-1')?.error).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+  });
+});
+
+describe('selected-to-committed reaper evidence', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRows.clear();
+    mockRaceRow = undefined;
+  });
+  const selected = (id: string, start = SESSION_STARTED_AT - 3600) => ({
+    id,
+    type: 'execute',
+    accountId: 'private',
+    status: ITransactionStatus.GeneratingTransaction,
+    stage: 'proving',
+    initiatedAt: 1,
+    processingStartedAt: start,
+    displayIcon: 'DEFAULT'
+  });
+  it.each(['processingStartedAt', 'id'])(
+    'reports unavailable for changed committed %s without changing cancellation',
+    async changed => {
+      const tx = selected('race');
+      mockRows.set(tx.id, tx);
+      mockRaceRow = {
+        id: tx.id,
+        row: { ...tx, ...(changed === 'id' ? { id: 'changed-id' } : { processingStartedAt: SESSION_STARTED_AT }) }
+      };
+      const { getTransactionsInProgress } = jest.requireMock('./get');
+      getTransactionsInProgress.mockResolvedValueOnce([tx]);
+      await cancelStuckTransactions();
+      const { reportTransactionFailure } = jest.requireMock('lib/telemetry/transaction-failure');
+      expect(getTransactionsInProgress).toHaveBeenCalledTimes(1);
+      expect(reportTransactionFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: 'stuck_reaped',
+          reap: expect.objectContaining({ startRelation: 'unavailable' })
+        })
+      );
+      expect(mockRows.get(tx.id)?.status).toBe(ITransactionStatus.Failed);
+    }
+  );
+  it('does not report or consume queue evidence when cancellation is refused', async () => {
+    const tx = selected('refused');
+    mockRows.set(tx.id, tx);
+    mockRaceRow = { id: tx.id, row: { ...tx, status: ITransactionStatus.Completed } };
+    const { recordQueueAdmission, consumeQueueAdmission } = await import('./queue-admission-diagnostics');
+    recordQueueAdmission(tx, 'selected');
+    const { getTransactionsInProgress } = jest.requireMock('./get');
+    getTransactionsInProgress.mockResolvedValueOnce([tx]);
+    await cancelStuckTransactions();
+    expect(jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure).not.toHaveBeenCalled();
+    expect(consumeQueueAdmission(tx)).toBe('selected');
+    expect(mockRows.get(tx.id)?.status).toBe(ITransactionStatus.Completed);
+  });
+});
+
+it('keeps concurrent reaper timestamp observations local to each selected row', async () => {
+  jest.clearAllMocks();
+  mockRows.clear();
+  mockRaceRow = undefined;
+  const make = (id: string, type: string, start: number) => ({
+    id,
+    type,
+    accountId: 'private',
+    status: ITransactionStatus.GeneratingTransaction,
+    stage: 'proving',
+    initiatedAt: 1,
+    processingStartedAt: start,
+    displayIcon: 'DEFAULT'
+  });
+  const first = make('private-first', 'execute', SESSION_STARTED_AT - 3600),
+    second = make('private-second', 'send', SESSION_STARTED_AT + 1);
+  mockRows.set(first.id, first);
+  mockRows.set(second.id, second);
+  const { getTransactionsInProgress } = jest.requireMock('./get');
+  getTransactionsInProgress.mockResolvedValueOnce([first, second]);
+  const clock = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT + 86400) * 1000);
+  try {
+    await cancelStuckTransactions();
+  } finally {
+    clock.mockRestore();
+  }
+  const { reportTransactionFailure } = jest.requireMock('lib/telemetry/transaction-failure');
+  expect(getTransactionsInProgress).toHaveBeenCalledTimes(1);
+  expect(reportTransactionFailure).toHaveBeenCalledTimes(2);
+  expect(reportTransactionFailure).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'execute',
+      reap: expect.objectContaining({ startRelation: 'before_realm_cutoff' })
+    })
+  );
+  expect(reportTransactionFailure).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'send',
+      reap: expect.objectContaining({ startRelation: 'at_or_after_realm_cutoff' })
+    })
+  );
+  const serialized = JSON.stringify(reportTransactionFailure.mock.calls);
+  expect(serialized).not.toContain('private-first');
+  expect(serialized).not.toContain('private-second');
+  expect(serialized).not.toContain(String(SESSION_STARTED_AT));
+});
+
+describe('queueHiddenBucket', () => {
+  const row = { initiatedAt: 1_000 } as ITransaction;
+  const nowMs = 4_600_000;
+  afterEach(() => {
+    __resetBackgroundTimeForTest();
+    jest.mocked(hiddenSecondsSince).mockReset();
+    jest.mocked(hiddenSecondsSince).mockImplementation(() => 0);
+  });
+  it('stays unobserved until this run is recording background time', () => {
+    expect(queueHiddenBucket(row, nowMs)).toBe('unobserved');
+    expect(queueHiddenBucket({ initiatedAt: Number.NaN } as ITransaction, nowMs)).toBe('unobserved');
+  });
+  it('splits a recorded wait into none, under half and half or more', () => {
+    initBackgroundTimeTracking();
+    const hidden = jest.mocked(hiddenSecondsSince);
+    hidden.mockReturnValue(0);
+    expect(queueHiddenBucket(row, nowMs)).toBe('none');
+    hidden.mockReturnValue(1_799);
+    expect(queueHiddenBucket(row, nowMs)).toBe('under_half');
+    hidden.mockReturnValue(1_800);
+    expect(queueHiddenBucket(row, nowMs)).toBe('half_or_more');
+    expect(queueHiddenBucket({ initiatedAt: Number.NaN } as ITransaction, nowMs)).toBe('unavailable');
   });
 });

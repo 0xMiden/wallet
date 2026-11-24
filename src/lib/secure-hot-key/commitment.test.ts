@@ -1,4 +1,33 @@
-import { sameCommitment } from './commitment';
+import { u8ToB64 } from 'lib/shared/helpers';
+
+import { commitmentToHex, sameCommitment } from './commitment';
+
+describe('commitmentToHex', () => {
+  const HEX = '0123456789abcdef'.repeat(4);
+  const bytes = (length: number) => new Uint8Array(length).fill(0x5a);
+
+  it.each([
+    ['bare lowercase hex', HEX],
+    ['bare uppercase hex', HEX.toUpperCase()],
+    ['0x-prefixed hex', `0x${HEX}`],
+    ['0X-prefixed uppercase hex', `0X${HEX.toUpperCase()}`],
+    ['base64 of the 32 bytes', u8ToB64(new Uint8Array(Buffer.from(HEX, 'hex')))]
+  ])('reads %s as lowercase hex', (_form, value) => {
+    expect(commitmentToHex(value)).toBe(HEX);
+  });
+
+  it.each([
+    ['an empty string', ''],
+    ['hex a nibble short', HEX.slice(1)],
+    ['hex a byte long', `${HEX}00`],
+    ['base64 of 31 bytes', u8ToB64(bytes(31))],
+    ['base64 of 33 bytes', u8ToB64(bytes(33))],
+    ['text that is neither', 'not a commitment'],
+    ['a missing value', undefined]
+  ])('refuses %s', (_form, value) => {
+    expect(commitmentToHex(value)).toBeUndefined();
+  });
+});
 
 /**
  * `sameCommitment` decides whether the device still owns a guardian account, so

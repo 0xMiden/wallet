@@ -1,19 +1,21 @@
 import { Address, Chain, formatUnits, getAddress } from 'viem';
-import { sepolia } from 'viem/chains';
+import { arc, mainnet, sepolia } from 'viem/chains';
 
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SupportedEvmChainConfig } from 'lib/remote-config/schema';
-import { ARC_TESTNET, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
+import { ARC_TESTNET, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 
 import { USDCX_DECIMALS } from './protocol';
 
 export * from './protocol';
 
-// E2E-only: the bridge-in harness runs the deposit on a local Anvil fork of Sepolia. Arc's USDC calls
-// chain precompiles that Anvil does not have, so an Arc fork reverts every transfer; Sepolia's USDC
-// is a plain ERC-20 and its xReserve is the same contract at the same address. Inert in production:
-// the flag is baked in only by the e2e build, and only when `MIDEN_E2E_TEST` is also on.
+// E2E-only: an E2E build with MIDEN_E2E_USDCX_CHAIN=sepolia opens a USDCx bridge-in on Sepolia through its
+// xReserve, the route a local Anvil fork of Sepolia can run (Arc's USDC calls chain precompiles that Anvil does
+// not have). No CI suite sets it. Inert in production: the flag is baked in only by the e2e build, and only when
+// `MIDEN_E2E_TEST` is also on.
 const E2E_USDCX_CHAIN = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.MIDEN_E2E_USDCX_CHAIN ?? '').trim() : '';
 
 /** What every source chain shares: the USDC burned or deposited there, and Circle's domain of the chain. */
@@ -52,16 +54,16 @@ export interface UsdcxExecutorTarget {
 
 /**
  * A source with CCTP only (Base, Arbitrum): the deposit is a CCTP burn to the executor on Arc carrying the
- * xReserve deposit as hook data. With a signed fee quote the burn goes through the fee entry point and
- * Circle's forwarder executes it on Arc; without one it goes through the plain token messenger and the
- * wallet asks the connected EVM wallet to execute the attested message on Arc itself.
+ * xReserve deposit as hook data. The burn goes through the fee entry point with a signed fee quote and
+ * Circle's forwarder executes it on Arc; without a quote the deposit is refused, since a burn through the
+ * plain token messenger is not forwarded and would stop at the executor.
  */
 export interface UsdcxExecutorSource extends UsdcxSourceChainBase {
   route: 'cctp-executor';
-  /** The plain `TokenMessengerV2`, for a burn the wallet executes itself. */
-  tokenMessenger: Address;
   /** `TokenMessengerWithFees`, for a burn with a signed quote that Circle forwards and executes. */
   tokenMessengerWithFees: Address;
+  /** Underlying CCTP messenger; older cached routes may omit it, but new owned sources require it. */
+  tokenMessenger?: Address;
   /** Circle's Iris API for this network family, which attests the CCTP leg. */
   irisApi: string;
   target: UsdcxExecutorTarget;
@@ -77,14 +79,14 @@ export interface UsdcxDestination {
   domain: number;
   /** The USDC the recipient's balance is read from, in six-decimal units. */
   usdc: Address;
-  /** The most Circle is expected to deduct from a payout on this chain, in six-decimal USDC units. */
+  /** The most Circle is expected to deduct from a payout on this chain, in six-decimal USDC units. Only the Send flow's refusal guard. */
   payoutFeeAllowance: bigint;
 }
 
 /**
  * Circle deducts its payout fee from the burned amount. Observed on the sandbox: at most about 0.04 USDC
- * for a direct payout, and a flat fee of about 1 USDC on Ethereum. No Circle API reports the fee of one
- * burn, so arrival is judged against these ceilings.
+ * for a direct payout, and a flat fee of about 1 USDC on Ethereum. They are only the Send flow's refusal guard
+ * (`usdcxPayoutFeeShortfall`); a withdrawal is confirmed on its payout mint, whatever the fee.
  */
 const USDCX_PAYOUT_FEE_ALLOWANCE = 100_000n;
 const USDCX_ETHEREUM_PAYOUT_FEE_ALLOWANCE = 1_500_000n;
@@ -93,12 +95,13 @@ function configuredChain(chainId: number): Chain | undefined {
   const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === chainId);
   const rpcUrl = getChain(chainId)?.rpcUrl;
   if (!chain || !rpcUrl) return undefined;
+  // A route is stored on its bridge row, so it shares no object with the chain definition other code holds.
   return {
     id: chain.id,
     name: chain.name,
-    nativeCurrency: chain.nativeCurrency,
+    nativeCurrency: copyPlainData(chain.nativeCurrency),
     rpcUrls: { default: { http: [rpcUrl] } },
-    blockExplorers: chain.blockExplorers,
+    blockExplorers: copyPlainData(chain.blockExplorers),
     testnet: chain.testnet
   };
 }
@@ -138,8 +141,10 @@ function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefin
       return {
         ...base,
         route: 'cctp-executor',
-        tokenMessenger: getAddress(route.deposit.tokenMessenger),
         tokenMessengerWithFees: getAddress(route.deposit.tokenMessengerWithFees),
+        ...(route.deposit.tokenMessenger === undefined
+          ? {}
+          : { tokenMessenger: getAddress(route.deposit.tokenMessenger) }),
         irisApi: provider.irisUrl,
         target: {
           midenDomain: provider.midenDomain,
@@ -190,9 +195,9 @@ export function usdcxDestinations(): ReadonlyMap<number, UsdcxDestination> {
 }
 
 /**
- * The least USDC a burn of `amount` is expected to pay out on `chainId`: the amount minus the chain's fee allowance.
- * It is not positive when the allowance takes the whole amount. Any unrelated credit meets such a floor, so the wallet
- * refuses that burn (`usdcxPayoutFeeShortfall`) and never confirms an older one by balance.
+ * The amount minus the chain's fee allowance. It is not positive when the allowance takes the whole amount, so the
+ * wallet refuses that burn (`usdcxPayoutFeeShortfall`). This is the Send flow's refusal guard, not a confirmation
+ * floor; only the legacy history link search still reads it.
  */
 export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
   return amount - (usdcxDestinations().get(chainId)?.payoutFeeAllowance ?? 0n);
@@ -212,17 +217,33 @@ export function usdcxPayoutFeeShortfall(
 }
 
 /**
- * The i18n key of a USDCx deposit's arrival time for its source chain: Arc Testnet reads ~1 min, every other source
- * ~20 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
+ * The i18n key of a USDCx deposit's arrival time for its source chain: Arc (testnet or mainnet) reads ~1 min, every
+ * other source ~2 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
  */
 export function usdcxArrivalKey(sourceChainId: number): 'usdcxArrivalArc' | 'usdcxArrival' {
-  return sourceChainId === ARC_TESTNET.id ? 'usdcxArrivalArc' : 'usdcxArrival';
+  return sourceChainId === ARC_TESTNET.id || sourceChainId === arc.id ? 'usdcxArrivalArc' : 'usdcxArrival';
 }
 
-/** The source chain a bridge-in starts from until the screen offers a picker. */
-export const DEFAULT_USDCX_SOURCE_CHAIN_ID: number = E2E_USDCX_CHAIN === 'sepolia' ? sepolia.id : ARC_TESTNET.id;
-/** The destination pre-selected for a USDCx withdrawal. */
-export const DEFAULT_USDCX_DESTINATION_CHAIN_ID: number = ARC_TESTNET.id;
+/**
+ * The EVM chain the USDCx surfaces open on, per Miden network, keyed as `MIDEN_NETWORK_ENDPOINTS` keys the RPCs:
+ * Ethereum on mainnet, Arc Testnet on the test networks.
+ */
+export const DEFAULT_USDCX_CHAIN_IDS = new Map<string, number>([
+  [MIDEN_NETWORK_NAME.MAINNET, mainnet.id],
+  [MIDEN_NETWORK_NAME.TESTNET, ARC_TESTNET.id],
+  [MIDEN_NETWORK_NAME.DEVNET, ARC_TESTNET.id],
+  [MIDEN_NETWORK_NAME.LOCALNET, ARC_TESTNET.id]
+]);
+
+/**
+ * The chain a USDCx bridge-in opens on and a withdrawal pre-selects, for the effective network: Sepolia when an E2E
+ * build asks for it (MIDEN_E2E_USDCX_CHAIN), else the network's entry above. A caller falls through to the document's first
+ * chain when the document does not list this one.
+ */
+export function defaultUsdcxChainId(): number {
+  if (E2E_USDCX_CHAIN === 'sepolia') return sepolia.id;
+  return DEFAULT_USDCX_CHAIN_IDS.get(getEffectiveNetworkName()) ?? ARC_TESTNET.id;
+}
 
 export function getUsdcxSourceChain(chainId: number): UsdcxSourceChain {
   const source = usdcxSourceChains().get(chainId);
@@ -271,7 +292,7 @@ export function listUsdcxDestinations(): UsdcxDestination[] {
  */
 export function getUsdcxRemoteDomain(): number {
   const domain = getBridgeConfigSnapshot().config?.['bridge-providers'].usdcx.midenDomain;
-  if (domain === undefined) throw new Error('USDCx Miden domain is not configured');
+  if (domain === undefined) throw walletRaised(new Error('USDCx Miden domain is not configured'));
   return domain;
 }
 

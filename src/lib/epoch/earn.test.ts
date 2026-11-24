@@ -1,15 +1,36 @@
+import { keccak256, toBytes } from 'viem';
+
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { getEarnMarket } from 'lib/remote-config/values';
 
 import { getCurrentMidenBlock } from './chain';
-import { openEarnPosition, pollEarnIntentStatus, reconcileEarnDeposits, resolveEarnIntentOutcome } from './earn';
+import { EpochCollateralNoteMismatchError } from './collateral-guard';
+import {
+  type OpenEarnPositionArgs,
+  openEarnPosition,
+  pollEarnIntentStatus,
+  reconcileEarnDeposits,
+  resolveEarnIntentOutcome
+} from './earn';
 import { createEarnP2IDENote } from './earn-note';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
+import { earnMarketForVault } from './pools-read';
 import { getEpochReadOnlySdk } from './sdk';
-import { TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
+import {
+  TEST_ALLOCATOR_ACCOUNT,
+  TEST_ALLOCATOR_URL,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EARN_MARKET,
+  TEST_EVM_CHAIN_ID,
+  TEST_MIDEN_USDC
+} from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
+import { AAVE_V3_LISTING } from './testing/pools-fixtures';
+
+const mockGetBridgeConfigSnapshot = jest.fn<BridgeConfigSnapshot, []>();
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   CollateralType: { Miden: 'Miden' },
@@ -26,13 +47,47 @@ jest.mock('./earn-note', () => ({ createEarnP2IDENote: jest.fn() }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
 jest.mock('lib/miden/repo', () => ({ transactions: { filter: jest.fn(), where: jest.fn() } }));
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => mockGetBridgeConfigSnapshot() }));
 jest.mock('lib/remote-config/values', () =>
-  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
+  jest
+    .requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config')
+    .remoteConfigValuesMock(() => mockGetBridgeConfigSnapshot())
 );
 
 const SEPOLIA = TEST_EVM_CHAIN_ID;
 const MIDEN_CHAIN = 999;
 const SPONSOR = '0x1111111111111111111111111111111111111111';
+
+function bridgeSnapshot(allocatorUrl: string | undefined, accountId: string | undefined): BridgeConfigSnapshot {
+  const snapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  const config = snapshot.config;
+  const derived = snapshot.derived;
+  if (!config || !derived || !config['bridge-providers'].epoch) throw new Error('incomplete bridge fixture');
+  const epochConfig = { ...config['bridge-providers'].epoch };
+  if (allocatorUrl === undefined) delete epochConfig.allocatorUrl;
+  else epochConfig.allocatorUrl = allocatorUrl;
+  return {
+    ...snapshot,
+    config: {
+      ...config,
+      'bridge-providers': {
+        ...config['bridge-providers'],
+        epoch: epochConfig
+      }
+    },
+    derived: {
+      ...derived,
+      epoch: {
+        ...derived.epoch,
+        allocatorAccount: accountId === undefined ? { state: 'absent' } : { state: 'ok', value: { accountId } }
+      }
+    }
+  };
+}
+
+beforeEach(() => {
+  mockGetBridgeConfigSnapshot.mockReturnValue(TEST_BRIDGE_CONFIG_SNAPSHOT);
+});
 
 /**
  * The gating is asymmetric on purpose: only the DESTINATION leg can declare
@@ -500,10 +555,12 @@ const mockCreateEarnP2IDENote = createEarnP2IDENote as jest.MockedFunction<typeo
  * by transactions.guardian.test.ts, not here.)
  */
 describe('openEarnPosition guards', () => {
-  const baseArgs = () => ({
+  const baseArgs = (): OpenEarnPositionArgs => ({
     amount: 1_000_000n,
     collateral: TEST_MIDEN_USDC,
     evmAddress: SPONSOR,
+    market: TEST_EARN_MARKET,
+    protocol: 'dummy-lending',
     senderPublicKey: 'mtst1sender',
     deps: { signTransaction: jest.fn(), guardianProvider: {} } as never,
     onRowCreated: jest.fn()
@@ -540,6 +597,27 @@ describe('openEarnPosition guards', () => {
     expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR, 'https://allocator.test');
   });
 
+  it('keeps the captured allocator URL and account after the effective network changes', async () => {
+    const changedSnapshot = bridgeSnapshot('https://other-allocator.test', '0x0000000000000000000000000000ee');
+    mockCreateEarnP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    mockGetSdk.mockResolvedValue({
+      getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+      getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+      solveIntent: jest.fn(async options => {
+        mockGetBridgeConfigSnapshot.mockReturnValue(changedSnapshot);
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
+        return { nonce: 'nonce-1' };
+      })
+    } as never);
+
+    await expect(openEarnPosition(baseArgs())).resolves.toEqual({ txId: 'tx-1' });
+
+    expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR, TEST_ALLOCATOR_URL);
+    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({ allocatorUrl: TEST_ALLOCATOR_URL, allocatorId: TEST_ALLOCATOR_ACCOUNT })
+    );
+  });
+
   it('threads the exact authorization through intent preparation and preserves final rejection', async () => {
     const spendingLimitAuthorization = {
       kind: 'usd' as const,
@@ -566,17 +644,23 @@ describe('openEarnPosition guards', () => {
       getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
       getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
       solveIntent: jest.fn(async options => {
-        await options.createMidenP2IDENote('0xfaucet', '1000000', '0xallocator', 5_000, [1n]);
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
         return { nonce: 'nonce-1' };
       })
     } as never);
 
     await expect(openEarnPosition({ ...baseArgs(), spendingLimitAuthorization })).rejects.toBe(error);
-    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(expect.objectContaining({ spendingLimitAuthorization }));
+    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spendingLimitAuthorization,
+        protocol: 'dummy-lending',
+        chainId: TEST_EARN_MARKET.chainId
+      })
+    );
     expect(mockUpdateStatus).not.toHaveBeenCalled();
   });
 
-  it('builds the intent for the configured market, locking the collateral it was reviewed with', async () => {
+  it('builds the intent for the market it is given, locking the collateral it was reviewed with', async () => {
     const getTaskData = jest.fn().mockRejectedValue(new Error('stop'));
     mockGetSdk.mockResolvedValue({ getTaskData } as never);
 
@@ -596,17 +680,136 @@ describe('openEarnPosition guards', () => {
     );
   });
 
-  it('refuses before any SDK work while the config names no Earn market, as a rejection the flow catches', async () => {
-    jest.mocked(getEarnMarket).mockImplementationOnce(() => {
-      throw new Error('no market');
+  it("names the chosen vault's market, not the default market", async () => {
+    const getTaskData = jest.fn().mockRejectedValue(new Error('stop'));
+    mockGetSdk.mockResolvedValue({ getTaskData } as never);
+    const market = earnMarketForVault({
+      marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      lenderKey: 'AAVE_V3',
+      lenderFamily: 'AAVE_V3',
+      lenderName: 'Aave V3',
+      marketName: 'Aave V3 USDC',
+      logoUri: '',
+      chainId: '8453',
+      underlying: { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
+      depositApr: 3.75,
+      aprTotal: 5.2,
+      canOpen: true,
+      listing: AAVE_V3_LISTING
     });
 
-    // The getter throws synchronously; a caller's try/await must still see a rejection, never a throw at call time.
+    await expect(openEarnPosition({ ...baseArgs(), market })).rejects.toThrow('stop');
+
+    expect(getEarnMarket).not.toHaveBeenCalled();
+    expect(getTaskData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intentData: expect.objectContaining({
+          outputTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          destinationChainId: '8453',
+          // The protocol string the document lists the vault with.
+          protocolHashIdentifier: keccak256(toBytes('1delta'))
+        }),
+        extraData: expect.objectContaining({ marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' })
+      })
+    );
+  });
+
+  it('forwards the selected vault protocol and chain into the deposit note', async () => {
+    const market = earnMarketForVault({
+      marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+      lenderKey: 'AAVE_V3',
+      lenderFamily: 'AAVE_V3',
+      lenderName: 'Aave V3',
+      marketName: 'Aave V3 USDC',
+      logoUri: '',
+      chainId: '8453',
+      underlying: { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
+      depositApr: 3.75,
+      aprTotal: 5.2,
+      canOpen: true,
+      listing: AAVE_V3_LISTING
+    });
+    mockGetSdk.mockResolvedValue({
+      getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+      getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+      solveIntent: jest.fn(async options => {
+        await options.createMidenP2IDENote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT, 5_000, [1n]);
+        return { nonce: 'nonce-1' };
+      })
+    } as never);
+    mockCreateEarnP2IDENote.mockRejectedValue(new Error('stop-after-forward'));
+
+    await expect(openEarnPosition({ ...baseArgs(), market, protocol: '1delta' })).rejects.toThrow('stop-after-forward');
+
+    expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        protocol: '1delta',
+        chainId: 8453,
+        marketUid: 'AAVE_V3:8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
+      })
+    );
+  });
+
+  describe('the collateral note request', () => {
+    let noteResult: unknown;
+
+    const requestNote = (faucet: string, amount: string, allocatorId: string) => {
+      mockGetSdk.mockResolvedValue({
+        getTaskData: jest.fn().mockResolvedValue({ taskTypeString: 'task', intentData: {} }),
+        getIntentQuote: jest.fn().mockResolvedValue({ success: true }),
+        solveIntent: jest.fn(async options => {
+          noteResult = await options.createMidenP2IDENote(faucet, amount, allocatorId, 5_000, [1n]);
+          return { nonce: 'nonce-1' };
+        })
+      } as never);
+    };
+
+    beforeEach(() => {
+      noteResult = undefined;
+      mockCreateEarnP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    });
+
+    it('builds the note for the reviewed collateral, the reviewed amount and the configured allocator', async () => {
+      requestNote(TEST_MIDEN_USDC.faucetId, '1000000', TEST_ALLOCATOR_ACCOUNT);
+
+      await expect(openEarnPosition(baseArgs())).resolves.toEqual({ txId: 'tx-1' });
+
+      expect(noteResult).toEqual({ success: true, noteId: 'note-1' });
+      expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          faucetId: TEST_MIDEN_USDC.faucetId,
+          amount: '1000000',
+          allocatorId: TEST_ALLOCATOR_ACCOUNT
+        })
+      );
+    });
+
+    it.each([
+      ['another faucet', '0x0000000000000000000000000000ff', '1000000', TEST_ALLOCATOR_ACCOUNT, 'faucet'],
+      ['another amount', TEST_MIDEN_USDC.faucetId, '999999', TEST_ALLOCATOR_ACCOUNT, 'amount'],
+      ['another allocator', TEST_MIDEN_USDC.faucetId, '1000000', '0x0000000000000000000000000000ee', 'allocator']
+    ])('builds no note for %s and fails with the named error', async (_label, faucet, amount, allocatorId, field) => {
+      requestNote(faucet, amount, allocatorId);
+
+      const failure = openEarnPosition(baseArgs());
+      await expect(failure).rejects.toBeInstanceOf(EpochCollateralNoteMismatchError);
+      await expect(failure).rejects.toMatchObject({ field });
+
+      expect(noteResult).toEqual({ success: false });
+      expect(mockCreateEarnP2IDENote).not.toHaveBeenCalled();
+      expect(mockUpdateStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses before any SDK work while the config names no allocator, as a rejection the flow catches', async () => {
+    const snapshot = bridgeSnapshot(undefined, TEST_ALLOCATOR_ACCOUNT);
+    expect(snapshot.config?.['bridge-providers'].epoch).not.toHaveProperty('allocatorUrl');
+    mockGetBridgeConfigSnapshot.mockReturnValue(snapshot);
     let pending: Promise<unknown> | undefined;
     expect(() => {
       pending = openEarnPosition(baseArgs());
     }).not.toThrow();
-    await expect(pending).rejects.toThrow('no market');
+    await expect(pending).rejects.toMatchObject({ name: 'BridgeConfigUnavailableError', value: 'epoch.allocatorUrl' });
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
 });

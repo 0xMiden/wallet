@@ -13,7 +13,6 @@ interface EvmBridgeDepositConfirmProps {
   routeLabel: string;
   receiveLabel: string | null;
   statusMessage: string | null;
-  error: string | null;
   confirmLabel: string;
   confirmDisabled: boolean;
   onBack: () => void;
@@ -28,7 +27,6 @@ export const EvmBridgeDepositConfirm: React.FC<EvmBridgeDepositConfirmProps> = (
   routeLabel,
   receiveLabel,
   statusMessage,
-  error,
   confirmLabel,
   confirmDisabled,
   onBack,
@@ -64,11 +62,6 @@ export const EvmBridgeDepositConfirm: React.FC<EvmBridgeDepositConfirmProps> = (
           </div>
 
           {statusMessage && <p className="mt-4 text-center text-sm text-text-tertiary-token">{statusMessage}</p>}
-          {error && (
-            <div className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-500" role="alert">
-              {error}
-            </div>
-          )}
         </div>
 
         <div className="pt-4">

@@ -89,7 +89,7 @@ export const WASM_LOCK_SYNC_WATCHDOG_MS = 120_000;
  * pre-#775 failure mode, reachable through the fix's own escape hatch.
  *
  * 30 minutes: far beyond any real sign prompt or local prove (a prove is
- * seconds, and the proxy's own 90s write deadline bounds the Chrome path), so
+ * seconds, and the proxy's own 180s write deadline bounds the Chrome path), so
  * it cannot fire on a merely-slow wait, while still bounding the wedge. An
  * eviction at this ceiling is not free — the abandoned operation is not
  * cancelled, so a send is recorded as possibly-submitted and Retry refuses it —

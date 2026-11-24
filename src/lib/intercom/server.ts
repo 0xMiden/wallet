@@ -1,17 +1,23 @@
 import browser, { Runtime } from 'webextension-polyfill';
 
 import { serializeInternalError } from './helpers';
+import { isExtensionPageSender } from './sender';
 import { MessageType, RequestMessage, ResponseMessage, ErrorMessage, SubscriptionMessage } from './types';
 
 type ReqHandler = (payload: any, port: Runtime.Port) => Promise<any>;
+type NotFoundFallback = (payload: unknown) => Error | undefined;
 
 export class IntercomServer {
   private ports = new Set<Runtime.Port>();
   private reqHandlers: Array<ReqHandler> = [];
   private initializedHandlers: boolean = false;
   private disconnectListeners: Array<() => void> = [];
+  private notFoundFallback: NotFoundFallback | undefined;
+  private contentScriptRequestTypes: ReadonlySet<string>;
 
-  constructor() {
+  /** `contentScriptRequestTypes`: the only request types served to a sender that is not one of the extension's pages. */
+  constructor(options: { contentScriptRequestTypes?: ReadonlySet<string> } = {}) {
+    this.contentScriptRequestTypes = options.contentScriptRequestTypes ?? new Set();
     browser.runtime.onConnect.addListener(port => {
       this.addPort(port);
 
@@ -28,12 +34,12 @@ export class IntercomServer {
   }
 
   /**
-   * Returns true if any popup/fullpage intercom clients are connected.
-   * Filters out content script and other non-intercom port connections.
+   * True while one of the extension's own pages (popup, full page, side panel, approval window) has an intercom port
+   * open. A content script's port carries the same name and does not count.
    */
   hasClients(): boolean {
     for (const port of this.ports) {
-      if (port.name === 'INTERCOM') return true;
+      if (port.name === 'INTERCOM' && this.isExtensionPage(port)) return true;
     }
     return false;
   }
@@ -55,10 +61,19 @@ export class IntercomServer {
     };
   }
 
+  /**
+   * The error for a request every handler declined, in place of the plain Not Found when it returns one. Consulted
+   * only after the last handler, so no handler's answer depends on the order they were registered in.
+   */
+  onNotFound(fallback: NotFoundFallback) {
+    this.notFoundFallback = fallback;
+  }
+
   broadcast(data: any) {
     const msg: SubscriptionMessage = { type: MessageType.Sub, data };
+    // Content scripts never subscribe, so only the extension's pages are broadcast to.
     this.ports.forEach(port => {
-      port.postMessage(msg);
+      if (this.isExtensionPage(port)) port.postMessage(msg);
     });
   }
 
@@ -75,6 +90,16 @@ export class IntercomServer {
 
   private handleMessage(msg: any, port: Runtime.Port) {
     if (port.sender?.id === browser.runtime.id && msg?.type === MessageType.Req) {
+      // Checked first, so a refused request never gets the idle state and is never queued for replay.
+      if (!this.servesSender(port, msg.data?.type)) {
+        this.send(port, {
+          type: MessageType.Err,
+          reqId: msg.reqId,
+          data: serializeInternalError(new Error('Not Found'))
+        });
+        return;
+      }
+
       // If no request handler registered yet, respond with a default "Idle" state
       // for GetStateRequest so the UI can render (onboarding/unlock screen).
       // Other messages are queued for replay when the handler is registered.
@@ -115,6 +140,15 @@ export class IntercomServer {
     }
   }
 
+  private servesSender(port: Runtime.Port, requestType: unknown) {
+    if (this.isExtensionPage(port)) return true;
+    return typeof requestType === 'string' && this.contentScriptRequestTypes.has(requestType);
+  }
+
+  private isExtensionPage(port: Runtime.Port) {
+    return isExtensionPageSender(port.sender, browser.runtime.id, browser.runtime.getURL(''));
+  }
+
   private processMessage(msg: RequestMessage, port: Runtime.Port) {
     (async msgInner => {
       try {
@@ -129,7 +163,7 @@ export class IntercomServer {
             return;
           }
         }
-        throw new Error('Not Found');
+        throw this.notFoundFallback?.(msgInner.data) ?? new Error('Not Found');
       } catch (err: any) {
         this.send(port, {
           type: MessageType.Err,

@@ -43,7 +43,7 @@ const config = (midenUsdcFaucet?: string): BridgeConfig => ({
       }
     }
   },
-  features: { earn: true }
+  features: { earn: true, nearIntents: false }
 });
 const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;
@@ -53,12 +53,18 @@ const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridg
     derivedAt: 1,
     chains: {
       11155111: {
-        agglayer: { rollupId: skipped, tokens, evmNetworkId: skipped, l1BridgeCode: skipped },
-        epoch: { evmUsdc: skipped }
+        agglayer: { rollupId: skipped, tokens, evmNetworkId: skipped, l1BridgeCode: skipped, depositTokens: skipped },
+        epoch: { tokens: { USDC: skipped } }
       }
     },
     agglayer: { indexer: skipped },
-    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: { state: 'error', message: 'down' } }
+    epoch: {
+      allocator: skipped,
+      allocatorAccount: skipped,
+      market: skipped,
+      midenUsdcFaucet: { state: 'error', message: 'down' },
+      vaults: skipped
+    }
   };
 };
 const registry = derived({
@@ -135,9 +141,10 @@ it("prices every AggLayer chain's native-ETH faucet at ETH", () => {
         ]
       },
       evmNetworkId: { state: 'skipped' },
-      l1BridgeCode: { state: 'skipped' }
+      l1BridgeCode: { state: 'skipped' },
+      depositTokens: { state: 'skipped' }
     },
-    epoch: { evmUsdc: { state: 'skipped' } }
+    epoch: { tokens: {} }
   };
   mockSnapshot = snapshot(
     {

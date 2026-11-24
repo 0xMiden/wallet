@@ -6,6 +6,7 @@
 // eslint-disable-next-line import/no-anonymous-default-export
 export default {
   coverageProvider: 'v8',
+  workerIdleMemoryLimit: process.env.JEST_COVERAGE_SHARD ? '768MB' : undefined,
   // Force EVERY source file into the coverage denominator. Without this, v8 only
   // reports files a test actually imports, so an untested file silently vanishes
   // from the metric (the 95% gate historically graded ~37% of src while real
@@ -19,6 +20,10 @@ export default {
     'src/**/*.{ts,tsx,mjs}',
     'packages/hd-key/src/**/*.ts',
     '!packages/hd-key/src/**/*.test.ts',
+    'packages/bread-connect/src/**/*.ts',
+    '!packages/bread-connect/src/**/*.test.ts',
+    'packages/bread-connect-capacitor/src/**/*.ts',
+    '!packages/bread-connect-capacitor/src/**/*.test.ts',
     '!src/**/*.d.ts',
     '!src/**/*.d.mts',
     '!src/**/*.test.{ts,tsx}',
@@ -117,9 +122,10 @@ export default {
     // Asset stubs must come BEFORE the `^app/` / `^lib/` path mappers so
     // `import icon from 'app/misc/dapp-icons/foo.png'` resolves to the
     // stub instead of trying to execute the PNG bytes as JavaScript.
-    // A `?url` import is the asset's URL, not a component, and `\.svg$` cannot match past the query.
+    // A `?url` import is the asset's URL, not a component, and `\.svg$` cannot match past the query. Its stub differs
+    // from the raster one, so a test tells an svg URL from a PNG without a virtual mock, which this mapper can bypass.
     '\\.svg\\?raw$': '<rootDir>/__mocks__/svgRawMock.js',
-    '\\.svg\\?url$': '<rootDir>/__mocks__/fileMock.js',
+    '\\.svg\\?url$': '<rootDir>/__mocks__/svgUrlMock.js',
     '\\.svg$': '<rootDir>/__mocks__/svgMock.js',
     '\\.(png|jpg|jpeg|gif|webp)$': '<rootDir>/__mocks__/fileMock.js',
     '\\.(css|less|scss|sass)$': '<rootDir>/__mocks__/styleMock.ts',
@@ -133,8 +139,13 @@ export default {
     // tests need no build step; the app bundles resolve it through the
     // `link:` symlink and its built `dist/` instead.
     '^@miden/hd-key$': '<rootDir>/packages/hd-key/src/index.ts',
+    '^@miden-sdk/bread-connect$': '<rootDir>/packages/bread-connect/src/index.ts',
+    // The Bread Connect packages publish ES modules, so their sources import each other with the `.js` extension
+    // Node needs. Without it the bare path still finds the `.ts` source, or a real `.js` file of that name.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@reown/appkit/react$': '<rootDir>/__mocks__/reownAppKitReact.ts',
     '^@reown/appkit/networks$': '<rootDir>/__mocks__/reownAppKitNetworks.ts',
+    '^@reown/appkit-controllers$': '<rootDir>/__mocks__/reownAppKitControllers.ts',
     '^@reown/appkit-adapter-wagmi$': '<rootDir>/__mocks__/reownWagmiAdapter.ts',
     '^@wagmi/core$': '<rootDir>/__mocks__/wagmiCore.ts',
     '^wagmi$': '<rootDir>/__mocks__/wagmi.ts',
@@ -144,9 +155,6 @@ export default {
     // - `@miden-sdk/miden-sdk/mt`      (eager + MT)
     // - `@miden-sdk/miden-sdk/mt/lazy` (lazy + MT)
     '^@miden-sdk/miden-sdk(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/wasmMock.js',
-    // React SDK now also has /mt and /mt/lazy subpaths matching the
-    // underlying SDK's MT variants. Tests mock all four identically.
-    '^@miden-sdk/react(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts',
     '^@openzeppelin/miden-multisig-client$': '<rootDir>/__mocks__/@openzeppelin/miden-multisig-client.ts',
     '^@openzeppelin/guardian-client$': '<rootDir>/__mocks__/@openzeppelin/guardian-client.ts'
   },
@@ -161,8 +169,9 @@ export default {
   // this entry that `require` dies on `Unexpected token 'export'`, the suite
   // catches it and skips, and it would keep skipping through every future
   // adapter release while reporting the reason as a missing export.
+  // @openzeppelin/guardian-client is ESM too: its stub re-exports the real error-code list from dist.
   transformIgnorePatterns: [
-    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown|@miden-sdk/miden-wallet-adapter-base|@miden-sdk/miden-wallet-adapter-miden)/)'
+    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown|@miden-sdk/miden-wallet-adapter-base|@miden-sdk/miden-wallet-adapter-miden|@openzeppelin/guardian-client|@openzeppelin/miden-multisig-client|@noble/hashes)/)'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a
@@ -181,7 +190,13 @@ export default {
     '<rootDir>/mobile-e2e/',
     '<rootDir>/ios/App/build/',
     '<rootDir>/.worktrees/',
-    '<rootDir>/.claude/'
+    '<rootDir>/.claude/',
+    // Opt-in: seven 1,214-record recoveries take about 12 minutes, and their fake-clock budgets include real
+    // IndexedDB latency, which a shared shard's load inflates (first persisted 210 against 200, the overlap test past
+    // its 90 s limit). Run it with GUARDIAN_HISTORY_BENCHMARK=1, as the Red-before workflow does.
+    ...(process.env.GUARDIAN_HISTORY_BENCHMARK
+      ? []
+      : ['<rootDir>/src/lib/miden/back/guardian-history-recovery\\.performance\\.test\\.tsx$'])
   ],
   setupFiles: ['dotenv/config', '@serh11p/jest-webextension-mock', 'fake-indexeddb/auto'],
   setupFilesAfterEnv: ['./jest.setup.js']

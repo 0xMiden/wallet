@@ -90,7 +90,7 @@ jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
   bridgeRowDisplay: jest.fn(),
   bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
-  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
+  hasOwnBridgeBadge: jest.requireActual('./transactionUtils').hasOwnBridgeBadge,
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
@@ -99,6 +99,7 @@ jest.mock('./transactionUtils', () => ({
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;
+const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
 
 // Minimal shape — HistoryItem only reads the fields exercised below; the real
 // IHistoryEntry type is erased at runtime, so a plain object cast is enough.
@@ -125,6 +126,11 @@ beforeEach(() => {
 });
 
 describe('HistoryItem', () => {
+  it('titles a legacy row with no stored message by its action', () => {
+    render(<HistoryItem entry={makeEntry({ message: undefined, txType: 'send' })} />);
+    expect(screen.getByText('t:sent')).toBeInTheDocument();
+  });
+
   it('shows a bridge row output under its label', () => {
     jest.mocked(bridgeRowDisplay).mockReturnValue({
       inSymbol: 'USDC',
@@ -140,6 +146,43 @@ describe('HistoryItem', () => {
     render(<HistoryItem entry={makeEntry({ txType: 'bridged-send' })} fullHistory lastEntry={false} />);
 
     expect(screen.getByText('4.98 Test Epoch USDC')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['pending', undefined, 't:usdcxBurnPending'],
+    ['consuming', undefined, 't:usdcxBurnConsuming'],
+    ['confirmed', undefined, 't:usdcxBurnConfirmed'],
+    ['confirmed', { balance: '1000000', blockNumber: '42' }, 't:confirmed'],
+    ['discarded', undefined, 't:usdcxBurnDiscarded']
+  ] as const)('renders a USDCx %s burn with its own title and badge', (phase, destinationBalanceConfirmed, label) => {
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'USDCx',
+      outSymbol: 'USDC',
+      inLabel: 'Miden USDCx',
+      outLabel: 'Sepolia USDC',
+      outAmount: '10',
+      providerLabel: 'USDCx',
+      network: 'Sepolia',
+      status: 'pending'
+    });
+
+    render(
+      <HistoryItem
+        entry={makeEntry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          usdcxBurn: {
+            noteId: 'burn-note',
+            destinationDomain: 0,
+            phase,
+            destinationBalanceConfirmed
+          }
+        })}
+      />
+    );
+
+    expect(screen.getByText('t:usdcxBurnTitle')).toBeInTheDocument();
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 
   it('renders the explorer-link (anchor) variant with receive styling, address, amount, token and cancel button', () => {
@@ -252,6 +295,22 @@ describe('HistoryItem', () => {
     const root = contentRoot(container);
     expect(root).toHaveClass('border-b');
     expect(root).not.toHaveClass('border-b-border-card');
+  });
+
+  it('rounds outgoing amounts up and incoming amounts down', () => {
+    const { rerender } = render(
+      <HistoryItem entry={makeEntry({ transactionIcon: 'SEND', amount: 1.2345, token: 'MIDEN' })} />
+    );
+
+    expect(screen.getByText('-1.24')).toBeInTheDocument();
+    rerender(<HistoryItem entry={makeEntry({ transactionIcon: 'RECEIVE', amount: 1.2345, token: 'MIDEN' })} />);
+
+    expect(screen.getByText('+1.23')).toBeInTheDocument();
+  });
+
+  it('localizes a failed summary row whose stored message is the English sentinel', () => {
+    render(<HistoryItem entry={makeEntry({ message: 'Transaction failed' })} />);
+    expect(screen.getByText('t:transactionFailedNotificationTitle')).toBeInTheDocument();
   });
 
   it('shows the faucet-request title when isFaucetRequest is true', () => {
@@ -412,6 +471,15 @@ describe('HistoryItem', () => {
     expect(screen.getByTestId('earn-deposit-status')).toHaveTextContent('t:pending');
   });
 
+  it.each(['Deposited to lending', 'Deposited to Earn'])(
+    'localizes the completed Earn deposit label stored as %s',
+    message => {
+      render(<HistoryItem entry={makeEntry({ txType: 'earn-deposit', message, earnDepositStatus: 'confirmed' })} />);
+      expect(screen.getByText('t:earnDepositRowTitle')).toBeInTheDocument();
+      expect(screen.queryByText(message)).toBeNull();
+    }
+  );
+
   it('shows a failed lending leg', () => {
     const entry = makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed', message: 'Depositing' });
 
@@ -442,5 +510,85 @@ describe('HistoryItem', () => {
   it('never renders the chip on a non-deposit row', () => {
     render(<HistoryItem entry={makeEntry({ txType: 'send' })} />);
     expect(screen.queryByTestId('earn-deposit-status')).toBeNull();
+  });
+
+  // jsdom does not lay out, so these pin the classes that keep a long line inside the row (#1490): each
+  // amount column never shrinks and is capped at half the row, so a short amount or badge keeps its width,
+  // and a long line clips with an ellipsis inside the cap, in a line box tall enough for descenders
+  // (`leading-none` cut them off once the line clipped).
+  describe('long amounts and token names', () => {
+    const longAmount = 123456789012345678901234567890n;
+    const longToken = 'T'.repeat(40);
+    const expectCappedColumn = (lines: HTMLElement[]) => {
+      for (const line of lines) {
+        expect(line).toHaveClass('truncate', 'max-w-full', 'leading-tight');
+        expect(line).not.toHaveClass('leading-none');
+      }
+      const column = lines[0]?.parentElement;
+      expect(column).toHaveClass('shrink-0', 'max-w-1/2');
+      expect(column).not.toHaveClass('min-w-0');
+    };
+
+    it('keeps a send row amount and token inside the row, beside its title', () => {
+      const entry = makeEntry({
+        transactionIcon: 'SEND',
+        message: 'Sent tokens',
+        amount: longAmount,
+        token: longToken
+      });
+
+      render(<HistoryItem entry={entry} />);
+
+      expect(screen.getByText('Sent tokens')).toBeInTheDocument();
+      expectCappedColumn([screen.getByText(`-${longAmount}`), screen.getByText(longToken)]);
+    });
+
+    it('keeps the From/To label whole and truncates the address beside it', () => {
+      const entry = makeEntry({ transactionIcon: 'SEND', secondaryAddress: `0x${'a'.repeat(80)}`, amount: longAmount });
+
+      render(<HistoryItem entry={entry} />);
+
+      const label = screen.getByText(/t:to/);
+      expect(label).toHaveClass('shrink-0');
+      const address = screen.getByTestId('addr').parentElement;
+      expect(address).toHaveClass('min-w-0', 'truncate');
+      expect(address).not.toContainElement(label);
+    });
+
+    it('keeps a bridge row amount inside the row, beside its title and status', () => {
+      jest.mocked(bridgeRowDisplay).mockReturnValue({
+        inSymbol: 'USDC',
+        outSymbol: 'USDC',
+        inLabel: 'USDC',
+        outLabel: longToken,
+        outAmount: longAmount.toString(),
+        providerLabel: 'Epoch',
+        network: 'Sepolia',
+        status: 'pending'
+      });
+
+      render(<HistoryItem entry={makeEntry({ txType: 'bridged-send' })} />);
+
+      expect(screen.getByText('t:bridgeRowTitle')).toBeInTheDocument();
+      const line = screen.getByText(`${longAmount} ${longToken}`);
+      expect(line).not.toContainElement(screen.getByText('t:pending'));
+      expectCappedColumn([line]);
+    });
+
+    it('keeps a Smart Withdraw amount inside the row, beside its title and status', () => {
+      const entry = makeEntry({
+        txType: 'earn-withdraw',
+        earnWithdrawPhase: 'delivering',
+        amount: longAmount,
+        token: longToken
+      });
+
+      render(<HistoryItem entry={entry} />);
+
+      expect(screen.getByText('t:earnWithdrawRowTitle')).toBeInTheDocument();
+      const line = screen.getByText(`+${longAmount} ${longToken}`);
+      expect(line).not.toContainElement(screen.getByText(/earnWithdrawStatusDelivering/));
+      expectCappedColumn([line]);
+    });
   });
 });

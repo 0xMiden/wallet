@@ -23,10 +23,11 @@
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { NoteFlow } from 'app/confirm/note-flow';
 import type { SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { DappMetadata } from 'lib/miden/types';
 
-export interface DAppConfirmationRequest {
+interface DAppConfirmationRequestFields {
   id: string;
   /**
    * Multi-instance session id (matches the `id` of the
@@ -36,18 +37,6 @@ export interface DAppConfirmationRequest {
    * slot. PR-4 chunk 8.
    */
   sessionId?: string;
-  /**
-   * What the user is being asked to approve.
-   *
-   * `connect` renders the account panel; every other kind renders the
-   * `transactionMessages` detail list (see {@link isDetailsConfirmation}) — the
-   * shape both the mobile modal and the desktop overlay already use for
-   * transactions. `sign`, `importPrivateNote` and `privateData` exist so the
-   * non-extension platforms can prompt for `signBytes`, `importPrivateNote` and
-   * the `UponRequest` private-data reads instead of leaving the dApp's promise
-   * unsettled (those handlers previously had no non-extension branch at all).
-   */
-  type: 'connect' | 'sign' | 'transaction' | 'consume' | 'importPrivateNote' | 'privateData';
   origin: string;
   appMeta: DappMetadata;
   network: string;
@@ -55,11 +44,42 @@ export interface DAppConfirmationRequest {
   privateDataPermission: PrivateDataPermission;
   allowedPrivateData: AllowedPrivateData;
   existingPermission: boolean;
+  /**
+   * Set on a connect asked again because the account key read after its approval failed (#1471): that read's error
+   * message, empty when it had none. The sheet shows it, and its approve button reads Retry.
+   */
+  previousAttemptError?: string;
   // Transaction-specific fields
   transactionMessages?: string[];
+  /** Verified custom transaction notes; null when simulation did not expose their details. */
+  noteFlow?: NoteFlow | null;
   sourcePublicKey?: string;
   spendingLimitAssessment?: SpendingLimitAssessment;
 }
+
+/** A login signature: the site's registrable domain, and the account whose login key for that domain signs. */
+export interface DAppLoginSignConfirmationRequest extends DAppConfirmationRequestFields {
+  type: 'loginSign';
+  domain: string;
+  accountId: string;
+}
+
+/**
+ * A request for the user's approval. `type` says what they are being asked to approve.
+ *
+ * `connect` and `loginSign` render the account panel; every other kind renders the
+ * `transactionMessages` detail list (see {@link isDetailsConfirmation}), the
+ * shape both the mobile modal and the desktop overlay already use for
+ * transactions. `sign`, `importPrivateNote` and `privateData` exist so the
+ * non-extension platforms can prompt for `signBytes`, `importPrivateNote` and
+ * the `UponRequest` private-data reads instead of leaving the dApp's promise
+ * unsettled (those handlers previously had no non-extension branch at all).
+ */
+export type DAppConfirmationRequest =
+  | DAppLoginSignConfirmationRequest
+  | (DAppConfirmationRequestFields & {
+      type: 'connect' | 'sign' | 'transaction' | 'consume' | 'importPrivateNote' | 'privateData';
+    });
 
 /**
  * True for the request kinds whose modal body is the `transactionMessages`
@@ -67,7 +87,7 @@ export interface DAppConfirmationRequest {
  * modal and the desktop overlay so the two can't drift.
  */
 export function isDetailsConfirmation(type: DAppConfirmationRequest['type']): boolean {
-  return type !== 'connect';
+  return type !== 'connect' && type !== 'loginSign';
 }
 
 /**
@@ -79,6 +99,8 @@ export function confirmationPromptKey(type: DAppConfirmationRequest['type']): st
       return 'dappConnectionRequest';
     case 'sign':
       return 'dappSignRequest';
+    case 'loginSign':
+      return 'dappLoginSignRequest';
     case 'importPrivateNote':
       return 'dappImportNoteRequest';
     case 'privateData':
@@ -86,6 +108,13 @@ export function confirmationPromptKey(type: DAppConfirmationRequest['type']): st
     default:
       return 'dappTransactionRequest';
   }
+}
+
+/**
+ * Interpolation values for {@link confirmationPromptKey}'s prompt: a login names the site it signs in to.
+ */
+export function confirmationPromptValues(request: DAppConfirmationRequest): { domain: string } | undefined {
+  return request.type === 'loginSign' ? { domain: request.domain } : undefined;
 }
 
 export interface DAppConfirmationResult {

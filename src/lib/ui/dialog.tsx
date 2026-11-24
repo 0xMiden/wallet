@@ -2,21 +2,30 @@ import { ReactNode, useCallback, useMemo, useState } from 'react';
 
 import constate from 'constate';
 
-/** What `useAlert()` shows: a title and one sentence, acknowledged with OK. */
-export interface AlertOptions {
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+
+interface DialogOptions {
   title?: ReactNode;
   children?: ReactNode;
+  variant?: 'default' | 'explanation';
+}
+
+/** What `useAlert()` shows: a title and one sentence, acknowledged with OK. */
+export interface AlertOptions extends DialogOptions {
+  errorId: UserErrorId | null;
 }
 
 /** What `useConfirm()` asks: a title and one sentence, answered with the action or Cancel. */
-export interface ConfirmOptions extends AlertOptions {
+export interface ConfirmOptions extends DialogOptions {
   /** The action's label. Defaults to "OK". */
   confirmLabel?: ReactNode;
   /** The action deletes or resets something: it gets the destructive button. */
   destructive?: boolean;
 }
 
-type AlertParams = AlertOptions & { isOpen: boolean };
+type AlertParams = DialogOptions &
+  ({ isOpen: false; errorId?: UserErrorId | null } | { isOpen: true; errorId: UserErrorId | null });
 type ConfirmParams = ConfirmOptions & { isOpen: boolean };
 
 export type AlertFn = (params: AlertOptions) => Promise<void>;
@@ -47,6 +56,7 @@ function useDialogs() {
 
   const alert = useCallback(async (params: AlertOptions) => {
     setAlertParams({ ...params, isOpen: true });
+    if (params.errorId) reportUserVisibleError(params.errorId, 'dialog');
     await waitForEvent<AlertClosedEvent>(ALERT_CLOSE_EVENT_NAME);
     setAlertParams({ ...params, isOpen: false });
   }, []);

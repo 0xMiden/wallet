@@ -11,6 +11,7 @@ import { sepolia } from 'viem/chains';
 import {
   bridgedSendRowOf,
   bridgeOutUsdcx,
+  burnSubmitFailure,
   enText,
   expectArcPreselected,
   isArcSnapshotFailure,
@@ -21,7 +22,14 @@ import {
   usdcxPayoutRowsText,
   waitForReviewSubmitEnabled
 } from './bridge';
-import { ARC_CHAIN_ID, BURN_UNITS, USDCX_DECIMALS } from './usdcx-constants';
+import {
+  ARBITRUM_SEPOLIA_PAYOUT,
+  ARC_CHAIN_ID,
+  ARC_PAYOUT,
+  BASE_SEPOLIA_PAYOUT,
+  ETHEREUM_SEPOLIA_PAYOUT,
+  USDCX_DECIMALS
+} from './usdcx-constants';
 import type { ChromeWalletPageApi } from './wallet-page';
 
 const EN = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../public/_locales/en/en.json'), 'utf8'));
@@ -115,6 +123,33 @@ describe('bridgedSendRowOf', () => {
     });
   });
 
+  it("parses a row's recorded payout", () => {
+    const payout = {
+      transactionHash: '0x9c7d4b0f6a1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbc',
+      blockNumber: '66531958',
+      value: '9983600'
+    };
+    const paid = (recorded: Record<string, string>) =>
+      bridgedSendRowOf({
+        ...projected,
+        extraInputs: { ...projected.extraInputs, usdcxBurn: { ...projected.extraInputs.usdcxBurn, payout: recorded } }
+      }).extraInputs?.usdcxBurn?.payout;
+    expect(paid(payout)).toEqual(payout);
+    // A payout missing a field is not half-typed.
+    expect(paid({ transactionHash: payout.transactionHash, value: payout.value })).toBeUndefined();
+  });
+
+  it("parses the block a row's payout scan reached", () => {
+    const scanned = bridgedSendRowOf({
+      ...projected,
+      extraInputs: {
+        ...projected.extraInputs,
+        usdcxBurn: { ...projected.extraInputs.usdcxBurn, payoutScannedBlock: '66531900' }
+      }
+    });
+    expect(scanned.extraInputs?.usdcxBurn?.payoutScannedBlock).toBe('66531900');
+  });
+
   it('drops a usdcxBurn that lacks its note id, domain or phase rather than half-typing it', () => {
     const row = bridgedSendRowOf({ ...projected, extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: '0x96' } } });
     expect(row.extraInputs?.usdcxBurn).toBeUndefined();
@@ -142,7 +177,10 @@ describe('parseBridgeReceiveState', () => {
         midenNoteId: '0xbf20',
         sourceChainId: 5042002,
         usdcxRemoteRecipient: '0x000000000000000000000000000000008da911727d5b53916f2c221c00c09100',
-        readyAt: 1791663100
+        usdcxExecuteTxHash: '0x4247d8f8e4786467aad025ce514b2cdcd72bc7fe3757a8f6aa7273ef48256116',
+        readyAt: 1791663100,
+        cctpForwarded: true,
+        cctpForwardFee: '22404'
       })
     ).toEqual({
       found: true,
@@ -156,7 +194,10 @@ describe('parseBridgeReceiveState', () => {
       midenNoteId: '0xbf20',
       sourceChainId: 5042002,
       usdcxRemoteRecipient: '0x000000000000000000000000000000008da911727d5b53916f2c221c00c09100',
-      readyAt: 1791663100
+      usdcxExecuteTxHash: '0x4247d8f8e4786467aad025ce514b2cdcd72bc7fe3757a8f6aa7273ef48256116',
+      readyAt: 1791663100,
+      cctpForwarded: true,
+      cctpForwardFee: '22404'
     });
   });
 
@@ -221,6 +262,39 @@ describe('isArcSnapshotFailure', () => {
   });
 });
 
+describe('burnSubmitFailure', () => {
+  // What viem's error.message, which the review shows, reads on Arbitrum's WalletConnect backend a few blocks behind.
+  const WALLET_RPC_ERROR =
+    'Missing or invalid parameters.\n\nURL: https://rpc.walletconnect.org/v1?chainId=eip155:421614&projectId=operator-project\n' +
+    'Details: unsupported block number 318137572';
+
+  it("keeps Arc's snapshot message as it was", () => {
+    expect(burnSubmitFailure(ARC_PAYOUT, 'HTTP request failed. Status: 429', 0)).toBe(
+      "Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error " +
+        '"HTTP request failed. Status: 429"'
+    );
+  });
+
+  it("fails an L2 snapshot refusal as infra naming the wallet RPC's host, never its project id", () => {
+    const message = burnSubmitFailure(ARBITRUM_SEPOLIA_PAYOUT, WALLET_RPC_ERROR, 0);
+    expect(message).toMatch(
+      /^Arbitrum Sepolia RPC rpc\.walletconnect\.org unavailable for the wallet's balance snapshot \(burn\.ts:103\), infra: review-error "/
+    );
+    expect(message).toContain('projectId=<redacted>');
+    expect(message).toContain('unsupported block number 318137572');
+    expect(message).not.toContain('operator-project');
+  });
+
+  it('calls anything else, or an RPC error once a row was queued, a refusal, still without the project id', () => {
+    expect(burnSubmitFailure(BASE_SEPOLIA_PAYOUT, 'The amount is below the minimum burn.', 0)).toBe(
+      'the review refused the burn: review-error "The amount is below the minimum burn.", 0 new usdcx rows'
+    );
+    const queued = burnSubmitFailure(BASE_SEPOLIA_PAYOUT, WALLET_RPC_ERROR, 1);
+    expect(queued).toMatch(/^the review refused the burn: review-error "/);
+    expect(queued).not.toContain('operator-project');
+  });
+});
+
 describe('readNativeDisplaySymbol', () => {
   const pageRunningHere = () =>
     ({ evaluate: async <T>(callback: (arg: T) => unknown, arg: T) => callback(arg) }) as unknown as Page;
@@ -252,20 +326,23 @@ describe('readNativeDisplaySymbol', () => {
 });
 
 describe('usdcxPayoutRowsText', () => {
-  it("reads both payout rows from the destination's own fee allowance in the wallet", () => {
-    // The harness's own burn, whose two rows the small-burn probe read live.
-    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, formatUnits(BURN_UNITS, USDCX_DECIMALS))).toEqual({
-      fee: 'Up to 0.1 USDC',
-      net: 'At least 0.9 USDC'
-    });
-    expect(usdcxPayoutRowsText(sepolia.id, '10')).toEqual({ fee: 'Up to 1.5 USDC', net: 'At least 8.5 USDC' });
+  const VARIES = { fee: 'Deducted from the payout. Varies with network fees.' };
+
+  it("reads only the fee row, which promises no bound, on every destination's own burn", () => {
+    for (const chain of [ARC_PAYOUT, BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT]) {
+      expect(usdcxPayoutRowsText(chain.chainId, formatUnits(chain.burnUnits, USDCX_DECIMALS))).toEqual(VARIES);
+    }
+    expect(usdcxPayoutRowsText(sepolia.id, '10')).toEqual(VARIES);
   });
 
-  it('refuses an amount the allowance takes whole, naming both, and takes the least amount above it', () => {
+  it('refuses an amount the allowance takes whole, which the wallet refuses, and takes the least amount above it', () => {
     expect(() => usdcxPayoutRowsText(ARC_CHAIN_ID, '0.1')).toThrow(
       '0.1 USDCx does not exceed the 0.1 USDC payout fee allowance on Arc Testnet'
     );
-    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '0.100001').net).toBe('At least 0.000001 USDC');
+    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '0.100001')).toEqual(VARIES);
+    expect(() => usdcxPayoutRowsText(ETHEREUM_SEPOLIA_PAYOUT.chainId, '1')).toThrow(
+      '1 USDCx does not exceed the 1.5 USDC payout fee allowance on Sepolia'
+    );
   });
 });
 
@@ -293,29 +370,103 @@ describe('bridgeOutUsdcx', () => {
     ).rejects.toThrow('0.1 USDCx does not exceed the 0.1 USDC payout fee allowance on Arc Testnet');
     expect(touched).toEqual([]);
   });
+
+  it("refuses an amount the destination's allowance takes whole, naming that destination, before it touches the page", async () => {
+    const touched: string[] = [];
+    const page = new Proxy(
+      {},
+      {
+        get: (_target, property) => {
+          touched.push(String(property));
+          return () => Promise.reject(new Error('the page was driven'));
+        }
+      }
+    );
+    const wallet = { page, extensionId: 'abc' } as unknown as ChromeWalletPageApi;
+    await expect(
+      bridgeOutUsdcx(wallet, {
+        destAddress: '0x405b05F75F8D299FCd413a3d77F89EDDCBa78026',
+        amount: '0.1',
+        nativeTokenId: 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0_qr7qqq9wr6w',
+        nativeSymbol: 'USDCX',
+        screenshotDir: path.join(os.tmpdir(), 'bridge-out-usdcx-refused-l2'),
+        payoutChain: BASE_SEPOLIA_PAYOUT
+      })
+    ).rejects.toThrow('0.1 USDCx does not exceed the 0.1 USDC payout fee allowance on Base Sepolia');
+    expect(touched).toEqual([]);
+  });
 });
 
 describe('expectArcPreselected', () => {
-  const pageWithChips = (pressed: string) =>
-    ({
-      locator: () => ({
-        evaluateAll: async () =>
-          [
-            'send-network-arc-testnet',
-            'send-network-sepolia',
-            'send-network-base-sepolia',
-            'send-network-arbitrum-sepolia'
-          ].map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }))
+  const SHEET_ROWS = '[role="dialog"][data-state="open"] [data-testid^="send-network-"]';
+  // NetworkField: the four destinations are rows of a sheet the summary row opens, and exist only while it is open.
+  const pageWithSheet = (pressed: string, extraRow?: string) => {
+    const actions: string[] = [];
+    let open = false;
+    const page = {
+      getByTestId: (testId: string) => ({
+        click: async () => {
+          actions.push(`click ${testId}`);
+          if (testId === 'send-network-picker') open = true;
+        },
+        waitFor: async ({ state }: { state: string }) => {
+          actions.push(`${state} ${testId}`);
+        }
+      }),
+      locator: (selector: string) => ({
+        evaluateAll: async (read: (elements: Array<Pick<Element, 'getAttribute'>>) => unknown) =>
+          read(
+            open && selector === SHEET_ROWS
+              ? [
+                  'send-network-picker',
+                  'send-network-options',
+                  'send-network-arc-testnet',
+                  'send-network-sepolia',
+                  'send-network-base-sepolia',
+                  'send-network-arbitrum-sepolia',
+                  ...(extraRow ? [extraRow] : [])
+                ].map(testId => ({
+                  getAttribute: name =>
+                    name === 'data-testid'
+                      ? testId
+                      : ['send-network-picker', 'send-network-options', extraRow].includes(testId)
+                        ? null
+                        : String(testId === pressed)
+                }))
+              : []
+          ),
+        getByRole: (role: string, { name }: { name: string }) => ({
+          click: async () => {
+            actions.push(`click ${role} ${name} in ${selector}`);
+            open = false;
+          }
+        })
       })
-    }) as unknown as Page;
+    } as unknown as Page;
+    return { page, actions };
+  };
 
-  it('resolves once Arc Testnet alone is pressed among the four chips', async () => {
-    await expect(expectArcPreselected(pageWithChips('send-network-arc-testnet'), 1_000)).resolves.toBeUndefined();
+  it('opens the network sheet, resolves once Arc Testnet alone is pressed among its four rows, and closes it', async () => {
+    const { page, actions } = pageWithSheet('send-network-arc-testnet');
+
+    await expect(expectArcPreselected(page, 1_000)).resolves.toBeUndefined();
+
+    expect(actions).toEqual([
+      'click send-network-picker',
+      `click button ${enText('close')} in [role="dialog"][data-state="open"]`,
+      'hidden send-network-arc-testnet'
+    ]);
   });
 
-  it('says it checks the chip set and the default, not USDCx mode', async () => {
-    await expect(expectArcPreselected(pageWithChips('send-network-sepolia'), 300)).rejects.toThrow(
-      'checks the chip set and its default'
+  it('rejects an unexpected destination even if it has no pressed state', async () => {
+    await expect(
+      expectArcPreselected(pageWithSheet('send-network-arc-testnet', 'send-network-miden').page, 300)
+    ).rejects.toThrow('send-network-miden');
+  });
+
+  it('says it checks the destination set and the default, not USDCx mode', async () => {
+    await expect(expectArcPreselected(pageWithSheet('send-network-sepolia').page, 300)).rejects.toThrow(
+      'checks the destination set and its default'
     );
   });
 });

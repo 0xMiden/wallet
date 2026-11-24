@@ -5,28 +5,25 @@ import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import {
-  publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
-  testSnapshotWithSwapPairs
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
 } from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
+import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import {
-  TEST_SWAP_TOKENS,
-  TEST_TOKEN_IBTC,
-  TEST_TOKEN_IETH,
-  testSwapPairsToken
-} from 'lib/miden/swap/testing/registry';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
+import { setHideDustTokensSetting } from 'lib/settings/dust';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
-
 import Explore from './Explore';
 
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
@@ -37,6 +34,19 @@ afterAll(() => _setSwapTokensForTest(undefined));
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// Set verified price assets directly. Swap metadata does not set price assets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
+  mockVerifiedPriceAssets.set(TEST_TOKEN_IBTC.faucetId, 'BTC');
+  mockNumberSymbols = { group: ',', decimal: '.' };
+});
+
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () =>
@@ -76,13 +86,18 @@ let mockClaimableNotesAreCached = false;
 let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
+let mockNumberSymbols = { group: ',', decimal: '.' };
 let mockBalancesLoading = false;
 let mockBaseFee: number | null = 0;
+let mockFloorFee: number | null | undefined;
 
 const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
 const mockMutateClaimableNotes = jest.fn();
 const mockInitiateConsumeTransaction = jest.fn();
+// The suite's batch enqueue fails, so the page falls back to one claim per note, which the per-note assertions follow;
+// a test that sets its own implementation gets the batch path.
+const mockInitiateConsumeNotesTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockNavigate = jest.fn();
@@ -95,6 +110,11 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+jest.mock('lib/i18n/core', () => ({
+  ...jest.requireActual<typeof import('lib/i18n/core')>('lib/i18n/core'),
+  getNumberSymbols: () => mockNumberSymbols
+}));
+
 let mockLegacyFeeIdentity: string | undefined;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
@@ -103,15 +123,31 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => mockBaseFee
+  default: () => mockBaseFee,
+  useClaimFloorBaseFee: () => (mockFloorFee === undefined ? mockBaseFee : mockFloorFee)
 }));
 
 // Balance is a render-prop that hands its child the total fiat BigNumber; the child converts it
 // to a number for `AnimatedNumber` and formats it through the (mocked) toLocalFormat.
 let mockPortfolioTotal: BigNumber | null = new BigNumber(0);
+let mockBalanceChange: { absolute: number; percentage: number } | null = null;
+let mockRealBalance = false;
 jest.mock('app/templates/Balance', () => ({
   __esModule: true,
-  default: ({ children }: { children: (b: BigNumber | null) => React.ReactElement }) => children(mockPortfolioTotal)
+  default: (props: {
+    children: (b: BigNumber | null, change: { absolute: number; percentage: number } | null) => React.ReactElement;
+  }) => {
+    if (mockRealBalance) {
+      const Actual = jest.requireActual<typeof import('app/templates/Balance')>('app/templates/Balance').default;
+      return <Actual>{props.children}</Actual>;
+    }
+    return props.children(mockPortfolioTotal, mockBalanceChange);
+  }
+}));
+let mockCachedQuotes: TokenPrices | undefined;
+jest.mock('lib/prices/display-cache', () => ({
+  ...jest.requireActual('lib/prices/display-cache'),
+  useCachedDisplayQuotes: () => mockCachedQuotes
 }));
 
 jest.mock('app/templates/HomePrompts', () => ({
@@ -238,6 +274,7 @@ jest.mock('lib/i18n/numbers', () => ({
 }));
 
 jest.mock('lib/miden/activity', () => ({
+  initiateConsumeNotesTransaction: (...args: any[]) => mockInitiateConsumeNotesTransaction(...args),
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsumeTransaction(...args),
   requestSWTransactionProcessing: (...args: any[]) => mockRequestSWTransactionProcessing(...args),
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
@@ -299,7 +336,10 @@ jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: () => mockDelegateProof
 }));
 
+// The wallet store's lock state, as the claim guard reads it.
+let mockWalletReady = true;
 jest.mock('lib/store', () => ({
+  isWalletReadyNow: () => mockWalletReady,
   useWalletStore: (selector: (s: any) => unknown) => selector({ tokenPrices: mockTokenPrices })
 }));
 
@@ -321,7 +361,8 @@ const makeNote = (id: string, faucetId: string, isBeingClaimed = false, swapOrde
   id,
   faucetId,
   isBeingClaimed,
-  swapOrder
+  swapOrder,
+  standardPayment: true
 });
 
 // Render + flush the auto-consume effect's chained promises (initiate ->
@@ -347,6 +388,9 @@ describe('Explore', () => {
     mockAccount = { publicKey: 'mtst1account' };
     mockAllBalances = [];
     mockPortfolioTotal = new BigNumber(0);
+    mockBalanceChange = null;
+    mockRealBalance = false;
+    mockCachedQuotes = undefined;
     mockClaimableNotes = undefined;
     mockClaimableNotesAreCached = false;
     mockPlatform.isExtension = true;
@@ -356,6 +400,7 @@ describe('Explore', () => {
     mockTokenPrices = {};
     mockBalancesLoading = false;
     mockBaseFee = 0;
+    mockFloorFee = undefined;
     resetHiddenTokens();
     mockStoredHiddenTokens = null;
     mockReadStorage.mockReset();
@@ -369,6 +414,8 @@ describe('Explore', () => {
       return Promise.resolve();
     });
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
+    mockInitiateConsumeNotesTransaction.mockRejectedValue(new Error('batch enqueue failed'));
+    mockWalletReady = true;
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -378,8 +425,45 @@ describe('Explore', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  describe('dust tokens', () => {
+    const listedIds = () => screen.queryAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+    const quote = (price: number) => ({ price, change24h: 0, percentageChange24h: 0 });
+
+    beforeEach(() => {
+      _setSwapTokensForTest(undefined);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      // Native dust, IETH worth $0.0009, IBTC worth exactly $0.001, and a token with no quote.
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 0.0001),
+        makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 0.0009),
+        makeToken(TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IBTC.symbol, 'Bitcoin', 0.001),
+        makeToken('faucet-unquoted', 'NOQ', 'No quote', 0.0000001)
+      ];
+      mockTokenPrices = { MIDEN: quote(1), ETH: quote(1), BTC: quote(1) };
+    });
+
+    afterEach(() => {
+      localStorage.removeItem(HIDE_DUST_TOKENS_STORAGE_KEY);
+      _setSwapTokensForTest(TEST_SWAP_TOKENS);
+    });
+
+    it('hides a token worth less than a tenth of a cent by default, but not the native or an unquoted token', async () => {
+      await renderExplore();
+      expect(listedIds()).toEqual(['faucet-native', TEST_TOKEN_IBTC.faucetId, 'faucet-unquoted']);
+      expect(screen.queryByTestId('hidden-assets')).not.toBeInTheDocument();
+    });
+
+    it('lists dust tokens when the setting is off, and hides them again when it goes back on', async () => {
+      await renderExplore();
+      act(() => setHideDustTokensSetting(false));
+      expect(listedIds()).toContain(TEST_TOKEN_IETH.faucetId);
+      act(() => setHideDustTokensSetting(true));
+      expect(listedIds()).not.toContain(TEST_TOKEN_IETH.faucetId);
+    });
+  });
+
   describe('base rendering', () => {
-    it('reorders stable balances when the configured price symbols change', async () => {
+    it('reorders stable balances when the verified price assets change', async () => {
       _setSwapTokensForTest(undefined);
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       mockAllBalances = [
@@ -392,26 +476,19 @@ describe('Explore', () => {
       };
       const listedIds = () => screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
       try {
-        await renderExplore();
+        const view = await renderExplore();
         expect(listedIds()).toEqual([TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IBTC.faucetId]);
 
-        act(() => {
-          mockBridgeSnapshot = testSnapshotWithSwapPairs({
-            tokens: [
-              testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: 'BTC' }),
-              testSwapPairsToken({ ...TEST_TOKEN_IBTC, priceSymbol: 'ETH' })
-            ],
-            pairs: []
-          });
-          publishMockBridgeSnapshot();
-        });
+        mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'BTC');
+        mockVerifiedPriceAssets.set(TEST_TOKEN_IBTC.faucetId, 'ETH');
+        view.rerender(<Explore />);
         expect(listedIds()).toEqual([TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IETH.faucetId]);
       } finally {
         _setSwapTokensForTest(TEST_SWAP_TOKENS);
       }
     });
 
-    it('updates price readiness on a config-only change with an unchanged empty feed', async () => {
+    it('updates price readiness on a verified price asset change with an unchanged empty feed', async () => {
       _setSwapTokensForTest(undefined);
       mockedHasUnquotedDefaultPrice.mockReturnValue(true);
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
@@ -419,17 +496,12 @@ describe('Explore', () => {
       mockTokenPrices = {};
       mockPortfolioTotal = new BigNumber(100);
       try {
-        await renderExplore();
+        const view = await renderExplore();
         expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
 
-        act(() => {
-          mockBridgeSnapshot = testSnapshotWithSwapPairs({
-            tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: undefined })],
-            pairs: []
-          });
-          publishMockBridgeSnapshot();
-        });
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        mockVerifiedPriceAssets.delete(TEST_TOKEN_IETH.faucetId);
+        view.rerender(<Explore />);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       } finally {
         mockedHasUnquotedDefaultPrice.mockReturnValue(false);
         _setSwapTokensForTest(TEST_SWAP_TOKENS);
@@ -461,6 +533,17 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it("formats the balance card with the active locale's number symbols", async () => {
+      mockNumberSymbols = { group: '.', decimal: ',' };
+      mockPortfolioTotal = new BigNumber(1234.5);
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden')];
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^1\.234,50$/);
     });
 
     it('hands the faucet lifecycle only a live note list, never the cached fallback', async () => {
@@ -538,6 +621,120 @@ describe('Explore', () => {
       expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
     });
 
+    const cachedEth = (change24h: number): TokenPrices => ({
+      ETH: {
+        price: 2,
+        observedAt: Date.now(),
+        kind: 'market',
+        change24h,
+        percentageChange24h: change24h
+      }
+    });
+    const scopeSnapshot = (rpcUrl = getEffectiveRpcUrl()) => {
+      tagBalanceSnapshot(
+        mockAllBalances,
+        {
+          network: getEffectiveNetworkName(),
+          effectiveNetwork: getEffectiveNetworkName(),
+          rpcUrl,
+          accountNonce: '1',
+          capturedAt: Date.now()
+        },
+        mockAccount.publicKey
+      );
+    };
+
+    it('shows the cached total when live prices have not loaded and the balance snapshot is in scope', async () => {
+      mockRealBalance = true;
+      mockCachedQuotes = cachedEth(0.5);
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 7.25)];
+      mockTokenPrices = {};
+      mockBalancesLoading = true;
+
+      const view = await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'loading');
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+
+      mockBalancesLoading = false;
+      view.rerender(<Explore />);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'default');
+
+      scopeSnapshot('https://other.example/rpc');
+      view.rerender(<Explore />);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+
+      scopeSnapshot();
+      view.rerender(<Explore />);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^14\.50$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
+    });
+
+    it('keeps a cache-only total as a dash until hidden tokens have loaded', async () => {
+      let resolveHidden: (value: null) => void = () => {};
+      mockReadStorage.mockImplementation((key: string) => {
+        if (String(key).startsWith('hidden-tokens:')) return new Promise(resolve => (resolveHidden = resolve));
+        return Promise.resolve(null);
+      });
+      mockRealBalance = true;
+      mockCachedQuotes = cachedEth(0.5);
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 7.25)];
+      mockTokenPrices = {};
+      scopeSnapshot();
+
+      await renderExplore();
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+
+      await act(async () => {
+        resolveHidden(null);
+      });
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^14\.50$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
+    });
+
+    it('keeps the dash when a cached quote still cannot value the holding', async () => {
+      mockRealBalance = true;
+      mockCachedQuotes = cachedEth(0);
+      mockAllBalances = [
+        {
+          tokenId: TEST_TOKEN_IETH.faucetId,
+          balance: 7.25,
+          metadata: { symbol: 'IETH', name: 'IETH', scaleIsUnknown: true }
+        }
+      ];
+      mockTokenPrices = {};
+      scopeSnapshot();
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+    });
+
+    it('shows the cached total when the only live quote is stale and cannot price the holding', async () => {
+      mockRealBalance = true;
+      const now = Date.now();
+      mockCachedQuotes = {
+        ETH: {
+          price: 2,
+          observedAt: now,
+          kind: 'market',
+          change24h: Number.NaN,
+          percentageChange24h: Number.NaN
+        }
+      };
+      mockTokenPrices = {
+        ETH: { price: 0, change24h: 1, percentageChange24h: 0, observedAt: now - 16 * 60_000, kind: 'market' }
+      };
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 7.25)];
+      scopeSnapshot();
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^14\.50$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
+    });
+
     it('shows the dash placeholder when the account holds tokens and none of them has a price', async () => {
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
       mockPortfolioTotal = null;
@@ -607,7 +804,7 @@ describe('Explore', () => {
         await renderBeforeAnyPrice();
 
         expect(screen.getByTestId('hidden-assets-toggle')).toHaveTextContent('hiddenAssetsCount:1');
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
 
       it('does not hold back the total when its balance is zero', async () => {
@@ -618,7 +815,7 @@ describe('Explore', () => {
 
         await renderBeforeAnyPrice();
 
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
 
       it('does not hold back the total when its scale is unknown', async () => {
@@ -633,7 +830,7 @@ describe('Explore', () => {
 
         await renderBeforeAnyPrice();
 
-        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100.00$/);
       });
     });
 
@@ -1357,6 +1554,20 @@ describe('Explore', () => {
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
+    it('auto-claims nothing on Home while the fee is unknown', async () => {
+      mockAutoConsume = true;
+      mockBaseFee = 0;
+      mockFloorFee = null;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native'), makeNote('n2', 'faucet-native')];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
     it('leaves native swap notes to the swap settlement path', async () => {
       mockAutoConsume = true;
       mockClaimableNotes = [makeNote('swap-note', 'faucet-native', false, { autoConsume: false })];
@@ -1382,7 +1593,11 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'actual-note' }),
-        expect.any(Boolean)
+        expect.any(Boolean),
+        false,
+        'auto_consume',
+        expect.any(Function),
+        7
       );
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
@@ -1405,7 +1620,11 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        true // isDelegatedProvingEnabled
+        true, // isDelegatedProvingEnabled
+        false,
+        'auto_consume',
+        expect.any(Function),
+        0
       );
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1448,7 +1667,11 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
         'mtst1account',
         expect.objectContaining({ id: 'n1' }),
-        false
+        false,
+        false,
+        'auto_consume',
+        expect.any(Function),
+        0
       );
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
       expect(mockStartBackgroundTransactionProcessing).toHaveBeenCalledTimes(1);
@@ -1473,6 +1696,71 @@ describe('Explore', () => {
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
+    it('writes no row and runs no fallback when the lock lands during the batch enqueue', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      mockAutoConsume = true;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
+      const written: string[][] = [];
+      // The claim queue's contract, pinned on real rows in initiate.batch-isolation.test.ts: the lock lands while it
+      // reads, and a guard that answers no at the write refuses it.
+      mockInitiateConsumeNotesTransaction.mockImplementation(async (...args: any[]) => {
+        mockWalletReady = false;
+        const canSign = args[7];
+        if (typeof canSign === 'function' && !canSign()) throw new Error('Claim not queued');
+        written.push(args[1].map((n: { id: string }) => n.id));
+        return 'batch-tx';
+      });
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
+      expect(written).toEqual([]);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it('fee-refused native batch has no single-note fallback or processing kick', async () => {
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      mockAutoConsume = true;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new ClaimFeeRefusedError());
+
+      const view = await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockClearNoteReceivedNotification).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
+      expect(mockClaimableNotes.map((item: { id: string }) => item.id)).toEqual(['n1', 'n2']);
+      view.unmount();
+
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new Error('batch enqueue failed'));
+      mockInitiateConsumeTransaction
+        .mockRejectedValueOnce(new ClaimFeeRefusedError())
+        .mockRejectedValueOnce(new ClaimFeeRefusedError());
+      const fallback = await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockClearNoteReceivedNotification).not.toHaveBeenCalled();
+      expect(mockMutateClaimableNotes).not.toHaveBeenCalled();
+      fallback.unmount();
+
+      mockInitiateConsumeNotesTransaction.mockRejectedValueOnce(new Error('batch enqueue failed'));
+      mockInitiateConsumeTransaction.mockRejectedValueOnce(new ClaimFeeRefusedError());
+      await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(4);
+      expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
+      expect(mockClearNoteReceivedNotification).toHaveBeenCalledTimes(1);
+    });
+
     it('consumes multiple matching notes in one pass', async () => {
       mockAutoConsume = true;
       mockClaimableNotes = [makeNote('n1', 'faucet-native', false), makeNote('n2', 'faucet-native', false)];
@@ -1482,6 +1770,23 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
       const ids = mockInitiateConsumeTransaction.mock.calls.map(c => c[1].id);
       expect(ids).toEqual(expect.arrayContaining(['n1', 'n2']));
+    });
+
+    it('claims a backlog at most MAX_NOTES_PER_UNATTENDED_CLAIM notes to a transaction (#1644)', async () => {
+      mockAutoConsume = true;
+      mockInitiateConsumeNotesTransaction.mockResolvedValue('batch-tx');
+      mockClaimableNotes = Array.from({ length: 20 }, (_unused, index) =>
+        makeNote(`n${String(index).padStart(2, '0')}`, 'faucet-native', false)
+      );
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeNotesTransaction.mock.calls.map(call => call[1].length)).toEqual([8, 8, 4]);
+      const queued = mockInitiateConsumeNotesTransaction.mock.calls.flatMap(call =>
+        call[1].map((n: { id: string }) => n.id)
+      );
+      expect(new Set(queued).size).toBe(20);
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
     });
   });
 

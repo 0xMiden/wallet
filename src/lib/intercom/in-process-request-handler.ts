@@ -22,6 +22,9 @@ import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/typ
  */
 export async function processInProcessRequest(req: WalletRequest, label: string): Promise<WalletResponse | void> {
   switch (req?.type) {
+    case WalletMessageType.PlatformUnlockRequest:
+    case WalletMessageType.PlatformResetRequest:
+      throw new Error('Platform authentication unavailable');
     case WalletMessageType.GetStateRequest: {
       const state = await Actions.getFrontState();
       return {
@@ -41,7 +44,8 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
         req.password,
         req.mnemonic,
         req.ownMnemonic,
-        req.guardianEndpoint
+        req.guardianEndpoint,
+        req.accessCode
       );
       return { type: WalletMessageType.NewWalletResponse };
 
@@ -224,6 +228,13 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.ImportHotKeyPairRequest: {
+      await Actions.importHotKeyPair(req.accountPublicKey, req.keyPairPayload);
+      return {
+        type: WalletMessageType.ImportHotKeyPairResponse
+      };
+    }
+
     case WalletMessageType.SetGuardianEndpointRequest: {
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
@@ -253,6 +264,20 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       await Actions.setGuardianSyncStatus(req.accountPublicKey, req.guardianSyncStatus);
       return {
         type: WalletMessageType.SetGuardianSyncStatusResponse
+      };
+    }
+
+    case WalletMessageType.MarkHotKeyRotatedOutRequest: {
+      await Actions.markHotKeyRotatedOut(req.accountPublicKey, req.hotPublicKey, req.onChainHotCommitment);
+      return {
+        type: WalletMessageType.MarkHotKeyRotatedOutResponse
+      };
+    }
+
+    case WalletMessageType.RetireRotatedOutHotKeyRequest: {
+      await Actions.retireRotatedOutHotKey(req.accountPublicKey, req.expectedHotPubKey);
+      return {
+        type: WalletMessageType.RetireRotatedOutHotKeyResponse
       };
     }
 
@@ -344,6 +369,9 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     // undefined, no throw, no failing test). See back/main.ts for the SW's own routing.
     case WalletMessageType.ReportTelemetryEventRequest:
       return Actions.handleReportTelemetryEvent(req);
+
+    case WalletMessageType.EstimateUsdcxBurnFeeRequest:
+      return Actions.estimateUsdcxBurnFee(req);
 
     default:
       console.warn(`${label}: Unknown request type`, req?.type);

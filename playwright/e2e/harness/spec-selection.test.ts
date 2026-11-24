@@ -1,8 +1,21 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
+import {
+  closeSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 import { listPlaywrightTests } from './playwright-list';
 
@@ -21,20 +34,12 @@ const repoRoot = resolve(__dirname, '../../..');
 
 const configSource = (file: string) => readFileSync(resolve(repoRoot, file), 'utf8');
 
-/** The json reports a real Playwright run leaves; listing tests must not rewrite them. */
-const reportFiles = ['test-results/results.json', 'test-results-stress/results.json'];
-const reportStamp = (file: string) => statSync(resolve(repoRoot, file), { throwIfNoEntry: false })?.mtimeMs ?? null;
-let reportsBefore: (number | null)[];
-
-beforeAll(() => {
-  reportsBefore = reportFiles.map(reportStamp);
-});
-
 /** Configs whose testDir the base config ignores. */
 const overridingConfigs = [
   'playwright.resilience.config.ts',
   'playwright.swap.config.ts',
-  'playwright.usdcx.config.ts'
+  'playwright.usdcx.config.ts',
+  'playwright.stored-override.config.ts'
 ];
 
 /** A config's `testIgnore` value: one line, or a whole array literal however prettier wraps it. */
@@ -50,6 +55,7 @@ describe('dedicated e2e configs override the base testIgnore', () => {
     expect(testIgnore).toMatch(/resilience/);
     expect(testIgnore).toMatch(/swap/);
     expect(testIgnore).toMatch(/usdcx/);
+    expect(testIgnore).toMatch(/stored-override/);
   });
 });
 
@@ -75,18 +81,32 @@ const BURN_TESTS = [
   'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
     'Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out'
 ];
+const L2_BURN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia', 'Sepolia'].map(
+  chain =>
+    'usdcx-burn-l2.spec.ts › USDCx L2 burn through the Send UI after a public faucet grant › ' +
+    `Guardian wallet burns to ${chain}, the faucet consumes it, Circle pays it out and the wallet confirms it`
+);
+const L2_BRIDGE_IN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia', 'Sepolia'].map(
+  chain =>
+    'usdcx-in-l2.spec.ts › USDCx L2 bridge-in from the harness key, forwarded by Circle to Arc › ' +
+    `Guardian wallet receives a deposit from ${chain} that Circle forwards to Arc, then mints and claims it`
+);
 /** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
-const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS];
+const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS, ...L2_BURN_TESTS, ...L2_BRIDGE_IN_TESTS];
 /** Each runner suite's grep, compiled case-insensitive as scripts/e2e-real.mjs does, and the tests it must select. */
 const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [
   ['USDCx round trip', [ROUND_TRIP_TEST]],
   ['funded Arc key', [BRIDGE_IN_TEST]],
-  ['USDCx burn through the Send UI', BURN_TESTS]
+  ['USDCx burn through the Send UI', BURN_TESTS],
+  ['USDCx L2 burn', L2_BURN_TESTS],
+  ['USDCx L2 bridge-in', L2_BRIDGE_IN_TESTS]
 ];
 /** Each live spec file and how many describes it guards. */
 const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [
   ['usdcx-roundtrip.spec.ts', 2],
-  ['usdcx-burn.spec.ts', 1]
+  ['usdcx-burn.spec.ts', 1],
+  ['usdcx-burn-l2.spec.ts', 1],
+  ['usdcx-in-l2.spec.ts', 1]
 ];
 /**
  * R21 and R22: every burn to the shared harness Arc key runs `harnessPayoutLeg` (usdcx-legs.ts, unit-tested in
@@ -106,7 +126,8 @@ const USDCX_PAYOUT_WIRING: RegExp[] = [
 const USDCX_PAYOUT_PRECHECK =
   /step\('arc_state', BUDGET\.arcState, async \(\) => \{\s*const state = await readXReserveDomainState\(arc\);[^;]*\)\.toEqual\(\{ registered: true, paused: false, (?:depositsPaused: false, )?withdrawalsPaused: false \}\);[\s\S]*?'fund'[\s\S]*'burn_via_ui'/;
 /** A live USDCx spec in another config's listing, the burn spec under its old tests/bridge name included. */
-const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
+const USDCX_LIVE_SPEC =
+  /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|usdcx-burn-l2\.spec\.ts|usdcx-in-l2\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
 
 /** `playwright test --list` lines as `file › describe › test`, without the line and column. */
 const listedTests = (listing: string): string[] =>
@@ -151,7 +172,7 @@ describe('the USDCx live suites run under their own config only', () => {
     ).toHaveLength(describes);
   });
 
-  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts', 'usdcx-burn-l2.spec.ts'])(
     "%s waits for each burn's own payout, proven against the key read right before the burn",
     file => {
       const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
@@ -159,12 +180,57 @@ describe('the USDCx live suites run under their own config only', () => {
     }
   );
 
-  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts', 'usdcx-burn-l2.spec.ts'])(
     '%s refuses to burn, before its faucet grant, while xReserve cannot pay the burn out',
     file => {
       expect(configSource(`${USDCX_TESTS_DIR}/${file}`)).toMatch(USDCX_PAYOUT_PRECHECK);
     }
   );
+});
+
+const STORED_OVERRIDE_TEST =
+  'stored-override.spec.ts › Stored endpoint override › a wallet on an endpoint override stored through ' +
+  'Developer Settings shows a mint in its note list and balance, before and after a restart';
+const LOCAL_E2E = '.github/workflows/pr-e2e-local.yml';
+
+describe('the stored-override suite runs on a build that reads stored overrides, after the Local E2E core specs', () => {
+  it('playwright.stored-override.config.ts lists exactly the stored-override test, and the core config none', () => {
+    expect(listedTests(listPlaywrightTests('playwright.stored-override.config.ts'))).toEqual([STORED_OVERRIDE_TEST]);
+    expect(listPlaywrightTests('playwright.e2e.config.ts')).not.toMatch(/stored-override/);
+  });
+
+  it('every other build keeps ignoring stored overrides unless told otherwise, and the stored-override build reads them', () => {
+    const scripts: unknown = JSON.parse(configSource('package.json')).scripts;
+    const script = (name: string): unknown =>
+      typeof scripts === 'object' && scripts !== null ? Reflect.get(scripts, name) : undefined;
+    const coreBuild = String(script('test:e2e:blockchain:build'));
+    expect(
+      coreBuild.match(/ MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=\$\{MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES:-true\} /g)
+    ).toHaveLength(3);
+    expect(coreBuild).not.toMatch(/MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true/);
+    expect(script('test:e2e:stored-override:build')).toBe(
+      'cross-env E2E_NETWORK=localhost MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=false yarn test:e2e:blockchain:build'
+    );
+    expect(script('test:e2e:stored-override:run')).toBe(
+      'cross-env E2E_NETWORK=localhost playwright test --config playwright.stored-override.config.ts'
+    );
+  });
+
+  it('Local E2E builds and runs the suite once its core specs ran, whether they passed or failed', () => {
+    const src = configSource(LOCAL_E2E);
+    const core = src.indexOf('      - name: Run core specs\n        id: core\n');
+    const build = src.search(
+      / {8}if: \$\{\{ !cancelled\(\) && \(steps\.core\.outcome == 'success' \|\| steps\.core\.outcome == 'failure'\) \}\}\n {8}run: yarn test:e2e:stored-override:build\n/
+    );
+    const run = src.search(
+      / {8}if: \$\{\{ !cancelled\(\) && steps\.stored_override_build\.outcome == 'success' \}\}\n {8}run: xvfb-run -a yarn test:e2e:stored-override:run --retries=1\n/
+    );
+    expect(core).not.toBe(-1);
+    expect(build).toBeGreaterThan(core);
+    expect(run).toBeGreaterThan(build);
+    expect(src).toMatch(/\n {8}id: stored_override_build\n {8}if: /);
+    expect(src).toMatch(/run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build\n/);
+  });
 });
 
 function listGuardianTests(suite?: string): string {
@@ -702,7 +768,7 @@ const requiredNameLiteralViolations = (file: string, text: string): Array<Litera
 const API_WRITER_ALLOWLIST = [
   {
     file: '.github/workflows/check-linked-web-sdk-pr.yml',
-    sha256: '6d473729f44a96453884085bdb26d0bfdf28ae5d7bb49200fa0bc42f53023c7d'
+    sha256: '0c799a091daf3cfbdfc36fa71051c9648dee174a0285cd5aa81e657e967cbc38'
   }
 ];
 
@@ -1343,6 +1409,20 @@ const linkedWith =
     return text.replace(from, () => to);
   };
 
+/** P7's text: `text` with a test reporter step after its one checkout step. */
+const withTestReporter = (text: string): string => {
+  const [step, ...others] = text.match(/^ {6}- uses: actions\/checkout@.*\n/gm) ?? [];
+  if (step === undefined || others.length > 0) {
+    throw new Error(
+      `${LINKED} changed: re-review it, then update API_WRITER_ALLOWLIST's sha256 and this case's anchor, its one checkout step`
+    );
+  }
+  return text.replace(
+    step,
+    () => `${step}\n      - uses: dorny/test-reporter@v1\n        with:\n          name: local-e2e (\${{ matrix.b }})\n`
+  );
+};
+
 /** Where the API rule must flag a case: at one of its lines, or at line 0 for the whole file. */
 type ApiArm = 'a line' | 'the whole file';
 type ApiCase = [...SourceCase, ApiArm];
@@ -1483,10 +1563,7 @@ const apiWriterCases: ApiCase[] = [
   [
     'P7: the pinned workflow adding a test reporter that names its check',
     LINKED,
-    linkedWith(
-      '      - uses: actions/checkout@v6\n',
-      `      - uses: actions/checkout@v6\n\n      - uses: dorny/test-reporter@v1\n        with:\n          name: local-e2e (\${{ matrix.b }})\n`
-    ),
+    () => withTestReporter(configSource(LINKED)),
     'the whole file'
   ],
   [...L1, 'a line'],
@@ -1821,6 +1898,16 @@ describe('no workflow can report a required E2E check name except through the co
     ]);
   });
 
+  it('P7 anchors on actions/checkout when its pin and tag comment change', () => {
+    const text = configSource(LINKED);
+    const step = /^ {6}- uses: actions\/checkout@.*$/gm;
+    expect(text.match(step)).toHaveLength(1);
+    const pin = '      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v6.1';
+    const bumped = withTestReporter(text.replace(step, () => pin));
+    expect(bumped).toContain(`${pin}\n\n      - uses: dorny/test-reporter@v1\n`);
+    expect(apiWriterViolations(LINKED, bumped).map(violation => violation.line)).toContain(0);
+  });
+
   it('ciSourceFiles() reaches every workflow, action and script CI can run, and skips docs, the lockfile and this file', () => {
     const files = ciSourceFiles();
     expect(files).toEqual(
@@ -1898,15 +1985,12 @@ describe('guardian-lifecycle-e2e-gate keeps its selector and run logic', () => {
 });
 
 describe('PR workflows run the heavy E2E jobs only on a pull request based on main or next', () => {
-  it("select-guardian-e2e's job-level if: pins FULL, so a stacked pull request skips its full-history checkout and pull request read along with it", () => {
+  it("select-guardian-e2e's job-level if: pins FULL, so a stacked pull request skips its pull request read along with it", () => {
     expect(jobIf(GUARDIAN, 'select-guardian-e2e')).toBe(`\${{ ${FULL} }}`);
   });
 
-  it('the Guardian selector runs on a linked-PR marker, skips a pull request with no marker and no changed path, and runs on push and dispatch', () => {
-    const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Check changed paths');
-    // HEAD...HEAD is an empty diff, so a pull request with no marker has no path to select it.
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).stdout.trim();
-    expect(head).toMatch(/^[0-9a-f]{40,64}$/);
+  it('the Guardian selector runs on a linked-PR marker, skips a pull request with no marker, and runs on push and dispatch', () => {
+    const body = runBlockAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', '- name: Decide whether to run');
     const arms = [
       { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: 'Guardian PR: #5', expected: 'run=true' },
       { GITHUB_EVENT_NAME: 'pull_request', PR_BODY: '', expected: 'run=false' },
@@ -1923,8 +2007,6 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
             ...process.env,
             GITHUB_EVENT_NAME,
             PR_BODY,
-            BASE_SHA: head,
-            HEAD_SHA: head,
             GITHUB_OUTPUT: outputFile
           }
         });
@@ -1951,11 +2033,23 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
   it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {
     expect(onBlock('.github/workflows/pr-e2e-local.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
     expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe(
-      '  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch: {}'
+      [
+        '  pull_request:',
+        '  push:',
+        '    branches: [main]',
+        '  workflow_dispatch:',
+        '    inputs:',
+        '      guardian_image_tag:',
+        "        description: 'Guardian A image tag (empty: versions.env)'",
+        '        type: string',
+        "        default: ''",
+        '      guardian_b_image_tag:',
+        '        description: "Guardian B image tag (empty: Guardian A\'s tag)"',
+        '        type: string',
+        "        default: ''"
+      ].join('\n')
     );
-    expect(onBlock('.github/workflows/pr-e2e-bridge-guardian.yml')).toBe(
-      '  pull_request:\n  push:\n    branches: [main]\n  workflow_dispatch: {}'
-    );
+    expect(onBlock('.github/workflows/pr-e2e-bridge-guardian.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
   });
 
   it('runBlockAfter throws when the anchor is not found, instead of matching the first run block in the file', () => {
@@ -1979,9 +2073,36 @@ describe('configs whose testDir holds Jest suites load only their Playwright spe
   });
 });
 
-// Declared last: Jest runs this file's tests in order, so the check sees every list run above.
 describe('list runs write no report files', () => {
-  it('leaves every json report as it was', () => {
-    expect(reportFiles.map(reportStamp)).toEqual(reportsBefore);
+  it.each([
+    ['playwright.e2e.config.ts', 'test-results/results.json'],
+    ['playwright.stress.config.ts', 'test-results-stress/results.json'],
+    ['playwright.stored-override.config.ts', 'test-results/stored-override/results.json']
+  ])('%s neither creates a report nor changes an existing one', (config, report) => {
+    // Playwright resolves the report and output directories relative to its config.
+    // The same config and specs can list in a private directory, away from other runs.
+    const directory = mkdtempSync(join(tmpdir(), 'wallet-playwright-list-'));
+    try {
+      symlinkSync(join(repoRoot, 'playwright'), join(directory, 'playwright'), 'dir');
+      symlinkSync(join(repoRoot, 'node_modules'), join(directory, 'node_modules'), 'dir');
+      for (const file of new Set(['playwright.e2e.config.ts', config])) {
+        copyFileSync(join(repoRoot, file), join(directory, file));
+      }
+
+      const isolatedConfig = join(directory, config);
+      const reportPath = join(directory, report);
+      expect(listPlaywrightTests(isolatedConfig)).toMatch(/Total: [1-9]\d* tests? in /);
+      expect(statSync(reportPath, { throwIfNoEntry: false })).toBeUndefined();
+
+      const priorReport = '{"suites":[]}\n';
+      mkdirSync(dirname(reportPath), { recursive: true });
+      writeFileSync(reportPath, priorReport);
+      const priorTimestamp = statSync(reportPath).mtimeMs;
+      expect(listPlaywrightTests(isolatedConfig)).toMatch(/Total: [1-9]\d* tests? in /);
+      expect(readFileSync(reportPath, 'utf8')).toBe(priorReport);
+      expect(statSync(reportPath).mtimeMs).toBe(priorTimestamp);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

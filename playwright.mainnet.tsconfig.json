@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@miden-sdk/miden-sdk/lazy": ["../node_modules/@miden-sdk/miden-sdk/js/node-index.js"]
+    }
+  }
+}

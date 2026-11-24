@@ -36,7 +36,7 @@ const makePort = (name?: string) => {
 
   const port: any = {
     name,
-    sender: { id: runtimeId },
+    sender: { id: runtimeId, url: `chrome-extension://${runtimeId}/popup.html` },
     onMessage: {
       addListener: onMessage.addListener,
       removeListener: onMessage.removeListener

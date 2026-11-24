@@ -1,17 +1,22 @@
 import React from 'react';
 
 import { Filesystem } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
+import { Share, type ShareResult } from '@capacitor/share';
 import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PageActiveContext } from 'app/layouts/page-active';
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { NearIntentsConfig } from 'lib/one-click/types';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { BridgeConfig } from 'lib/remote-config/schema';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+import { CommandDraftProvider } from 'screens/command/command-drafts';
 
 import { Receive } from './Receive';
 
@@ -38,8 +43,7 @@ jest.mock('framer-motion', () => {
   };
 });
 
-// Pending (claimable) notes live in the Activity tab's Pending filter - see
-// ActivityPendingHistory.test.tsx for the claim-flow coverage. Receive is address-only.
+// Command Receive shares Activity's native pending-note controller; compact remains address-only.
 
 // Echoes the interpolated values so a test can tell which network reached the copy.
 jest.mock('react-i18next', () => ({
@@ -76,6 +80,7 @@ jest.mock('app/icons/v2', () => ({
     Checkmark: 'Checkmark',
     CopyNew: 'CopyNew',
     CrossChain: 'CrossChain',
+    Receive: 'Receive',
     Share: 'Share',
     WarningFill: 'WarningFill'
   }
@@ -146,7 +151,24 @@ jest.mock('components/QRCode', () => ({
 let mockPublicKey = 'test-account-123';
 
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => ({ publicKey: mockPublicKey })
+  useAccount: () => ({ publicKey: mockPublicKey }),
+  useAllTokensBaseMetadata: () => ({}),
+  useAllBalances: () => ({
+    data: [
+      { tokenId: 'faucet-one', metadata: { symbol: 'ONE', name: 'One', decimals: 6 }, balance: 1 },
+      { tokenId: 'faucet-two', metadata: { symbol: 'TWO', name: 'Two', decimals: 6 }, balance: 0 }
+    ],
+    isLoading: false
+  })
+}));
+
+jest.mock('app/templates/history/useActivityClaimList', () => ({
+  useActivityClaimList: () => ({
+    listItems: [],
+    renderPendingItem: () => null,
+    isLoadingNotes: false,
+    hidden: { loaded: true, failed: false }
+  })
 }));
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
@@ -172,21 +194,70 @@ jest.mock('lib/platform', () => ({
 let mockUsdcxDepositAvailable = false;
 let mockCrossChain: FeatureAvailability = { state: 'available' };
 const mockAnyFeatureAvailability = jest.fn(
-  (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
-    features.join() === 'fastBridgeIn,bridgeIn,usdcxDeposit'
-      ? mockUsdcxDepositAvailable
-        ? { state: 'available' }
-        : mockCrossChain
-      : { state: 'loading' }
+  (
+    features: readonly string[],
+    _options?: { hold?: boolean | ((availability: FeatureAvailability) => boolean) }
+  ): FeatureAvailability =>
+    (mockLastFeatureAvailability =
+      features.join() === 'fastBridgeIn,bridgeIn,usdcxDeposit'
+        ? mockUsdcxDepositAvailable
+          ? { state: 'available' }
+          : mockCrossChain
+        : { state: 'loading' })
 );
+let mockLastFeatureAvailability: FeatureAvailability = { state: 'available' };
+// The accepted document, null for none. Receive reads only whether there is one.
+const ACCEPTED_DOCUMENT: BridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+  supportedEvmChains: {},
+  features: { earn: false, nearIntents: false }
+};
+let mockBridgeConfig: BridgeConfig | null = ACCEPTED_DOCUMENT;
 jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
-    mockAnyFeatureAvailability(features, options)
+  useAnyFeatureAvailability: (
+    features: readonly string[],
+    options?: { hold?: boolean | ((availability: FeatureAvailability) => boolean) }
+  ) => mockAnyFeatureAvailability(features, options),
+  useBridgeConfigSnapshot: (): BridgeConfigSnapshot => ({
+    network: 'testnet',
+    status: 'ready',
+    config: mockBridgeConfig,
+    derived: null,
+    lastFetch: null
+  })
 }));
 
+const expectBridgeInHold = (expected: boolean) => {
+  const call = mockAnyFeatureAvailability.mock.calls[mockAnyFeatureAvailability.mock.calls.length - 1];
+  const hold = call?.[1]?.hold;
+  expect(hold).toEqual(expect.any(Function));
+  if (typeof hold === 'function') expect(hold(mockLastFeatureAvailability)).toBe(expected);
+};
+
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn()
+  hapticLight: jest.fn(),
+  hapticSelection: jest.fn()
 }));
+
+// No NEAR Intents config by default: the page is the address alone, as before the tab existed.
+let mockNearIntentsConfig: NearIntentsConfig | null = null;
+jest.mock('lib/one-click/config', () => ({
+  useNearIntentsConfig: () => mockNearIntentsConfig
+}));
+
+// The tab itself has its own suite (screens/near-intents-flow); here it only has to show the tabs it gets.
+jest.mock('screens/near-intents-flow/NearIntentsTab', () => ({
+  __esModule: true,
+  default: ({ tabs }: { tabs?: React.ReactNode }) => <div data-testid="near-intents-tab">{tabs}</div>
+}));
+
+const NEAR_INTENTS_CONFIG: NearIntentsConfig = {
+  serviceUrl: 'https://1click.example',
+  chains: [],
+  midenAssets: []
+};
 
 jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({ address: undefined, connected: false })
@@ -211,6 +282,7 @@ jest.mock('utils/string', () => ({
 beforeEach(() => {
   mockPathname = '/receive';
   mockIsExtension.mockReturnValue(false);
+  mockNearIntentsConfig = null;
 });
 
 describe('Receive - Address', () => {
@@ -228,6 +300,7 @@ describe('Receive - Address', () => {
   beforeEach(() => {
     mockReduceMotion = false;
     mockCrossChain = { state: 'available' };
+    mockBridgeConfig = ACCEPTED_DOCUMENT;
     mockUsdcxDepositAvailable = false;
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
@@ -275,6 +348,42 @@ describe('Receive - Address', () => {
       );
     });
   };
+
+  it('keeps a selected faucet across Receive minimize and reopen without changing the live account QR or copy', async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    const renderCommand = async (open: boolean) => {
+      await act(async () => {
+        testRoot!.render(
+          <CommandDraftProvider scope={{ accountId: 'scope-one', network: 'testnet', rpcUrl: 'rpc-one' }}>
+            <FlowPresentationProvider value="command">{open && <Receive />}</FlowPresentationProvider>
+          </CommandDraftProvider>
+        );
+      });
+    };
+    await renderCommand(true);
+    expect(mockQRCodeProps).toHaveBeenLastCalledWith(expect.objectContaining({ address: 'test-account-123' }));
+    fireEvent.click(testContainer.querySelector('[data-testid="receive-asset-picker"]')!);
+    fireEvent.click(document.body.querySelector('[data-testid="receive-asset-faucet-two"]')!);
+    expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
+    const bridge = testContainer.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]');
+    const guide = testContainer.querySelector('[data-testid="receive-asset-picker"]');
+    expect(bridge).not.toBeNull();
+    expect(testContainer.querySelector('[data-testid="receive-actions"]')).not.toContainElement(bridge);
+    expect(bridge!.closest('[data-testid="receive-bridge-utility"]')).not.toBeNull();
+    expect(guide!.compareDocumentPosition(bridge!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(testContainer.querySelectorAll('[data-testid="receive-cross-chain"]')).toHaveLength(1);
+    fireEvent.click(bridge!);
+    expect(jest.requireMock<typeof import('lib/woozie')>('lib/woozie').navigate).toHaveBeenCalledWith(
+      '/bridge/deposit'
+    );
+    await renderCommand(false);
+    await renderCommand(true);
+    expect(testContainer.querySelector('[data-testid="receive-selected-asset"]')).toHaveTextContent('TWO');
+    expect(mockQRCodeProps).toHaveBeenLastCalledWith(expect.objectContaining({ address: 'test-account-123' }));
+    fireEvent.click(testContainer.querySelector('[data-testid="receive-copy-address"]')!);
+    await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
+  });
 
   it('renders the account address', async () => {
     const container = await renderReceive();
@@ -334,6 +443,16 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-actions"]')!.nextElementSibling).toBe(warning);
   });
 
+  it('opens the bridge page directly when Cross-chain is tapped without an EVM connection', async () => {
+    const container = await renderReceive();
+    const { navigate } = jest.requireMock<typeof import('lib/woozie')>('lib/woozie');
+    jest.mocked(navigate).mockClear();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]')!.click();
+    });
+    expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
+  });
+
   it('renders Share and Cross-chain as two outlined tiles side by side, with one haptic per tap', async () => {
     const container = await renderReceive();
 
@@ -371,8 +490,9 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeEnabled();
     expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
     expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
-      hold: true
+      hold: expect.any(Function)
     });
+    expectBridgeInHold(true);
   });
 
   // Off testnet there is no USDCx route, so the Fast and Slow routes alone decide.
@@ -387,10 +507,43 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
       'bridgeFeatureUnavailableBody'
     );
+    expectBridgeInHold(true);
     await act(async () => {
       fireEvent.click(crossChain);
     });
     expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  // Mainnet's document configures no bridge-in route: no tile at all, rather than a greyed one blaming a service.
+  it('draws no Cross Chain and no notice on a network that configures no bridge-in route', async () => {
+    mockNetworkKey = null;
+    mockBridgeConfig = { ...ACCEPTED_DOCUMENT, network: 'mainnet' };
+    mockCrossChain = { state: 'unavailable', reason: 'not-configured', detail: 'no listed route' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeNull();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
+    expect(container.querySelector('[data-testid="receive-share"]')).not.toBeNull();
+    expectBridgeInHold(false);
+  });
+
+  // With no accepted document nothing says what the network configures: a config outage keeps the greyed tile.
+  it.each<[string, 'testnet' | null]>([
+    ['testnet', 'testnet'],
+    ['mainnet', null]
+  ])('greys out Cross Chain under the notice on %s when no document has been accepted', async (_network, key) => {
+    mockNetworkKey = key;
+    mockBridgeConfig = null;
+    mockCrossChain = { state: 'unavailable', reason: 'not-configured', detail: 'no accepted document' };
+    const container = await renderReceive();
+
+    const crossChain = container.querySelector('[data-testid="receive-cross-chain"]');
+    expect(crossChain).not.toBeNull();
+    expect(crossChain).toBeDisabled();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
+      'bridgeFeatureUnavailableBody'
+    );
+    expectBridgeInHold(true);
   });
 
   // Every platform draws Cross Chain, the extension included (its relay socket closed only because
@@ -407,8 +560,9 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).not.toBeNull();
     // The hold applies on every platform.
     expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
-      hold: true
+      hold: expect.any(Function)
     });
+    expectBridgeInHold(true);
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {
@@ -480,12 +634,13 @@ describe('Receive - Address', () => {
   });
 
   it('leaves the horizontal swipe to the home carousel', async () => {
-    // A pane that can pan sideways takes the carousel's drag before HomeSwipeContainer sees it.
+    // The pager is a native scroller: a body that allowed only `pan-y` would swallow the sideways
+    // pan, and one that scrolled sideways itself would take it.
     const container = await renderReceive();
 
     const page = container.querySelector<HTMLElement>('[data-testid="receive-page"]')!;
-    expect(page.style.touchAction).toBe('pan-y');
-    expect(page).toHaveClass('overflow-x-hidden');
+    expect(page.style.touchAction).toBe('pan-x pan-y');
+    expect(page).toHaveClass('overflow-x-hidden', 'overscroll-y-contain');
   });
 
   describe('the receive green', () => {
@@ -521,11 +676,11 @@ describe('Receive - Address', () => {
       );
     });
 
-    it('names the network with the shared NetworkChip, in the same tint as send and contacts', async () => {
+    it('names the network with the shared NetworkChip, in the same neutral style as send and contacts', async () => {
       const container = await renderReceive();
 
       const chip = container.querySelector('[data-testid="receive-network"]')!;
-      expect(chip).toHaveClass('bg-network-miden-tint', 'text-network-miden-text');
+      expect(chip).toHaveClass('bg-fill', 'text-ink', 'rounded-xl');
       expect(chip.querySelector('[data-testid="miden-logo"]')).not.toBeNull();
     });
   });
@@ -867,6 +1022,7 @@ describe('Receive - Address', () => {
 
         await waitFor(() => expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' }));
         expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toBeNull();
         expect(warn.mock.calls).toEqual(warns ? dismissed : []);
       } finally {
         warn.mockRestore();
@@ -895,8 +1051,129 @@ describe('Receive - Address', () => {
           await new Promise(resolve => setTimeout(resolve, 20));
         });
         expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^\[clipboard\]/), expect.any(Error));
+        const failure = container.querySelector('[data-testid="receive-share-copy-failed"]');
+        expect(failure).toHaveAttribute('role', 'alert');
+        expect(failure).toHaveTextContent('receiveShareCopyFailed');
+        const selectable = container.querySelector<HTMLTextAreaElement>('[data-testid="receive-share-manual-address"]');
+        expect(selectable).toHaveValue('test-account-123');
+        document.body.appendChild(testContainer!);
+        const select = jest.spyOn(selectable!, 'select');
+        selectable!.focus();
+        expect(document.activeElement).toBe(selectable);
+        expect(select).toHaveBeenCalledTimes(1);
+        expect(selectable!.selectionStart).toBe(0);
+        expect(selectable!.selectionEnd).toBe('test-account-123'.length);
+        Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+        await clickShare(container);
+        expect(share).toHaveBeenCalledTimes(1);
+        expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toBeNull();
       } finally {
         errorSpy.mockRestore();
+      }
+    });
+
+    it('offers the same selectable address when Command Share and its clipboard fallback fail', async () => {
+      mockIsMobile.mockReturnValue(false);
+      delete (navigator as { share?: unknown }).share;
+      mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        testContainer = document.createElement('div');
+        testRoot = createRoot(testContainer);
+        await act(async () => {
+          testRoot!.render(
+            <CommandDraftProvider scope={{ accountId: 'scope-one', network: 'testnet', rpcUrl: 'rpc-one' }}>
+              <FlowPresentationProvider value="command">
+                <Receive />
+              </FlowPresentationProvider>
+            </CommandDraftProvider>
+          );
+        });
+        await act(async () => {
+          testContainer!.querySelector<HTMLButtonElement>('[data-testid="receive-share"]')!.click();
+        });
+        await waitFor(() =>
+          expect(testContainer!.querySelector('[data-testid="receive-share-copy-failed"]')).not.toBeNull()
+        );
+        expect(testContainer!.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(
+          'test-account-123'
+        );
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it.each([
+      { platform: 'web', mobile: false, changeAccount: false },
+      { platform: 'native', mobile: true, changeAccount: false },
+      { platform: 'web after account change', mobile: false, changeAccount: true }
+    ])(
+      'does not let an older $platform Share success erase a newer clipboard failure',
+      async ({ mobile, changeAccount }) => {
+        const originalAccount = mockPublicKey;
+        mockIsMobile.mockReturnValue(mobile);
+        let finishOlderShare: () => void = () => {};
+        const olderShare = new Promise<ShareResult>(resolve => {
+          finishOlderShare = () => resolve({ activityType: 'test-share' });
+        });
+        const shareAction = mobile ? jest.mocked(Share.share) : share;
+        shareAction
+          .mockReset()
+          .mockImplementationOnce(() => olderShare)
+          .mockRejectedValueOnce(new Error('dismissed'));
+        mockClipboardWrite.mockRejectedValueOnce(new Error('clipboard denied'));
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          const container = await renderReceive();
+          await clickShare(container);
+          expect(shareAction).toHaveBeenCalledTimes(1);
+          if (changeAccount) {
+            mockPublicKey = 'other-account';
+            await setPageActive(true);
+          }
+          await clickShare(container);
+          await waitFor(() =>
+            expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).not.toBeNull()
+          );
+          expect(container.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(mockPublicKey);
+          await act(async () => finishOlderShare());
+          expect(shareAction).toHaveBeenCalledTimes(2);
+          expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+          expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toHaveAttribute('role', 'alert');
+          expect(container.querySelector('[data-testid="receive-share-manual-address"]')).toHaveValue(mockPublicKey);
+        } finally {
+          finishOlderShare();
+          mockPublicKey = originalAccount;
+          warn.mockRestore();
+          error.mockRestore();
+        }
+      }
+    );
+
+    it('does not copy a previous account when its Share rejects after switching accounts', async () => {
+      const originalAccount = mockPublicKey;
+      let rejectOlderShare: (error: Error) => void = () => {};
+      const olderShare = new Promise<void>((_, reject) => {
+        rejectOlderShare = reject;
+      });
+      share.mockReset().mockImplementationOnce(() => olderShare);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const container = await renderReceive();
+        await clickShare(container);
+        expect(share).toHaveBeenCalledTimes(1);
+        mockPublicKey = 'other-account';
+        await setPageActive(true);
+        await act(async () => rejectOlderShare(new Error('dismissed')));
+        expect(mockClipboardWrite).not.toHaveBeenCalled();
+        expect(container.querySelector('[data-testid="receive-share-copy-failed"]')).toBeNull();
+        expect(container.querySelector('[data-testid="receive-address-full"]')).toHaveTextContent('other-account');
+      } finally {
+        mockPublicKey = originalAccount;
+        warn.mockRestore();
       }
     });
 
@@ -922,12 +1199,13 @@ describe('Receive - Address', () => {
       }
     });
 
-    it('names the source network of the cross-chain route', async () => {
+    // The source chains come from the remote config and differ per network, so the tile names none.
+    it('names no source network on the cross-chain tile', async () => {
       const container = await renderReceive();
 
-      expect(container.querySelector('[data-testid="receive-cross-chain"]')?.textContent).toContain(
-        'crossChainFromNetwork:ethereumSepolia:'
-      );
+      const tile = container.querySelector('[data-testid="receive-cross-chain"]');
+      expect(tile?.textContent).toContain('crossChain');
+      expect(tile?.textContent).not.toContain('crossChainFromNetwork');
     });
   });
 });
@@ -1128,5 +1406,126 @@ describe('Receive - receive_share telemetry', () => {
 
     expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
     expect(telemetryPayload()).not.toContain('test-account-123');
+  });
+
+  describe('with the Near Intents tab', () => {
+    const chooseTab = async (id: 'miden' | 'near-intents') => {
+      const tab = testContainer!.querySelector(`[data-testid="receive-tab-${id}"]`);
+      if (!tab) throw new Error(`no ${id} tab`);
+      await act(async () => {
+        fireEvent.click(tab);
+      });
+    };
+
+    beforeEach(() => {
+      mockNearIntentsConfig = NEAR_INTENTS_CONFIG;
+    });
+
+    it('does not complete the share while the Near Intents tab hides the address', async () => {
+      await mount();
+      await chooseTab('near-intents');
+      await dwell();
+
+      expect(beginFlowMock).toHaveBeenCalledWith('receive_share');
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+    });
+
+    it('completes the share once the user goes back to the Miden tab', async () => {
+      await mount();
+      await chooseTab('near-intents');
+      await dwell();
+      await chooseTab('miden');
+
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancels the share when the user leaves from the Near Intents tab', async () => {
+      await mount();
+      await chooseTab('near-intents');
+      await dwell();
+      await unmountReceive();
+
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+      expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe('Receive - tabs', () => {
+  let testRoot: ReturnType<typeof createRoot> | null = null;
+  let testContainer: HTMLDivElement | null = null;
+
+  beforeAll(() => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
+  afterAll(() => {
+    delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  afterEach(async () => {
+    if (testRoot) {
+      await act(async () => {
+        testRoot!.unmount();
+      });
+      testRoot = null;
+    }
+    testContainer?.remove();
+    testContainer = null;
+  });
+
+  const renderReceive = async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+    return testContainer;
+  };
+
+  it('draws no tabs without a Near Intents config, so the page is the address alone', async () => {
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-tabs"]')).toBeNull();
+    expect(container.querySelector('[data-testid="receive-page"]')).not.toBeNull();
+  });
+
+  it('draws the Miden and Near Intents tabs over the address, and switches to the Near Intents tab', async () => {
+    mockNearIntentsConfig = NEAR_INTENTS_CONFIG;
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-page"] [data-testid="receive-tabs"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="receive-tab-miden"]')?.textContent).toBe('miden');
+    // The Near Intents tab has the rainbow ring and the beta badge on the edge of its pill, beside the button.
+    const nearIntentsTab = container.querySelector('[data-testid="receive-tab-near-intents"]');
+    expect(nearIntentsTab?.textContent).toBe('nearIntentsTab');
+    const decoration = nearIntentsTab?.parentElement;
+    expect(decoration?.querySelector('[data-testid="segmented-control-rainbow-ring"]')).not.toBeNull();
+    expect(decoration?.querySelector('[data-testid="segmented-control-badge"]')?.textContent).toBe('nearIntentsBeta');
+    expect(container.querySelectorAll('[data-testid="segmented-control-rainbow-ring"]')).toHaveLength(1);
+
+    const nearIntents = container.querySelector('[data-testid="receive-tab-near-intents"]');
+    await act(async () => {
+      fireEvent.click(nearIntents!);
+    });
+    await waitFor(() => expect(container.querySelector('[data-testid="near-intents-tab"]')).not.toBeNull());
+    expect(container.querySelector('[data-testid="receive-page"]')).toBeNull();
+    expect(container.querySelector('[data-testid="near-intents-tab"] [data-testid="receive-tabs"]')).not.toBeNull();
+  });
+
+  it('shows the address again when the config goes away', async () => {
+    mockNearIntentsConfig = NEAR_INTENTS_CONFIG;
+    const container = await renderReceive();
+    await act(async () => {
+      fireEvent.click(container.querySelector('[data-testid="receive-tab-near-intents"]')!);
+    });
+
+    mockNearIntentsConfig = null;
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+
+    expect(container.querySelector('[data-testid="receive-page"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="receive-tabs"]')).toBeNull();
   });
 });

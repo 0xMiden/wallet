@@ -1,15 +1,39 @@
-import { guardianDappAxis } from './dapp-axis';
+import type { Page } from '@playwright/test';
+
+import { captureBaseline, expectVerifiedPreview, expectWritesToTheEnd } from './dapp-assertions';
+import { guardianDappAxis, offchainDappAxis } from './dapp-axis';
 import { abortsLeg, deadlineIn, InfrastructureFault } from './dapp-cells';
 import type { Journey } from './dapp-journey';
-import { journeyNoteIdsSeenOver, nativeNoteTo, noteIdsSeenOver, sideOf } from './dapp-writes';
+import {
+  customWriteToTheEnd,
+  journeyNoteIdsSeenOver,
+  nativeNoteTo,
+  noteIdsSeenOver,
+  sideOf,
+  type CustomWrite
+} from './dapp-writes';
 import { mintFromPublicFaucet, PublicFaucetError } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
-import type { DappHandle } from './test-dapp';
+import { answerPrompt, type DappHandle } from './test-dapp';
+import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 
 // @playwright/test does not load under Jest; dapp-writes only needs its expect (as in dapp-assertions.test.ts).
 jest.mock('@playwright/test', () => ({ expect: (globalThis as typeof globalThis & { expect: typeof expect }).expect }));
 jest.mock('./public-faucet', () => ({ ...jest.requireActual('./public-faucet'), mintFromPublicFaucet: jest.fn() }));
 jest.mock('./public-note-commitment', () => ({ waitForPublicNoteCommitment: jest.fn() }));
+// customWriteToTheEnd's own steps are what these tests read; the assertions and the popup are their own suites'.
+jest.mock('./dapp-assertions', () => ({
+  ...jest.requireActual('./dapp-assertions'),
+  captureBaseline: jest.fn(),
+  expectVerifiedPreview: jest.fn(async () => undefined),
+  expectWritesToTheEnd: jest.fn()
+}));
+jest.mock('./test-dapp', () => ({
+  ...jest.requireActual('./test-dapp'),
+  advanceChain: jest.fn(async () => ({ height: 103, reachedAtMs: 0 })),
+  answerPrompt: jest.fn(),
+  popupBlock: jest.fn(async () => undefined)
+}));
 
 const NOTE = `0x${'ab'.repeat(32)}`;
 const journey = { env: { name: 'testnet', rpcUrl: 'https://rpc.testnet.miden.io' } } as unknown as Journey;
@@ -176,5 +200,155 @@ describe('sideOf', () => {
     expect({ account: third.account, axis: third.axis.label }).toEqual({ account: 'mtst1qthird', axis: 'offchain' });
     expect((await sideOf(guardianJourney, dapp, 'second')).axis.label).toBe('guardian');
     expect((await sideOf(guardianJourney, dapp)).axis.label).toBe('guardian');
+  });
+});
+
+describe('customWriteToTheEnd', () => {
+  const TOKEN = 'mtst1qtoken';
+  const PREDICTED = `0x${'ef'.repeat(32)}`;
+  const walletB = { label: 'B' } as unknown as GuardianAwareWalletPage;
+  const journey = {
+    axis: offchainDappAxis,
+    walletA: {},
+    walletB,
+    nativeFaucetId: 'mtst1qfee',
+    account: async (slot: string) => `mtst1q${slot}`,
+    senders: () => []
+  } as unknown as Journey;
+  // The page answers the commands a custom write sends, and keeps them in order.
+  const dappAnswering = (outputNoteIds: string[]) => {
+    const commands: string[] = [];
+    const built = {
+      requestId: 'r1',
+      requestB64: '',
+      boundBlockNum: 100,
+      outputNoteIds,
+      attachmentWordsHex: [],
+      checks: {}
+    };
+    const evaluate = jest.fn(async (_script: unknown, call: { command: string }) => {
+      commands.push(call.command);
+      if (call.command === 'session') return { connected: { accountIdHex: '0xaccount' } };
+      if (call.command === 'buildCustom' || call.command === 'buildCustomScript') return built;
+      if (call.command === 'submitCustom') return { ok: true, value: { txId: 'tx-1' } };
+      throw new Error(`unexpected command ${call.command}`);
+    });
+    const dapp = { label: 'one', origin: 'http://localhost:4810', page: { evaluate } } as unknown as DappHandle;
+    return { dapp, commands };
+  };
+  const ctx = () => ({ deadline: deadlineIn(60_000, 'X8b'), evidence: {}, softFail: jest.fn() });
+
+  beforeEach(() => {
+    jest
+      .mocked(captureBaseline)
+      .mockReset()
+      .mockResolvedValue({ vault: {}, commitmentHex: null, rowIds: [], capturedAtSec: 0 });
+    jest.mocked(expectVerifiedPreview).mockClear();
+    jest
+      .mocked(expectWritesToTheEnd)
+      .mockReset()
+      .mockResolvedValue([
+        { txId: 'tx-1', txHash: `0x${'ab'.repeat(32)}`, outputNotes: [], feeAmount: 7n, row: { id: 'tx-1' } }
+      ]);
+    jest
+      .mocked(answerPrompt)
+      .mockReset()
+      .mockImplementation((async (
+        _dapp: DappHandle,
+        start: () => Promise<unknown>,
+        plan: { whileOpen?: (popup: Page) => Promise<void> }
+      ) => {
+        await plan.whileOpen?.({} as Page);
+        return { result: await start(), popup: {} as Page };
+      }) as unknown as typeof answerPrompt);
+  });
+
+  it("builds a script write with buildCustomScript and expects the dApp's predicted note to the end", async () => {
+    const { dapp, commands } = dappAnswering([PREDICTED]);
+    const write: CustomWrite = {
+      build: {
+        kind: 'pay-checked',
+        outputs: [{ recipientAddress: 'mtst1qb', faucetId: TOKEN, amount: '3', noteType: 'private' }]
+      },
+      submit: { recipientAddress: 'mtst1qb', importNotes: false },
+      advance: 3,
+      vaultDelta: { [TOKEN]: -3n },
+      toB: [true],
+      consumedNullifiers: [],
+      preview: { amount: /^3 TST$/, outputNotes: 1, storageChanged: false }
+    };
+    await customWriteToTheEnd(journey, dapp, write, ctx());
+    expect(commands).toEqual(['session', 'buildCustomScript', 'submitCustom']);
+    expect(jest.mocked(expectVerifiedPreview).mock.calls[0]?.[1]).toEqual({
+      amount: /^3 TST$/,
+      outputNotes: 1,
+      storageChanged: false,
+      timeoutMs: undefined
+    });
+    expect(jest.mocked(expectWritesToTheEnd).mock.calls[0]?.[2]).toEqual([
+      {
+        txId: 'tx-1',
+        outputNotes: [
+          {
+            noteId: PREDICTED,
+            noteType: 'private',
+            minBlock: 103,
+            attachmentWordsHex: [],
+            recipient: { wallet: walletB, faucetId: TOKEN, amount: 3n }
+          }
+        ],
+        consumedNullifiers: []
+      }
+    ]);
+  });
+
+  it('still builds a note write with buildCustom', async () => {
+    const { dapp, commands } = dappAnswering([PREDICTED]);
+    await customWriteToTheEnd(
+      journey,
+      dapp,
+      {
+        build: {
+          shape: 'p2id',
+          outputs: [{ recipientAddress: 'mtst1qb', faucetId: TOKEN, amount: '1', noteType: 'public' }]
+        },
+        submit: { recipientAddress: 'mtst1qb', importNotes: false },
+        advance: 3,
+        vaultDelta: { [TOKEN]: -1n },
+        toB: [true],
+        consumedNullifiers: [],
+        preview: { amount: /^1 TST$/, outputNotes: 1 }
+      },
+      ctx()
+    );
+    expect(commands).toEqual(['session', 'buildCustom', 'submitCustom']);
+  });
+
+  it('gives a fee-only script no asset row, no output notes and the storage value it names', async () => {
+    const { dapp, commands } = dappAnswering([]);
+    await customWriteToTheEnd(
+      journey,
+      dapp,
+      {
+        build: { kind: 'fee-only', outputs: [] },
+        submit: { recipientAddress: '', importNotes: false },
+        advance: 3,
+        vaultDelta: {},
+        toB: [],
+        consumedNullifiers: [],
+        preview: { amount: null, outputNotes: 0, storageChanged: false }
+      },
+      ctx()
+    );
+    expect(commands).toEqual(['session', 'buildCustomScript', 'submitCustom']);
+    expect(jest.mocked(expectVerifiedPreview).mock.calls[0]?.[1]).toEqual({
+      amount: null,
+      outputNotes: 0,
+      storageChanged: false,
+      timeoutMs: undefined
+    });
+    expect(jest.mocked(expectWritesToTheEnd).mock.calls[0]?.[2]).toEqual([
+      { txId: 'tx-1', outputNotes: [], consumedNullifiers: [] }
+    ]);
   });
 });

@@ -1,9 +1,9 @@
 import type { Browser } from 'webextension-polyfill';
 
 import { isDesktop, isMobile } from 'lib/platform';
-import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
+import { annotateCrash, readPageNavigation } from 'lib/telemetry/crash-diagnostics';
 
-import { deserializeInternalError } from './helpers';
+import { deserializeInternalError, IntercomError } from './helpers';
 import { MessageType, RequestMessage } from './types';
 
 function diagnosticRequestType(payload: unknown): unknown {
@@ -193,6 +193,8 @@ export class IntercomClient implements IIntercomClient {
   private reconnectAttempts = 0;
   /** Set once the context is orphaned — stops the reconnect loop for good. */
   private stopped = false;
+  /** Set once a reconnect has replaced the first port, so a crash report can say this page reconnected. */
+  private portRebuilt = false;
 
   constructor() {
     this.reqId = 0;
@@ -215,6 +217,10 @@ export class IntercomClient implements IIntercomClient {
     const requestType = diagnosticRequestType(payload);
     try {
       await this.portReady;
+      // Covers a signal aborted while portReady was pending, once that promise resolves, and one already aborted.
+      if (options?.signal?.aborted) {
+        throw new Error('Aborted');
+      }
       const reqId = this.reqId++;
       const port = this.port;
 
@@ -255,7 +261,16 @@ export class IntercomClient implements IIntercomClient {
         }
       });
     } catch (error) {
-      annotateCrash(error, { operation: 'intercom_request', requestType });
+      const code = error instanceof IntercomError ? error.code : undefined;
+      annotateCrash(error, {
+        operation: 'intercom_request',
+        requestType,
+        // A dApp approval's Not Found carries the state the background held for it.
+        confirmationHandler: code,
+        // A reload of an approval window is one way to ask for an approval the background no longer holds.
+        pageNavigation: code?.startsWith('confirmation_') ? readPageNavigation() : undefined,
+        portReconnected: this.portRebuilt
+      });
       throw error;
     }
   }
@@ -336,6 +351,7 @@ export class IntercomClient implements IIntercomClient {
         try {
           const nextBrowser = await getBrowser();
           this.port = this.buildPort(nextBrowser);
+          this.portRebuilt = true;
         } catch (e) {
           // `connect()` throws synchronously once the context is gone.
           if (isContextInvalidated(e)) this.stopped = true;

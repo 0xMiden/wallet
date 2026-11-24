@@ -10,10 +10,56 @@ import {
 import { AccountId } from '@miden-sdk/miden-sdk';
 import { formatUnits, parseUnits } from 'viem';
 
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
+import { readCompactLockBalance, strandedDepositAmount } from './bridge-in-lock';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
-import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
+import type { CrossChainIntentParams, EpochReviewedOutput, EVMToMidenIntentParams, IntentResult } from './types';
+
+export function reviewedEpochMinimum(value: string, decimals: number): bigint {
+  if (
+    typeof value !== 'string' ||
+    !Number.isSafeInteger(decimals) ||
+    decimals < 0 ||
+    decimals > 255 ||
+    !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) ||
+    (value.split('.')[1]?.length ?? 0) > decimals
+  )
+    throw new EpochReviewChangedError();
+  const minimum = parseUnits(value, decimals);
+  if (minimum <= 0n || minimum >= 1n << 256n) throw new EpochReviewChangedError();
+  return minimum;
+}
+
+export function assertEpochReviewedOutput(output: EpochReviewedOutput | undefined): void {
+  if (
+    !output ||
+    typeof output.minimumOutputBaseUnits !== 'string' ||
+    !/^[1-9]\d*$/.test(output.minimumOutputBaseUnits) ||
+    BigInt(output.minimumOutputBaseUnits) >= 1n << 256n ||
+    !/^0x[\da-f]{40}$/i.test(output.outputTokenAddress) ||
+    !Number.isSafeInteger(output.outputTokenDecimals) ||
+    output.outputTokenDecimals < 0 ||
+    output.outputTokenDecimals > 255 ||
+    !output.validity ||
+    (output.validity.kind !== 'provider' &&
+      (output.validity.kind !== 'time' ||
+        !Number.isFinite(output.validity.expiresAt) ||
+        output.validity.expiresAt <= Date.now()))
+  )
+    throw new EpochReviewChangedError();
+}
+
+export function assertCompactEpochScope(output: EpochReviewedOutput | undefined): void {
+  if (
+    !output?.walletScope ||
+    output.walletScope.network !== getEffectiveNetworkName() ||
+    output.walletScope.rpcUrl !== getEffectiveRpcUrl()
+  )
+    throw new EpochReviewChangedError();
+}
 
 export interface CrossChainQuote {
   taskTypeString: string;
@@ -189,8 +235,8 @@ export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
   const taskDataParams = {
     taskType: TaskType.GetTokenOut,
     intentData: {
-      isNative: false,
-      depositTokenAddress: params.evmTokenAddress,
+      isNative: params.isNative === true,
+      depositTokenAddress: params.isNative === true ? ZERO_ADDRESS : params.evmTokenAddress,
       // Reverse quote: the allocator derives the EVM `tokenIn` from minTokenOut.
       tokenInAmount: '0',
       outputTokenAddress: ZERO_ADDRESS,
@@ -230,7 +276,7 @@ export async function getEVMToMidenQuote(
     sponsorAddress: sponsorAddress as `0x${string}`,
     taskTypeString,
     intentData,
-    isNative: false
+    isNative: params.isNative === true
   });
 
   if (!quoteResult.success) {
@@ -240,9 +286,23 @@ export async function getEVMToMidenQuote(
   return { taskTypeString, intentData, quoteResult, params };
 }
 
+/** `solveResult.intentRequestData.compact.expires`, when that path is present. */
+function solvedCompactExpires(solveResult: unknown): string | undefined {
+  if (typeof solveResult !== 'object' || solveResult === null) return undefined;
+  const intentRequestData: unknown = Reflect.get(solveResult, 'intentRequestData');
+  if (typeof intentRequestData !== 'object' || intentRequestData === null) return undefined;
+  const compact: unknown = Reflect.get(intentRequestData, 'compact');
+  if (typeof compact !== 'object' || compact === null) return undefined;
+  const expires: unknown = Reflect.get(compact, 'expires');
+  if (typeof expires === 'string') return expires;
+  if (typeof expires === 'bigint') return expires.toString();
+  return undefined;
+}
+
 export async function buildEVMToMidenIntent(
-  sdk: EpochIntentSDK,
-  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote }
+  sdk: Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'> & Partial<Pick<EpochIntentSDK, 'getDepositedBalances'>>,
+  params: EVMToMidenIntentParams & { preFetchedQuote?: EVMToMidenQuote },
+  beforeSolve?: () => Promise<void>
 ): Promise<IntentResult> {
   let taskTypeString: string;
   let intentData: unknown;
@@ -255,9 +315,16 @@ export async function buildEVMToMidenIntent(
     ({ taskTypeString, intentData } = await sdk.getTaskData(taskDataParams));
   }
 
+  // The SDK deposits into The Compact before it asks the allocator for the allocation, and a refused allocation
+  // only gives an error message. The lock balance before and after the solve tells if a deposit landed (#2120). Both
+  // reads must work: without the read before, the lock can hold older funds, so no deposit is reported.
+  const lockToken = params.isNative === true ? ZERO_ADDRESS : params.evmTokenAddress;
+  const lockBefore = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
+
   try {
+    await beforeSolve?.();
     const solveResult = await sdk.solveIntent({
-      isNative: false,
+      isNative: params.isNative === true,
       sponsorAddress: params.evmSourceAddress as `0x${string}`,
       taskTypeString,
       intentData,
@@ -265,17 +332,24 @@ export async function buildEVMToMidenIntent(
       collateralType: 'evm' as CollateralType
     });
 
+    const compactExpires = solvedCompactExpires(solveResult);
     return {
       taskTypeString,
       intentData: intentData as Record<string, unknown>,
-      solveResult
+      solveResult,
+      ...(compactExpires !== undefined ? { compactExpires } : {})
     };
   } catch (err) {
-    console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);
+    if (!beforeSolve) console.error('[EpochBridge] EVM→Miden solveIntent failed:', err);
+    const lockAfter = await readCompactLockBalance(sdk, params.evmSourceAddress, lockToken);
+    const stranded = strandedDepositAmount(lockBefore, lockAfter);
     return {
       taskTypeString,
       intentData: intentData as Record<string, unknown>,
-      error: err instanceof Error ? err.message : 'Failed to solve EVM→Miden intent'
+      error: err instanceof Error ? err.message : 'Failed to solve EVM→Miden intent',
+      ...(stranded !== undefined && lockAfter !== undefined
+        ? { strandedDeposit: { lockId: lockAfter.lockId, amount: stranded.toString(), tokenAddress: lockToken } }
+        : {})
     };
   }
 }

@@ -4,7 +4,7 @@
  * playwright/e2e/helpers/dapp-cells.ts) as the job-summary matrix, and with --gate decides the job: it fails on a
  * new failure, a harness fault, a cell that never ran or was blocked by state or infrastructure, a known bug that
  * now passes or no longer shows, a test with no records, a run that left no Playwright report, and an error Playwright
- * reported outside every test. It passes when every failure is a registered known bug, or blocked behind one. Given
+ * reported outside every test, and a mobile leg whose records carry no presentation path. It passes when every failure is a registered known bug, or blocked behind one. Given
  * the Playwright report, the matrix also prints each journey's status and duration against its test timeout, so a
  * journey that ran out of time does not read as a wrong value in its cells.
  *
@@ -30,6 +30,24 @@ const TEXT = {
   'blocked-state': 'blocked (state)',
   'blocked-infra': 'blocked (infrastructure)'
 };
+
+// A mobile leg labels what its dApp window ran on, from the page's own `window.bread.presentation.ready()` answer: a
+// WebView without the gated path covers provider injection and the sheet hide on the fallback path only.
+const MOBILE_SURFACES = new Set(['ios', 'android']);
+const PRESENTATION_TEXT = {
+  gated: 'the gated path, which current WebViews run',
+  fallback:
+    'the browserFallback path only: provider injection and the sheet hide on that path, while current WebViews run the gated path',
+  absent: 'no presentation API on the page',
+  other: 'an answer that names neither path'
+};
+
+export function coverageLine(journey) {
+  const coverage = journey.coverage;
+  if (coverage === undefined) return undefined;
+  const meaning = PRESENTATION_TEXT[coverage.presentationPath] ?? 'an unknown label';
+  return `Presentation path: ${coverage.presentationPath}, ${meaning} (${cellText(coverage.detail)})`;
+}
 
 export function readJourneys(dir) {
   if (!existsSync(dir)) return [];
@@ -73,6 +91,8 @@ export function renderMatrix(journeys, infra, results) {
   const specs = results ? playwrightSpecs(results) : [];
   for (const journey of journeys) {
     lines.push(`### ${journey.testTitle} (${journey.part})`, '');
+    const coverage = coverageLine(journey);
+    if (coverage !== undefined) lines.push(coverage, '');
     if (results) lines.push(runLine(specs.find(spec => spec.title === journey.testTitle)), '');
     lines.push('| Cell | Verdict | Seconds | Detail |', '|---|---|---|---|');
     for (const cell of journey.cells) {
@@ -119,6 +139,9 @@ export function judge(journeys, results, infra) {
     if (!recorded.has(title)) problems.push(`no cell records for "${title}"`);
   }
   for (const journey of journeys) {
+    if (MOBILE_SURFACES.has(journey.surface) && journey.coverage === undefined) {
+      problems.push(`${journey.testTitle}: no presentation path recorded, so the leg's coverage is unlabelled`);
+    }
     const byId = new Map(journey.cells.map(cell => [cell.id, cell]));
     for (const cell of journey.cells) {
       const where = `${journey.testTitle} ${cell.id}`;

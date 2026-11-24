@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import type { ChoiceCardItem } from 'components/ui/ChoiceCard';
 import { Pill } from 'components/ui/Pill';
@@ -14,6 +15,8 @@ export interface GuardianOperatorCardInput {
   tag?: string;
   /** The operator answered offline. */
   offline: boolean;
+  /** The provider sheet's "Fastest": a white pill with the bolt on the card's top edge instead of beside the title. */
+  edgeTag?: string;
 }
 
 /**
@@ -22,7 +25,13 @@ export interface GuardianOperatorCardInput {
  * hook E2E selects it by. An offline operator cannot be chosen: an account created against a down operator
  * fails deep in the pipeline, after the user has already backed up a seed phrase and set a password.
  */
-export function guardianOperatorCard({ option, subtitle, tag, offline }: GuardianOperatorCardInput): ChoiceCardItem {
+export function guardianOperatorCard({
+  option,
+  subtitle,
+  tag,
+  offline,
+  edgeTag
+}: GuardianOperatorCardInput): ChoiceCardItem {
   return {
     id: option.id,
     title: option.name,
@@ -39,6 +48,15 @@ export function guardianOperatorCard({ option, subtitle, tag, offline }: Guardia
           {offline && <StatusBadge status="offline" data-testid="guardian-offline-banner" />}
         </>
       ) : undefined,
+    edgeBadge: edgeTag ? (
+      <Pill
+        size="xs"
+        className="border-hairline bg-action-bar font-semibold text-ink face-heading"
+        icon={<Icon name={IconName.Bolt} fill="currentColor" className="text-accent-primary" />}
+      >
+        {edgeTag}
+      </Pill>
+    ) : undefined,
     disabled: offline,
     data: { 'data-guardian-endpoint': option.endpoint }
   };

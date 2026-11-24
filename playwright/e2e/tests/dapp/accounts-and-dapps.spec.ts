@@ -54,6 +54,7 @@ import {
   selectAccountIfNeeded,
   sessionWithin,
   unwrap,
+  waitForNoConfirmPages,
   type DappHandle
 } from '../../helpers/test-dapp';
 import type { ConnectedView, Outcome, RawArg, SessionView } from '../../test-dapp/protocol';
@@ -429,6 +430,8 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         expect(await popupConnect.getByTestId('connect-origin').getAttribute('title')).toBe(dapp.origin);
         await popupConnect.getByTestId(CONFIRM_ACTIONS.connect.decline).click();
         expect(await connectOne).toEqual(NOT_GRANTED_RAW);
+        // A declined popup the wallet failed to close fails here, not later as a refused placement or a stray page.
+        await ctx.deadline.race(waitForNoConfirmPages(dapp.context), 'declined connect popup closed');
         const txTwo = unwrap(await sendTwo, "dApp two's send", ctx).txId;
         expect(maxConcurrentConfirmPages(j.confirmLog.events.slice(mark))).toBe(1);
 
@@ -436,6 +439,12 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         const sideOne = await sideOf(j, dapp, 'primary');
         const baseOne = await captureBaseline(sideOne, [j.tokenFaucetId], ctx);
         await sessionWithin(dapp, view => sameAs(view.providerAddress, primary), 20_000, ctx);
+        const restoredOne = await expectNoPrompt(
+          dapp,
+          () => callDapp(dapp, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(restoredOne, 'restore the existing primary grant', ctx).address, primary)).toBe(true);
         const sentOne = await answerPrompt(
           dapp,
           () => callDapp(dapp, 'send', { ...toB, via: 'requestSend' }, ctx.deadline),
@@ -444,12 +453,33 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         );
         const txOne = unwrap(sentOne.result, "dApp one's send", ctx).txId;
 
+        // The other account's poll disconnected this adapter; restore its existing grant before reading its write.
+        await selectAccountIfNeeded(j.walletA, second);
+        await sessionWithin(two, view => sameAs(view.providerAddress, second), 20_000, ctx);
+        const readTwo = await expectNoPrompt(
+          two,
+          () => callDapp(two, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(readTwo, 'restore the second grant for its completion read', ctx).address, second)).toBe(
+          true
+        );
         const [writtenTwo] = await expectWritesToTheEnd(
           sideTwo,
           baseTwo,
           [{ txId: txTwo, outputNotes: [{ noteType: 'public' }], consumedNullifiers: [] }],
           { [j.tokenFaucetId]: -tst(2) },
           ctx
+        );
+        await selectAccountIfNeeded(j.walletA, primary);
+        await sessionWithin(dapp, view => sameAs(view.providerAddress, primary), 20_000, ctx);
+        const readOne = await expectNoPrompt(
+          dapp,
+          () => callDapp(dapp, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(readOne, 'restore the primary grant for its completion read', ctx).address, primary)).toBe(
+          true
         );
         const [writtenOne] = await expectWritesToTheEnd(
           sideOne,
@@ -473,6 +503,12 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         await callDapp(dapp, 'disconnect', {}, ctx.deadline);
         await j.walletA.selectAccount(second);
         await sessionWithin(two, view => sameAs(view.providerAddress, second), 20_000, ctx);
+        const restoredTwo = await expectNoPrompt(
+          two,
+          () => callDapp(two, 'connect', { permission: 'UponRequest', network: j.network }, ctx.deadline),
+          ctx
+        );
+        expect(sameAs(unwrap(restoredTwo, 'restore the existing second grant', ctx).address, second)).toBe(true);
         unwrap(
           await expectNoPrompt(two, () => callDapp(two, 'guardianInfo', {}, ctx.deadline), ctx),
           "dApp two's session survives dApp one's disconnect",
@@ -509,16 +545,13 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         for (const answer of [fromTwo, fromDisconnected]) {
           expect(JSON.stringify(answer)).not.toContain('Transaction result expired');
         }
-        // Q8: neither gets the result or any note bytes, and each is refused: an `ok` answer without notes still hands
-        // another origin the result. The text is not pinned until the wallet's is decided.
+        // Q8: neither gets the result or any note bytes, and each is refused as a missing id is (R6), so the answer
+        // does not say whether the row exists or whose it is (#1416).
         expect({ fromTwo: served(fromTwo), fromDisconnected: served(fromDisconnected) }).toEqual({
           fromTwo: false,
           fromDisconnected: false
         });
-        expect({ fromTwo, fromDisconnected }).toEqual({
-          fromTwo: expect.objectContaining({ ok: false }),
-          fromDisconnected: expect.objectContaining({ ok: false })
-        });
+        expect({ fromTwo, fromDisconnected }).toEqual({ fromTwo: NOT_GRANTED_RAW, fromDisconnected: NOT_GRANTED_RAW });
       }
     },
     'M8-single': {

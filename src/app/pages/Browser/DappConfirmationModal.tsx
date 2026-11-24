@@ -5,14 +5,19 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { TransactionNoteFlow } from 'app/confirm/TransactionNoteFlow';
+import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
+import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
-import { DappOrigin } from 'components/ui/DappOrigin';
+import { OriginatorChip } from 'components/tx-stage/OriginatorChip';
+import { storyFromMessages } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { useSprings } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import {
   confirmationPromptKey,
+  confirmationPromptValues,
   isDetailsConfirmation,
   type DAppConfirmationRequest,
   type DAppConfirmationResult
@@ -20,9 +25,11 @@ import {
 import { formatAllowedPrivateData, grantsStandingPrivateDataAccess } from 'lib/dapp-browser/private-data-scope';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { HOST_MODAL_LAYER, useImperativeModalFocus } from 'lib/ui/host-modal';
 import { truncateAddress } from 'utils/string';
 
@@ -39,16 +46,27 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const { t } = useTranslation();
   // PR-7: reduce-motion-aware springs.
   const springs = useSprings();
-  // Every non-connect request kind (transaction, consume, sign, importPrivateNote,
-  // privateData) renders the same detail-list body; only the prompt line differs.
+  // Every request kind but connect and loginSign (transaction, consume, sign,
+  // importPrivateNote, privateData) renders the same detail-list body; only the
+  // prompt line differs.
   const isTransaction = isDetailsConfirmation(request.type);
   const transactionMessages = request.transactionMessages ?? [];
+  // A login signs with the login key of the account its request names, which the panel shows and the
+  // approval reports.
+  const shownAccountId = request.type === 'loginSign' ? request.accountId : accountId;
   const transactionAccountMatches =
     request.type !== 'transaction' ||
     (accountId !== null &&
       request.sourcePublicKey !== undefined &&
       sameWalletAccountId(accountId, request.sourcePublicKey));
-  const canApprove = request.type === 'transaction' ? transactionAccountMatches : isTransaction || Boolean(accountId);
+  // Naming the site is the point of a login approval, so a login that names no site fails closed
+  // exactly like one that names no account.
+  const canApprove =
+    request.type === 'transaction'
+      ? transactionAccountMatches
+      : request.type === 'loginSign'
+        ? Boolean(request.domain && request.accountId)
+        : isTransaction || Boolean(accountId);
 
   // Private-data scope of a connect request. `Auto` + a non-empty
   // `allowedPrivateData` is STANDING access: the private-notes /
@@ -65,7 +83,22 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   // Kept with the request whose prompt failed and shown only while that request is on screen, so a
   // rejection that lands after a replacement never reads as the new request's failure.
-  const [approvalError, setApprovalError] = useState<{ requestId: string; message: string } | null>(null);
+  const [approvalError, setApprovalError] = useState<{
+    requestId: string;
+    message: string;
+    errorId: UserErrorId;
+  } | null>(null);
+  const previousAttemptError =
+    request.previousAttemptError === undefined ? undefined : request.previousAttemptError || t('smthWentWrong');
+  const shownError = approvalError?.requestId === request.id ? approvalError.message : previousAttemptError;
+  const shownErrorId: UserErrorId | undefined =
+    approvalError?.requestId === request.id
+      ? approvalError.errorId
+      : previousAttemptError !== undefined
+        ? request.previousAttemptError
+          ? 'raw_dapp_approval_failed'
+          : 'smthWentWrong'
+        : undefined;
   const resolvedRef = useRef(false);
   // A declined or failed prompt must leave Approve tappable again, so this is its own
   // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
@@ -127,7 +160,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     onResolve(
       {
         confirmed: true,
-        accountPublicKey: accountId ?? undefined,
+        accountPublicKey: shownAccountId ?? undefined,
         // Standing access is granted only on an explicit affirmative gesture.
         // Approving without ticking the box downgrades to `UponRequest` (each
         // read prompts) instead of silently honouring what the dApp asked for.
@@ -172,6 +205,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           pendingApprovalRef.current = false;
           setApprovalError({
             requestId,
+            errorId: error instanceof Error && error.message ? 'raw_dapp_approval_failed' : 'smthWentWrong',
             message: error instanceof Error && error.message ? error.message : t('smthWentWrong')
           });
         }
@@ -203,9 +237,15 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
         >
           <motion.div
             key="dapp-confirmation-overlay"
-            className={`fixed inset-0 ${HOST_MODAL_LAYER} flex items-center justify-center pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,var(--app-safe-bottom,0px),env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]`}
+            className={[
+              'tx-stage-overlay fixed inset-0 flex items-end justify-center sm:items-center',
+              HOST_MODAL_LAYER,
+              'pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))]',
+              'pb-0 sm:pb-[max(1rem,var(--app-safe-bottom,0px),env(safe-area-inset-bottom))]',
+              'pl-[max(1rem,env(safe-area-inset-left))]'
+            ].join(' ')}
             style={{
-              background: 'rgba(0,0,0,0.5)',
+              background: 'var(--ds-scrim)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)'
             }}
@@ -218,36 +258,55 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           >
             <motion.div
               ref={containerRef}
-              className="flex max-h-full min-h-0 w-full max-w-[360px] flex-col overflow-hidden rounded-2xl bg-surface-solid shadow-2xl"
-              initial={{ scale: 0.96, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.96, opacity: 0, y: 20 }}
+              className={[
+                'tx-stage-popup tx-stage-sheet flex min-h-0 w-full max-w-[480px] flex-col overflow-hidden',
+                'max-h-[min(92dvh,820px)] rounded-t-[28px] bg-surface-solid shadow-2xl',
+                'sm:max-h-full sm:max-w-[480px] sm:rounded-2xl'
+              ].join(' ')}
+              initial={{ opacity: 0, y: 36 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
               transition={springs.sheetPresent}
             >
-              {/* Header */}
-              <div className="flex shrink-0 items-center gap-3 border-b border-border-light px-6 py-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-100">
-                  <Icon name={IconName.Globe} className="text-primary-600" />
+              <div className="tx-stage-grabber sm:hidden" aria-hidden="true" />
+              {/* Header. The orange rule sits under the title, same as the extension window. */}
+              <div className="flex shrink-0 flex-col px-6 pt-5">
+                <div className="flex items-center pb-4">
+                  <BreadLogo className="shrink-0" style={{ width: 32, height: 'auto' }} aria-label={t('appName')} />
                 </div>
-                <div className="min-w-0 flex-1">
-                  {/* The injected providers send only the page's hostname as appMeta.name, so any other name is forged. */}
-                  <Dialog.Title asChild>
-                    <h2 className="text-lg font-semibold text-ink">
-                      <DappOrigin origin={request.origin} data-testid="dapp-confirmation-origin" />
-                    </h2>
-                  </Dialog.Title>
-                </div>
+                {/* The injected providers send only the page's hostname as appMeta.name, so any other name is forged. */}
+                <OriginatorChip
+                  origin={request.origin}
+                  testId="dapp-confirmation-origin"
+                  titleWrap={name => (
+                    <Dialog.Title asChild>
+                      <h2 className="m-0">{name}</h2>
+                    </Dialog.Title>
+                  )}
+                />
+                <div className="tx-stage-rule mt-4" aria-hidden="true" />
               </div>
 
               {/* Body */}
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-                <p className="mb-4 text-sm text-text-muted">{t(confirmationPromptKey(request.type))}</p>
+                <p className="mb-4 text-sm text-text-muted">
+                  {t(confirmationPromptKey(request.type), confirmationPromptValues(request))}
+                </p>
+
+                {request.type === 'loginSign' && (
+                  <p className="mb-4 text-body-sm text-ink">{t('loginSignatureNote', { domain: request.domain })}</p>
+                )}
+
+                {isTransaction && transactionMessages.length > 0 && !request.noteFlow && (
+                  <TxStory hops={storyFromMessages(transactionMessages, { incoming: request.type === 'consume' })} />
+                )}
 
                 {isTransaction && transactionMessages.length > 0 && (
-                  <div className="mb-4 rounded-xl bg-fill p-4">
+                  <div className="tx-stage-list mb-4 rounded-xl bg-fill p-4">
                     {transactionMessages.map((msg, i) => (
                       <div
                         key={i}
+                        data-testid="dapp-confirmation-message"
                         className="border-b border-border-light py-1 text-xs text-text-muted last:border-b-0 last:pb-0 first:pt-0"
                       >
                         {msg}
@@ -256,11 +315,19 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   </div>
                 )}
 
+                {request.type === 'transaction' &&
+                  request.noteFlow !== undefined &&
+                  (request.noteFlow ? (
+                    <TransactionNoteFlow flow={request.noteFlow} account={accountId ?? undefined} />
+                  ) : (
+                    <p className="mb-4 text-sm text-muted">{t('verifiedNoteDetailsUnavailable')}</p>
+                  ))}
+
                 {!isTransaction && (
                   <div className="mb-4 rounded-xl bg-grey-50 p-4">
                     <p className="mb-1 text-xs text-grey-500">{t('account')}</p>
                     <p className="font-inter text-sm text-grey-900">
-                      {accountId ? truncateAddress(accountId) : t('noAccountSelected')}
+                      {shownAccountId ? truncateAddress(shownAccountId) : t('noAccountSelected')}
                     </p>
                   </div>
                 )}
@@ -296,20 +363,33 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
                 <div className="rounded-xl bg-fill p-4">
                   <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
-                  <p className="text-sm capitalize text-ink">{request.network}</p>
+                  {/* Every request runs on the wallet's own network; `request.network` is only the dApp's claim. */}
+                  <p className="text-sm text-ink" data-testid="dapp-confirmation-network">
+                    {t(getEffectiveNetworkName())}
+                  </p>
                 </div>
 
-                {approvalError?.requestId === request.id && (
-                  <ErrorLine data-testid="dapp-approval-error" className="mt-3">
-                    {approvalError.message}
+                {request.type === 'connect' && (
+                  <DappNetworkMismatchNotice claimedNetwork={request.network} className="mt-3" />
+                )}
+
+                {shownError !== undefined && (
+                  <ErrorLine errorId={shownErrorId} data-testid="dapp-approval-error" className="mt-3">
+                    {shownError}
                   </ErrorLine>
                 )}
               </div>
 
               {/* Actions */}
-              <div className="flex shrink-0 gap-3 border-t border-border-light px-6 py-5">
+              <div
+                className={[
+                  'flex shrink-0 gap-3 border-t border-border-light px-6 pt-5',
+                  'pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-5'
+                ].join(' ')}
+              >
                 <button
                   type="button"
+                  data-testid="dapp-confirmation-deny"
                   onClick={handleDeny}
                   className="flex-1 rounded-full border-2 border-orange-500 bg-surface-solid px-6 py-3 text-sm font-semibold text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10"
                 >
@@ -317,12 +397,13 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 </button>
                 <button
                   ref={approveButtonRef}
+                  data-testid="dapp-confirmation-approve"
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove}
-                  className="flex-1 rounded-full bg-primary-500 px-6 py-3 text-sm font-semibold text-pure-white hover:bg-primary-600 disabled:cursor-not-allowed disabled:bg-primary-200"
+                  className="tx-stage-cta flex-1 rounded-full bg-primary-500 px-6 py-3 text-sm font-semibold text-pure-white hover:bg-primary-600 disabled:cursor-not-allowed disabled:bg-primary-200"
                 >
-                  {isTransaction ? t('confirm') : t('approve')}
+                  {isTransaction ? t('confirm') : previousAttemptError === undefined ? t('approve') : t('retry')}
                 </button>
               </div>
             </motion.div>

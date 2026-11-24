@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { StrictActionAuthentication } from './StrictActionAuthentication';
 
 const mockGetPlatform = jest.fn(() => 'extension');
@@ -16,7 +18,10 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string) =>
+      ['smthWentWrong', 'biometricFailed', 'guardianAuthenticationUnavailable'].includes(key) ? `Visible ${key}` : key
+  })
 }));
 
 jest.mock('lib/store', () => ({
@@ -27,16 +32,7 @@ jest.mock('lib/store', () => ({
     })
 }));
 
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({ onSubmit, error }: { onSubmit: (value: string) => void; error?: string }) => (
-    <div>
-      {error && <span>{error}</span>}
-      <button type="button" onClick={() => onSubmit('123456')}>
-        enter-passcode
-      </button>
-    </div>
-  )
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticError: jest.fn() }));
 
 const deferred = () => {
   let resolve!: () => void;
@@ -71,7 +67,8 @@ describe('StrictActionAuthentication', () => {
     const onResult = jest.fn();
     render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'enter-passcode' }));
+    await screen.findByTestId('passcode-entry');
+    '123456'.split('').forEach(digit => fireEvent.click(screen.getByTestId(`numpad-${digit}`)));
 
     await waitFor(() => expect(mockVerify).toHaveBeenCalledWith('123456'));
     expect(onResult).toHaveBeenCalledWith('authenticated');
@@ -161,5 +158,155 @@ describe('StrictActionAuthentication', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('guardianAuthenticationUnavailable');
     expect(mockVerify).not.toHaveBeenCalled();
     expect(onResult).not.toHaveBeenCalled();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('user-visible strict-authentication errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    mockGetPlatform.mockReturnValue('extension');
+    mockGetProtectors.mockResolvedValue({ hardware: false, password: true });
+    mockVerify.mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const dwell = () => {
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+  };
+  const passwordAttempt = async () => {
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private password' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+    });
+  };
+
+  it('reports one error once when a wrong passcode is visible in ErrorLine and real PasscodeEntry', async () => {
+    mockGetPlatform.mockReturnValue('mobile');
+    mockVerify.mockRejectedValueOnce(new Error('private passcode rejection'));
+    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    await act(async () => {});
+    '123456'.split('').forEach(digit => fireEvent.click(screen.getByTestId(`numpad-${digit}`)));
+    await act(async () => {
+      jest.advanceTimersByTime(150);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible smthWentWrong');
+    expect(screen.getByTestId('passcode-entry')).toHaveTextContent('Visible smthWentWrong');
+    expect(screen.getAllByText('Visible smthWentWrong')).toHaveLength(2);
+    dwell();
+    expect(mockReport.mock.calls).toEqual([['smthWentWrong', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['smthWentWrong', 'inline']]);
+  });
+
+  it('reports the password failure using its fixed key rather than the rejected credential or raw cause', async () => {
+    mockVerify.mockRejectedValueOnce(new Error('private password cause'));
+    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    await act(async () => {});
+    await passwordAttempt();
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible smthWentWrong');
+    dwell();
+    expect(mockReport.mock.calls).toEqual([['smthWentWrong', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['smthWentWrong', 'inline']]);
+  });
+
+  it('reports biometricFailed after a hardware rejection is visible for 1000 ms', async () => {
+    mockGetPlatform.mockReturnValue('desktop');
+    mockGetProtectors.mockResolvedValue({ hardware: true, password: false });
+    mockVerify.mockRejectedValueOnce(new Error('private hardware cause'));
+    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible biometricFailed');
+    dwell();
+    expect(mockReport.mock.calls).toEqual([['biometricFailed', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['biometricFailed', 'inline']]);
+  });
+
+  it('reports guardianAuthenticationUnavailable when protector discovery fails', async () => {
+    mockGetProtectors.mockRejectedValueOnce(new Error('private discovery cause'));
+    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    await act(async () => {});
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible guardianAuthenticationUnavailable');
+    dwell();
+    expect(mockReport.mock.calls).toEqual([['guardianAuthenticationUnavailable', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['guardianAuthenticationUnavailable', 'inline']]);
+  });
+
+  it('does not report loading, idle password entry, pending verification, or success', async () => {
+    let ready!: (value: { hardware: boolean; password: boolean }) => void;
+    mockGetProtectors.mockReturnValueOnce(
+      new Promise(resolve => {
+        ready = resolve;
+      })
+    );
+    const verification = deferred();
+    mockVerify.mockReturnValueOnce(verification.promise);
+    const onResult = jest.fn();
+    render(<StrictActionAuthentication reason="Approve action" onResult={onResult} />);
+    expect(screen.getByRole('status')).toHaveTextContent('loading');
+    act(() => jest.advanceTimersByTime(1000));
+    await act(async () => {
+      ready({ hardware: false, password: true });
+    });
+    expect(screen.getByLabelText('password')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    await passwordAttempt();
+    expect(screen.getByRole('button', { name: 'continue' })).toBeDisabled();
+    act(() => jest.advanceTimersByTime(1000));
+    await act(async () => {
+      verification.resolve();
+    });
+    expect(onResult).toHaveBeenCalledWith('authenticated');
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('drops both wrong-passcode displays when a new digit clears the error at 999 ms', async () => {
+    mockGetPlatform.mockReturnValue('mobile');
+    mockVerify.mockRejectedValueOnce(new Error('private passcode cause'));
+    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    await act(async () => {});
+    '123456'.split('').forEach(digit => fireEvent.click(screen.getByTestId(`numpad-${digit}`)));
+    await act(async () => {
+      jest.advanceTimersByTime(150);
+    });
+    expect(screen.getAllByText('Visible smthWentWrong')).toHaveLength(2);
+    act(() => jest.advanceTimersByTime(999));
+    fireEvent.click(screen.getByTestId('numpad-7'));
+    expect(screen.queryByText('Visible smthWentWrong')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('drops a password failure removed by host cancellation before dwell', async () => {
+    mockVerify.mockRejectedValueOnce(new Error('private failure'));
+    const onResult = jest.fn();
+    const view = render(<StrictActionAuthentication reason="Approve action" onResult={onResult} />);
+    await act(async () => {});
+    await passwordAttempt();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }));
+    expect(onResult).toHaveBeenCalledWith('cancelled');
+    view.unmount();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
   });
 });

@@ -14,7 +14,7 @@
  * - `reveal`: height 0 <-> auto plus opacity, for disclosure content.
  * - `pop`: a small element appearing or leaving (badges, heroes, toasts).
  * - `sheet`: an overlay card rising in (dApp confirm, switcher, peek card).
- * - `page`: the incoming page of a stack. The page beneath moves to `pageSlideParallax` under a
+ * - `page`: the incoming page of a stack. The page beneath moves to `pageSlideCovered` under a
  *   `pageSlideDim` black dim on the same transition (`page-appearance.ts`).
  * - `press`: tap feedback for a tappable surface.
  * - `count`: a displayed number travelling to a new value (`components/ui/AnimatedNumber`). A tween,
@@ -88,9 +88,13 @@ export const presets: Record<PresetName, MotionPreset> = {
     transition: springs.sheetPresent
   },
   page: {
-    initial: { x: '100%' },
-    animate: { x: 0 },
-    exit: { x: '100%' },
+    // `transform`, not `x`: framer-motion hands only `transform` and `opacity` to the Web Animations
+    // API, where WebKit composites the slide at the display rate. An `x` animation runs from rAF.
+    initial: { transform: 'translateX(100%)' },
+    // The end value must stay interpolable for the compositor, but a page at rest holds no transform:
+    // a resting one would make the page the containing block of its `position: fixed` content.
+    animate: { transform: 'translateX(0%)', transitionEnd: { transform: 'none' } },
+    exit: { transform: 'translateX(100%)' },
     transition: pageSlideEntrance
   },
   press: {

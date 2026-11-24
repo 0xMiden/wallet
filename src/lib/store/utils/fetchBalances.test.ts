@@ -1,5 +1,6 @@
 import '../../../../test/jest-mocks';
 
+import { isBalanceReflected } from 'lib/miden/balance-snapshot';
 import {
   __resetSyncFuseStateForTests,
   isSyncFused,
@@ -14,7 +15,21 @@ import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { __resetFaucetAssetsMetadataForTest, useWalletStore } from 'lib/store';
 
-import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
+import {
+  __resetUnresolvedFaucetsForTest,
+  balanceReadStateForTest,
+  fetchBalances,
+  fetchingAddresses
+} from './fetchBalances';
+
+jest.mock('lib/token-list/runtime', () => ({
+  peekTokenPriceAssets: () => new Map([['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']])
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => 'mainnet'
+}));
 
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
@@ -35,6 +50,8 @@ const mockGetMidenClient = jest.fn(() => ({
   getAccount: mockGetAccount,
   syncState: mockSyncState
 }));
+// Every SDK account has a nonce, which the read records with its vault.
+const accountNonce = () => ({ asInt: () => 1n });
 
 // Models hold OWNERSHIP, not just the callback: the read re-checks its hold before
 // touching the account's vault, so a mock that hands out no hold makes that guard throw
@@ -106,6 +123,19 @@ jest.mock('lib/miden/metadata/overrides', () => ({
 }));
 
 describe('fetchBalances', () => {
+  it('reads the nonce with vault assets under the same hold and tags the rows only when landed', async () => {
+    mockGetAccount.mockResolvedValue({
+      vault: () => ({ fungibleAssets: () => [] }),
+      nonce: () => {
+        expect(currentHold).not.toBeNull();
+        return { asInt: () => 5n };
+      }
+    });
+    await useWalletStore.getState().fetchBalances('snapshot-account', {});
+    const requirement = { accountId: 'snapshot-account', faucetId: 'miden-faucet-id', minimumNonce: '5' };
+    expect(isBalanceReflected(requirement, useWalletStore.getState().balances)).toBe(true);
+    expect(mockSyncState).not.toHaveBeenCalled();
+  });
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -184,7 +214,7 @@ describe('fetchBalances', () => {
     const vault = jest.fn(() => ({ fungibleAssets: () => [] }));
     mockGetAccount.mockImplementationOnce(async () => {
       currentHold = null; // what the watchdog does to the hold this callback still holds
-      return { vault };
+      return { vault, nonce: accountNonce };
     });
 
     await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
@@ -192,7 +222,7 @@ describe('fetchBalances', () => {
 
     // Falsifier: with the hold intact the same read completes and DOES touch the vault,
     // so the assertion above is about the eviction and not about the fixture.
-    mockGetAccount.mockImplementationOnce(async () => ({ vault }));
+    mockGetAccount.mockImplementationOnce(async () => ({ vault, nonce: accountNonce }));
     await expect(fetchBalances('my-address', {})).resolves.not.toBeNull();
     expect(vault).toHaveBeenCalledTimes(1);
     __resetSyncFuseStateForTests();
@@ -301,8 +331,30 @@ describe('fetchBalances', () => {
       // MIDEN is not on the price feed: no price, never a $1 guess.
       fiatPrice: 0,
       balance: 0,
+      balanceBaseUnits: '0',
       change24h: 0
     });
+  });
+
+  it('publishes raw base units alongside the display balance', async () => {
+    const faucetId = 'large-balance-faucet';
+    const tokenId = `bech32-${faucetId}`;
+    mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
+      vault: () => ({
+        fungibleAssets: () => [{ faucetId: () => faucetId, amount: () => ({ toString: () => '12345678901234567890' }) }]
+      })
+    });
+
+    const balances = (await fetchBalances(
+      'large-balance-account',
+      { [tokenId]: { name: 'Large', symbol: 'LARGE', decimals: 0 } },
+      { tokenPrices: {} }
+    ))!;
+    const row = balances.find(balance => balance.tokenId === tokenId)!;
+
+    expect(row).toMatchObject({ balanceBaseUnits: '12345678901234567890' });
+    expect(row.balance).toBe(Number('12345678901234567890'));
   });
 
   it('returns empty list when account not found AND native-asset discovery has not resolved', async () => {
@@ -332,6 +384,7 @@ describe('fetchBalances', () => {
     ];
 
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => mockAssets
       })
@@ -357,6 +410,7 @@ describe('fetchBalances', () => {
     ];
 
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => mockAssets
       })
@@ -381,6 +435,7 @@ describe('fetchBalances', () => {
     jest.useFakeTimers();
     try {
       mockGetAccount.mockResolvedValueOnce({
+        nonce: accountNonce,
         vault: () => ({
           fungibleAssets: () => [{ faucetId: () => 'hung-faucet', amount: () => ({ toString: () => '1000000' }) }]
         })
@@ -403,6 +458,7 @@ describe('fetchBalances', () => {
       id === 'raw-ieth' ? TEST_TOKEN_IETH.faucetId : `bech32-${id}`
     );
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => [
           { faucetId: () => 'raw-ieth', amount: () => ({ toString: () => '38000000' }) },
@@ -417,7 +473,7 @@ describe('fetchBalances', () => {
         [TEST_TOKEN_IETH.faucetId]: { name: 'IETH', symbol: 'IETH', decimals: 8 },
         'bech32-other-faucet': { name: 'Other Token', symbol: 'OTH', decimals: 6 }
       },
-      { tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2 } } }
+      { tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2, kind: 'market' as const } } }
     ))!;
 
     const priceOf = (slug: string) => {
@@ -439,6 +495,7 @@ describe('fetchBalances', () => {
         'bech32-custom-faucet': { name: 'Mine', symbol: 'MN', decimals: 6 }
       });
       mockGetAccount.mockResolvedValueOnce({
+        nonce: accountNonce,
         vault: () => ({
           fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '150000000' }) }]
         })
@@ -459,6 +516,7 @@ describe('fetchBalances', () => {
       });
       mockFetchTokenMetadata.mockResolvedValueOnce(customMetadata);
       mockGetAccount.mockResolvedValueOnce({
+        nonce: accountNonce,
         vault: () => ({
           fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '500000000' }) }]
         })
@@ -480,6 +538,7 @@ describe('fetchBalances', () => {
       });
       mockFetchTokenMetadata.mockRejectedValueOnce(new Error('Not found'));
       mockGetAccount.mockResolvedValueOnce({
+        nonce: accountNonce,
         vault: () => ({
           fungibleAssets: () => [{ faucetId: () => 'unknown-faucet', amount: () => ({ toString: () => '2000' }) }]
         })
@@ -503,6 +562,7 @@ describe('fetchBalances', () => {
       mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-fresh-faucet': override });
       mockFetchTokenMetadata.mockResolvedValueOnce(customMetadata);
       mockGetAccount.mockResolvedValueOnce({
+        nonce: accountNonce,
         vault: () => ({
           fungibleAssets: () => [{ faucetId: () => 'fresh-faucet', amount: () => ({ toString: () => '150000000' }) }]
         })
@@ -522,7 +582,7 @@ describe('fetchBalances', () => {
 
     it('reports the display faucet setting it read, once', async () => {
       const onDisplayFaucetId = jest.fn();
-      mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }) });
+      mockGetAccount.mockResolvedValueOnce({ nonce: accountNonce, vault: () => ({ fungibleAssets: () => [] }) });
 
       await fetchBalances('my-address', {}, { onDisplayFaucetId });
 
@@ -536,6 +596,7 @@ describe('fetchBalances', () => {
         'miden-faucet-id': { name: 'Fake', symbol: 'FAKE' }
       });
       mockGetAccount.mockResolvedValueOnce({
+        nonce: accountNonce,
         vault: () => ({
           fungibleAssets: () => [
             { faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '100000000' }) },
@@ -556,6 +617,7 @@ describe('fetchBalances', () => {
     it('reads the balances without overrides when the overrides cannot be read', async () => {
       mockGetTokenMetadataOverrides.mockRejectedValue(new Error('storage unavailable'));
       mockGetAccount.mockResolvedValueOnce({
+        nonce: accountNonce,
         vault: () => ({
           fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '100000000' }) }]
         })
@@ -579,6 +641,7 @@ describe('fetchBalances', () => {
     ];
 
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => mockAssets
       })
@@ -607,6 +670,7 @@ describe('fetchBalances', () => {
     ];
 
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => mockAssets
       })
@@ -644,6 +708,7 @@ describe('fetchBalances', () => {
     ];
 
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => mockAssets
       })
@@ -679,6 +744,7 @@ describe('fetchBalances', () => {
     ];
 
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => mockAssets
       })
@@ -702,6 +768,7 @@ describe('fetchBalances', () => {
     const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
     getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => [{ faucetId: () => 'bad-faucet', amount: () => BigInt(1000) }]
       })
@@ -734,6 +801,7 @@ describe('fetchBalances', () => {
     ];
 
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => mockAssets
       })
@@ -757,6 +825,7 @@ describe('fetchBalances', () => {
     ];
 
     mockGetAccount.mockResolvedValueOnce({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => mockAssets
       })
@@ -776,6 +845,7 @@ describe('fetchBalances', () => {
     const LEGACY = 'legacy-faucet';
     const legacyRecord = { name: 'Legacy', symbol: 'LEGACY', decimals: 2 };
     const vaultOf = (...entries: [string, string][]) => ({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () =>
           entries.map(([faucetId, amount]) => ({
@@ -855,6 +925,7 @@ describe('fetchBalances', () => {
   describe('an unresolvable faucet', () => {
     function accountWithBadFaucet() {
       mockGetAccount.mockResolvedValueOnce({
+        nonce: accountNonce,
         vault: () => ({
           fungibleAssets: () => [{ faucetId: () => 'bad-faucet', amount: () => BigInt(1000) }]
         })
@@ -929,6 +1000,7 @@ describe('actual native balance with a separate legacy display selection', () =>
     mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
     jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue(legacy);
     mockGetAccount.mockResolvedValue({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => [
           { faucetId: () => 'native-A', amount: () => ({ toString: () => '1000000' }) },
@@ -967,6 +1039,7 @@ describe('actual native balance with a separate legacy display selection', () =>
       .requireMock('lib/miden/sdk/helpers')
       .getBech32AddressFromAccountId.mockImplementation((id: string) => (id === legacy ? legacy : `bech32-${id}`));
     mockGetAccount.mockResolvedValue({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => [
           { faucetId: () => 'native-A', amount: () => ({ toString: () => '1000000' }) },
@@ -1003,6 +1076,7 @@ describe('actual native balance with a separate legacy display selection', () =>
   it('preserves native eight-decimal scale against cached six-decimal metadata', async () => {
     mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
     mockGetAccount.mockResolvedValue({
+      nonce: accountNonce,
       vault: () => ({
         fungibleAssets: () => [{ faucetId: () => 'native-A', amount: () => ({ toString: () => '100000000' }) }]
       })
@@ -1015,5 +1089,59 @@ describe('actual native balance with a separate legacy display selection', () =>
     expect(native.balance).toBe(1);
     expect(native.metadata.decimals).toBe(8);
     expect(native.fiatPrice).toBe(1);
+  });
+});
+
+describe('the read-only E2E balance read state', () => {
+  beforeEach(() => {
+    currentHold = null;
+    fetchingAddresses.clear();
+    __resetSyncFuseStateForTests();
+  });
+
+  afterEach(() => {
+    currentHold = null;
+    fetchingAddresses.clear();
+    __resetSyncFuseStateForTests();
+  });
+
+  it('reports a free lock and an unfused address without starting a balance read', () => {
+    const calls = mockGetAccount.mock.calls.length;
+    expect(balanceReadStateForTest('acct')).toEqual({
+      inFlight: false,
+      fused: false,
+      fuseUntilMs: null,
+      network: expect.stringMatching(/^mainnet:/),
+      lock: null
+    });
+    expect(mockGetAccount).toHaveBeenCalledTimes(calls);
+  });
+
+  it('reports the address in flight, lit fuse and paused lock without changing them', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      fetchingAddresses.add('acct');
+      currentHold = { label: 'idle-sync', pauseCount: 1, normalCeilingMs: 120_000 };
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('balances');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("consecutive watchdog evictions of 'balances'"));
+      const until = syncFuseUntilMs('balances');
+      const calls = mockGetAccount.mock.calls.length;
+      const expected = {
+        inFlight: true,
+        fused: true,
+        fuseUntilMs: until,
+        network: expect.stringMatching(/^mainnet:/),
+        lock: { label: 'idle-sync', pauseCount: 1, normalCeilingMs: 120_000 }
+      };
+      expect(balanceReadStateForTest('acct')).toEqual(expected);
+      expect(balanceReadStateForTest('other')).toEqual({ ...expected, inFlight: false });
+      expect(fetchingAddresses.has('acct')).toBe(true);
+      expect(syncFuseUntilMs('balances')).toBe(until);
+      expect(currentHold).toEqual(expected.lock);
+      expect(mockGetAccount).toHaveBeenCalledTimes(calls);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

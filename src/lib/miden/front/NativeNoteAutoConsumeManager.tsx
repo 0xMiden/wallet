@@ -1,14 +1,17 @@
 import { useEffect, useRef } from 'react';
 
-import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getClaimFloorBaseFee, getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
+import { isWalletReadyNow } from 'lib/store';
 
 import { selectAutoConsumeBatch } from './auto-managed-notes';
 import { useClaimableNotes } from './claimable-notes';
 import { useMidenContext } from './client';
 import { zustandProvider } from './guardian-sync';
+import { ClaimFeeRefusedError } from '../transaction/claim-fee';
+import { chunkAutoConsumeBatch } from '../transaction/constants';
 import { ConsumableNote } from '../types';
 
 /**
@@ -57,8 +60,8 @@ export function NativeNoteAutoConsumeManager(): null {
         // A claim worth no more than its own fee makes the balance go DOWN. This runs
         // unattended, so the wallet must not collect on the user's behalf at a loss, nor
         // start a claim from the cache-first list; `selectAutoConsumeBatch` judges the batch
-        // total, fails open on an unknown fee and never takes a `fromCache` entry.
-        const baseFee = await getVerificationBaseFee();
+        // total, claims nothing while the fee is unknown and never takes a `fromCache` entry.
+        const baseFee = await getClaimFloorBaseFee();
         if (disposed) return;
         const nativeNotes: ConsumableNote[] = selectAutoConsumeBatch(notes, nativeFaucetId, baseFee);
         if (nativeNotes.length === 0) return;
@@ -69,29 +72,69 @@ export function NativeNoteAutoConsumeManager(): null {
           getUncompletedTransactions
         } = await import('../transaction');
         const delegate = isDelegateProofEnabled();
-        // ONE transaction for the whole batch: every consume pays its own fee, so
-        // claiming a backlog note-by-note charges the user N fees for what the chain
-        // will settle for one.
+        // ONE transaction per batch: every consume pays its own fee, so claiming a
+        // backlog note-by-note charges the user N fees for what the chain will settle
+        // for one. A backlog over MAX_NOTES_PER_UNATTENDED_CLAIM is several batches
+        // (#1644), each measured against the floor on its own (`chunkAutoConsumeBatch`).
         //
         // A Miden tx is atomic, so a single un-consumable note fails the batch, and the
         // backoff gate counts that shared row once per note id it carries -- so without
         // isolation one poison note drags its healthy mates into the same doubling
         // backoff, the regression the previous per-note-always design existed to avoid.
-        // The LAST argument is what isolates it, on the next enqueue after the batch row
+        // The `true` argument is what isolates it, on the next enqueue after the batch row
         // fails. NOT this catch: the call is a queue write, and an un-consumable note
-        // fails much later at generation time, so the catch only sees a DB error.
-        try {
-          await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate, false, true, baseFee);
-        } catch (batchErr) {
-          console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
-          for (const note of nativeNotes) {
-            try {
-              await initiateConsumeTransaction(publicKey, note, delegate);
-            } catch (noteErr) {
-              console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+        // fails much later at generation time, so the catch sees enqueue errors, not execution failures.
+        //
+        // The queue asks `isWalletReadyNow` right before each row it writes, so a lock that landed during the reads
+        // above queues nothing. A lock refuses every note alike, so it ends the pass: no per-note fallback, no kick.
+        const batches = chunkAutoConsumeBatch(nativeNotes, baseFee);
+        const batchedNotes = batches.reduce((count, batch) => count + batch.length, 0);
+        if (batchedNotes === 0) return;
+        let feeRefusedNotes = 0;
+        for (const batch of batches) {
+          try {
+            await initiateConsumeNotesTransaction(
+              publicKey,
+              batch,
+              delegate,
+              false,
+              true,
+              baseFee,
+              'auto_consume',
+              isWalletReadyNow
+            );
+          } catch (batchErr) {
+            if (batchErr instanceof ClaimFeeRefusedError) {
+              console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
+              feeRefusedNotes += batch.length;
+              continue;
+            }
+            if (!isWalletReadyNow()) throw batchErr;
+            console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+            for (const note of batch) {
+              try {
+                await initiateConsumeTransaction(
+                  publicKey,
+                  note,
+                  delegate,
+                  false,
+                  'auto_consume',
+                  isWalletReadyNow,
+                  baseFee
+                );
+              } catch (noteErr) {
+                if (noteErr instanceof ClaimFeeRefusedError) {
+                  console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
+                  feeRefusedNotes += 1;
+                  continue;
+                }
+                if (!isWalletReadyNow()) throw noteErr;
+                console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+              }
             }
           }
         }
+        if (feeRefusedNotes === batchedNotes) return;
         // This route-independent consumer is the one that fires when the user is
         // NOT on Home, so it must also dismiss the now-stale "click to claim"
         // notification once it auto-claims the note (#459).

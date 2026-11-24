@@ -6,46 +6,50 @@ import { useTranslation } from 'react-i18next';
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { useClaimFloorBaseFee } from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
+import { ArcadeBanner } from 'app/templates/ArcadeBanner';
 import Balance from 'app/templates/Balance';
+import { HomeMoveActions } from 'app/templates/HomeMoveActions';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import {
-  AccountsDrawer,
-  AnimatedNumber,
-  AssetListItemSkeleton,
-  BalanceCard,
-  ErrorLine,
-  TextAction
-} from 'components/ui';
+import { AccountsDrawer, AssetListItemSkeleton, BalanceCard, ErrorLine, TextAction } from 'components/ui';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { springs, useMotion, usePreset } from 'lib/animation';
-import { toLocalFormat } from 'lib/i18n/numbers';
+import { formatUsdDisplay } from 'lib/i18n/amount-display';
+import { getNumberSymbols } from 'lib/i18n/core';
 import {
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
+import { readBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { isDustBalance } from 'lib/miden/front/dust';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { selectDisplayQuotes, useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useHideDustTokens } from 'lib/settings/dust';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
+import { isWalletReadyNow, useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
@@ -63,13 +67,13 @@ interface PullGesture {
   distance: number;
 }
 
-const Explore: FC = () => {
+const Explore: FC<{ balanceAction?: React.ReactNode }> = ({ balanceAction }) => {
   const { t } = useTranslation();
   const isMobileApp = isMobile();
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
   const feeFaucetId = useNativeFeeFaucetId();
-  const verificationBaseFee = useVerificationBaseFee();
+  const claimFloorBaseFee = useClaimFloorBaseFee();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const {
@@ -78,7 +82,9 @@ const Explore: FC = () => {
     mutate: mutateBalances
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const cachedQuotes = useCachedDisplayQuotes();
+  const displayQuotes = selectDisplayQuotes(tokenPrices, cachedQuotes);
+  useBridgeConfigSnapshot({ load: false });
 
   const {
     data: claimableNotes,
@@ -90,7 +96,8 @@ const Explore: FC = () => {
 
   const address = account.publicKey;
 
-  const { isHidden, unhide } = useHiddenTokens(address);
+  const { isHidden, unhide, loaded: hiddenReady } = useHiddenTokens(address);
+  const hideDust = useHideDustTokens();
 
   const [pullDistance, setPullDistance] = useState(0);
   const [isPulling, setIsPulling] = useState(false);
@@ -105,8 +112,8 @@ const Explore: FC = () => {
     if (!shouldAutoConsume || !claimableNotes || rotationPending) {
       return [];
     }
-    return selectAutoConsumeBatch(claimableNotes, feeFaucetId, verificationBaseFee);
-  }, [claimableNotes, feeFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
+    return selectAutoConsumeBatch(claimableNotes, feeFaucetId, claimFloorBaseFee);
+  }, [claimableNotes, feeFaucetId, rotationPending, shouldAutoConsume, claimFloorBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
@@ -117,8 +124,8 @@ const Explore: FC = () => {
   // the raw list surfaced a card, with a USD total, for native notes that were already
   // being auto-consumed (#811).
   const manuallyClaimableNotes = useMemo(
-    () => excludeAutoManagedNotes(claimableNotes, feeFaucetId, shouldAutoConsume, verificationBaseFee),
-    [claimableNotes, feeFaucetId, shouldAutoConsume, verificationBaseFee]
+    () => excludeAutoManagedNotes(claimableNotes, feeFaucetId, shouldAutoConsume, claimFloorBaseFee),
+    [claimableNotes, feeFaucetId, shouldAutoConsume, claimFloorBaseFee]
   );
 
   const autoConsumeMidenNotes = useCallback(async () => {
@@ -133,35 +140,69 @@ const Explore: FC = () => {
       return;
     }
 
-    // ONE transaction for the batch, matching the other two native auto-consumers
+    // ONE transaction per batch, matching the other native auto-consumers
     // (`NativeNoteAutoConsumeManager`, the SW sync pass): every consume pays its own
     // fee, so a backlog claimed note-by-note charges N fees for what settles in one.
     // This consumer runs on Home and fires on render, so it usually WINS the race
     // against the others -- leaving it per-note meant the batching those two do was
-    // defeated in the common case.
+    // defeated in the common case. For the same reason it takes the same claim cap:
+    // a backlog over MAX_NOTES_PER_UNATTENDED_CLAIM is several batches (#1644), each
+    // measured against the floor on its own (`chunkAutoConsumeBatch`).
     //
-    // Poison-note isolation is the LAST argument, not this catch: an un-consumable note
+    // Poison-note isolation is the `true` argument, not this catch: an un-consumable note
     // fails at generation time, long after this queue write returned, so the catch here
-    // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
-    try {
-      await initiateConsumeNotesTransaction(
-        account.publicKey,
-        notesToClaim,
-        isDelegatedProvingEnabled,
-        false,
-        true,
-        verificationBaseFee
-      );
-    } catch (batchErr) {
-      console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
-      for (const note of notesToClaim) {
-        try {
-          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
-        } catch (noteErr) {
-          console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+    // sees enqueue errors, not execution failures. See `initiateConsumeNotesTransaction`.
+    //
+    // The queue asks `isWalletReadyNow` right before each row it writes, so a lock that lands meanwhile queues
+    // nothing. A lock refuses every note alike, so it ends the pass: no per-note fallback, no processing request.
+    const batches = chunkAutoConsumeBatch(notesToClaim, claimFloorBaseFee);
+    const batchedNotes = batches.reduce((count, batch) => count + batch.length, 0);
+    if (batchedNotes === 0) return;
+    let feeRefusedNotes = 0;
+    for (const batch of batches) {
+      try {
+        await initiateConsumeNotesTransaction(
+          account.publicKey,
+          batch,
+          isDelegatedProvingEnabled,
+          false,
+          true,
+          claimFloorBaseFee,
+          'auto_consume',
+          isWalletReadyNow
+        );
+      } catch (batchErr) {
+        if (batchErr instanceof ClaimFeeRefusedError) {
+          console.debug('[native-auto-consume] batch waiting for fee funding', batchErr);
+          feeRefusedNotes += batch.length;
+          continue;
+        }
+        if (!isWalletReadyNow()) return;
+        console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+        for (const note of batch) {
+          try {
+            await initiateConsumeTransaction(
+              account.publicKey,
+              note,
+              isDelegatedProvingEnabled,
+              false,
+              'auto_consume',
+              isWalletReadyNow,
+              claimFloorBaseFee
+            );
+          } catch (noteErr) {
+            if (noteErr instanceof ClaimFeeRefusedError) {
+              console.debug('[native-auto-consume] note waiting for fee funding', note.id, noteErr);
+              feeRefusedNotes += 1;
+              continue;
+            }
+            if (!isWalletReadyNow()) return;
+            console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+          }
         }
       }
     }
+    if (feeRefusedNotes === batchedNotes) return;
     // The wallet is now auto-claiming these notes, so the "click to claim"
     // notification is stale — dismiss it so it doesn't linger (#459).
     clearNoteReceivedNotification();
@@ -180,7 +221,7 @@ const Explore: FC = () => {
     shouldAutoConsume,
     hasAutoConsumableNotes,
     signTransaction,
-    verificationBaseFee
+    claimFloorBaseFee
   ]);
 
   useEffect(() => {
@@ -195,41 +236,32 @@ const Explore: FC = () => {
     }
   }, [address]);
 
-  const { sortedTokens, hiddenTokens } = useMemo(() => {
-    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
-    void bridgeConfig;
-    // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
-    // nothing, never as its token count at $1 a unit.
-    const fiatValues = new Map(
-      allTokenBalances.map(token => [
-        token,
-        hasKnownScale(token.metadata)
-          ? token.balance * (tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol)?.price ?? 0)
-          : 0
-      ])
-    );
-    const sorted = [...allTokenBalances].sort((a, b) => {
-      const aIsNative = a.tokenId === midenFaucetId;
-      const bIsNative = b.tokenId === midenFaucetId;
-      if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
-      return fiatValues.get(b)! - fiatValues.get(a)!;
-    });
-    // A hidden token moves to the Hidden assets section under the list; the hook never reports
-    // the native token hidden.
-    return {
-      sortedTokens: sorted.filter(token => !isHidden(token.tokenId)),
-      hiddenTokens: sorted.filter(token => isHidden(token.tokenId))
-    };
-  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices, bridgeConfig]);
+  // Read the current verified price assets on each render.
+  // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
+  // nothing, never as its token count at $1 a unit.
+  const fiatValues = new Map(
+    allTokenBalances.map(token => [
+      token,
+      hasKnownScale(token.metadata)
+        ? token.balance * (tokenQuote(tokenPrices, token.tokenId, token.metadata.symbol)?.price ?? 0)
+        : 0
+    ])
+  );
+  const sorted = [...allTokenBalances].sort((a, b) => {
+    const aIsNative = a.tokenId === midenFaucetId;
+    const bIsNative = b.tokenId === midenFaucetId;
+    if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
+    return fiatValues.get(b)! - fiatValues.get(a)!;
+  });
+  // Put hidden tokens in a separate list. A dust token is in neither list while the setting is on.
+  const sortedTokens = sorted.filter(
+    token => !isHidden(token.tokenId) && !(hideDust && isDustBalance(token, tokenPrices, midenFaucetId))
+  );
+  const hiddenTokens = sorted.filter(token => isHidden(token.tokenId));
 
-  // The price symbols of the tokens the Balance total sums, so the card waits on the feed only
-  // while one of them is a symbol the feed lists (`pricesLoaded`).
-  const totalPriceSymbols = useMemo(() => {
-    void bridgeConfig;
-    return allTokenBalances
-      .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
-      .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
-  }, [allTokenBalances, isHidden, bridgeConfig]);
+  const totalPriceSymbols = allTokenBalances
+    .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
+    .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -304,7 +336,7 @@ const Explore: FC = () => {
       </div>
 
       <div
-        className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        className="relative flex-1 min-h-0 overflow-y-auto overscroll-y-contain"
         data-testid="explore-scroll-container"
         onTouchStart={isMobileApp ? handleTouchStart : undefined}
         onTouchMove={isMobileApp ? handleTouchMove : undefined}
@@ -337,6 +369,7 @@ const Explore: FC = () => {
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}
+            displayQuotes={displayQuotes}
             balances={allTokenBalances}
             sortedTokens={sortedTokens}
             hiddenTokens={hiddenTokens}
@@ -344,6 +377,8 @@ const Explore: FC = () => {
             onUnhide={unhide}
             account={account}
             balancesLoading={balancesLoading}
+            hiddenReady={hiddenReady}
+            balanceAction={balanceAction}
             claimableNotes={manuallyClaimableNotes}
             // A faucet baseline has to be a LIVE list: the hook serves the list
             // saved last session first, and a native note newer than that cache
@@ -361,6 +396,7 @@ export default Explore;
 interface HomeOverviewProps {
   address: string;
   tokenPrices: TokenPrices;
+  displayQuotes: TokenPrices;
   balances: TokenBalanceData[];
   sortedTokens: TokenBalanceData[];
   hiddenTokens: TokenBalanceData[];
@@ -368,19 +404,16 @@ interface HomeOverviewProps {
   onUnhide: (tokenId: string) => Promise<boolean>;
   account: WalletAccount;
   balancesLoading: boolean;
+  hiddenReady: boolean;
+  balanceAction?: React.ReactNode;
   claimableNotes: readonly PendingNoteValue[] | undefined;
   fundingNotes: readonly PendingNoteValue[] | undefined;
 }
 
-/**
- * The card's total: always two decimals, so a count never changes the number of them mid-flight.
- * No currency symbol: the card shows the currency as its own unit beside the amount.
- */
-const usdTotal = (value: number) => toLocalFormat(value, { decimalPlaces: 2 });
-
 const HomeOverview: FC<HomeOverviewProps> = ({
   address,
   tokenPrices,
+  displayQuotes,
   balances,
   sortedTokens,
   hiddenTokens,
@@ -388,6 +421,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   onUnhide,
   account,
   balancesLoading,
+  hiddenReady,
+  balanceAction,
   claimableNotes,
   fundingNotes
 }) => {
@@ -396,27 +431,53 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
   const assetListRef = useRef<HTMLDivElement>(null);
   const assetsHeadingId = useId();
+  const numberSymbols = getNumberSymbols();
+  const livePricesReady = pricesLoaded(tokenPrices, totalPriceSymbols);
+  const usesCachedTotal = totalPriceSymbols.some(
+    symbol => symbol !== undefined && displayQuotes[symbol] !== tokenPrices[symbol]
+  );
+  const snapshot = usesCachedTotal
+    ? readBalanceSnapshot(balances, {
+        accountId: address,
+        network: getEffectiveNetworkName(),
+        rpcUrl: getEffectiveRpcUrl()
+      })
+    : null;
+  const now = Date.now();
+  const totalReady = usesCachedTotal
+    ? !balancesLoading &&
+      hiddenReady &&
+      snapshot?.capturedAt !== undefined &&
+      snapshot.capturedAt <= now &&
+      now - snapshot.capturedAt <= 15 * 60_000
+    : livePricesReady;
   return (
     <>
       <Balance>
-        {balance => (
+        {(balance, change) => (
           <BalanceCard
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             accountName={account.name}
-            // The dash when there is no total to show: prices have not loaded yet (feed
-            // down or still loading), or tokens are held and none can be valued (Balance
-            // hands null). Once any real price lands (stale-but-real via keepPreviousData
-            // counts), the total shows.
-            // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
-            // prefer a skeleton or an explicit "prices unavailable" affordance.
+            // The dash when there is no total to show: the live feed has not loaded and a cached
+            // total is not ready (balances still loading, hidden tokens unread, or the rows are
+            // not this account's snapshot), or tokens are held and none can be valued (Balance
+            // hands null). Once any live price lands (stale-but-real via keepPreviousData
+            // counts), the total shows. The change pill stays on that live feed.
             amount={
-              !pricesLoaded(tokenPrices, totalPriceSymbols) || balance === null ? (
-                '—'
-              ) : (
+              balance !== null && totalReady ? (
                 // Keyed by the account: a switch lands on the new account's total instead of
                 // counting from the old one's (AnimatedNumber counts only within one subject).
-                <AnimatedNumber key={address} value={balance.toNumber()} format={usdTotal} />
+                <TokenAmount
+                  key={address}
+                  amount={balance.toNumber()}
+                  animated
+                  grouping
+                  trimTrailingZeros={false}
+                  separators={{ group: numberSymbols.group, decimal: numberSymbols.decimal }}
+                />
+              ) : (
+                '—'
               )
             }
             // Until the first balance read lands the store has no entry for this
@@ -424,10 +485,24 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // card shows its skeleton, not a "0.00" that reads as lost funds (#844).
             state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
+            // The total's 24h move from the same quotes the asset rows show theirs with.
+            delta={
+              change && livePricesReady && !usesCachedTotal
+                ? {
+                    absolute: `${change.absolute < 0 ? '-' : '+'}${formatUsdDisplay(Math.abs(change.absolute), {
+                      separators: { group: numberSymbols.group, decimal: numberSymbols.decimal }
+                    })}`,
+                    percentage: `${change.percentage < 0 ? '-' : '+'}${Math.abs(change.percentage).toFixed(2)}%`
+                  }
+                : undefined
+            }
             onMore={() => setAccountsOpen(true)}
+            balanceAction={balanceAction}
           />
         )}
       </Balance>
+
+      <HomeMoveActions />
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 
@@ -439,6 +514,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         fundingNotes={fundingNotes}
         tokenPrices={tokenPrices}
       />
+
+      <ArcadeBanner />
 
       <div className="-mb-1.5 flex items-center justify-between pt-2">
         <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">
@@ -604,7 +681,9 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, as
                 </div>
               ))}
             </div>
-            <ErrorLine data-testid="hidden-assets-error">{unhideFailed ? t('hiddenTokensError') : null}</ErrorLine>
+            <ErrorLine data-testid="hidden-assets-error" errorId="hiddenTokensError">
+              {unhideFailed ? t('hiddenTokensError') : null}
+            </ErrorLine>
           </motion.div>
         )}
       </AnimatePresence>

@@ -17,7 +17,7 @@ describe('GuardianChangeSummary', () => {
     expect(GuardianChangeSummaryDefault).toBe(GuardianChangeSummary);
   });
 
-  it('stacks both providers on brand tiles, old above new, with From/To labels', () => {
+  it('lays both providers on brand tiles side by side, old then new, with From/To labels', () => {
     render(
       <GuardianChangeSummary
         kind="switch"
@@ -28,11 +28,11 @@ describe('GuardianChangeSummary', () => {
     );
 
     const summary = screen.getByTestId('guardian-change-summary');
-    // Vertical: the two providers stack, the arrow between them points down.
-    expect(summary).toHaveClass('mt-2', 'flex-col', 'items-center', 'rounded-2xl', 'bg-fill');
+    // One row: the two providers sit side by side, the arrow between them points right.
+    expect(summary).toHaveClass('mt-2', 'flex-row', 'items-start', 'rounded-2xl', 'bg-fill');
     expect(summary).toHaveAttribute('data-kind', 'switch');
 
-    // The old provider is drawn first, so it reads top down.
+    // The old provider is drawn first, so it reads left to right.
     const [previous, next] = screen.getAllByTestId('guardian-change-side');
     expect(previous).toHaveTextContent('LambdaClass');
     expect(next).toHaveTextContent('OpenZeppelin');
@@ -49,7 +49,7 @@ describe('GuardianChangeSummary', () => {
     // The labels say which way it reads, so the arrow is decorative.
     const arrow = screen.getByTestId('guardian-change-arrow');
     expect(arrow).toHaveAttribute('aria-hidden', 'true');
-    expect(arrow).toHaveAttribute('name', 'arrow-down');
+    expect(arrow).toHaveAttribute('name', 'arrow-right');
   });
 
   it('names a custom endpoint by its host and falls back to the generic avatar', () => {

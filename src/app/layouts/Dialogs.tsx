@@ -27,6 +27,7 @@ const Dialogs: FC = () => {
       <AlertSheet
         open={confirmParams.isOpen}
         title={confirmParams.title}
+        variant={confirmParams.variant}
         actionLabel={confirmParams.confirmLabel ?? t('ok')}
         actionVariant={confirmParams.destructive ? ButtonVariant.Destructive : ButtonVariant.Primary}
         onAction={handleConfirm}
@@ -41,6 +42,7 @@ const Dialogs: FC = () => {
       <AlertSheet
         open={alertParams.isOpen}
         title={alertParams.title}
+        variant={alertParams.variant}
         actionLabel={t('ok')}
         onAction={dispatchAlertClose}
         screenKey="alert"

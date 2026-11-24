@@ -19,6 +19,7 @@ import { bumpWasmClientGeneration, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/was
 
 const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
+  getSignerCommitmentsFromAccount: () => [],
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args),
   // Mirror the real resolver: the per-account endpoint, else the default.
   resolveGuardianEndpoint: (acc: { guardianEndpoint?: string }) =>

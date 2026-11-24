@@ -118,8 +118,21 @@ export const onboardingUrls = async () => {
   const hashes = [
     '',
     '/',
+    '/#mainnet-access',
+    '/#network-notice',
     '/#select-wallet-type',
+    '/#choose-protection',
+    '/#setup-biometric',
+    '/#setup-passcode',
+    '/#guardian-intro',
+    '/#meet-guardian',
+    '/#choose-guardian',
+    '/#reused-phrase',
+    '/#select-import-type',
     '/#import-from-seed',
+    '/#import-from-key',
+    '/#import-from-file',
+    '/#import-select-recovery-method',
     '/#backup-seed-phrase',
     '/#verify-seed-phrase',
     '/#create-password',
@@ -132,6 +145,39 @@ export const onboardingUrls = async () => {
 
   return urls;
 };
+
+export async function openCommandHome(source: WindowType.Popup | WindowType.SidePanel): Promise<void> {
+  if (!isExtension()) return;
+  const chromePanel = typeof chrome === 'undefined' ? undefined : chrome.sidePanel;
+  const closeChromePanel =
+    chromePanel && 'close' in chromePanel && typeof chromePanel.close === 'function'
+      ? chromePanel.close.bind(chromePanel)
+      : undefined;
+  let initiatingWindowId: number | undefined;
+  if (source === WindowType.SidePanel && closeChromePanel) {
+    // Capture this panel's window before creating an active tab can change the focused window.
+    try {
+      initiatingWindowId = (await chrome.windows.getCurrent()).id;
+    } catch {
+      // Without an initiating identity, leave the panel usable rather than closing another window's panel.
+    }
+  }
+  const browser = await getBrowser();
+  await browser.tabs.create({ url: browser.runtime.getURL('fullpage.html#/'), active: true });
+  if (source === WindowType.Popup) {
+    window.close();
+  } else {
+    try {
+      if (chromePanel) {
+        if (initiatingWindowId !== undefined) await closeChromePanel?.({ windowId: initiatingWindowId });
+      } else {
+        await browser.sidebarAction?.close?.();
+      }
+    } catch {
+      // The new tab is already open; failure to close the old panel is harmless.
+    }
+  }
+}
 
 export async function openInFullPage() {
   // Only extension can open new tabs
@@ -151,4 +197,10 @@ export async function openInFullPage() {
 export async function openUrlInNewTab(url: string) {
   const browser = await getBrowser();
   await browser.tabs.create({ url });
+}
+
+/** Reloads this page. Its own function because jsdom's `location.reload` cannot be replaced, so tests replace this. */
+/* c8 ignore next 3 -- jsdom cannot observe a reload */
+export function reloadPage(): void {
+  window.location.reload();
 }

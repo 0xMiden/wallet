@@ -16,6 +16,8 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
+import CommandLauncher from 'app/layouts/CommandLauncher';
+import { useHomePagerPreview } from 'app/layouts/home-pager-preview';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import {
   PageActiveContext,
@@ -25,8 +27,9 @@ import {
   usePageRevealedByLayer
 } from 'app/layouts/page-active';
 import { announceFooterMounted } from 'app/pages/Browser/peek-footer';
-import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
+import { BottomNav, BottomNavItem, SegmentedActionBar, type SegmentedActionBarProps } from 'components/ui';
 import { usePreset } from 'lib/animation';
+import { useHasUnreadBadges } from 'lib/badges/useWalletBadges';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
@@ -35,23 +38,22 @@ import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
 /**
- * Layout for tab-based pages (Home, History, Settings, Browser).
+ * Layout for tab-based pages (Home, History, Me, Browser).
  * Provides a persistent footer and animated content area.
  *
  * The top action bar is mounted when the route is in the "home"
  * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
- * Activity, Settings) hide it.
+ * Activity, Me) hide it.
  *
- * Only the Settings ROOT (`/settings`) is a tab destination; `/settings/<slug>`
- * sub-pages keep their FullScreenPage drill-in so back behaviour and history
- * depth are unchanged (see PageRouter).
+ * Me is the personal tab destination. It embeds the settings groups, whose rows
+ * keep the FullScreenPage drill-in used by every settings page (see PageRouter).
  */
 const TAB_ROUTES: Record<string, string> = {
   home: '/',
   explore: '/browser',
   activity: '/history',
-  settings: '/settings'
+  me: '/me'
 };
 
 const ACTION_ROUTES: Record<string, string> = {
@@ -95,17 +97,21 @@ const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
   );
 };
 
+/**
+ * The Home action bar. A leaf on purpose: during a swipe it shows the page the pager previews
+ * (`useHomePagerPreview`), so the pill moves with the swipe, and only the bar re-renders for it.
+ */
+const HomeActionBar: FC<SegmentedActionBarProps> = ({ activeId, ...props }) => {
+  const previewId = useHomePagerPreview();
+  // Keep activeId bound to the route so a previewed segment can still be selected.
+  return <SegmentedActionBar {...props} activeId={activeId} displayId={previewId} />;
+};
+
 function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
   if (segment === 'browser') return 'explore';
   if (segment === 'history' || segment === 'activity-details') return 'activity';
-  // Exact, unlike the segment matches above: `/history/:programId` renders
-  // inside this shell, so Activity has sub-paths to stay lit for, whereas the
-  // only Settings route that mounts TabLayout is the bare root — every
-  // `/settings/<slug>` sub-page renders in FullScreenPage (see PageRouter).
-  // Matching the segment here would only ever cover paths that cannot reach
-  // this function.
-  if (pathname === '/settings') return 'settings';
+  if (pathname === '/me') return 'me';
   return 'home';
 }
 
@@ -149,7 +155,8 @@ const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(({ 
   useImperativeHandle(ref, () => ({
     handleScroll: event => {
       const { target } = event;
-      if (!(target instanceof HTMLElement)) return;
+      // The Home pager scrolls sideways on every frame of a swipe; it is never a vertical scroll.
+      if (!(target instanceof HTMLElement) || target.hasAttribute('data-home-pager')) return;
       const top = target.scrollTop;
       const previous = lastScroll.current.target === target ? lastScroll.current.top : top;
       lastScroll.current = { target, top };
@@ -183,6 +190,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
   const hasUnreadActivity = useHasUnreadActivity();
+  const hasUnreadBadges = useHasUnreadBadges();
   // Content of each tab that has been shown. The active tab's entry is
   // refreshed on every render; the others keep their last content mounted.
   const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
@@ -218,9 +226,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       unread: hasUnreadActivity ? { label: t('activityUnread') } : undefined
     },
     {
-      id: 'settings',
-      label: t('settings'),
-      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
+      id: 'me',
+      label: t('profile'),
+      icon: <Icon name={IconName.User} className="w-6 h-6" fill="currentColor" />,
+      unread: hasUnreadBadges ? { label: t('activityUnread') } : undefined
     }
   ];
 
@@ -322,8 +331,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // The Home pane holds the swipe carousel for every home-group route.
   panesRef.current[activeTab] = showActionBar ? (
     <>
-      <div className="shrink-0 relative z-10">
-        <SegmentedActionBar
+      {activeAction !== 'overview' && <CommandLauncher />}
+      <div className="shrink-0 relative z-10" data-home-actions="true">
+        <HomeActionBar
           items={actionItems}
           activeId={activeAction}
           onChange={handleActionChange}

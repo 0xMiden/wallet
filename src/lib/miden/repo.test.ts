@@ -1,7 +1,20 @@
-import Dexie, { DBCore, Middleware } from 'dexie';
+import Dexie, { DBCore, DBCoreCursor, DBCoreMutateResponse, DBCoreTable, Middleware } from 'dexie';
+import { IDBDatabase, IDBObjectStore } from 'fake-indexeddb';
 
-import { ITransaction, ITransactionStatus } from './db/types';
+import { deriveSwapReceipt } from 'app/templates/history/swapReceipt';
 import {
+  annotateCrash,
+  snapshotCrashDiagnostics,
+  StorageOperation,
+  StorageOwner
+} from 'lib/telemetry/crash-diagnostics';
+
+import { badgesFromHistory } from '../badges/backfill';
+import { BADGE_EVIDENCE_TYPES } from '../badges/evidence';
+import { compareAccountIds } from './activity/utils';
+import { BridgedSendTransaction, ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
+import {
+  BADGE_EVIDENCE_ROW_TYPES,
   createSchemaFor,
   db,
   exportDb,
@@ -10,9 +23,13 @@ import {
   transactions,
   Table,
   TRANSACTIONS_V17_STORE,
+  TRANSACTIONS_V2_STORE,
+  TRANSACTIONS_V3_2_STORE,
   SPENDING_LIMITS_V17_STORE,
   SPENDING_LIMITS_V19_STORE
 } from './repo';
+import { isOpenRecoveredOrder, isRecoveredReturnOrder, recoveredSwapOrderRef } from './swap/recovered-order';
+import { getCompletedTransactionsPage } from './transaction/get';
 import { isRequeueableTransaction } from './transaction/retry';
 import { NoteTypeEnum } from './types';
 
@@ -86,8 +103,7 @@ describe('miden repo export/import', () => {
     await importDb(await exportDb());
 
     const [restored] = await transactions.toArray();
-    // The provenance stamp is the ONLY thing import adds to a terminal row —
-    // asserting the whole object is what proves nothing else was rewritten.
+    // Import drops local badge provenance. This swap names no mainnet network, so it stores no revision.
     expect(restored).toEqual({ ...original, restoredFromBackup: true });
   });
 
@@ -423,6 +439,304 @@ describe('miden repo export/import', () => {
     expect(isRequeueableTransaction(restored!)).toBe(false);
   });
 
+  it('omits local original Epoch collateral facts while retaining actual execution bytes and history', async () => {
+    const row = new BridgedSendTransaction(
+      'acc1',
+      1n,
+      '0x1111111111111111111111111111111111111111',
+      11155111,
+      'epoch',
+      'faucet',
+      new Uint8Array([91, 92])
+    );
+    row.extraInputs.epochCollateralRequestBytes = new Uint8Array([81, 82]);
+    row.extraInputs.intentNonce = 'original-nonce';
+    await transactions.add(row);
+    const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
+    expect(dumped.extraInputs).not.toHaveProperty('epochCollateralRequestBytes');
+    expect(dumped.requestBytes).toEqual([91, 92]);
+    expect(dumped.extraInputs.intentNonce).toBe('original-nonce');
+    expect((await transactions.get(row.id))?.extraInputs.epochCollateralRequestBytes).toEqual(new Uint8Array([81, 82]));
+  });
+
+  // A backup must not record which dApps the user used, and a restored row is never waitable by one (#1416). Asserted
+  // on the dump itself: import drops the field too, so a round trip passes even when the export keeps it.
+  it('leaves dappOrigins out of the dump', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'dapp-row',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        completedAt: 6,
+        displayIcon: 'SEND',
+        dappOrigins: ['https://dapp.example']
+      }
+    ]);
+
+    const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
+    expect(dumped.id).toBe('dapp-row');
+    expect(dumped).not.toHaveProperty('dappOrigins');
+  });
+
+  it('drops a dappOrigins the dump supplies', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'planted',
+          type: 'send',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 1,
+          completedAt: 2,
+          displayIcon: 'SEND',
+          dappOrigins: ['https://dapp.example']
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.restoredFromBackup).toBe(true);
+    expect(restored).not.toHaveProperty('dappOrigins');
+  });
+
+  it('keeps local badge provenance out of exports and ignores provenance supplied by a dump', async () => {
+    await transactions.add({
+      id: 'local-recovery',
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      accountId: 'victim',
+      secondaryAccountId: 'recipient',
+      initiatedAt: 1,
+      completedAt: 2,
+      amount: 10n,
+      displayIcon: 'SEND',
+      recovered: true,
+      restoredFromBackup: true,
+      recoveredBadgeNetwork: 'mainnet',
+      badgeEvidenceRevision: 'local-token',
+      recovery: {
+        version: 5,
+        network: 'mainnet',
+        operators: ['guardian'],
+        nonce: 1,
+        inputNotes: [],
+        outputNotes: [],
+        completeness: 'decoded',
+        reclaimed: false
+      }
+    });
+
+    const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
+    expect(dumped).not.toHaveProperty('recoveredBadgeNetwork');
+    expect(dumped).not.toHaveProperty('badgeEvidenceRevision');
+
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [
+          {
+            ...dumped,
+            recoveredBadgeNetwork: 'mainnet',
+            badgeEvidenceRevision: 'backup-token'
+          }
+        ]
+      })
+    );
+
+    const [restored] = await transactions.toArray();
+    expect(restored).not.toHaveProperty('recoveredBadgeNetwork');
+    expect(restored).not.toHaveProperty('badgeEvidenceRevision');
+    expect(badgesFromHistory([restored!], ['victim'], ['first-send'])).toEqual([]);
+  });
+
+  // On a Guardian-recovered order the Cancel stamp is the permission settlement acts on to return the order, and only
+  // this wallet's own Cancel may give it (#1487). A restored row's stamp is read nowhere else.
+  it("drops a dump's swap Cancel stamp and keeps the rest of the order", async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'local-order',
+          type: 'swap',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 1,
+          completedAt: 2,
+          displayIcon: 'DEFAULT',
+          extraInputs: { orderId: '42', autoConsume: true, expiresAt: 150, expiryTriggeredAt: 150 }
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({ orderId: '42', autoConsume: true, expiresAt: 150 });
+  });
+
+  const recoveredOrderRow = (extraInputs: Partial<ISwapExtraInputs>): ITransaction => ({
+    id: 'recovered-order',
+    type: 'swap',
+    status: ITransactionStatus.Completed,
+    accountId: 'acc1',
+    initiatedAt: 1,
+    completedAt: 2,
+    displayIcon: 'DEFAULT',
+    amount: 70n,
+    outputNoteIds: ['order-note'],
+    restoredFromBackup: true,
+    recovered: true,
+    recovery: {
+      version: 5,
+      network: 'testnet',
+      operators: [],
+      nonce: 2,
+      inputNotes: [],
+      outputNotes: [
+        {
+          id: 'order-note',
+          assets: [],
+          visibility: 'public',
+          swap: { orderId: '42', requestedAsset: { faucetId: 'requested', amount: '30' } }
+        }
+      ],
+      completeness: 'decoded',
+      reclaimed: false
+    },
+    extraInputs: {
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false,
+      ...extraInputs
+    }
+  });
+
+  // A backup cut between a recovered order's Cancel and its reclaim carries the stamp and the expiry that Cancel
+  // moved to the press (recovery writes none). Dropping only the stamp left the expiry lapsed, so the importing device
+  // showed the return as pending, offered no Cancel and never acted on it. The import returns the order to open.
+  it('imports a cancelled recovered order open again, with Cancel on offer', async () => {
+    const recoveredOrder = recoveredOrderRow({
+      expiresAt: 150,
+      expiryTriggeredAt: 150,
+      recoveredTip: { noteId: 'remainder-note', depth: 1, remainingOffered: 20n }
+    });
+    await transactions.bulkAdd([recoveredOrder]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false
+    });
+    expect(isOpenRecoveredOrder(restored!)).toBe(true);
+    expect(isRecoveredReturnOrder(restored!)).toBe(false);
+    const receipt = deriveSwapReceipt({
+      requestedAmount: 30n,
+      tracking: { orderId: '42', state: 'active', currentDepth: 0, remainingOffered: 70n, remainingRequested: 30n },
+      settlement: null,
+      autoConsume: false,
+      recovered: true,
+      expiresAt: restored!.extraInputs.expiresAt ?? null
+    });
+    expect(receipt.offerCancel).toBe(true);
+  });
+
+  it('imports a recovered order without its recorded lineage checkpoint', async () => {
+    await transactions.bulkAdd([
+      recoveredOrderRow({ recoveredCheckpoint: { noteId: 'spent-remainder-16', depth: 16 } })
+    ]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs?.recoveredCheckpoint).toBeUndefined();
+    expect(recoveredSwapOrderRef(restored!)).toEqual(expect.objectContaining({ tipNoteId: 'order-note', tipDepth: 0 }));
+  });
+
+  // `lineageClosedAt` is what makes a recovered order's closure final, so a backup carrying it closed an order its node
+  // may still hold open, with no read of the node (#1487).
+  it('imports a recovered order without its lineage close record, tracked until its next read', async () => {
+    await transactions.bulkAdd([recoveredOrderRow({ settledAt: 160, lineageClosedAt: 160 })]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false,
+      settledAt: 160
+    });
+    expect(recoveredSwapOrderRef(restored!)).toEqual(
+      expect.objectContaining({ txId: 'recovered-order', provisionalClosure: true })
+    );
+  });
+
+  // A spent order note closes a recovered order as finally as `lineageClosedAt` does, so it is dropped with it (#1487).
+  it('imports a recovered order without its spent-note close, tracked until its next read', async () => {
+    await transactions.bulkAdd([recoveredOrderRow({ orderNoteSpentAt: 160, lineageClosedAt: 160 })]);
+    const backup = await exportDb();
+    await transactions.clear();
+
+    await importDb(backup);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      requestedFaucetId: 'requested',
+      requestedAmount: 30n,
+      autoConsume: false
+    });
+    expect(recoveredSwapOrderRef(restored!)).toEqual(expect.objectContaining({ txId: 'recovered-order' }));
+  });
+
+  it('keeps the expiry of a restored swap that recovery did not rebuild', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'file-order',
+          type: 'swap',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 1,
+          completedAt: 2,
+          displayIcon: 'DEFAULT',
+          extraInputs: {
+            orderId: '42',
+            expiresAt: 150,
+            settledAt: 160,
+            lineageClosedAt: 160,
+            recoveredTip: { noteId: 'kept', depth: 1 }
+          }
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.extraInputs).toEqual({
+      orderId: '42',
+      expiresAt: 150,
+      settledAt: 160,
+      lineageClosedAt: 160,
+      recoveredTip: { noteId: 'kept', depth: 1 }
+    });
+  });
+
   // The status test is an allow-list of the terminal values, so a dump is free
   // to carry a status no consumer recognises. Such a row is invisible in every
   // history view (all of them compare with `===`) while still holding its id.
@@ -577,16 +891,53 @@ describe('miden repo export/import', () => {
   });
 });
 
+describe('portfolio observation migration', () => {
+  it('upgrades a populated 3.2 database without rewriting its transaction or spending-limit rows', async () => {
+    const name = `portfolio-v32-${crypto.randomUUID()}`;
+    const seed = new Dexie(name);
+    seed.version(3.2).stores({
+      [Table.Transactions]: TRANSACTIONS_V3_2_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+    });
+    await seed.open();
+    await seed.table(Table.Transactions).put({ id: 'existing-tx', accountId: 'a', initiatedAt: 1 });
+    await seed
+      .table(Table.SpendingLimits)
+      .put({ accountId: 'a', limit: '10', revision: 'r', createdAt: 1, updatedAt: 1 });
+    seed.close();
+    const upgraded = createSchemaFor(name);
+    try {
+      await upgraded.open();
+      expect(upgraded.verno).toBe(3.3);
+      await expect(upgraded.table(Table.Transactions).get('existing-tx')).resolves.toMatchObject({ accountId: 'a' });
+      await expect(upgraded.table(Table.SpendingLimits).get('a')).resolves.toMatchObject({ limit: '10' });
+      expect(upgraded.table(Table.PortfolioObservations).schema.primKey.keyPath).toEqual([
+        'accountId',
+        'network',
+        'rpcUrl',
+        'currency',
+        'bucket'
+      ]);
+      expect(upgraded.table(Table.PortfolioObservations).schema.indexes.map(index => index.name)).toEqual([
+        '[accountId+network+rpcUrl+currency+capturedAt]'
+      ]);
+    } finally {
+      upgraded.close();
+      await upgraded.delete();
+    }
+  });
+});
+
 describe('spending limits schema', () => {
   beforeEach(async () => {
     await spendingLimits.clear();
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 3', () => {
+  it('keeps spending limits keyed by account alone after the observation migration', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3);
+    expect(db.verno).toBe(3.3);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -764,7 +1115,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3);
+    expect(upgraded.verno).toBe(3.3);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -815,7 +1166,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3);
+    expect(upgraded.verno).toBe(3.3);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -833,6 +1184,142 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 });
 
 describe('writing a transaction row', () => {
+  it('locks badge evidence row types to the badge reader union', () => {
+    const union = [...new Set(Object.values(BADGE_EVIDENCE_TYPES).flat())].sort();
+    expect([...BADGE_EVIDENCE_ROW_TYPES].sort()).toEqual(union);
+  });
+
+  it('upgrades a populated v3 store without losing transaction blobs or spending limits', async () => {
+    const name = `badge-index-upgrade-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const seed = new Dexie(name);
+    seed
+      .version(3)
+      .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE, [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE });
+    await seed.open();
+    const legacy: ITransaction = {
+      id: 'legacy-badge-upgrade',
+      accountId: 'account-a',
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      resultBytes: new Uint8Array([1, 2, 3])
+    };
+    await seed.table(Table.Transactions).add(legacy);
+    await seed
+      .table(Table.SpendingLimits)
+      .add({ accountId: 'account-a', limit: '20', revision: 'old', createdAt: 1, updatedAt: 1 });
+    seed.close();
+    const upgraded = createSchemaFor(name);
+    try {
+      await upgraded.open();
+      expect(upgraded.verno).toBe(3.3);
+      const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
+      expect(upgradedLegacy).toMatchObject(legacy);
+      expect(upgradedLegacy).not.toHaveProperty('badgeEvidenceRevision');
+      expect(
+        await upgraded
+          .table(Table.Transactions)
+          .where('[badgeNetwork+status+type]')
+          .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+          .count()
+      ).toBe(0);
+      expect(await upgraded.table(Table.SpendingLimits).get('account-a')).toMatchObject({
+        limit: '20',
+        revision: 'old'
+      });
+    } finally {
+      upgraded.close();
+      await Dexie.delete(name);
+    }
+  });
+  it('indexes only explicitly stamped badge evidence and leaves legacy history intact', async () => {
+    await transactions.clear();
+    const old: ITransaction = {
+      id: 'badge-legacy',
+      type: 'send',
+      accountId: 'account-a',
+      initiatedAt: 1,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND'
+    };
+    await transactions.bulkAdd([
+      old,
+      { ...old, id: 'badge-testnet', badgeNetwork: 'testnet' },
+      { ...old, id: 'badge-mainnet', badgeNetwork: 'mainnet' },
+      { ...old, id: 'badge-recovered', recovered: true, restoredFromBackup: true, recoveredBadgeNetwork: 'mainnet' }
+    ]);
+    expect(
+      await transactions
+        .where('[badgeNetwork+status+type]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+        .primaryKeys()
+    ).toEqual(['badge-mainnet']);
+    expect(
+      await transactions
+        .where('[badgeNetwork+status+type+badgeEvidenceRevision]')
+        .between(
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.minKey],
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.maxKey]
+        )
+        .primaryKeys()
+    ).toEqual(['badge-mainnet']);
+    expect(
+      await transactions
+        .where('[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]')
+        .between(
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.minKey],
+          ['mainnet', ITransactionStatus.Completed, 'send', Dexie.maxKey]
+        )
+        .primaryKeys()
+    ).toEqual(['badge-recovered']);
+    expect(await transactions.get('badge-legacy')).toEqual(old);
+    expect(await transactions.get('badge-testnet')).not.toHaveProperty('badgeEvidenceRevision');
+    expect((await transactions.get('badge-mainnet'))?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect((await transactions.get('badge-recovered'))?.badgeEvidenceRevision).toEqual(expect.any(String));
+  });
+
+  it('refreshes row revisions on add, update, and put while retaining the issuer index', async () => {
+    const input: ITransaction = {
+      id: 'badge-revision',
+      type: 'send',
+      accountId: 'account-a',
+      initiatedAt: 1,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND',
+      badgeNetwork: 'mainnet',
+      badgeEvidenceRevision: 'untrusted-input'
+    };
+    await transactions.add(input);
+    const added = (await transactions.get(input.id))!;
+    expect(added.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(added.badgeEvidenceRevision).not.toBe('untrusted-input');
+
+    await transactions.update(input.id, { extraInputs: { phase: 'ready' } });
+    const updated = (await transactions.get(input.id))!;
+    expect(updated.badgeEvidenceRevision).not.toBe(added.badgeEvidenceRevision);
+    await expect(
+      transactions
+        .where('[badgeNetwork+status+type+badgeEvidenceRevision]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send', added.badgeEvidenceRevision!])
+        .count()
+    ).resolves.toBe(0);
+
+    await transactions.bulkUpdate([{ key: input.id, changes: { extraInputs: { phase: 'received' } } }]);
+    const bulkUpdated = (await transactions.get(input.id))!;
+    expect(bulkUpdated.badgeEvidenceRevision).not.toBe(updated.badgeEvidenceRevision);
+
+    await transactions.put({ ...bulkUpdated, badgeEvidenceRevision: 'backup-revision' });
+    const replaced = (await transactions.get(input.id))!;
+    expect(replaced.badgeEvidenceRevision).not.toBe(bulkUpdated.badgeEvidenceRevision);
+    expect(replaced.badgeEvidenceRevision).not.toBe('backup-revision');
+    await expect(
+      transactions
+        .where('[badgeNetwork+status+type]')
+        .equals(['mainnet', ITransactionStatus.Completed, 'send'])
+        .primaryKeys()
+    ).resolves.toEqual([input.id]);
+  });
   it.each([
     ['missing', undefined],
     ['NaN', Number.NaN],
@@ -909,5 +1396,1019 @@ describe('writing a transaction row', () => {
       await db.open();
     }
     await expect(transactions.get('hook-6')).resolves.toMatchObject({ status: ITransactionStatus.Completed });
+  });
+});
+
+describe('wallet storage rejection boundaries', () => {
+  type BoundaryMethod = 'get' | 'getMany' | 'query' | 'count' | 'openCursor' | 'mutate';
+  type BoundaryMode = 'success' | 'throw' | 'reject' | 'primitive';
+  const owners: { table: Table; owner: StorageOwner }[] = [
+    { table: Table.Transactions, owner: 'wallet_transactions' },
+    { table: Table.SpendingLimits, owner: 'wallet_limits' }
+  ];
+  const methods: { method: BoundaryMethod; operation: StorageOperation }[] = [
+    { method: 'get', operation: 'get' },
+    { method: 'getMany', operation: 'get' },
+    { method: 'query', operation: 'query' },
+    { method: 'count', operation: 'count' },
+    { method: 'openCursor', operation: 'cursor_open' },
+    { method: 'mutate', operation: 'mutate' }
+  ];
+  const modes: BoundaryMode[] = ['throw', 'reject', 'primitive'];
+  const cases = owners.flatMap(owner =>
+    methods.flatMap(method => modes.map(mode => ({ ...owner, ...method, requestedMode: mode })))
+  );
+  let sequence = 0;
+
+  // The control has the same primary keys and indexes without wallet middleware.
+  // Its partial writes and transaction lifetime provide the reference behavior.
+  function database(instrumented = true): Dexie {
+    const name = `storage-boundary-${Date.now()}-${sequence++}`;
+    if (instrumented) return createSchemaFor(name);
+    const control = new Dexie(name, { modifyChunkSize: 25 });
+    control.version(3.1).stores({
+      [Table.Transactions]: TRANSACTIONS_V2_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+    });
+    return control;
+  }
+
+  async function dispose(target: Dexie): Promise<void> {
+    target.close();
+    await Dexie.delete(target.name);
+  }
+
+  async function rejection(invoke: () => unknown): Promise<unknown> {
+    try {
+      await invoke();
+    } catch (error) {
+      return error;
+    }
+    throw new Error('Expected the operation to reject');
+  }
+
+  function pair(owner: StorageOwner, operation: StorageOperation) {
+    return { storageOwner: owner, storageOperation: operation };
+  }
+
+  function row(key: string): Record<string, unknown> {
+    return { id: key, accountId: key, initiatedAt: 1, revision: 'original', status: 0 };
+  }
+
+  async function seed(target: Dexie, table: Table): Promise<void> {
+    await target.table<Record<string, unknown>, string>(table).bulkAdd([row('a'), row('b'), row('c')]);
+  }
+
+  // Real hooks and observability consult Dexie's active transaction zone.
+  // A bare IDB transaction would bypass that public-operation invariant.
+  function cursorRequest(target: Dexie, tableName: Table) {
+    const current = Dexie.currentTransaction;
+    if (current === null) throw new Error('Cursor requires a Dexie transaction');
+    const table = target.core.table(tableName);
+    return {
+      trans: current.idbtrans,
+      values: true,
+      query: { index: table.schema.primaryKey, range: { type: 3, lower: undefined, upper: undefined } }
+    };
+  }
+
+  // The lower middleware controls settlement without replacing the production construction path.
+  // Separate parameter rows prove both throw and rejection paths on the unimplemented source.
+  // Frozen failures also prevent an observer from relying on writable Error properties.
+  it.each(cases)(
+    'labels $table $method $requestedMode without changing settlement or arguments',
+    async ({ table, owner, method, operation, requestedMode }) => {
+      const target = database();
+      let mode: BoundaryMode = 'success';
+      let failure = new Error('boundary failure');
+      let calls = 0;
+      let observedRequest: unknown;
+      let observedReceiver: unknown;
+      let expectedReceiver: DBCoreTable | undefined;
+      let expectedRequest: unknown;
+      const objectResponse = { untouched: true };
+      const arrayResponse = [objectResponse];
+      const queryResponse = { result: arrayResponse };
+      const mutationResponse: DBCoreMutateResponse = { numFailures: 0, failures: {}, results: ['a'], lastResult: 'a' };
+      function settle<T>(receiver: DBCoreTable, request: unknown, value: T): Promise<T> {
+        calls++;
+        observedReceiver = receiver;
+        observedRequest = request;
+        if (mode === 'throw') throw failure;
+        if (mode === 'reject') return Dexie.Promise.reject(failure);
+        if (mode === 'primitive') return Dexie.Promise.reject('primitive rejection');
+        return Dexie.Promise.resolve(value);
+      }
+      target.use({
+        stack: 'dbcore',
+        name: 'boundary-settlement-control',
+        level: 10.5,
+        create: down => ({
+          ...down,
+          table: name => {
+            const original = down.table(name);
+            if (name !== table) return original;
+            const wrapped: DBCoreTable = {
+              ...original,
+              get(request) {
+                return settle(this, request, objectResponse);
+              },
+              getMany(request) {
+                return settle(this, request, arrayResponse);
+              },
+              query(request) {
+                return settle(this, request, queryResponse);
+              },
+              count(request) {
+                return settle(this, request, 17);
+              },
+              openCursor(request) {
+                return settle(this, request, null);
+              },
+              mutate(request) {
+                return settle(this, request, mutationResponse);
+              }
+            };
+            expectedReceiver = wrapped;
+            return wrapped;
+          }
+        })
+      });
+      try {
+        await target.open();
+        const coreTable = target.core.table(table);
+        function invoke(): Promise<unknown> {
+          const trans = target.core.transaction([table], 'readwrite');
+          const query = { index: coreTable.schema.primaryKey, range: { type: 3, lower: undefined, upper: undefined } };
+          switch (method) {
+            case 'get': {
+              const request = { trans, key: 'a' };
+              expectedRequest = request;
+              return coreTable.get(request);
+            }
+            case 'getMany': {
+              const request = { trans, keys: ['a'] };
+              expectedRequest = request;
+              return coreTable.getMany(request);
+            }
+            case 'query': {
+              const request = { trans, query, values: true };
+              expectedRequest = request;
+              return coreTable.query(request);
+            }
+            case 'count': {
+              const request = { trans, query };
+              expectedRequest = request;
+              return coreTable.count(request);
+            }
+            case 'openCursor': {
+              const request = { trans, query, values: true };
+              expectedRequest = request;
+              return coreTable.openCursor(request);
+            }
+            case 'mutate': {
+              const request: Parameters<DBCoreTable['mutate']>[0] = { type: 'add', trans, values: [row('a')] };
+              expectedRequest = request;
+              return coreTable.mutate(request);
+            }
+          }
+        }
+        const responses: Record<BoundaryMethod, unknown> = {
+          get: objectResponse,
+          getMany: arrayResponse,
+          query: queryResponse,
+          count: 17,
+          openCursor: null,
+          mutate: mutationResponse
+        };
+        expect(await invoke()).toBe(responses[method]);
+        expect(observedReceiver).toBe(expectedReceiver);
+        expect(observedRequest).toBe(expectedRequest);
+        expect(calls).toBe(1);
+        mode = requestedMode;
+        failure = Object.freeze(new Error(`${method} ${mode}`));
+        const caught = await rejection(invoke);
+        expect(caught).toBe(mode === 'primitive' ? 'primitive rejection' : failure);
+        expect(observedReceiver).toBe(expectedReceiver);
+        expect(observedRequest).toBe(expectedRequest);
+        expect(calls).toBe(2);
+        expect(snapshotCrashDiagnostics(caught)).toEqual(mode === 'primitive' ? {} : pair(owner, operation));
+      } finally {
+        await dispose(target);
+      }
+    }
+  );
+
+  // A schema can still contain a historical store during an upgrade. Its name must
+  // never become telemetry merely because it passed through the wallet middleware.
+  it('does not guess an owner for a historical or unknown table', async () => {
+    const target = database();
+    target.version(3.3).stores({ transactionRequests: 'id', unrelated: 'id' });
+    const failures = new Map<string, Error>();
+    target.use({
+      stack: 'dbcore',
+      name: 'historical-table-failure',
+      level: 10.5,
+      create: down => ({
+        ...down,
+        table: name => {
+          const table = down.table(name);
+          if (name !== 'transactionRequests' && name !== 'unrelated') return table;
+          const failure = new Error(name);
+          failures.set(name, failure);
+          return { ...table, get: () => Dexie.Promise.reject(failure) };
+        }
+      })
+    });
+    try {
+      await target.open();
+      for (const name of ['transactionRequests', 'unrelated']) {
+        const caught = await rejection(() => target.table(name).get('a'));
+        expect(caught).toBe(failures.get(name));
+        expect(snapshotCrashDiagnostics(caught)).toEqual({});
+      }
+    } finally {
+      await dispose(target);
+    }
+  });
+
+  // Patching this real cursor's iterator makes fake-indexeddb emit a genuine continuation request error.
+  // The successful first request distinguishes iteration observation from an open-only catch.
+  // Dexie reconstructs UnknownError, so the public error and its native inner are pinned separately.
+  it.each(owners)('labels a request error after a real $table cursor has opened', async ({ table, owner }) => {
+    const target = database();
+    const failure = new Error('iteration request failure');
+    failure.name = 'UnknownError';
+    let openSucceeded = false;
+    let requestErrorSeen = false;
+    const original = IDBObjectStore.prototype.openCursor;
+    const spy = jest.spyOn(IDBObjectStore.prototype, 'openCursor').mockImplementation(function (
+      this: IDBObjectStore,
+      range,
+      direction
+    ) {
+      const request = original.call(this, range, direction);
+      if (this.transaction.db.name === target.name && this.name === table) {
+        request.addEventListener(
+          'success',
+          () => {
+            const cursor: unknown = request.result;
+            if (cursor === null || typeof cursor !== 'object') return;
+            openSucceeded = true;
+            Object.defineProperty(cursor, '_iterate', {
+              configurable: true,
+              value: () => {
+                throw failure;
+              }
+            });
+          },
+          { once: true }
+        );
+        request.addEventListener('error', () => {
+          requestErrorSeen = request.error === failure;
+        });
+      }
+      return request;
+    });
+    try {
+      await seed(target, table);
+      const caught = await rejection(() =>
+        target
+          .table(table)
+          .filter(() => true)
+          .toArray()
+      );
+      expect(openSucceeded).toBe(true);
+      expect(requestErrorSeen).toBe(true);
+      expect(caught).toBeInstanceOf(Error);
+      expect(caught).toMatchObject({ name: 'UnknownError', inner: failure });
+      expect(snapshotCrashDiagnostics(caught)).toMatchObject(pair(owner, 'cursor_iteration'));
+    } finally {
+      spy.mockRestore();
+      await dispose(target);
+    }
+  });
+
+  // next() dynamically reuses start(), while exhaustion installs a different start().
+  // Restoring the observed method after either transition changes the cursor protocol.
+  it.each(owners)('preserves $table cursor identity, next, early stop and exhaustion', async ({ table }) => {
+    for (const instrumented of [false, true]) {
+      const target = database(instrumented);
+      let originalCursor: DBCoreCursor | null = null;
+      let startReceiver: unknown;
+      let startCallback: unknown;
+      let unchangedMethods: unknown[] = [];
+      target.use({
+        stack: 'dbcore',
+        name: 'cursor-identity-observer',
+        level: 10.5,
+        create: down => ({
+          ...down,
+          table: name => {
+            const original = down.table(name);
+            if (name !== table) return original;
+            return {
+              ...original,
+              openCursor: request =>
+                original.openCursor(request).then(cursor => {
+                  originalCursor = cursor;
+                  if (cursor !== null) {
+                    unchangedMethods = [
+                      cursor.next,
+                      cursor.stop,
+                      cursor.fail,
+                      cursor.continue,
+                      cursor.continuePrimaryKey,
+                      cursor.advance
+                    ];
+                    const start = cursor.start;
+                    cursor.start = function (callback) {
+                      startReceiver = this;
+                      startCallback = callback;
+                      return start.call(this, callback);
+                    };
+                  }
+                  return cursor;
+                })
+            };
+          }
+        })
+      });
+      try {
+        await seed(target, table);
+        await target.transaction('r', table, async () => {
+          const cursor = await target.core.table(table).openCursor(cursorRequest(target, table));
+          expect(cursor).toBe(originalCursor);
+          if (cursor === null) throw new Error('Seeded cursor was empty');
+          expect([
+            cursor.next,
+            cursor.stop,
+            cursor.fail,
+            cursor.continue,
+            cursor.continuePrimaryKey,
+            cursor.advance
+          ]).toEqual(unchangedMethods);
+          expect(cursor.key).toBe('a');
+          expect(await cursor.next()).toBe(cursor);
+          expect(cursor.key).toBe('b');
+          const stopValue = { stopped: true };
+          const visitor = () => cursor.stop(stopValue);
+          expect(await cursor.start(visitor)).toBe(stopValue);
+          expect(startReceiver).toBe(cursor);
+          expect(startCallback).toBe(visitor);
+          expect(() => cursor.continue()).toThrow('Cursor not stopped');
+
+          const full = await target.core.table(table).openCursor(cursorRequest(target, table));
+          if (full === null) throw new Error('Seeded cursor was empty');
+          const keys: unknown[] = [];
+          await full.start(() => {
+            keys.push(full.key);
+            full.continue();
+          });
+          expect(keys).toEqual(['a', 'b', 'c']);
+          expect(full.done).toBe(true);
+          const exhaustedStart = full.start;
+          expect(() => full.start(() => undefined)).toThrow('Cursor behind last entry');
+          expect(full.start).toBe(exhaustedStart);
+          expect(() => full.next()).toThrow('Cursor behind last entry');
+        });
+        await target.table(table).clear();
+        await target.transaction('r', table, async () => {
+          expect(await target.core.table(table).openCursor(cursorRequest(target, table))).toBeNull();
+        });
+      } finally {
+        await dispose(target);
+      }
+    }
+  });
+
+  // Each failure is caught before the transaction finishes, so no detached observer
+  // may replace its identity or leave an abandoned rejection behind.
+  it.each(
+    owners.flatMap(owner => ['visitor', 'continuation', 'fail', 'start', 'rejection'].map(kind => ({ ...owner, kind })))
+  )('preserves and labels $table cursor $kind errors', async ({ table, owner, kind }) => {
+    const target = database();
+    const failure = Object.freeze(new Error(`cursor ${kind}`));
+    let observedCursor: DBCoreCursor | null = null;
+    let dataReads = 0;
+    target.use({
+      stack: 'dbcore',
+      name: 'cursor-error-control',
+      level: 10.5,
+      create: down => ({
+        ...down,
+        table: name => {
+          const original = down.table(name);
+          if (name !== table) return original;
+          return {
+            ...original,
+            openCursor: request =>
+              original.openCursor(request).then(cursor => {
+                observedCursor = cursor;
+                if (cursor !== null && (kind === 'start' || kind === 'rejection')) {
+                  // These hostile accessors catch a wrapper that spreads or examines storage data.
+                  const unread = () => {
+                    dataReads++;
+                    throw failure;
+                  };
+                  for (const property of ['key', 'primaryKey', 'value']) {
+                    Object.defineProperty(cursor, property, {
+                      configurable: true,
+                      get: unread
+                    });
+                  }
+                  cursor.start = () => {
+                    if (kind === 'start') throw failure;
+                    return Dexie.Promise.reject(failure);
+                  };
+                }
+                return cursor;
+              })
+          };
+        }
+      })
+    });
+    try {
+      await seed(target, table);
+      await target.transaction('r', table, async () => {
+        const cursor = await target.core.table(table).openCursor(cursorRequest(target, table));
+        expect(cursor).toBe(observedCursor);
+        if (cursor === null) throw new Error('Seeded cursor was empty');
+        const caught = await rejection(() =>
+          cursor.start(() => {
+            if (kind === 'visitor') throw failure;
+            if (kind === 'continuation')
+              cursor.continue = () => {
+                throw failure;
+              };
+            if (kind === 'fail') cursor.fail(failure);
+            else cursor.continue();
+          })
+        );
+        expect(caught).toBe(failure);
+        expect(dataReads).toBe(0);
+        expect(snapshotCrashDiagnostics(caught)).toEqual(pair(owner, 'cursor_iteration'));
+      });
+    } finally {
+      await dispose(target);
+    }
+  });
+
+  // DBCore resolves partial failures; rejecting its response would suppress Dexie's
+  // own aggregation and change which otherwise successful rows are committed.
+  it.each(owners)(
+    'annotates resolved $table mutation failures and returns the identical response',
+    async ({ table, owner }) => {
+      const target = database();
+      let originalResponse: DBCoreMutateResponse | undefined;
+      let originalResults: unknown;
+      let originalFailureMap: unknown;
+      let originalFailures: Error[] = [];
+      target.use({
+        stack: 'dbcore',
+        name: 'mutation-response-observer',
+        level: 10.5,
+        create: down => ({
+          ...down,
+          table: name => {
+            const original = down.table(name);
+            if (name !== table) return original;
+            return {
+              ...original,
+              mutate: request =>
+                original.mutate(request).then(response => {
+                  originalResponse = response;
+                  originalResults = response.results;
+                  originalFailureMap = response.failures;
+                  originalFailures = Object.values(response.failures);
+                  return response;
+                })
+            };
+          }
+        })
+      });
+      try {
+        await seed(target, table);
+        const response = await target.transaction('rw', table, tx =>
+          target.core.table(table).mutate({ type: 'add', trans: tx.idbtrans, values: [row('a'), row('d'), row('b')] })
+        );
+        expect(response).toBe(originalResponse);
+        expect(response.results).toBe(originalResults);
+        expect(response.failures).toBe(originalFailureMap);
+        Object.values(response.failures).forEach((failure, index) => expect(failure).toBe(originalFailures[index]));
+        expect(response.numFailures).toBe(2);
+        expect(Object.keys(response.failures)).toEqual(['0', '2']);
+        expect(response.results).toEqual([undefined, 'd', undefined]);
+        expect(await target.table(table).count()).toBe(4);
+        for (const failure of Object.values(response.failures)) {
+          expect(failure.name).toBe('ConstraintError');
+          expect(snapshotCrashDiagnostics(failure)).toEqual(pair(owner, 'mutate'));
+        }
+      } finally {
+        await dispose(target);
+      }
+    }
+  );
+
+  // The uninstrumented control pins Dexie's public reconstruction, including primary
+  // key-changing modify failures, partial bulk commits and explicitly consumed errors.
+  it.each(owners)(
+    'preserves $table scalar, BulkError and ModifyError public semantics and rollback',
+    async ({ table, owner }) => {
+      const outcomes: unknown[] = [];
+      const ownedFailures: unknown[] = [];
+      for (const instrumented of [false, true]) {
+        const target = database(instrumented);
+        try {
+          await seed(target, table);
+          const scalar = await rejection(() => target.table(table).add(row('a')));
+          const bulk = await rejection(() => target.table(table).bulkAdd([row('a'), row('d'), row('b')]));
+          const keyPath = table === Table.Transactions ? 'id' : 'accountId';
+          const modify = await rejection(() =>
+            target
+              .table(table)
+              .where(keyPath)
+              .anyOf('a', 'c')
+              .modify({ [keyPath]: 'b' })
+          );
+          expect(scalar).toBeInstanceOf(Dexie.ConstraintError);
+          expect(bulk).toBeInstanceOf(Dexie.BulkError);
+          expect(modify).toBeInstanceOf(Dexie.ModifyError);
+          if (
+            !(scalar instanceof Dexie.ConstraintError) ||
+            !(bulk instanceof Dexie.BulkError) ||
+            !(modify instanceof Dexie.ModifyError)
+          ) {
+            throw new Error('Unexpected public mutation error');
+          }
+          expect(scalar.inner).toMatchObject({ name: 'ConstraintError' });
+          expect(bulk.failures.map(error => error.name)).toEqual(['ConstraintError', 'ConstraintError']);
+          expect(bulk.failuresByPos[0]).toBe(bulk.failures[0]);
+          expect(bulk.failuresByPos[2]).toBe(bulk.failures[1]);
+          expect(modify.successCount).toBe(1);
+          expect(modify.failedKeys).toEqual([]);
+          const rollback = await rejection(() =>
+            target.transaction('rw', table, async () => {
+              await target.table(table).add(row('rolled-back'));
+              await target.table(table).bulkAdd([row('a'), row('also-rolled-back')]);
+            })
+          );
+          expect(rollback).toBeInstanceOf(Dexie.BulkError);
+          expect(await target.table(table).get('rolled-back')).toBeUndefined();
+          expect(await target.table(table).get('also-rolled-back')).toBeUndefined();
+          let consumed = false;
+          await target.transaction('rw', table, async () => {
+            await target.table(table).add(row('consumed-success'));
+            await target
+              .table(table)
+              .add(row('a'))
+              .catch(() => {
+                consumed = true;
+              });
+          });
+          expect(consumed).toBe(true);
+          const consumedRow = await target.table(table).get('consumed-success');
+          expect(consumedRow).toMatchObject(row('consumed-success'));
+          expect(consumedRow).not.toHaveProperty('badgeEvidenceRevision');
+          const rows = await target.table(table).toArray();
+          outcomes.push({
+            scalar: scalar.name,
+            inner: scalar.inner.name,
+            bulk: bulk.name,
+            failures: bulk.failures.map(error => error.name),
+            modify: modify.name,
+            modifyFailures: modify.failures.map((error: unknown) => (error instanceof Error ? error.name : error)),
+            successCount: modify.successCount,
+            failedKeys: modify.failedKeys,
+            rows
+          });
+          if (instrumented) {
+            for (const error of [scalar, bulk, modify, rollback]) {
+              ownedFailures.push(error);
+            }
+          }
+        } finally {
+          await dispose(target);
+        }
+      }
+      expect(outcomes[1]).toEqual(outcomes[0]);
+      for (const error of ownedFailures) expect(snapshotCrashDiagnostics(error)).toEqual(pair(owner, 'mutate'));
+    }
+  );
+
+  // Failure entries are the only storage-bearing mutation response fields needed.
+  // Hostile request/result accessors fail before a diagnostic assertion can hide a leak.
+  it.each(owners)(
+    'does not read $table mutation keys, rows or successful results for diagnostics',
+    async ({ table, owner }) => {
+      const target = database();
+      const failure = Object.freeze(new Error('mutation entry'));
+      let forbiddenReads = 0;
+      function forbidden(): never {
+        forbiddenReads++;
+        throw new Error('Storage contents were inspected');
+      }
+      const response: DBCoreMutateResponse = {
+        numFailures: 1,
+        failures: { 0: failure },
+        get lastResult() {
+          return forbidden();
+        },
+        get results() {
+          return forbidden();
+        }
+      };
+      target.use({
+        stack: 'dbcore',
+        name: 'mutation-content-trap',
+        level: 10.5,
+        create: down => ({
+          ...down,
+          table: name => {
+            const original = down.table(name);
+            return name === table ? { ...original, mutate: () => Dexie.Promise.resolve(response) } : original;
+          }
+        })
+      });
+      try {
+        await target.open();
+        const request: Parameters<DBCoreTable['mutate']>[0] = {
+          type: 'put',
+          trans: target.core.transaction([table], 'readwrite'),
+          get keys() {
+            return forbidden();
+          },
+          get values() {
+            return forbidden();
+          }
+        };
+        expect(await target.core.table(table).mutate(request)).toBe(response);
+        expect(forbiddenReads).toBe(0);
+        expect(snapshotCrashDiagnostics(failure)).toEqual(pair(owner, 'mutate'));
+      } finally {
+        await dispose(target);
+      }
+    }
+  );
+
+  // Validation throws before the backend insert. An observer placed below that check
+  // would miss it; using a creating hook would instead add replacement reads.
+  it('labels insertion validation without adding storage reads or writing a partial batch', async () => {
+    const target = database();
+    const reads: string[] = [];
+    target.use({
+      stack: 'dbcore',
+      name: 'insertion-read-observer',
+      level: 1,
+      create: down => ({
+        ...down,
+        table: name => {
+          const original = down.table(name);
+          return {
+            ...original,
+            get: request => {
+              reads.push('get');
+              return original.get(request);
+            },
+            getMany: request => {
+              reads.push('getMany');
+              return original.getMany(request);
+            },
+            query: request => {
+              reads.push('query');
+              return original.query(request);
+            },
+            count: request => {
+              reads.push('count');
+              return original.count(request);
+            },
+            openCursor: request => {
+              reads.push('cursor');
+              return original.openCursor(request);
+            }
+          };
+        }
+      })
+    });
+    try {
+      await target.open();
+      const table = target.table<Record<string, unknown>, string>(Table.Transactions);
+      const invalid = { id: 'unplaceable', accountId: 'a', status: 0 };
+      const failure = await rejection(() => table.add(invalid));
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure).toMatchObject({ message: 'transaction unplaceable has an unplaceable initiatedAt' });
+      expect(reads).toEqual([]);
+      const bulk = await rejection(() => table.bulkAdd([row('valid'), invalid]));
+      expect(reads).toEqual([]);
+      await table.add(row('inserted'));
+      await table.bulkAdd([row('second'), row('third')]);
+      expect(reads).toEqual([]);
+      expect(await table.get('unplaceable')).toBeUndefined();
+      expect(await table.get('valid')).toBeUndefined();
+      for (const error of [failure, bulk]) {
+        expect(snapshotCrashDiagnostics(error)).toEqual(pair('wallet_transactions', 'mutate'));
+      }
+    } finally {
+      await dispose(target);
+    }
+  });
+
+  // Store lists belong to transaction creation, before an individual table request
+  // exists. Ambiguous lists must stay database-owned rather than pick the first store.
+  it.each([
+    { stores: [Table.Transactions], owner: 'wallet_transactions' },
+    { stores: [Table.SpendingLimits], owner: 'wallet_limits' },
+    { stores: [Table.Transactions, Table.SpendingLimits], owner: 'wallet_database' },
+    { stores: [], owner: 'wallet_database' },
+    { stores: ['unknown'], owner: 'wallet_database' }
+  ])(
+    'labels transaction creation for $stores after open and preserves backend arguments',
+    async ({ stores, owner }) => {
+      const target = database();
+      const originalTransaction = IDBDatabase.prototype.transaction;
+      const failure = Object.freeze(new Error('backend transaction creation'));
+      let failCreation = false;
+      let backendTransaction: IDBTransaction | undefined;
+      let backendReceiver: unknown;
+      let backendArguments: unknown[] = [];
+      // DBCore binds this method during open, so the observer is installed before opening.
+      const transactionSpy = jest.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (
+        this: IDBDatabase,
+        names,
+        mode,
+        config
+      ) {
+        if (this.name === target.name) {
+          backendReceiver = this;
+          backendArguments = [names, mode, config];
+          if (failCreation) throw failure;
+        }
+        const result = originalTransaction.call(this, names, mode, config);
+        if (this.name === target.name) backendTransaction = result;
+        return result;
+      });
+      try {
+        await target.open();
+        const backend = target.backendDB();
+        const options: NonNullable<Parameters<DBCore['transaction']>[2]> = { durability: 'relaxed' };
+        const successful = target.core.transaction([Table.Transactions], 'readonly');
+        expect(successful).toBe(backendTransaction);
+        failCreation = true;
+        const caught = await rejection(() => target.core.transaction(stores, 'readwrite', options));
+        expect(caught).toBe(failure);
+        expect(backendReceiver).toBe(backend);
+        expect(backendArguments).toEqual([stores, 'readwrite', options]);
+        expect(snapshotCrashDiagnostics(caught)).toEqual({ storageOwner: owner, storageOperation: 'transaction' });
+      } finally {
+        transactionSpy.mockRestore();
+        await dispose(target);
+      }
+    }
+  );
+
+  // An implicit open is reconstructed again as DatabaseClosedError by Dexie.
+  // Observing only the caller's table request would overwrite the open provenance.
+  it.each(['explicit', 'implicit'])(
+    'labels an %s open failure without affecting another instance or globals',
+    async mode => {
+      const target = database();
+      const control = database(false);
+      const factory = Dexie.dependencies.indexedDB;
+      if (factory === undefined) throw new Error('fake-indexeddb is unavailable');
+      const originalOpen = factory.open;
+      const prototypeOpen = Dexie.prototype.open;
+      const prototypeTransaction = Dexie.prototype.transaction;
+      const rejectionMapper: unknown = Reflect.get(Dexie.Promise, 'rejectionMapper');
+      const failure = new Error('backend open failure');
+      failure.name = 'UnknownError';
+      const spy = jest.spyOn(factory, 'open').mockImplementation(function (this: IDBFactory, name, version) {
+        if (name === target.name) throw failure;
+        return originalOpen.call(this, name, version);
+      });
+      try {
+        const caught = await rejection(() =>
+          mode === 'explicit' ? target.open() : target.table(Table.Transactions).get('a')
+        );
+        const expectedClass = mode === 'explicit' ? Dexie.UnknownError : Dexie.DatabaseClosedError;
+        const expectedInner = mode === 'explicit' ? failure : { name: 'UnknownError', inner: failure };
+        expect(caught).toBeInstanceOf(expectedClass);
+        expect(caught).toMatchObject({ inner: expectedInner });
+        expect(await control.open()).toBe(control);
+        expect(Dexie.prototype.open).toBe(prototypeOpen);
+        expect(Dexie.prototype.transaction).toBe(prototypeTransaction);
+        expect(Reflect.get(Dexie.Promise, 'rejectionMapper')).toBe(rejectionMapper);
+        expect(snapshotCrashDiagnostics(caught)).toEqual(pair('wallet_database', 'open'));
+        expect(snapshotCrashDiagnostics(new Error('unrelated'))).toEqual({});
+      } finally {
+        spy.mockRestore();
+        await dispose(target);
+        await dispose(control);
+      }
+    }
+  );
+
+  // Closing explicitly disables auto-open. Diagnostics must not manufacture an
+  // observed open failure when Dexie refuses the call without trying to open.
+  it('preserves explicit, concurrent, implicit, reopen and upgrade behavior', async () => {
+    for (const instrumented of [false, true]) {
+      const target = database(instrumented);
+      try {
+        const [first, second] = await Promise.all([target.open(), target.open()]);
+        expect(first).toBe(target);
+        expect(second).toBe(target);
+        target.close();
+        expect(await target.open()).toBe(target);
+        target.close();
+        await expect(target.table(Table.Transactions).get('missing')).rejects.toBeInstanceOf(Dexie.DatabaseClosedError);
+        const closed = await rejection(() => target.table(Table.Transactions).get('missing'));
+        expect(snapshotCrashDiagnostics(closed)).toEqual({});
+        await target.open();
+        await target.table(Table.Transactions).add(row('kept'));
+        target.close();
+        let upgrades = 0;
+        target
+          .version(3.4)
+          .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
+          .upgrade(async tx => {
+            upgrades++;
+            await tx.table(Table.Transactions).add(row('upgraded'));
+          });
+        expect(await target.open()).toBe(target);
+        expect(upgrades).toBe(1);
+        expect(await target.table(Table.Transactions).count()).toBe(2);
+      } finally {
+        await dispose(target);
+      }
+    }
+    const implicit = database();
+    try {
+      expect(await implicit.table(Table.Transactions).get('missing')).toBeUndefined();
+      expect(implicit.isOpen()).toBe(true);
+    } finally {
+      await dispose(implicit);
+    }
+  });
+
+  // This pre-annotation is a preservation fixture, not the positive open-boundary
+  // proof: an upgrade's known failing table is more precise than its enclosing open.
+  it('retains a table-owned rejection escaping a failed upgrade', async () => {
+    const target = database();
+    const failure = Object.freeze(new Error('upgrade mutation'));
+    annotateCrash(failure, pair('wallet_limits', 'mutate'));
+    try {
+      await target.open();
+      target.close();
+      target
+        .version(3.4)
+        .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
+        .upgrade(() => {
+          throw failure;
+        });
+      const caught = await rejection(() => target.open());
+      expect(caught).toBe(failure);
+      expect(snapshotCrashDiagnostics(caught)).toEqual(pair('wallet_limits', 'mutate'));
+    } finally {
+      await dispose(target);
+    }
+  });
+});
+
+describe('bounded transaction history', () => {
+  const historyRow = (id: string, overrides: Partial<ITransaction> = {}): ITransaction => ({
+    id,
+    type: 'send',
+    accountId: 'acc-1',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    displayIcon: 'SEND',
+    faucetId: 'f1',
+    ...overrides
+  });
+
+  // The legacy full read sorts by `(completedAt || initiatedAt)` and keeps primary-key order on ties.
+  const legacyHistoryOrder = (rows: readonly ITransaction[], includeFailed: boolean): ITransaction[] =>
+    rows
+      .filter(tx => {
+        const statusMatches =
+          tx.status === ITransactionStatus.Completed ||
+          (includeFailed && (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed));
+        if (!statusMatches || !compareAccountIds(tx.accountId, 'acc-1')) return false;
+        return (
+          tx.faucetId === 'f1' ||
+          (tx.type === 'swap' && tx.extraInputs?.requestedFaucetId === 'f1') ||
+          tx.assetTotals?.some(total => total.faucetId === 'f1') === true
+        );
+      })
+      .sort(
+        (a, b) =>
+          (a.completedAt || a.initiatedAt) - (b.completedAt || b.initiatedAt) ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      );
+
+  it('merges the completedAt and initiatedAt indexes in the legacy order', async () => {
+    const name = `history-index-page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const isolated = createSchemaFor(name);
+    const rows = [
+      historyRow('neg', { completedAt: -5, initiatedAt: 100 }),
+      historyRow('miss', { initiatedAt: 10 }),
+      historyRow('zero-a', {
+        type: 'consume',
+        faucetId: 'other',
+        initiatedAt: 10,
+        completedAt: 0,
+        assetTotals: [{ faucetId: 'f1', amount: 1n }]
+      }),
+      historyRow('zero-b', {
+        type: 'swap',
+        faucetId: 'f2',
+        initiatedAt: 10,
+        completedAt: 0,
+        extraInputs: { requestedFaucetId: 'f1' }
+      }),
+      historyRow('fail', { status: ITransactionStatus.Failed, initiatedAt: 1, completedAt: 15 }),
+      historyRow('fall-20', { initiatedAt: 20, completedAt: 0 }),
+      historyRow('prim', { initiatedAt: 1, completedAt: 20 }),
+      historyRow('tie-a', { initiatedAt: 3, completedAt: 20 }),
+      historyRow('tie-b', { initiatedAt: 50, completedAt: 20 }),
+      historyRow('unconf', {
+        status: ITransactionStatus.Unconfirmed,
+        accountId: 'acc-1_tag',
+        initiatedAt: 30,
+        completedAt: 30
+      }),
+      historyRow('other-acct', { accountId: 'acc-2', initiatedAt: 1, completedAt: 1 }),
+      historyRow('other-tok', { faucetId: 'f2', initiatedAt: 12, completedAt: 12 }),
+      historyRow('queued', { status: ITransactionStatus.Queued, initiatedAt: 16, completedAt: 16 }),
+      historyRow('newer-wrong', { faucetId: 'f2', initiatedAt: 90, completedAt: 90 }),
+      historyRow('newer-other', { accountId: 'acc-2', initiatedAt: 100, completedAt: 100 })
+    ];
+    try {
+      await isolated.open();
+      const table = isolated.table<ITransaction, string>(Table.Transactions);
+      expect(table.schema.idxByName.completedAt).toBeDefined();
+      expect(table.schema.idxByName.initiatedAt).toBeDefined();
+      await table.bulkAdd(rows);
+      const legacy = legacyHistoryOrder(rows, true).map(tx => tx.id);
+      expect(legacy).toEqual([
+        'neg',
+        'miss',
+        'zero-a',
+        'zero-b',
+        'fail',
+        'fall-20',
+        'prim',
+        'tie-a',
+        'tie-b',
+        'unconf'
+      ]);
+
+      const openCursor = jest.spyOn(table.core, 'openCursor');
+      const request = { accountId: 'acc-1', tokenId: 'f1', includeFailed: true };
+      const newest = await getCompletedTransactionsPage({ ...request, fromEnd: true, limit: 3 }, table);
+      const older = await getCompletedTransactionsPage({ ...request, limit: 3, cursor: newest.nextCursor }, table);
+      const rest = await getCompletedTransactionsPage({ ...request, limit: 10, cursor: older.nextCursor }, table);
+      const seen = [...newest.transactions, ...older.transactions, ...rest.transactions].map(tx => tx.id);
+
+      expect(newest.transactions.map(tx => tx.id)).toEqual(['unconf', 'tie-b', 'tie-a']);
+      expect(newest.rawCount).toBe(3);
+      expect(newest.hasMore).toBe(true);
+      expect(newest.nextCursor).toEqual({
+        effectiveTimestamp: 20,
+        transactionId: 'tie-a',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 3
+      });
+      expect(older.transactions.map(tx => tx.id)).toEqual(['prim', 'fall-20', 'fail']);
+      expect(older.nextCursor).toEqual({
+        effectiveTimestamp: 15,
+        transactionId: 'fail',
+        status: ITransactionStatus.Failed,
+        initiatedAt: 1
+      });
+      expect(rest.hasMore).toBe(false);
+      expect(rest.rawCount).toBe(4);
+      expect([...seen].reverse()).toEqual(legacy);
+
+      const completedOnly = await getCompletedTransactionsPage(
+        { accountId: 'acc-1', tokenId: 'f1', includeFailed: false, fromEnd: true, limit: 20 },
+        table
+      );
+      expect(completedOnly.transactions.map(tx => tx.id)).toEqual(
+        legacyHistoryOrder(rows, false)
+          .map(tx => tx.id)
+          .reverse()
+      );
+      expect(completedOnly.hasMore).toBe(false);
+
+      const names = openCursor.mock.calls
+        .map(call => call[0].query.index.name)
+        .filter((name): name is string => typeof name === 'string');
+      expect(names).toContain('completedAt');
+      expect(names).toContain('initiatedAt');
+      expect(names.every(name => name === 'completedAt' || name === 'initiatedAt')).toBe(true);
+    } finally {
+      isolated.close();
+      await Dexie.delete(name);
+    }
   });
 });

@@ -11,6 +11,7 @@ import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 
 import {
   noteDeliveryWriteCount,
+  owesNoteIds,
   recordNoteDelivery,
   relayAckedNoteIdsOf,
   relayNoteIdsOf,
@@ -197,15 +198,32 @@ const nextStepDelayOf = (row: ITransaction, targets: DeliveryTargets, at: number
 };
 
 /**
+ * Apply `change` to row `id` only while it still owes exactly `owed`, the notes the sweep read it owing before its
+ * awaits. A landing that replaced the target meanwhile (#1473) owns the row's delivery state: the write is skipped
+ * and the next pass starts on the new note. Resolves to whether it wrote.
+ */
+const writeOwed = async (id: string, owed: readonly string[], change: (tx: ITransaction) => void): Promise<boolean> => {
+  let wrote = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (!owesNoteIds(tx, owed)) return false;
+    change(tx);
+    wrote = true;
+    return undefined;
+  });
+  return wrote;
+};
+
+/**
  * Mark, once, a row whose retries are over while some owed note never reached the
  * transport, so the history card stops promoting retries that will not come.
  */
 const markRetriesStopped = async (row: ITransaction, targets: DeliveryTargets, at: number): Promise<void> => {
   const owesDelivery = targets.owed.length === 0 || targets.owed.some(noteId => !targets.acked.includes(noteId));
   if (row.relayRetriesStopped || !owesDelivery || !retriesOver(row, targets, at)) return;
-  await Repo.transactions.where({ id: row.id }).modify(tx => {
+  const marked = await writeOwed(row.id, targets.owed, tx => {
     tx.relayRetriesStopped = true;
   });
+  if (!marked) return;
   console.warn('[noteDeliverySweep] pushes stopped; receipt checks continue', {
     txId: row.id,
     attempts: attemptsOf(row),
@@ -295,15 +313,17 @@ const fusedNow = (pass: PassState): boolean => {
 
 type RowOutcome = 'done' | 'awaiting-catch-up' | 'interrupted';
 
-const scheduleReceipt = async (row: ITransaction, pass: PassState) => {
+const scheduleReceipt = async (row: ITransaction, targets: DeliveryTargets, pass: PassState) => {
   const receiptAt = nowSeconds() + RECEIPT_INTERVAL_SECONDS;
-  await Repo.transactions.where({ id: row.id }).modify(tx => {
+  await writeOwed(row.id, targets.owed, tx => {
     tx.nextRelayAt = receiptAt;
   });
   noteDue(pass, receiptAt);
 };
 
 const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise<RowOutcome> => {
+  // Every write below is guarded by `targets.owed`, read here before any await: through `writeOwed`, or the owed set
+  // passed to `recordNoteDelivery`.
   const targets = targetsOf(row);
   if (isInert(targets)) {
     await markRetriesStopped(row, targets, at);
@@ -324,7 +344,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     // row in the future.
     const now = nowSeconds();
     const armedAt = Math.min(row.completedAt ?? now, now) + retryDelayFor(1);
-    await Repo.transactions.where({ id: row.id }).modify(tx => {
+    await writeOwed(row.id, targets.owed, tx => {
       tx.relayAttempts = attemptsOf(row);
       tx.nextRelayAt = armedAt;
     });
@@ -346,7 +366,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     // later pass would open on the same read and never reach the rows behind.
     pass.interrupted = true;
     const backoffAt = nowSeconds() + nextStepDelayOf(row, targets, at);
-    await Repo.transactions.where({ id: row.id }).modify(tx => {
+    await writeOwed(row.id, targets.owed, tx => {
       tx.nextRelayAt = backoffAt;
       delete tx.relayOutageDeferred;
     });
@@ -356,7 +376,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   if (receipt === 'consumed') {
     // Consumed on chain: the recipient had every body. Terminal, and it clears any
     // `undelivered` the row picked up on the way.
-    await recordNoteDelivery(row.id, 'confirmed');
+    await recordNoteDelivery(row.id, 'confirmed', undefined, targets.owed);
     return 'done';
   }
 
@@ -365,7 +385,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     // Pushes are over for this row; receipts go on hourly until the receipt window ends.
     await markRetriesStopped(row, targets, at);
     const receiptAt = nowSeconds() + RECEIPT_INTERVAL_SECONDS;
-    await Repo.transactions.where({ id: row.id }).modify(tx => {
+    await writeOwed(row.id, targets.owed, tx => {
       tx.nextRelayAt = receiptAt;
       delete tx.relayOutageDeferred;
     });
@@ -375,7 +395,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
 
   if (pass.pushesStopped === 'notConfigured') {
     // No transport: no push and nothing spent. The receipt above is all this row gets.
-    await scheduleReceipt(row, pass);
+    await scheduleReceipt(row, targets, pass);
     return 'done';
   }
   if (fusedNow(pass)) {
@@ -438,7 +458,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
         // would walk straight back into the same parked call. Its outage mark goes too, so
         // no catch-up can pull it forward before that step.
         const backoffAt = nowSeconds() + retryDelayFor(attemptsOf(row));
-        await Repo.transactions.where({ id: row.id }).modify(tx => {
+        await writeOwed(row.id, targets.owed, tx => {
           tx.nextRelayAt = backoffAt;
           delete tx.relayOutageDeferred;
         });
@@ -447,7 +467,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
       }
       if (failure === 'notConfigured') {
         pass.pushesStopped = 'notConfigured';
-        await scheduleReceipt(row, pass);
+        await scheduleReceipt(row, targets, pass);
         return 'done';
       }
       if (failure === 'storeLoss') dead.push(noteId);
@@ -465,7 +485,8 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
       await recordNoteDelivery(
         row.id,
         targets.owed.every(owedId => soFar.includes(owedId)) ? 'relayed' : (row.noteDelivery ?? 'pending'),
-        { ackedNoteIds: soFar, ...(dead.length > 0 ? { deadNoteIds: dead } : {}) }
+        { ackedNoteIds: soFar, ...(dead.length > 0 ? { deadNoteIds: dead } : {}) },
+        targets.owed
       );
     }
   }
@@ -474,10 +495,12 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   // `relayed` exactly while every owed note has one.
   const ackedAfter = ackedSoFar();
   const allAcked = targets.owed.every(noteId => ackedAfter.includes(noteId));
-  await recordNoteDelivery(row.id, allAcked ? 'relayed' : 'undelivered', {
-    ackedNoteIds: ackedAfter,
-    ...(dead.length > 0 ? { deadNoteIds: dead } : {})
-  });
+  await recordNoteDelivery(
+    row.id,
+    allAcked ? 'relayed' : 'undelivered',
+    { ackedNoteIds: ackedAfter, ...(dead.length > 0 ? { deadNoteIds: dead } : {}) },
+    targets.owed
+  );
 
   const attempts = attemptsOf(row) + 1;
   // A verification step counts only once every note it set out to push was acknowledged or
@@ -503,7 +526,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   let nextRelayAt = now + RECEIPT_INTERVAL_SECONDS;
   if (after.retry.length > 0 || repeatStep) nextRelayAt = now + retryDelayFor(attempts);
   else if (verifyPushes < VERIFY_DELAYS_SECONDS.length) nextRelayAt = now + VERIFY_DELAYS_SECONDS[verifyPushes]!;
-  await Repo.transactions.where({ id: row.id }).modify(tx => {
+  await writeOwed(row.id, targets.owed, tx => {
     tx.relayAttempts = attempts;
     tx.nextRelayAt = nextRelayAt;
     if (verifying) tx.relayVerifyPushes = verifyPushes;

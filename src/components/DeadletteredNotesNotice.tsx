@@ -4,11 +4,16 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { countDeadletteredNotes } from 'lib/miden/note-deadletter';
+import {
+  getNoteDeadletterSummary,
+  type NoteDeadletterReasonSummary,
+  type NoteDeadletterSummary
+} from 'lib/miden/note-deadletter';
 import { hapticLight } from 'lib/mobile/haptics';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
 export interface DeadletteredNotesNoticeProps {
   className?: string;
@@ -23,6 +28,12 @@ export interface DeadletteredNotesNoticeProps {
  * live drain is the thing the guard exists to prevent.
  */
 const RETRY_GUARD_MAX_MS = 60_000;
+const DEADLETTER_REASON_KEYS: Record<NoteDeadletterReasonSummary, string> = {
+  transport: 'deadletteredNotesReasonTransport',
+  malformed: 'deadletteredNotesReasonMalformed',
+  rejected: 'deadletteredNotesReasonRejected',
+  unavailable: 'deadletteredNotesReasonUnavailable'
+};
 
 /**
  * The drain surface for the note dead-letter store (#788 follow-up): notes the
@@ -40,16 +51,16 @@ const RETRY_GUARD_MAX_MS = 60_000;
  */
 export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ className }) => {
   const { t } = useTranslation();
-  // Only the COUNT crosses into the component, and it is counted inside the
-  // store's own module. The records carry raw note bytes that may be the only
-  // copy of the funds they carry, and nothing here renders them — keeping them
-  // out of props, the SWR cache and any error-boundary serialization costs
-  // nothing and is one fewer place they can leak from.
-  const { data, mutate } = useRetryableSWR<number>('deadlettered-notes', () => countDeadletteredNotes(), {
+  const { data, mutate } = useRetryableSWR<NoteDeadletterSummary>('deadlettered-notes', getNoteDeadletterSummary, {
     refreshInterval: 10_000
   });
 
-  const count = data ?? 0;
+  const count = data?.count ?? 0;
+  const reasons = data?.reasons.map(reason => t(DEADLETTER_REASON_KEYS[reason])).join(', ') ?? '';
+  useUserVisibleError(
+    count === 0 ? null : count === 1 ? 'deadletteredNotesBodyOne' : 'deadletteredNotesBody',
+    'inline'
+  );
   const [retrying, setRetrying] = useState(false);
   // Set in the effect BODY, not just cleared in the cleanup: StrictMode invokes
   // setup, cleanup, setup, so an initializer-only `true` is false forever after
@@ -108,6 +119,7 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
         <p className="text-text-muted text-xs">
           {count === 1 ? t('deadletteredNotesBodyOne') : t('deadletteredNotesBody', { count })}
         </p>
+        {reasons && <p className="text-text-muted text-xs">{t('deadletteredNotesReasonSummary', { reasons })}</p>}
       </div>
       <button
         type="button"

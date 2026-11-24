@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>React test dApp</title>
+    <!-- test-dapp:import-map -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #666666;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111111;
+          --ink: #eeeeee;
+          --muted: #999999;
+        }
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          14px/1.4 system-ui,
+          sans-serif;
+        margin: 16px;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>React test dApp</h1>
+    <p>
+      Playwright drives it through <code>window.testDapp.call(command, input)</code>; the two provider trees render no
+      UI, and the log lists their adapter events.
+    </p>
+    <div id="root"></div>
+    <pre id="log" data-testid="react-dapp-log"></pre>
+    <script type="module" src="/react-dapp.js"></script>
+  </body>
+</html>

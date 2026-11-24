@@ -7,9 +7,12 @@ import { join, resolve } from 'node:path';
 
 import { markInfraAbort } from './dapp-cells';
 import { loadMidenSdk } from './dapp-confirm';
-import globalSetup, { probePublicFaucet } from './dapp-live-probe';
+import globalSetup, { probeMobileLegs, probeNode, probePublicFaucet } from './dapp-live-probe';
+import { nodeHeight } from './dapp-node-calls';
 import { mintFromPublicFaucet, PublicFaucetError, publicFaucetApiUrl } from './public-faucet';
+import { getEnvironmentConfig } from '../config/environments';
 
+jest.mock('./dapp-node-calls', () => ({ nodeHeight: jest.fn() }));
 jest.mock('./dapp-confirm', () => ({ loadMidenSdk: jest.fn() }));
 jest.mock('./dapp-cells', () => {
   const actual = jest.requireActual('./dapp-cells');
@@ -110,5 +113,37 @@ describe('the dApp suite faucet probe', () => {
       resolve(__dirname, '../../../test-results/dapp-cells'),
       expect.stringContaining('Public faucet probe failed on testnet')
     );
+  });
+});
+
+const height = jest.mocked(nodeHeight);
+
+describe('the mobile legs node probe', () => {
+  it('asks the network node for its tip and marks nothing when it answers', async () => {
+    height.mockReset().mockResolvedValue(302_000);
+    await probeNode(dir);
+    expect(height.mock.calls).toEqual([[getEnvironmentConfig().rpcUrl, 60_000]]);
+    expect(existsSync(join(dir, 'INFRA_ABORT'))).toBe(false);
+  });
+
+  it('writes INFRA_ABORT naming the network and the node failure', async () => {
+    height.mockReset().mockRejectedValue(new Error('node https://rpc.testnet.miden.io height 0: transport error'));
+    await probeNode(dir);
+    const reason = readFileSync(join(dir, 'INFRA_ABORT'), 'utf8');
+    expect(reason).toContain('Node probe failed on testnet');
+    expect(reason).toContain('transport error');
+  });
+
+  it('asks the faucet first and the node after it, and skips the node once the faucet stopped the run', async () => {
+    height.mockReset().mockResolvedValue(302_000);
+    await probeMobileLegs(dir);
+    expect([mint.mock.calls.length, height.mock.calls.length]).toEqual([1, 1]);
+    expect(mint.mock.invocationCallOrder[0]).toBeLessThan(height.mock.invocationCallOrder[0] ?? 0);
+
+    height.mockClear();
+    mint.mockReset().mockRejectedValue(new Error('the grant answered 502'));
+    await probeMobileLegs(dir);
+    expect(height).not.toHaveBeenCalled();
+    expect(readFileSync(join(dir, 'INFRA_ABORT'), 'utf8')).toContain('Public faucet probe failed on testnet');
   });
 });

@@ -50,9 +50,10 @@ export async function dappGetUrl(): Promise<string> {
  * Send a wallet response back to the dApp window
  *
  * @param response - The response to send (will be JSON stringified)
+ * @param origin - The origin of the request this answers; the window drops the answer once it shows another origin
  */
-export async function sendDappWalletResponse(response: unknown): Promise<void> {
-  await invoke('dapp_wallet_response', { response: JSON.stringify(response) });
+export async function sendDappWalletResponse(response: unknown, origin: string): Promise<void> {
+  await invoke('dapp_wallet_response', { response: JSON.stringify(response), origin });
 }
 
 /**

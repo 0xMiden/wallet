@@ -1,21 +1,28 @@
-import React, { KeyboardEvent, useEffect, useRef } from 'react';
+import React, { KeyboardEvent, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { cva } from 'class-variance-authority';
-import { motion, useReducedMotion } from 'framer-motion';
+import { animate, motion, useMotionTemplate, useMotionValue, useReducedMotion } from 'framer-motion';
 
 import { useTabShownAgain } from 'app/layouts/page-active';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
 import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { tabBarSwap, useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
+import { isExtension } from 'lib/platform';
 import { cn } from 'lib/ui/util';
 
 import { radioGroupKeyTarget } from './radio-group-keys';
+import { useMouseDragScroll } from './use-mouse-drag-scroll';
 
 export interface SegmentedControlItem<T extends string = string> {
   id: T;
   /** Already-translated text, also the item's accessible name. */
   label: string;
+  /** A short tag after the label, already translated (for example "BETA"). It is part of the accessible name. */
+  badge?: string;
+  /** `rainbow`: a rainbow ring that turns around the item, for a feature that is new or in beta. */
+  ring?: 'rainbow';
   disabled?: boolean;
   'data-testid'?: string;
 }
@@ -29,11 +36,21 @@ export type SegmentedControlSize = 'sm' | 'md';
  */
 export type SegmentedControlLayout = 'scroll' | 'fill';
 
+/**
+ * `tint`: the selected item on the accent tint with its ink label, the 4.5:1 pairing every control
+ * takes by default. `solid`: on the brand orange with a white label, for the tab roots' filter rows
+ * only; white on the accent is 3:1, so it is a design call for those bold labels, not a default.
+ */
+export type SegmentedControlBubble = 'tint' | 'solid';
+
 export interface SegmentedControlProps<T extends string = string> {
   items: readonly SegmentedControlItem<T>[];
   value: T;
   /** Called once per real change: never for a tap on the item that is already selected. */
   onChange: (id: T) => void;
+  /** Optional flow tint; omitted controls keep the standard brand tint. */
+  accent?: FlowAccent;
+  bubble?: SegmentedControlBubble;
   size?: SegmentedControlSize;
   layout?: SegmentedControlLayout;
   'aria-label'?: string;
@@ -77,7 +94,7 @@ const segment = cva(
       },
       layout: {
         scroll: 'shrink-0',
-        fill: 'min-w-0'
+        fill: 'min-w-0 px-2'
       },
       // Every item is an outlined pill on the page; the selected one hands its outline over to
       // the raised bubble that covers it, keeping the border transparent so the item's width,
@@ -103,9 +120,52 @@ const content = cva('flex min-w-0 items-center', {
   defaultVariants: { size: 'md' }
 });
 
+// The colours of the rainbow ring, as conic-gradient stops. The first and the last are equal, so the ring has no
+// seam. They are fixed colours and not theme tokens: a rainbow has the same colours in the light and dark themes.
+const RAINBOW_STOPS = '#ff5f6d, #ffb347, #f4e04d, #4ade80, #38bdf8, #818cf8, #f472b6, #ff5f6d';
+// The time of one full turn of the ring. It is slow, so the ring does not pull the eye from the content.
+const RAINBOW_TURN_SECONDS = 4;
+const RAINBOW_RING_WIDTH_PX = 1.5;
+// The mask keeps only the border band of the element: the content box is cut out of the full box.
+const RING_MASK = 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)';
+
+/**
+ * A rainbow ring on the edge of its positioned parent. The colours turn around the ring; the ring itself does not
+ * move, so the pill keeps its shape. Under reduced motion the ring shows without the turn.
+ */
+function RainbowRing() {
+  const reduce = useReducedMotion();
+  const angle = useMotionValue(0);
+  const backgroundImage = useMotionTemplate`conic-gradient(from ${angle}deg, ${RAINBOW_STOPS})`;
+
+  useEffect(() => {
+    if (reduce) return undefined;
+    const controls = animate(angle, 360, { duration: RAINBOW_TURN_SECONDS, ease: 'linear', repeat: Infinity });
+    return () => controls.stop();
+  }, [angle, reduce]);
+
+  return (
+    <motion.span
+      aria-hidden="true"
+      data-testid="segmented-control-rainbow-ring"
+      className="pointer-events-none absolute inset-0 z-10 rounded-full"
+      style={{
+        backgroundImage,
+        padding: RAINBOW_RING_WIDTH_PX,
+        WebkitMask: RING_MASK,
+        WebkitMaskComposite: 'xor',
+        mask: RING_MASK,
+        maskComposite: 'exclude'
+      }}
+    />
+  );
+}
+
 interface SegmentProps<T extends string> {
   item: SegmentedControlItem<T>;
   active: boolean;
+  accent?: FlowAccent;
+  bubble: SegmentedControlBubble;
   focusable: boolean;
   size: SegmentedControlSize;
   layout: SegmentedControlLayout;
@@ -118,23 +178,45 @@ interface SegmentProps<T extends string> {
  * the button, adds the sliding bubble and wraps the content, so the whole item, bubble included,
  * dips when pressed.
  */
-function Segment<T extends string>({ item, active, focusable, size, layout, onSelect, swap }: SegmentProps<T>) {
+function Segment<T extends string>({
+  item,
+  active,
+  accent,
+  bubble,
+  focusable,
+  size,
+  layout,
+  onSelect,
+  swap
+}: SegmentProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(active, swap);
 
-  return (
+  // The ring and the badge sit on the edge of the pill. `HighlightItem` puts the children of the button in a box
+  // of its own, so a child of the button cannot reach that edge: a decorated item gets a wrapper of the size of
+  // the pill, and the ring and the badge are its children.
+  const decorated = item.ring !== undefined || item.badge !== undefined;
+  const button = (
     <HighlightItem value={item.id} asChild as="span" className="flex min-w-0 items-center justify-center">
       <motion.button
         type="button"
         role="radio"
         aria-checked={active}
+        // The badge is drawn outside the button, so the name of the button states it.
+        aria-label={item.badge ? `${item.label} ${item.badge}` : undefined}
         tabIndex={focusable ? 0 : -1}
         disabled={item.disabled}
         data-testid={item['data-testid']}
         onClick={() => onSelect(item.id)}
         {...(item.disabled ? {} : motionTokens.press)}
         // Shown again, the new selection's colours land at once instead of cross-fading.
-        className={cn(segment({ size, layout, active }), swap && 'transition-none')}
+        className={cn(
+          segment({ size, layout, active }),
+          decorated && 'w-full',
+          active && accent && ACCENT_CLASSES[accent].ink,
+          active && bubble === 'solid' && 'text-accent-brand-on',
+          swap && 'transition-none'
+        )}
       >
         <motion.span
           data-pop={pop.phase}
@@ -147,6 +229,24 @@ function Segment<T extends string>({ item, active, focusable, size, layout, onSe
         </motion.span>
       </motion.button>
     </HighlightItem>
+  );
+  if (!decorated) return button;
+
+  return (
+    <span className={cn('relative flex min-w-0', layout === 'scroll' && 'shrink-0')}>
+      {button}
+      {item.ring === 'rainbow' && <RainbowRing />}
+      {item.badge && (
+        // The badge sits on the top edge of the pill, half above it, and its page background interrupts the ring.
+        <span
+          aria-hidden="true"
+          data-testid="segmented-control-badge"
+          className="pointer-events-none absolute right-4 top-0 z-20 -translate-y-1/2 rounded-full bg-page px-1.5 text-badge font-bold tracking-wide text-ink"
+        >
+          {item.badge}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -167,6 +267,8 @@ export function SegmentedControl<T extends string>({
   items,
   value,
   onChange,
+  accent,
+  bubble = 'tint',
   size = 'md',
   layout = 'scroll',
   'aria-label': ariaLabel,
@@ -179,6 +281,8 @@ export function SegmentedControl<T extends string>({
   // at once: no slide, no pop, no smooth scroll.
   const swap = useTabShownAgain();
   const rowRef = useRef<HTMLDivElement>(null);
+  const mouseScrollable = layout === 'scroll' && isExtension();
+  const mouseDrag = useMouseDragScroll(rowRef, mouseScrollable);
   // A disabled item is not the answer while another can be chosen, so the radio, the bubble, the tab
   // stop and the keyboard all read this one index. With nothing choosable the control is disabled as
   // a whole (read-only Developer Settings, a swap being submitted) and still shows its value.
@@ -188,6 +292,21 @@ export function SegmentedControl<T extends string>({
   // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
   // moves the page under it instead, sideways.
   const lastSelectedIndex = useRef(selectedIndex);
+  const initialSelectionRevealed = useRef(false);
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (initialSelectionRevealed.current || layout !== 'scroll' || !row || row.clientWidth === 0) return;
+    const node = row.children[selectedIndex];
+    if (!(node instanceof HTMLElement)) return;
+    initialSelectionRevealed.current = true;
+    if (row.scrollWidth <= row.clientWidth) return;
+    // A cold deep link can select a chip beyond the viewport. Move only this row,
+    // never scrollIntoView's ancestors (the retained page or horizontal tab pager).
+    const bounds = row.getBoundingClientRect();
+    const item = node.getBoundingClientRect();
+    if (item.right > bounds.right) row.scrollLeft += item.right - bounds.right;
+    else if (item.left < bounds.left) row.scrollLeft -= bounds.left - item.left;
+  }, [layout, selectedIndex, swap]);
   // The item Tab lands on: the selected one, or the first that can be chosen when none is.
   const focusIndex =
     selectedIndex >= 0 && !items[selectedIndex]?.disabled ? selectedIndex : items.findIndex(item => !item.disabled);
@@ -250,7 +369,8 @@ export function SegmentedControl<T extends string>({
       // scrolls, so a row scrolled sideways does not throw the bubble off its item.
       layoutScroll={layout === 'scroll'}
       onKeyDown={handleKeyDown}
-      className={cn(container({ layout }), className)}
+      {...mouseDrag}
+      className={cn(container({ layout }), mouseScrollable && 'select-none', className)}
     >
       {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
           control, so two mounted controls never trade bubbles. Controlled and click-free: the
@@ -268,13 +388,19 @@ export function SegmentedControl<T extends string>({
         // Unselected pills paint an opaque `page` fill, so the sliding bubble is lifted above them;
         // each item's label wrapper is also z-index 1 and later in the DOM, so labels stay on top.
         style={{ zIndex: 1 }}
-        className={cn('-inset-px', raisedBubbleClassName, 'bg-accent-tint')}
+        className={cn(
+          '-inset-px',
+          raisedBubbleClassName,
+          bubble === 'solid' ? 'bg-accent-primary' : accent ? ACCENT_CLASSES[accent].tint : 'bg-accent-tint'
+        )}
       >
         {items.map((item, index) => (
           <Segment
             key={item.id}
             item={item}
             active={index === selectedIndex}
+            accent={accent}
+            bubble={bubble}
             focusable={index === focusIndex}
             size={size}
             layout={layout}

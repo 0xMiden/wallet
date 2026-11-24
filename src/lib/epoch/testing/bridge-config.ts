@@ -1,14 +1,17 @@
+import type { EarnVaultInfo } from 'lib/epoch/pools-read';
 import { TEST_SWAP_PAIRS, TEST_SWAP_SECTION } from 'lib/miden/swap/testing/registry';
-import type { DerivedBridgeConfig, DerivedChainConfig } from 'lib/remote-config/derive';
+import type { DerivedBridgeConfig, DerivedChainConfig, Probe } from 'lib/remote-config/derive';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import type { BridgeConfig } from 'lib/remote-config/schema';
+import type { BridgeConfig, EarnVaultConfig } from 'lib/remote-config/schema';
 import type { SwapPairs } from 'lib/remote-config/swap-pairs';
 import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
 import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
 
 /** Today's testnet Epoch deployment on fixed test hosts: the bridge-config values the Epoch suites run against. */
 export const TEST_ALLOCATOR_URL = 'https://allocator.test';
+/** The Miden account that the test allocator receives collateral notes with (lowercase hex). */
+export const TEST_ALLOCATOR_ACCOUNT = '0x7a1c2a3b4c5d6e7f80910a1b2c3d4e';
 export const TEST_POSITIONS_URL = 'https://positions.test';
 export const TEST_EVM_CHAIN_ID = 11155111;
 export const TEST_EVM_USDC: EvmUsdc = {
@@ -23,6 +26,37 @@ export const TEST_EARN_MARKET: EarnMarket = {
   underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
   chainId: TEST_EVM_CHAIN_ID
 };
+/** The testnet document's one Earn vault, as the parser keeps it: the dummy lender's market of the test USDC. */
+export const TEST_EARN_VAULT: EarnVaultConfig = {
+  id: 'dummy-lending-sepolia-usdc',
+  marketUid: TEST_EARN_MARKET.marketUid.toLowerCase(),
+  name: 'Dummy Lending USDC',
+  protocol: 'dummy-lending',
+  depositsEnabled: true
+};
+export const TEST_EARN_VAULTS: readonly EarnVaultConfig[] = [TEST_EARN_VAULT];
+/** The same vault with a document logo (`earn.vaults[].logo`), for the suites that draw one. */
+export const TEST_EARN_VAULT_WITH_LOGO: EarnVaultConfig = { ...TEST_EARN_VAULT, logo: 'icons/dummy-lending.svg' };
+/**
+ * That vault as the derivation reads it from the testnet host, which has no `/pools` route: the positions fallback
+ * names the dummy lender, and the read of its token (the chain's Epoch USDC) gives the symbol and decimals.
+ */
+export const TEST_EARN_VAULT_INFO: EarnVaultInfo = {
+  marketUid: TEST_EARN_MARKET.marketUid,
+  lenderKey: 'DUMMY_LENDING',
+  lenderFamily: 'DUMMY_LENDING',
+  lenderName: 'Dummy Lending',
+  marketName: 'Dummy Lending',
+  logoUri: '',
+  chainId: String(TEST_EVM_CHAIN_ID),
+  underlying: { address: TEST_EVM_USDC.address, symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals },
+  depositApr: 2,
+  aprTotal: 2,
+  canOpen: true,
+  listing: TEST_EARN_VAULT
+};
+/** The vault catalogue of the test document (`derived.epoch.vaults`, read by `selectEarnVaultCatalog`). */
+export const TEST_EARN_VAULT_CATALOG: readonly EarnVaultInfo[] = [TEST_EARN_VAULT_INFO];
 export const TEST_MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
 export const TEST_MIDEN_USDC: MidenUsdc = { faucetId: TEST_MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
 /** The testnet bridge registry's native-ETH faucet: it mints bridged ETH and sends its deliveries. */
@@ -38,23 +72,41 @@ export const TEST_EVM_NETWORK_ID = 0;
  * re-stub. Install it with
  * `jest.mock('lib/remote-config/values', () => jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config').remoteConfigValuesMock())`.
  */
-export function remoteConfigValuesMock() {
+class BridgeConfigUnavailableError extends Error {
+  constructor(readonly value: string) {
+    super(`The bridge config has no usable ${value}.`);
+    this.name = 'BridgeConfigUnavailableError';
+  }
+}
+
+function selectedEpochAllocator(snapshot: BridgeConfigSnapshot) {
+  const allocatorUrl = snapshot.config?.['bridge-providers'].epoch?.allocatorUrl;
+  if (!allocatorUrl) return null;
+  const account = snapshot.derived?.epoch.allocatorAccount;
+  return { allocatorUrl, accountId: account?.state === 'ok' ? account.value.accountId : null };
+}
+
+export function remoteConfigValuesMock(readSnapshot: () => BridgeConfigSnapshot = () => TEST_BRIDGE_CONFIG_SNAPSHOT) {
   return {
-    getEpochAllocatorUrl: jest.fn(() => TEST_ALLOCATOR_URL),
+    getEpochAllocatorUrl: jest.fn(() => {
+      const selected = selectedEpochAllocator(readSnapshot());
+      if (!selected) throw new Error('no allocator');
+      return selected.allocatorUrl;
+    }),
+    BridgeConfigUnavailableError,
+    selectEpochAllocator: jest.fn((snapshot: BridgeConfigSnapshot) => selectedEpochAllocator(snapshot)),
     getEpochPositionsUrl: jest.fn(() => TEST_POSITIONS_URL),
     getEvmChainId: jest.fn(() => TEST_EVM_CHAIN_ID),
-    getEvmUsdc: jest.fn(() => TEST_EVM_USDC),
-    getEvmUsdcAddress: jest.fn(() => TEST_EVM_USDC.address),
-    findEvmUsdc: jest.fn((): EvmUsdc | null => TEST_EVM_USDC),
-    findEpochUsdcAddress: jest.fn((): string | null => TEST_EVM_USDC.address),
+    getSupportedEvmChainIds: jest.fn((): number[] => [TEST_EVM_CHAIN_ID]),
     getEarnMarket: jest.fn(() => TEST_EARN_MARKET),
+    getEarnVaults: jest.fn((): readonly EarnVaultConfig[] => TEST_EARN_VAULTS),
     getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC)
   };
 }
 
 const circleTestConfig = testBridgeSnapshot().config;
 
-/** The testnet document naming the fixtures above, and the swap solver (`TEST_SWAP_SECTION`). */
+/** The testnet document naming the fixtures above, its Earn vault, and the swap solver (`TEST_SWAP_SECTION`). */
 export const TEST_BRIDGE_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
@@ -83,14 +135,21 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
       }
     }
   },
-  features: { earn: true },
+  features: { earn: true, nearIntents: false },
+  earn: { vaults: [...TEST_EARN_VAULTS] },
   swap: TEST_SWAP_SECTION
 };
 
 const SKIPPED: { state: 'skipped' } = { state: 'skipped' };
 const UNREAD_CHAIN: DerivedChainConfig = {
-  agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED },
-  epoch: { evmUsdc: SKIPPED }
+  agglayer: {
+    rollupId: SKIPPED,
+    tokens: SKIPPED,
+    evmNetworkId: SKIPPED,
+    l1BridgeCode: SKIPPED,
+    depositTokens: SKIPPED
+  },
+  epoch: { tokens: {} }
 };
 
 const TEST_DERIVED: DerivedBridgeConfig = {
@@ -101,19 +160,38 @@ const TEST_DERIVED: DerivedBridgeConfig = {
     ...Object.fromEntries(Object.values(TEST_BRIDGE_CONFIG.supportedEvmChains).map(c => [c.chainId, UNREAD_CHAIN])),
     [TEST_EVM_CHAIN_ID]: {
       ...UNREAD_CHAIN,
-      epoch: { evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } } }
+      epoch: {
+        // The route's USDC settles into the testnet output faucet, read at its own scale.
+        tokens: {
+          USDC: {
+            state: 'ok',
+            value: {
+              symbol: TEST_EVM_USDC.symbol,
+              decimals: TEST_EVM_USDC.decimals,
+              midenFaucetId: TEST_MIDEN_USDC.faucetId,
+              midenSymbol: TEST_MIDEN_USDC.symbol,
+              midenDecimals: TEST_MIDEN_USDC.decimals
+            }
+          }
+        }
+      }
     }
   },
   agglayer: { indexer: SKIPPED },
   epoch: {
     market: { state: 'ok', value: TEST_EARN_MARKET },
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } }
+    allocatorAccount: { state: 'ok', value: { accountId: TEST_ALLOCATOR_ACCOUNT } },
+    midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
+    vaults: { state: 'ok', value: [...TEST_EARN_VAULT_CATALOG] }
   },
   swap: { pairs: { state: 'ok', value: TEST_SWAP_PAIRS } }
 };
 
-/** That document as this realm holds it once loaded, with both USDC tokens and the solver's pairs (`TEST_SWAP_PAIRS`) read. */
+/**
+ * That document as this realm holds it once loaded, with both USDC tokens, the Earn vault catalogue
+ * (`TEST_EARN_VAULT_CATALOG`) and the solver's pairs (`TEST_SWAP_PAIRS`) read.
+ */
 export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
   network: 'testnet',
   status: 'ready',
@@ -126,6 +204,12 @@ export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
 export const testSnapshotWithSwapPairs = (pairs: SwapPairs): BridgeConfigSnapshot => ({
   ...TEST_BRIDGE_CONFIG_SNAPSHOT,
   derived: { ...TEST_DERIVED, swap: { pairs: { state: 'ok', value: pairs } } }
+});
+
+/** `TEST_BRIDGE_CONFIG_SNAPSHOT` with the Earn vault catalogue read as `vaults` instead. */
+export const testSnapshotWithEarnVaults = (vaults: Probe<EarnVaultInfo[]>): BridgeConfigSnapshot => ({
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  derived: { ...TEST_DERIVED, epoch: { ...TEST_DERIVED.epoch, vaults } }
 });
 
 const mockRuntimeListeners = new Set<() => void>();

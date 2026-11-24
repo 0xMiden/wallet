@@ -35,8 +35,10 @@ jest.mock('lib/biometric', () => ({
   authenticate: async () => false,
   openBiometricSettings: jest.fn()
 }));
-jest.mock('lib/settings/helpers', () => ({ setTelemetrySetting: jest.fn() }));
-jest.mock('lib/telemetry/crash', () => ({ initCrashReporting: jest.fn() }));
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
+  setTelemetrySetting: jest.fn(() => Promise.resolve())
+}));
 jest.mock('lib/store', () => ({ useWalletStore: () => jest.fn() }));
 jest.mock('lib/miden/activity', () => ({ requestSWTransactionProcessing: jest.fn() }));
 jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));

@@ -1,11 +1,11 @@
-import { hexToBytes, isAddress, padHex } from 'viem';
+import { formatUnits, hexToBytes, isAddress, padHex } from 'viem';
 
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { featureAvailability } from 'lib/remote-config/availability';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
-import { usdcxDestinations, usdcxPayoutFeeShortfall } from './constant';
+import { USDCX_DECIMALS, USDCX_MIN_BURN, usdcxDestinations } from './constant';
 
 export class UsdcxBurnError extends Error {
   /** `values` fills the copy's placeholders, such as the fee allowance a burn must exceed. */
@@ -38,8 +38,9 @@ export function isUsdcxWithdrawalNetwork(): boolean {
   return featureAvailability('usdcxWithdrawal', getBridgeConfigSnapshot()).state === 'available';
 }
 
-export function isUsdcxWithdrawalAvailable(faucetId: string | undefined): boolean {
-  return isUsdcxWithdrawalNetwork() && isUsdcxFaucet(faucetId);
+export function isUsdcxWithdrawalAvailable(faucetId: string | undefined, chainId?: number): boolean {
+  const available = chainId === undefined ? isUsdcxWithdrawalNetwork() : isUsdcxDestinationChain(chainId);
+  return available && isUsdcxFaucet(faucetId);
 }
 
 /**
@@ -77,11 +78,22 @@ export function isUsdcxDestinationChain(destinationChainId: number): boolean {
   );
 }
 
-export function validateUsdcxWithdrawal(faucetId: string, destinationChainId: number, amount: bigint): void {
+/** The mandatory floor or greater `minimum` a burn falls below, formatted for `usdcxBelowMinimumBurn`. */
+export function usdcxMinimumBurnShortfall(amount: bigint, minimum = USDCX_MIN_BURN): { amount: string } | undefined {
+  const requiredMinimum = minimum > USDCX_MIN_BURN ? minimum : USDCX_MIN_BURN;
+  if (amount >= requiredMinimum) return undefined;
+  return { amount: formatUnits(requiredMinimum, USDCX_DECIMALS) };
+}
+
+export function validateUsdcxWithdrawal(
+  faucetId: string,
+  destinationChainId: number,
+  amount: bigint,
+  minimum = USDCX_MIN_BURN
+): void {
   if (!isUsdcxWithdrawalAvailable(faucetId)) throw new UsdcxBurnError('usdcxUnsupportedFaucet');
   if (!isUsdcxDestinationChain(destinationChainId)) throw new UsdcxBurnError('usdcxInvalidDestination');
   if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');
-  // Circle takes its fee from the payout, so a burn its fee allowance takes whole may pay out nothing.
-  const shortfall = usdcxPayoutFeeShortfall(destinationChainId, amount);
-  if (shortfall) throw new UsdcxBurnError('usdcxSendMoreThanPayoutFee', shortfall);
+  const minimumShortfall = usdcxMinimumBurnShortfall(amount, minimum);
+  if (minimumShortfall) throw new UsdcxBurnError('usdcxBelowMinimumBurn', minimumShortfall);
 }

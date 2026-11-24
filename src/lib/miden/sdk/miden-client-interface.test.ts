@@ -2,7 +2,9 @@ import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
+import { DELEGATED_PROVE_TIMEOUT_MS } from './delegated-prove-timeout';
 import type { WasmLockHold } from './miden-client';
+import type { AccountChainState } from '../guardian/recovery-verification';
 
 type MidenClientInterfaceType = import('./miden-client-interface').MidenClientInterface;
 // The shared native-HTTP recorder (guardian/__mocks__/native-http), the instance the code under test imported.
@@ -19,6 +21,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 describe('MidenClientInterface', () => {
   afterEach(() => {
+    // doMock survives resetModules; only the store-name case below registers this one.
+    jest.dontMock('./store-name');
     jest.resetModules();
     jest.clearAllMocks();
   });
@@ -70,7 +74,8 @@ describe('MidenClientInterface', () => {
                     amount: () => ({ toString: () => '10' }),
                     faucetId: () => 'faucet'
                   }
-                ]
+                ],
+                nonFungibleAssets: () => []
               })
             })
           }
@@ -145,7 +150,7 @@ describe('MidenClientInterface', () => {
   }
 
   /** The SDK and id helpers a staged consume or swap reaches, stubbed for a test account id (#1233). */
-  function mockStagedSdk(sdk: Record<string, unknown> = {}) {
+  function mockStagedSdk(sdk: Record<string, unknown> = {}, helpers: Record<string, unknown> = {}) {
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
@@ -159,7 +164,8 @@ describe('MidenClientInterface', () => {
       canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
       buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) })),
-      buildConsumeTransactionRequest: jest.fn(() => ({ kind: 'consume', serialize: () => new Uint8Array([7]) }))
+      buildConsumeTransactionRequest: jest.fn(() => ({ kind: 'consume', serialize: () => new Uint8Array([7]) })),
+      ...helpers
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -182,9 +188,60 @@ describe('MidenClientInterface', () => {
     }
   }
 
+  describe('full input note export', () => {
+    async function exportHarness(input: unknown) {
+      mockStagedSdk({
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        NoteFile: { fromInputNote: () => ({ serialize: () => new Uint8Array([4, 5]) }) }
+      });
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { NoteExportType } = jest.requireActual<typeof import('./constants')>('./constants');
+      const client = Object.create(MidenClientInterface.prototype) as MidenClientInterfaceType;
+      const notes = {
+        get: jest.fn(async () => input),
+        export: jest.fn(async () => {
+          if (input) throw new Error('No output note found');
+          return { serialize: () => new Uint8Array([1, 2]) };
+        })
+      };
+      client.client = { notes } as unknown as MidenClientInterfaceType['client'];
+      return { client, notes, full: NoteExportType.FULL };
+    }
+
+    it('exports an authenticated received note that has no output record', async () => {
+      const { client, full } = await exportHarness({ isAuthenticated: () => true, toInputNote: () => ({}) });
+      await expect(client.exportNote('received', full)).resolves.toEqual(new Uint8Array([4, 5]));
+    });
+
+    it('rejects an input note without its inclusion proof', async () => {
+      const { client, full } = await exportHarness({ isAuthenticated: () => false });
+      await expect(client.exportNote('received', full)).rejects.toThrow('Input note is not authenticated');
+    });
+
+    it('checks ownership before touching an input record returned after an await', async () => {
+      const input = { isAuthenticated: jest.fn(() => true), toInputNote: jest.fn() };
+      const { client, full } = await exportHarness(input);
+      await expect(
+        client.exportNote('received', full, () => {
+          throw new Error('retired hold');
+        })
+      ).rejects.toThrow('retired hold');
+      expect(input.isAuthenticated).not.toHaveBeenCalled();
+      expect(input.toInputNote).not.toHaveBeenCalled();
+    });
+
+    it('preserves full output export when no received record exists', async () => {
+      const { client, full } = await exportHarness(null);
+      await expect(client.exportNote('sent', full)).resolves.toEqual(new Uint8Array([1, 2]));
+    });
+  });
+
   it('creates a client with provided callbacks', async () => {
     const fakeMidenClient = buildFakeMidenClient();
     const createMock = jest.fn(async () => fakeMidenClient);
+    // The realm client opens the store the resolver names (#2086).
+    const sdkStoreNameFor = jest.fn(async () => 'MidenClientDB_mcst');
+    jest.doMock('./store-name', () => ({ sdkStoreNameFor }));
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       MidenClient: { create: createMock, createMock: jest.fn() },
@@ -220,7 +277,7 @@ describe('MidenClientInterface', () => {
       getEffectiveNoteTransportUrl: () => undefined,
       getEffectiveFeeFaucetId: () => '0xfee'
     }));
-    jest.doMock('./constants', () => ({ NoteExportType: {} }));
+    jest.doMock('./constants', () => ({ ...jest.requireActual('./constants'), NoteExportType: {} }));
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
@@ -257,9 +314,22 @@ describe('MidenClientInterface', () => {
       expect(snapshotCrashDiagnostics(initializationFailure)).toEqual({
         operation: 'sdk_initialize',
         stage: 'client_create',
-        workerMode: useWorker ? 'enabled' : 'disabled'
+        workerMode: useWorker ? 'enabled' : 'disabled',
+        clientRole: 'primary'
       });
     }
+    // A trap adds its memory evidence; outside an isolated extension page both read as unavailable.
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    createMock.mockRejectedValueOnce(trap);
+    await expect(MidenClientInterface.create({ useWorker: true })).rejects.toBe(trap);
+    expect(snapshotCrashDiagnostics(trap)).toEqual({
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'enabled',
+      clientRole: 'primary',
+      sharedMemoryProbe: 'unavailable',
+      extensionViews: 'unavailable'
+    });
     createMock.mockClear();
     const insertKeyCallback = jest.fn();
     const client = await MidenClientInterface.create({
@@ -267,9 +337,11 @@ describe('MidenClientInterface', () => {
       insertKeyCallback
     });
 
+    expect(sdkStoreNameFor).toHaveBeenCalledWith('rpc-local');
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({
         rpcUrl: 'rpc-local',
+        storeName: 'MidenClientDB_mcst',
         seed: expect.any(Uint8Array),
         keystore: expect.objectContaining({
           insertKey: insertKeyCallback
@@ -556,7 +628,8 @@ describe('MidenClientInterface', () => {
           state: () => 'state',
           details: () => ({
             assets: () => ({
-              fungibleAssets: () => []
+              fungibleAssets: () => [],
+              nonFungibleAssets: () => []
             })
           })
         }
@@ -581,6 +654,161 @@ describe('MidenClientInterface', () => {
     const details = await client.getInputNoteDetails();
     expect(details).toHaveLength(1);
     expect(details[0]?.noteId).toBe('note-2');
+  });
+
+  it('getInputNoteDetails lists the NFTs of a note, with their faucet and short asset id (#1600)', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+    fakeMidenClient.notes.list = jest.fn(
+      async (): Promise<any[]> => [
+        {
+          id: () => ({ toString: () => 'note-nft' }),
+          metadata: () => ({ noteType: () => 'type', sender: () => 'sender' }),
+          nullifier: () => 'nullifier',
+          state: () => 'state',
+          details: () => ({
+            assets: () => ({
+              fungibleAssets: () => [],
+              nonFungibleAssets: () => [
+                { faucetId: () => 'nft-faucet', intoWord: () => ({ toHex: () => `0x${'ab'.repeat(32)}` }) }
+              ]
+            })
+          })
+        }
+      ]
+    );
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const [note] = await client.getInputNoteDetails();
+    expect(note?.assets).toEqual([]);
+    expect(note?.standardPayment).toBe(false);
+    expect(note?.nonFungibleAssets).toEqual([{ faucetId: 'nft-faucet', assetId: '0xabababab\u2026ababab' }]);
+  });
+
+  // The id `importNoteBytes` returns for a details-only file is no note id, so the store cannot look it up (#1389).
+  describe('getDetailsCommitmentMatches', () => {
+    // Pending fixture records need an id so the candidate query can list them before they have metadata.
+    const record = (commitment: string, noteId: string, committed = true) => ({
+      id: () => ({ toString: () => noteId }),
+      nullifier: () => (committed ? `nf-${noteId}` : undefined),
+      metadata: () => (committed ? { noteType: () => 'type', sender: () => 'sender' } : undefined),
+      state: () => 'state',
+      details: jest.fn(() => ({
+        commitment,
+        assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] })
+      }))
+    });
+
+    const clientListing = async (records: ReturnType<typeof record>[]) => {
+      const fakeMidenClient = buildFakeMidenClient();
+      fakeMidenClient.notes.list = jest.fn(async (query?: { ids?: string[] }) =>
+        records.filter(note => query?.ids === undefined || query.ids.includes(note.id().toString()))
+      );
+      jest.doMock('./note-details-commitment', () => ({
+        ...jest.requireActual('./note-details-commitment'),
+        noteDetailsCommitment: jest.fn((details: { commitment: string }) => details.commitment)
+      }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      return { fakeMidenClient, client: MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet') };
+    };
+
+    it('answers the committed records with the commitment, in any spelling, and counts the uncommitted ones', async () => {
+      const { fakeMidenClient, client } = await clientListing([
+        record('abc1', '0xcommitted'),
+        record('abc1', '0xpending', false),
+        record('other', '0xunrelated')
+      ]);
+      const assertLive = jest.fn();
+
+      const matches = await client.getDetailsCommitmentMatches(['0xABC1'], ['0xcommitted', '0xpending'], assertLive);
+
+      expect(fakeMidenClient.notes.list).toHaveBeenCalledWith({ ids: ['0xcommitted', '0xpending'] });
+      expect(assertLive).toHaveBeenCalledTimes(1);
+      expect(matches[0]?.uncommitted).toBe(1);
+      expect(matches[0]?.notes).toEqual([
+        expect.objectContaining({ noteId: '0xcommitted', nullifier: 'nf-0xcommitted' })
+      ]);
+    });
+
+    it('answers each commitment from one listing, in the order asked', async () => {
+      const records = [
+        record('abc1', '0xone'),
+        record('def2', '0xtwo'),
+        record('abc1', '0xthree'),
+        record('abc1', '0xoutside')
+      ];
+      const { fakeMidenClient, client } = await clientListing(records);
+
+      const matches = await client.getDetailsCommitmentMatches(
+        ['0xDEF2', '0xabc1', '0xnone'],
+        ['0xone', '0xtwo', '0xthree'],
+        jest.fn()
+      );
+
+      expect(fakeMidenClient.notes.list).toHaveBeenCalledTimes(1);
+      expect(matches.map(match => match.notes.map(note => note.noteId))).toEqual([['0xtwo'], ['0xone', '0xthree'], []]);
+      const { noteDetailsCommitment } = await import('./note-details-commitment');
+      expect(noteDetailsCommitment).toHaveBeenCalledTimes(3);
+    });
+
+    it('normalizes every commitment spelling and counts uncommitted matches per entry', async () => {
+      const { client } = await clientListing([record('def2', '0xtwo'), record('abc1', '0xpending', false)]);
+
+      const matches = await client.getDetailsCommitmentMatches(
+        ['0xDEF2', 'def2', '0XDeF2', 'abc1'],
+        ['0xtwo', '0xpending']
+      );
+
+      expect(matches.map(match => match.notes.map(note => note.noteId))).toEqual([['0xtwo'], ['0xtwo'], ['0xtwo'], []]);
+      expect(matches.map(match => match.uncommitted)).toEqual([0, 0, 0, 1]);
+    });
+
+    it('reads no record once the listing comes back to a hold that is no longer current', async () => {
+      const listed = record('abc1', '0xcommitted');
+      const { client } = await clientListing([listed]);
+
+      await expect(
+        client.getDetailsCommitmentMatches(['0xabc1'], ['0xcommitted'], () => {
+          throw new Error('evicted');
+        })
+      ).rejects.toThrow('evicted');
+      expect(listed.details).not.toHaveBeenCalled();
+    });
+
+    it('lists and hashes nothing when no candidate ids are consumable', async () => {
+      const { fakeMidenClient, client } = await clientListing([record('abc1', '0xoutside')]);
+
+      await expect(client.getDetailsCommitmentMatches(['0xabc1', 'def2'], [])).resolves.toEqual([
+        { notes: [], uncommitted: 0 },
+        { notes: [], uncommitted: 0 }
+      ]);
+      expect(fakeMidenClient.notes.list).not.toHaveBeenCalled();
+      const { noteDetailsCommitment } = await import('./note-details-commitment');
+      expect(noteDetailsCommitment).not.toHaveBeenCalled();
+    });
   });
 
   it('imports wallet from bytes', async () => {
@@ -802,6 +1030,26 @@ describe('MidenClientInterface', () => {
     });
   });
 
+  // The first check runs straight after submit, before any block, so a 5 s interval ended nearly every wait on
+  // its second check, about 5 s in, however soon the block came (#1492).
+  it('polls for the commit once a second by default, within the 60 s ceiling (#1492)', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.waitForTransactionCommit('tx-123');
+    expect(fakeMidenClient.transactions.waitFor).toHaveBeenCalledWith('tx-123', {
+      timeout: 60_000,
+      interval: 1_000
+    });
+  });
+
   it('throws timeout when transaction does not commit', async () => {
     const fakeMidenClient = buildFakeMidenClient({
       transactions: {
@@ -869,6 +1117,77 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.send).not.toHaveBeenCalled();
     const { buildSendTransactionRequest } = jest.requireMock('./helpers');
     expect(buildSendTransactionRequest.mock.calls[0][6]).toBe(600);
+  });
+
+  it('refuses an expired 1Click send after its final stage stamp and does not submit or rebuild', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const providerDeadline = new Date(now + 60_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+    const prove = jest.fn(async () => ({ submit }));
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        executeRequest: jest.fn(async () => ({ id: 'tx-id', result: fakeTransactionResult, prove }))
+      }
+    });
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: string) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 'Private', Public: 'Public' },
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+    const stages: string[] = [];
+
+    try {
+      await expect(
+        client.sendTransaction(
+          {
+            accountId: 'sender',
+            secondaryAccountId: 'deposit',
+            faucetId: 'faucet',
+            noteType: 'public' as any,
+            amount: BigInt(1),
+            extraInputs: {
+              oneClick: {
+                fundingDeadline,
+                request: { deadline: fundingDeadline },
+                quote: {
+                  quoteRequest: { deadline: fundingDeadline },
+                  quote: { deadline: providerDeadline }
+                }
+              }
+            }
+          } as any,
+          stage => {
+            stages.push(stage);
+            if (stage === 'submitting') now = Date.parse(fundingDeadline);
+          }
+        )
+      ).rejects.toThrow(/expired/i);
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(stages).toEqual(['executing', 'proving', 'submitting']);
+    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    expect(prove).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('reports executing/proving/submitting stages through the onStage callback', async () => {
@@ -1002,6 +1321,52 @@ describe('MidenClientInterface', () => {
       reportProve: jest.fn()
     }));
   };
+
+  it('replays the calendar Send request when local fallback starts after the target', async () => {
+    mockSendSdk();
+    const { buildSendTransactionRequest } = await import('./helpers');
+    const { TransactionRequest } = await import('@miden-sdk/miden-sdk/lazy');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T12:00:00.000Z'));
+    const firstBytes = Uint8Array.of(1);
+    jest
+      .mocked(buildSendTransactionRequest)
+      .mockReturnValueOnce({ serialize: () => firstBytes } as any)
+      .mockReturnValueOnce({ serialize: () => Uint8Array.of(2) } as any);
+    const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+    const prove = jest.fn(async (options?: { prover?: unknown }) => {
+      if (!options?.prover) {
+        clock.mockReturnValue(Date.parse('2030-01-01T12:00:31.000Z'));
+        throw new Error('remote prover deadline exceeded');
+      }
+      return { submit };
+    });
+    const executeRequest = jest.fn(async () => ({ id: 'tx-id', result: fakeTransactionResult, prove }));
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest } }) as any,
+      'testnet'
+    );
+
+    try {
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public',
+        amount: 1n,
+        extraInputs: { recallBlocks: 25, calendarRecallTarget: '2030-01-01T12:00:30.000Z' },
+        delegateTransaction: true
+      } as any);
+    } finally {
+      clock.mockRestore();
+    }
+
+    expect(executeRequest).toHaveBeenCalledTimes(2);
+    expect(prove).toHaveBeenCalledTimes(2);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(TransactionRequest.deserialize).mock.calls).toEqual([[firstBytes], [firstBytes]]);
+    expect(buildSendTransactionRequest).toHaveBeenCalledTimes(1);
+  });
 
   // A delegated send whose 'submitting' stamp throws the crossing error, itself or wrapped as a cause.
   const sendWithFailingCrossing = async (
@@ -1238,6 +1603,66 @@ describe('MidenClientInterface', () => {
   // Swap is staged (#1233), so a delegated prove that fails falls back like the send's. What must
   // never be re-run is a swap whose submit was reached: a retry would draw a fresh serial, mint a
   // SECOND PSWAP note and lock the offered asset twice.
+  it('refuses a swap before SDK execution when its vault balance changed after queueing', async () => {
+    const staged = stagedExecuteRequest();
+    mockStagedSdk();
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const guard = jest.requireMock('lib/miden/swap/balance').assertSwapAccountBalance;
+    guard.mockImplementationOnce(() => {
+      throw new Error('amountMustBeLessThanBalance');
+    });
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({
+        transactions: { executeRequest: staged.executeRequest }
+      }) as any,
+      'testnet'
+    );
+    await expect(
+      client.swapTransaction({
+        accountId: 'acc-id',
+        faucetId: 'offered-faucet',
+        amount: 10n,
+        type: 'swap',
+        extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: 20n }
+      } as any)
+    ).rejects.toThrow('amountMustBeLessThanBalance');
+    expect(staged.executeRequest).not.toHaveBeenCalled();
+    expect(staged.submit).not.toHaveBeenCalled();
+  });
+
+  it('refuses a queued swap after its endpoint changes before execution', async () => {
+    const staged = stagedExecuteRequest();
+    mockStagedSdk();
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const getFeeContext = jest.requireMock('lib/miden/swap/balance').getSwapFeeContextSync;
+    getFeeContext.mockImplementationOnce((scope?: string) => {
+      if (scope !== 'testnet|current-endpoint') throw new Error('swapBalanceUnavailable');
+      return {};
+    });
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+      'testnet'
+    );
+
+    await expect(
+      client.swapTransaction({
+        accountId: 'acc-id',
+        faucetId: 'offered-faucet',
+        amount: 10n,
+        type: 'swap',
+        extraInputs: {
+          requestedFaucetId: 'wanted-faucet',
+          requestedAmount: 20n,
+          balanceScope: 'testnet|queued-endpoint'
+        }
+      } as any)
+    ).rejects.toThrow('swapBalanceUnavailable');
+
+    expect(getFeeContext).toHaveBeenCalledWith('testnet|queued-endpoint');
+    expect(staged.executeRequest).not.toHaveBeenCalled();
+    expect(staged.submit).not.toHaveBeenCalled();
+  });
+
   it('does not re-run a delegated swap whose submit failed', async () => {
     const refused = new Error('node refused the PSWAP');
     const staged = stagedExecuteRequest();
@@ -1438,7 +1863,7 @@ describe('MidenClientInterface', () => {
       staged.prove.mockImplementationOnce(() => new Promise<never>(() => {}));
       const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
       mockStagedSdk();
-      const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
+      const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       const pending = client.consumeNoteId({
@@ -1783,13 +2208,27 @@ describe('MidenClientInterface', () => {
       amount: BigInt(1),
       extraInputs: {}
     } as any);
-    await client.swapTransaction({
-      accountId: 'acc-id',
-      faucetId: 'offered-faucet',
-      amount: BigInt(10),
-      type: 'swap',
-      extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
-    } as any);
+    const feeContext = {
+      scope: 'testnet|current-endpoint',
+      nativeAssetId: 'native-faucet',
+      feeFaucetId: null,
+      baseFee: 7n
+    };
+    await client.swapTransaction(
+      {
+        accountId: 'acc-id',
+        faucetId: 'offered-faucet',
+        amount: BigInt(10),
+        type: 'swap',
+        extraInputs: {
+          requestedFaucetId: 'wanted-faucet',
+          requestedAmount: BigInt(20),
+          balanceScope: 'testnet|current-endpoint'
+        }
+      } as any,
+      undefined,
+      feeContext
+    );
 
     const { buildConsumeTransactionRequest, buildSendTransactionRequest, buildPswapCreateRequest } =
       jest.requireMock('./helpers');
@@ -1810,6 +2249,14 @@ describe('MidenClientInterface', () => {
       'offered-faucet',
       BigInt(10),
       EXPIRATION_DELTA_BLOCKS
+    );
+    expect(jest.requireMock('lib/miden/swap/balance').assertSwapAccountBalance).toHaveBeenCalledWith(
+      expect.anything(),
+      'acc-id',
+      'offered-faucet',
+      10n,
+      feeContext,
+      'testnet|current-endpoint'
     );
   });
 
@@ -2111,33 +2558,86 @@ describe('MidenClientInterface', () => {
     // limit ends the scan (a hold per match is two holds; one hoisted around the index's matches
     // would be one). The lock mock counts holds and records labels; the adoption and the key insert
     // refuse a call made outside a hold; the hold check throws the poison error once revoked.
-    const setupRecovery = async (onLookup?: (client: MidenClientInterfaceType) => void, { finds = true } = {}) => {
+    // Every served account's hot and guardian slots; the account seed binds both.
+    const SERVED_HOT = 'd0'.repeat(32);
+    const SERVED_GUARDIAN = 'be'.repeat(32);
+    const setupRecovery = async (
+      onLookup?: (client: MidenClientInterfaceType) => void,
+      { finds = true, network = 'testnet', endpoint = 'https://guardian.example', realChainReads = false } = {}
+    ) => {
       const held = { count: 0, labels: [] as string[], revoked: false };
+      const lookupCalls = { count: 0 };
       let iface: MidenClientInterfaceType | undefined;
       const requireHeld = (what: string) => {
         if (held.count === 0) throw new Error(`${what} called with no WASM lock hold`);
       };
-      const insert = jest.fn(async () => requireHeld('keystore.insert'));
-      const adopt = jest.fn(async (_client: unknown, _account: unknown) =>
-        requireHeld('insertGuardianAccountMonotonically')
-      );
+      const insert = jest.fn(async (_id: unknown, _sk: unknown) => requireHeld('keystore.insert'));
+      const adopt = jest.fn(async (_client: unknown, _account: unknown) => {
+        events.push('adopt');
+        requireHeld('insertGuardianAccountMonotonically');
+      });
       const fakeMidenClient = { ...buildFakeMidenClient(), keystore: { insert } };
       let lookups = 0;
       const matchAt = (n: number) => ({ state: { stateJson: { data: Buffer.from([n]).toString('base64') } } });
-      const accounts = [
-        { id: () => ({ toString: () => 'recovered-a' }) },
-        { id: () => ({ toString: () => 'recovered-b' }) }
-      ];
+      const scripted: Array<number[]> = [[1, 2]];
+      const accountNames: Record<number, string> = { 1: 'recovered-a', 2: 'recovered-b', 3: 'recovered-c' };
+      // Accounts never deployed; the chain read below still reports every account deployed.
+      const fresh = new Set<number>();
+      const accountFor = (bytes: Uint8Array) => ({
+        id: () => ({ toString: () => accountNames[bytes[0] ?? 0], free: jest.fn() }),
+        nonce: () => ({ asInt: () => 1n, free: jest.fn() }),
+        isNew: () => fresh.has(bytes[0] ?? 0),
+        to_commitment: () => ({ toHex: () => '0xfeed', free: jest.fn() })
+      });
+      const events: string[] = [];
+      const signerSlots: Record<number, string> = {};
+      // Accounts 1 and 2 are served at index 0, account 3 at index 1.
+      const coldSlotOf = (acc: { id: () => { toString: () => string } }) => {
+        const n = Number(Object.keys(accountNames).find(k => accountNames[Number(k)] === acc.id().toString()));
+        return signerSlots[n] ?? (n <= 2 ? 'c001' : 'c002');
+      };
+      // With `realChainReads` the real reader runs on this node client; each read waits until the test settles it.
+      const nodeReads = {
+        pending: [] as Array<{ id: string; heldAtStart: number; settle: (read: unknown) => void }>,
+        createNodeReads: jest.fn(async () => ({
+          account: jest.fn(
+            (id: string) =>
+              new Promise(settle => {
+                nodeReads.pending.push({ id, heldAtStart: held.count, settle });
+              })
+          )
+        }))
+      };
+      // The stub accounts all hash to 'feed', so the chain agrees with them unless a test says otherwise.
+      // One batch for every id: the answer is a map keyed by id, and a decode hold still current throws.
+      const chainStates = jest.fn(
+        async (ids: readonly string[]): Promise<Map<string, AccountChainState>> =>
+          new Map(ids.map(id => [id, { kind: 'deployed', commitment: 'feed' }]))
+      );
+      const chainRead = jest.fn(async (ids: readonly string[]): Promise<Map<string, AccountChainState>> => {
+        if (held.count > 0) throw new Error('chain read with the WASM lock held');
+        return chainStates(ids);
+      });
+      // By default the phrase rebuilds the account served for its cold key: index 0 serves accounts 1 and 2.
+      const rebuild = jest.fn(async (recipe: { coldCommitment: string; initSeed: Uint8Array }) => {
+        if (held.count === 0) throw new Error('rebuilt with no WASM lock hold');
+        return { accountIdHex: recipe.coldCommitment === '0xC001' ? 'recovered-a' : 'recovered-c', commitment: 'feed' };
+      });
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
         AuthSecretKey: {
-          ecdsaWithRNG: jest.fn(() => ({
-            publicKey: () => ({ serialize: () => new Uint8Array([0, 0xaa, 0xbb]) }),
+          // The commitment follows the seed, so every HD index derives its own.
+          ecdsaWithRNG: jest.fn((seed: Uint8Array) => ({
+            publicKey: () => ({
+              serialize: () => new Uint8Array([0, 0xaa, 0xbb]),
+              toCommitment: () => ({ toHex: () => `0xC0${String(seed[0]).padStart(2, '0')}`, free: jest.fn() }),
+              free: jest.fn()
+            }),
             serialize: () => new Uint8Array([0xcc])
           }))
         },
-        Account: { deserialize: jest.fn(() => accounts.shift()) }
+        Account: { deserialize: jest.fn((bytes: Uint8Array) => accountFor(bytes)) }
       }));
       jest.doMock('./miden-client', () => {
         const { WasmClientPoisonedError } = jest.requireActual('./wasm-client-poison');
@@ -2162,18 +2662,41 @@ describe('MidenClientInterface', () => {
       jest.doMock('@openzeppelin/miden-multisig-client', () => ({
         MultisigClient: class {
           recoverByKey = jest.fn(async () => {
+            lookupCalls.count++;
             if (iface) onLookup?.(iface);
-            return finds && lookups++ === 0 ? [matchAt(1), matchAt(2)] : [];
+            return finds ? (scripted[lookups++] ?? []).map(matchAt) : [];
           });
         },
-        EcdsaSigner: class {}
+        EcdsaSigner: class {},
+        AccountInspector: {
+          getSignerPublicKeyCommitments: jest.fn((acc: { id: () => { toString: () => string } }) => {
+            events.push('verify');
+            return [SERVED_HOT, coldSlotOf(acc)];
+          }),
+          getGuardianPublicKeyCommitment: jest.fn(() => SERVED_GUARDIAN)
+        }
       }));
       jest.doMock('../guardian/account', () => ({
         createGuardianAccount: jest.fn(),
-        getSignerDetailsFromAccount: jest.fn(),
         insertGuardianAccountMonotonically: adopt
       }));
       jest.doMock('../guardian/native-http');
+      if (realChainReads) {
+        jest.doMock('../guardian/recovery-verification', () => jest.requireActual('../guardian/recovery-verification'));
+        jest.doMock('../transaction/reconcile-reads', () => ({
+          RPC_READ_TIMEOUT_MS: 15_000,
+          createNodeReads: nodeReads.createNodeReads
+        }));
+      } else {
+        jest.doMock('../guardian/recovery-verification', () => ({
+          ...jest.requireActual('../guardian/recovery-verification'),
+          readAccountChainStates: chainRead
+        }));
+      }
+      jest.doMock('../guardian/account-recipe', () => ({
+        ...jest.requireActual('../guardian/account-recipe'),
+        rebuildGuardianAccount: rebuild
+      }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
       }));
@@ -2187,10 +2710,28 @@ describe('MidenClientInterface', () => {
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
 
       const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, network);
       iface = client;
-      const recover = () => client.recoverGuardianAccountsBySeed(() => new Uint8Array(32), 'https://guardian.example');
-      return { held, insert, adopt, fakeMidenClient, recover, probes: requireProbes() };
+      const recover = () =>
+        client.recoverGuardianAccountsBySeed(hdIndex => new Uint8Array(32).fill(hdIndex + 1), endpoint);
+      return {
+        held,
+        insert,
+        adopt,
+        fakeMidenClient,
+        client,
+        lookupCalls,
+        recover,
+        probes: requireProbes(),
+        scripted,
+        events,
+        signerSlots,
+        chainRead,
+        chainStates,
+        fresh,
+        rebuild,
+        nodeReads
+      };
     };
 
     it('recoverGuardianAccountsBySeed adopts each match under the WASM lock and inserts its cold key', async () => {
@@ -2203,7 +2744,12 @@ describe('MidenClientInterface', () => {
         { accountId: 'recovered-b', hdIndex: 0, coldPublicKey: 'aabb', coldSecretKeyHex: 'cc' }
       ]);
       // One labelled hold per match; the adoption and the insert ran inside it, on this client, with that match.
-      expect(held.labels).toEqual(['recover-guardian-adopt', 'recover-guardian-adopt']);
+      expect(held.labels).toEqual([
+        'recover-guardian-decode',
+        'recover-guardian-decode',
+        'recover-guardian-adopt',
+        'recover-guardian-adopt'
+      ]);
       expect(adopt.mock.calls.map(([c, a]) => [c, (a as any).id().toString()])).toEqual([
         [fakeMidenClient, 'recovered-a'],
         [fakeMidenClient, 'recovered-b']
@@ -2213,6 +2759,204 @@ describe('MidenClientInterface', () => {
       // Not yet bound, so the endpoint stays routed only once an account is adopted from it.
       expect(probes.mockProbeVerdicts).toEqual([['https://guardian.example', true]]);
       expect(probes.registerGuardianOrigin).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery refuses an account whose recovery signer is not the key derived at that index, adopting nothing', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, recover, signerSlots } = await setupRecovery();
+      signerSlots[2] = 'ffff';
+
+      await expect(recover()).rejects.toMatchObject({
+        code: 'GUARDIAN_RECOVERY_UNVERIFIED',
+        message: 'guardianRecoveryUnverified'
+      });
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery verifies every match of every index before adopting any', async () => {
+      const { insert, scripted, events, recover } = await setupRecovery();
+      scripted.push([3]);
+      const sks: unknown[] = [];
+      const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
+      const ecdsaWithRNG = AuthSecretKey.ecdsaWithRNG as jest.Mock;
+      const derive = ecdsaWithRNG.getMockImplementation()!;
+      ecdsaWithRNG.mockImplementation((seed: Uint8Array) => {
+        const sk = derive(seed);
+        sks.push(sk);
+        return sk;
+      });
+
+      const recovered = await recover();
+
+      expect(recovered.map(r => r.hdIndex)).toEqual([0, 0, 1]);
+      // Every match was verified, and all of it before the first adoption.
+      expect(events.filter(e => e === 'verify').length).toBeGreaterThanOrEqual(3);
+      expect(events.indexOf('adopt')).toBeGreaterThan(events.lastIndexOf('verify'));
+      expect(events.filter(e => e === 'adopt')).toHaveLength(3);
+      const inserted = insert.mock.calls.map(call => (call as unknown[])[1]);
+      expect(inserted).toEqual([sks[0], sks[0], sks[1]]);
+    });
+
+    it("seed recovery refuses an account at one index that carries another index's recovery key, adopting nothing", async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, scripted, signerSlots, recover } = await setupRecovery();
+      scripted.push([3]);
+      signerSlots[3] = 'c001';
+
+      await expect(recover()).rejects.toMatchObject({ code: 'GUARDIAN_RECOVERY_UNVERIFIED' });
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery refuses a deployed account whose served state differs from the chain, adopting nothing', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, chainStates, recover } = await setupRecovery();
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) =>
+          new Map(
+            ids.map(id => [
+              id,
+              id === 'recovered-b'
+                ? { kind: 'deployed' as const, commitment: 'beef' }
+                : { kind: 'deployed' as const, commitment: 'feed' }
+            ])
+          )
+      );
+
+      await expect(recover()).rejects.toMatchObject({
+        code: 'GUARDIAN_RECOVERY_UNVERIFIED',
+        message: 'guardianRecoveryBehindNetwork'
+      });
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery refuses with the network copy when the chain cannot be read, adopting nothing', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, chainStates, recover } = await setupRecovery();
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'unknown' as const }]))
+      );
+
+      await expect(recover()).rejects.toMatchObject({
+        code: 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE',
+        message: 'guardianRecoveryNetworkUnreachable'
+      });
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery reads the chain once per account and outside the WASM lock', async () => {
+      const { chainRead, scripted, recover } = await setupRecovery();
+      scripted[0] = [1, 1, 2];
+
+      await recover();
+
+      // Three matches of two accounts: one batch, none under a hold (the mock throws if one is held).
+      expect(chainRead).toHaveBeenCalledTimes(1);
+      expect(chainRead.mock.calls[0]?.[0]).toEqual(['recovered-a', 'recovered-a', 'recovered-b']);
+    });
+
+    it('seed recovery reads every served account on one node client, with the reads in flight together and no hold', async () => {
+      try {
+        const { nodeReads, recover } = await setupRecovery(undefined, { realChainReads: true });
+        const recovering = recover();
+        for (let tick = 0; tick < 50 && nodeReads.pending.length < 2; tick++) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        expect(nodeReads.pending.map(read => read.id).sort()).toEqual(['recovered-a', 'recovered-b']);
+        expect(nodeReads.createNodeReads).toHaveBeenCalledTimes(1);
+        expect(nodeReads.pending.every(read => read.heldAtStart === 0)).toBe(true);
+        for (const read of nodeReads.pending) read.settle({ ok: true, state: { blockNum: 1, commitment: '0xfeed' } });
+        await expect(recovering).resolves.toHaveLength(2);
+      } finally {
+        jest.dontMock('../transaction/reconcile-reads');
+      }
+    });
+
+    it('seed recovery adopts a deployed account whose served state is the chain state', async () => {
+      const { adopt, chainRead, recover } = await setupRecovery();
+
+      await expect(recover()).resolves.toHaveLength(2);
+      expect(chainRead).toHaveBeenCalledTimes(1);
+      expect(chainRead.mock.calls[0]?.[0]).toEqual(['recovered-a', 'recovered-b']);
+      expect(adopt).toHaveBeenCalledTimes(2);
+    });
+
+    it('seed recovery refuses a never-deployed account that does not rebuild from the recovery phrase, adopting nothing', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, chainStates, scripted, fresh, rebuild, recover } = await setupRecovery();
+      scripted[0] = [1];
+      fresh.add(1);
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'absent' as const }]))
+      );
+      rebuild.mockResolvedValue({ accountIdHex: 'someone-else', commitment: 'feed' });
+
+      await expect(recover()).rejects.toMatchObject({
+        code: 'GUARDIAN_RECOVERY_UNVERIFIED',
+        message: 'guardianRecoveryUnverified'
+      });
+      expect(rebuild).toHaveBeenCalledTimes(2);
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery adopts a never-deployed account that rebuilds from the recovery phrase', async () => {
+      const { held, adopt, chainStates, scripted, fresh, rebuild, recover } = await setupRecovery();
+      scripted[0] = [1];
+      fresh.add(1);
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'absent' as const }]))
+      );
+
+      await expect(recover()).resolves.toEqual([expect.objectContaining({ accountId: 'recovered-a', hdIndex: 0 })]);
+      expect(rebuild).toHaveBeenCalledTimes(1);
+      expect(adopt).toHaveBeenCalledTimes(1);
+      expect(held.labels).toEqual(['recover-guardian-decode', 'recover-guardian-rebuild', 'recover-guardian-adopt']);
+    });
+
+    it('seed recovery rebuilds with the seed of the index that matched', async () => {
+      const { chainStates, scripted, signerSlots, fresh, rebuild, recover } = await setupRecovery();
+      scripted.splice(0, 1, [1], [], [3]);
+      signerSlots[3] = 'c003';
+      fresh.add(1).add(3);
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'absent' as const }]))
+      );
+      const { deriveGuardianAccountSeed } = await import('../guardian/account-recipe');
+
+      await expect(recover()).resolves.toEqual([
+        expect.objectContaining({ accountId: 'recovered-a', hdIndex: 0 }),
+        expect.objectContaining({ accountId: 'recovered-c', hdIndex: 2 })
+      ]);
+      expect(rebuild.mock.calls.map(([recipe]) => [recipe.coldCommitment, recipe.initSeed])).toEqual([
+        ['0xC001', await deriveGuardianAccountSeed(new Uint8Array(32).fill(1), SERVED_HOT, SERVED_GUARDIAN)],
+        ['0xC003', await deriveGuardianAccountSeed(new Uint8Array(32).fill(3), SERVED_HOT, SERVED_GUARDIAN)]
+      ]);
+    });
+
+    it('seed recovery never rebuilds when the chain cannot be read', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { adopt, chainStates, fresh, rebuild, recover } = await setupRecovery();
+      fresh.add(1).add(2);
+      chainStates.mockImplementation(
+        async (ids: readonly string[]) => new Map(ids.map(id => [id, { kind: 'unknown' as const }]))
+      );
+
+      await expect(recover()).rejects.toMatchObject({ code: 'GUARDIAN_RECOVERY_NETWORK_UNREACHABLE' });
+      expect(rebuild).not.toHaveBeenCalled();
+      expect(adopt).not.toHaveBeenCalled();
+    });
+
+    it('seed recovery accepts the recovery signer in any case or prefix', async () => {
+      const { adopt, recover, signerSlots } = await setupRecovery();
+      signerSlots[1] = '0xC001';
+
+      await expect(recover()).resolves.toHaveLength(2);
+      expect(adopt).toHaveBeenCalledTimes(2);
     });
 
     it('recoverGuardianAccountsBySeed releases an endpoint with no account for the seed, never registering it', async () => {
@@ -2244,6 +2988,58 @@ describe('MidenClientInterface', () => {
       expect(held.count).toBe(0);
     });
 
+    // An operator of another network holds that chain's accounts; its state must not reach this client's store, and
+    // the recovery's key must not be shown to it. One no network lists (self-hosted, local) stays allowed.
+    const OZ_TESTNET = 'https://guardian-testnet.openzeppelin.com';
+    const refusedOperators: Array<[string, string, string]> = [
+      ['a testnet operator on mainnet', 'mainnet', OZ_TESTNET],
+      ['a renamed testnet operator on mainnet', 'mainnet', 'https://guardian.openzeppelin.com'],
+      ['a testnet operator on devnet', 'devnet', OZ_TESTNET],
+      ['a devnet operator on testnet', 'testnet', 'https://guardian-devnet.openzeppelin.com']
+    ];
+    const allowedOperators: Array<[string, string, string]> = [
+      ['a testnet operator on testnet', 'testnet', OZ_TESTNET],
+      ['a self-hosted operator on mainnet', 'mainnet', 'https://guardian.example'],
+      ['a local operator on testnet', 'testnet', 'http://localhost:3000']
+    ];
+
+    it.each(refusedOperators)('seed recovery refuses %s before any lookup', async (_case, network, endpoint) => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, lookupCalls, recover } = await setupRecovery(undefined, { network, endpoint });
+
+      await expect(recover()).rejects.toThrow('guardianOtherNetwork');
+      expect(lookupCalls.count).toBe(0);
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it.each(allowedOperators)('seed recovery adopts from %s', async (_case, network, endpoint) => {
+      const { adopt, recover } = await setupRecovery(undefined, { network, endpoint });
+
+      await expect(recover()).resolves.toHaveLength(2);
+      expect(adopt).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses a pasted hot key against an operator of another network before any lookup', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { adopt, lookupCalls, client } = await setupRecovery(undefined, { network: 'mainnet' });
+      jest.doMock('../guardian/hot-key-import', () => ({
+        deserializeHotSecretKey: () => ({
+          publicKey: () => ({
+            serialize: () => new Uint8Array([0, 0x11]),
+            toCommitment: () => ({ toHex: () => '0xaabb', free: jest.fn() }),
+            free: jest.fn()
+          })
+        })
+      }));
+
+      await expect(client.recoverGuardianAccountByHotKey('deadbeef', OZ_TESTNET)).rejects.toThrow(
+        'guardianOtherNetwork'
+      );
+      expect(lookupCalls.count).toBe(0);
+      expect(adopt).not.toHaveBeenCalled();
+    });
+
     it('a guardian lookup that never answers makes the recovery reject after one attempt instead of parking the accounts queue (#878)', async () => {
       const fakeMidenClient = { ...buildFakeMidenClient(), keystore: { insert: jest.fn(async () => undefined) } };
       const recoverByKey = jest.fn(() => new Promise<never>(() => {}));
@@ -2251,7 +3047,11 @@ describe('MidenClientInterface', () => {
         ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
         AuthSecretKey: {
           ecdsaWithRNG: jest.fn(() => ({
-            publicKey: () => ({ serialize: () => new Uint8Array([0, 0xaa, 0xbb]) }),
+            publicKey: () => ({
+              serialize: () => new Uint8Array([0, 0xaa, 0xbb]),
+              toCommitment: () => ({ toHex: () => '0xAABB', free: jest.fn() }),
+              free: jest.fn()
+            }),
             serialize: () => new Uint8Array([0xcc])
           }))
         }
@@ -2408,6 +3208,68 @@ describe('MidenClientInterface', () => {
       await expect(rejection).rejects.not.toHaveProperty('code');
       expect(getSignerDetailsFromAccount).toHaveBeenNthCalledWith(1, stubAccount, false);
       expect(getSignerDetailsFromAccount).toHaveBeenNthCalledWith(2, stubAccount, true);
+    });
+
+    it.each([
+      ['public key', 'serialize'],
+      ['commitment', 'toHex']
+    ])(
+      'leaves a trapped %s read of the pasted key as the trap, freeing no handle and looking nothing up',
+      async (_read, at) => {
+        setup();
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        const trapAt = (read: string, value: () => unknown) => () => {
+          if (read === at) throw trap;
+          return value();
+        };
+        const frees = { secretKey: jest.fn(), publicKey: jest.fn(), commitment: jest.fn() };
+        jest.doMock('../guardian/hot-key-import', () => ({
+          deserializeHotSecretKey: jest.fn(() => ({
+            publicKey: () => ({
+              serialize: trapAt('serialize', () => new Uint8Array([0, 0x11, 0x22])),
+              toCommitment: () => ({ toHex: trapAt('toHex', () => PASTED_COMMITMENT), free: frees.commitment }),
+              free: frees.publicKey
+            }),
+            free: frees.secretKey
+          }))
+        }));
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+        const lookup = jest.spyOn(client as any, 'recoverAndAdoptByKey');
+
+        await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toBe(trap);
+        expect(frees.commitment).not.toHaveBeenCalled();
+        expect(frees.publicKey).not.toHaveBeenCalled();
+        expect(frees.secretKey).not.toHaveBeenCalled();
+        expect(lookup).not.toHaveBeenCalled();
+      }
+    );
+
+    it('frees the pasted key reads after an ordinary failure of its commitment', async () => {
+      setup();
+      const frees = { publicKey: jest.fn(), commitment: jest.fn() };
+      jest.doMock('../guardian/hot-key-import', () => ({
+        deserializeHotSecretKey: jest.fn(() => ({
+          publicKey: () => ({
+            serialize: () => new Uint8Array([0, 0x11, 0x22]),
+            toCommitment: () => ({
+              toHex: () => {
+                throw new Error('not a commitment');
+              },
+              free: frees.commitment
+            }),
+            free: frees.publicKey
+          })
+        }))
+      }));
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+
+      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
+        'not a commitment'
+      );
+      expect(frees.commitment).toHaveBeenCalledTimes(1);
+      expect(frees.publicKey).toHaveBeenCalledTimes(1);
     });
 
     it('rejects with no code when the pasted key matches neither the hot nor the recovery key', async () => {
@@ -2877,6 +3739,104 @@ describe('MidenClientInterface', () => {
       }
     );
 
+    // The order is fixed when the request is built, so it is read then, before the execute, and a landed failure that
+    // reads nothing off the result still carries it.
+    const PSWAP_ROOT = 'pswap-root';
+    const BUILT_ORDER_NOTE = `0x${'AB'.repeat(32)}`;
+    const builtOrderNote = () => ({
+      id: () => ({ toString: () => BUILT_ORDER_NOTE }),
+      metadata: () => ({ noteType: () => 1 }),
+      recipient: () => ({
+        script: () => ({ root: () => ({ toHex: () => PSWAP_ROOT }) }),
+        serialNum: () => ({ toFelts: () => [{ asInt: () => 0n }, { asInt: () => 42n }] })
+      })
+    });
+    const swapClientWithBuiltRequest = async (executeRequest: jest.Mock, expectedOutputOwnNotes: jest.Mock) => {
+      const built = { kind: 'pswap', serialize: () => new Uint8Array([4]), expectedOutputOwnNotes };
+      mockStagedSdk(
+        { NoteScript: { pswap: () => ({ root: () => ({ toHex: () => PSWAP_ROOT }) }) } },
+        { buildPswapCreateRequest: jest.fn(() => built) }
+      );
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      return MidenClientInterface.fromClient(
+        buildFakeMidenClient({
+          transactions: { executeRequest },
+          __inner: { newPswapCreateTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([3]) })) }
+        }) as any,
+        'testnet'
+      );
+    };
+
+    it('a swap whose apply traps after its submit rejects with the order its built request names', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const calls: string[] = [];
+      const staged = stagedExecuteRequest();
+      staged.apply.mockRejectedValue(trap);
+      const execute = staged.executeRequest.getMockImplementation()!;
+      staged.executeRequest.mockImplementation(async (account: unknown, request: unknown) => {
+        calls.push('execute');
+        return execute(account, request);
+      });
+      const expectedOutputOwnNotes = jest.fn(() => {
+        calls.push('order');
+        return [builtOrderNote()];
+      });
+      const client = await swapClientWithBuiltRequest(staged.executeRequest, expectedOutputOwnNotes);
+      const { extractLanded, isApplyAfterSubmitError } = await import('./sdk-error-code');
+
+      const error = await client.swapTransaction(swapTx as any).catch((caught: unknown) => caught);
+
+      expect(isApplyAfterSubmitError(error)).toBe(true);
+      expect(extractLanded(error)).toEqual({ orderId: '42', orderNoteId: BUILT_ORDER_NOTE.toLowerCase() });
+      expect(calls).toEqual(['order', 'execute']);
+      expect(staged.submit).toHaveBeenCalledTimes(1);
+    });
+
+    it('a trap reading the built swap request`s order leaves as itself before the execute', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const staged = stagedExecuteRequest();
+      const expectedOutputOwnNotes = jest.fn(() => {
+        throw trap;
+      });
+      const client = await swapClientWithBuiltRequest(staged.executeRequest, expectedOutputOwnNotes);
+
+      await expect(client.swapTransaction(swapTx as any)).rejects.toBe(trap);
+
+      expect(expectedOutputOwnNotes).toHaveBeenCalledTimes(1);
+      expect(staged.executeRequest).not.toHaveBeenCalled();
+      expect(staged.submit).not.toHaveBeenCalled();
+    });
+
+    // A single-key swap saves no request, so the attempt's stamp is where a landing without the result finds its order.
+    it('a swap stamps submitting with the order its built request names, before it submits', async () => {
+      const staged = stagedExecuteRequest();
+      const calls: string[] = [];
+      staged.submit.mockImplementation(async () => {
+        calls.push('submit');
+        return { apply: staged.apply };
+      });
+      const onStage = jest.fn(async (stage: string) => {
+        calls.push(`stamp:${stage}`);
+      });
+      jest.dontMock('./miden-client');
+      const client = await swapClientWithBuiltRequest(
+        staged.executeRequest,
+        jest.fn(() => [builtOrderNote()])
+      );
+      const { withWasmClientLock } = await import('./miden-client');
+
+      await withWasmClientLock(async () => client.swapTransaction(swapTx as any, onStage));
+
+      expect(onStage).toHaveBeenCalledWith('submitting', {
+        evidence: expect.objectContaining({
+          transactionId: 'tx-hex',
+          orderId: '42',
+          orderNoteId: BUILT_ORDER_NOTE.toLowerCase()
+        })
+      });
+      expect(calls.indexOf('stamp:submitting')).toBeLessThan(calls.indexOf('submit'));
+    });
+
     it.each<'consume' | 'swap' | 'newTransaction'>(['consume', 'swap', 'newTransaction'])(
       'the staged %s stamps submitting with the evidence, before it submits (#1081)',
       async write => {
@@ -3118,26 +4078,36 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any);
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+      ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
     });
 
     it.each([
-      ['a Never send', {}, undefined],
+      ['a Never send', {}, undefined, false],
       // The fake client syncs to block 5, so a 600-block window reclaims at 605 (#308).
-      ['a reclaimable send', { recallBlocks: 600 }, 605]
-    ])(
-      "builds %s's request from the sender's account, resolved ids and reclaim height",
-      async (_label, extraInputs, reclaimAfter) => {
+      ['a reclaimable send', { recallBlocks: 600 }, 605, false],
+      ['a delayed calendar send', { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:30.000Z' }, 15, false],
+      [
+        'an expired calendar send',
+        { recallBlocks: 600, calendarRecallTarget: '2030-01-01T12:00:00.000Z' },
+        undefined,
+        true
+      ]
+    ] as const)(
+      "honors %s's reviewed recall term when building its request",
+      async (_label, extraInputs, reclaimAfter, refused) => {
         const fakeWasm = buildWasmStub();
         // A marker account, NOT undefined: the sender's vault key (callback flag
         // included) has to reach the builder. With `undefined` the builder falls
@@ -3168,33 +4138,37 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-        await client.sendTransaction({
-          // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
-          // suffix before parsing, or the bech32 parser sees a string it can reject.
-          accountId: 'mtst1sender_qr7qqq9wr6w',
-          // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
-          // that is otherwise valid would fail to resolve here.
-          secondaryAccountId: '0XRecipient',
-          faucetId: 'mtst1faucet',
-          noteType: 'private' as any,
-          amount: BigInt(250),
-          extraInputs
-        } as any);
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T12:00:00.000Z'));
+        try {
+          const sending = client.sendTransaction({
+            // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
+            // suffix before parsing, or the bech32 parser sees a string it can reject.
+            accountId: 'mtst1sender_qr7qqq9wr6w',
+            // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
+            // that is otherwise valid would fail to resolve here.
+            secondaryAccountId: '0XRecipient',
+            faucetId: 'mtst1faucet',
+            noteType: 'private' as any,
+            amount: BigInt(250),
+            extraInputs
+          } as any);
+          await expect(
+            sending.then(
+              () => null,
+              (error: Error) => error.name
+            )
+          ).resolves.toBe(refused ? 'CalendarRecallReviewRequiredError' : null);
+        } finally {
+          clock.mockRestore();
+        }
 
         expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
         expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
         expect(inner.getAccount).toHaveBeenCalled();
-        expect(buildSendTransactionRequest).toHaveBeenCalledWith(
-          senderAccount,
-          expect.anything(),
-          expect.anything(),
-          'mtst1faucet',
-          250n,
-          'Private',
-          600,
-          reclaimAfter
-        );
-        expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+        const id = expect.anything();
+        const buildArgs = [senderAccount, id, id, 'mtst1faucet', 250n, 'Private', 600, reclaimAfter];
+        expect(buildSendTransactionRequest.mock.calls).toEqual(refused ? [] : [buildArgs]);
+        expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(refused ? 0 : 1);
       }
     );
 
@@ -3497,7 +4471,7 @@ describe('MidenClientInterface', () => {
         getEffectiveNoteTransportUrl: () => undefined,
         getEffectiveFeeFaucetId: () => '0xfee'
       }));
-      jest.doMock('./constants', () => ({ NoteExportType: {} }));
+      jest.doMock('./constants', () => ({ ...jest.requireActual('./constants'), NoteExportType: {} }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
@@ -3644,7 +4618,12 @@ describe('MidenClientInterface', () => {
     for (const specifier of readerMocks) jest.dontMock(specifier);
     readerMocks.clear();
   });
-  async function importWithReader(createClient: jest.Mock, getRpcUrl: () => string = () => 'https://rpc.example') {
+  async function importWithReader(
+    createClient: jest.Mock,
+    getRpcUrl: () => string = () => 'https://rpc.example',
+    getFeeFaucetId: () => string | undefined = () => '0xfee',
+    accountFromBech32: jest.Mock = fromBech32
+  ) {
     // The real backoff curve with no jitter, on a test clock (as the sync-backoff tests drive it).
     const clock = { now: 0 };
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -3656,8 +4635,12 @@ describe('MidenClientInterface', () => {
     readerDoMock('@miden-sdk/miden-sdk/lazy', () => ({
       NoteType: { Private: 0, Public: 1 },
       ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+      NoteScript: {
+        p2ide: () => ({ root: () => ({ toHex: () => P2IDE_ROOT }) }),
+        feeSponsorship: () => ({ root: () => ({ toHex: () => '0xsponsorship' }) })
+      },
       getWasmOrThrow: jest.fn(async () => ({
-        AccountId: { fromBech32, fromHex: jest.fn() }
+        AccountId: { fromBech32: accountFromBech32, fromHex: jest.fn() }
       })),
       WasmWebClient: { createClient }
     }));
@@ -3666,7 +4649,7 @@ describe('MidenClientInterface', () => {
       getEffectiveRpcUrl: () => getRpcUrl(),
       getEffectiveProverUrl: () => undefined,
       getEffectiveNoteTransportUrl: () => undefined,
-      getEffectiveFeeFaucetId: () => '0xfee'
+      getEffectiveFeeFaucetId: () => getFeeFaucetId()
     }));
     readerDoMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -3674,14 +4657,34 @@ describe('MidenClientInterface', () => {
     }));
     const { MidenClientInterface } = await import('./miden-client-interface');
     const { bumpWasmClientGeneration } = await import('./wasm-client-poison');
-    const makeClient = (getSyncHeight: jest.Mock = jest.fn(async () => 10)): MidenClientInterfaceType =>
+    const makeClient = (
+      getSyncHeight: jest.Mock = jest.fn(async () => 10),
+      overrides: Record<string, any> = {}
+    ): MidenClientInterfaceType =>
       Reflect.apply(MidenClientInterface.fromClient, MidenClientInterface, [
-        buildFakeMidenClient({ getSyncHeight }),
+        buildFakeMidenClient({ getSyncHeight, ...overrides }),
         'testnet'
       ]);
     return { makeClient, bumpWasmClientGeneration, clock, log: logSpy, warn };
   }
   const emptyReader = () => ({ getConsumableNotes: jest.fn(async () => []) });
+  // Miden 0.17 P2IDE storage: [reclaimer.suffix, reclaimer.prefix, target.suffix, target.prefix, reclaim, timelock].
+  const P2IDE_ROOT = '0xp2ide';
+  const QUERIED = { prefix: 0x00000000abcdef01n, suffix: 0x2f1a3b4c5d6e0000n };
+  const OTHER = { prefix: 0x00000000feedbeefn, suffix: 0x7c9d1e2f3a4b0000n };
+  const queriedAccount = jest.fn(() => ({
+    prefix: () => ({ asInt: () => QUERIED.prefix }),
+    suffix: () => ({ asInt: () => QUERIED.suffix })
+  }));
+  const p2ideRecipient = (target: typeof QUERIED, reclaimHeight: bigint) => ({
+    script: () => ({ root: () => ({ toHex: () => P2IDE_ROOT }) }),
+    storage: () => ({
+      items: () =>
+        [QUERIED.suffix, QUERIED.prefix, target.suffix, target.prefix, reclaimHeight, 0n].map(value => ({
+          asInt: () => value
+        }))
+    })
+  });
   // The reader's own lines on a console spy: 'building' for its builds, 'build ' for how a build settled.
   const readerLines = (spy: jest.SpyInstance, kind: 'building' | 'build ') =>
     spy.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith(`[realm-reader] ${kind}`));
@@ -3739,6 +4742,73 @@ describe('MidenClientInterface', () => {
     expect(builds[0]).not.toContain('strands');
   });
 
+  it('builds the reader on the store the realm client opens (#2086)', async () => {
+    const sdkStoreNameFor = jest.fn(async () => 'MidenClientDB_mcst');
+    readerDoMock('./store-name', () => ({ sdkStoreNameFor }));
+    const createClient = jest.fn(async () => emptyReader());
+    const { makeClient } = await importWithReader(createClient);
+    await makeClient().getConsumableNotes('mtst1account');
+    expect(sdkStoreNameFor).toHaveBeenCalledWith('https://rpc.example');
+    expect(createClient).toHaveBeenCalledWith(
+      'https://rpc.example',
+      undefined,
+      undefined,
+      'MidenClientDB_mcst',
+      undefined,
+      false,
+      undefined,
+      '0xfee'
+    );
+  });
+
+  // The SDK's static P2IDE check reads an absent reclaim height as 0 and answers the reclaimer (usually the sender)
+  // "consumable now" (0xMiden/protocol#3675), while the script refuses every non-target at a reclaim height of 0.
+  it('drops a P2IDE this account can never consume, and keeps one it can', async () => {
+    const consumableNow = (note: object) => ({
+      inputNoteRecord: () => note,
+      noteConsumability: () => [{ consumptionStatus: () => ({ consumableAfterBlock: () => undefined }) }]
+    });
+    const reclaimDisabled = { id: 'reclaim-disabled', details: () => ({ recipient: () => p2ideRecipient(OTHER, 0n) }) };
+    const reclaimReached = { id: 'reclaim-reached', details: () => ({ recipient: () => p2ideRecipient(OTHER, 5n) }) };
+    const ownTarget = { id: 'own-target', details: () => ({ recipient: () => p2ideRecipient(QUERIED, 0n) }) };
+    const getConsumableNotes = jest.fn(async () => [
+      consumableNow(reclaimDisabled),
+      consumableNow(reclaimReached),
+      consumableNow(ownTarget)
+    ]);
+    const { makeClient } = await importWithReader(
+      jest.fn(async () => ({ getConsumableNotes })),
+      undefined,
+      undefined,
+      queriedAccount
+    );
+
+    await expect(makeClient().getConsumableNotes('mtst1account')).resolves.toEqual([reclaimReached, ownTarget]);
+    expect(queriedAccount).toHaveBeenCalledWith('mtst1account');
+  });
+
+  it('names the one account that can consume a stored reclaim-disabled P2IDE in its details', async () => {
+    const stored = (id: string, target: typeof QUERIED, reclaimHeight: bigint) => ({
+      id: () => ({ toString: () => id }),
+      nullifier: () => `nullifier-${id}`,
+      metadata: () => undefined,
+      state: () => 0,
+      details: () => ({
+        assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [] }),
+        recipient: () => p2ideRecipient(target, reclaimHeight)
+      })
+    });
+    const { makeClient } = await importWithReader(jest.fn(async () => emptyReader()));
+    const client = makeClient(undefined, {
+      notes: { list: jest.fn(async () => [stored('reclaim-disabled', OTHER, 0n), stored('reclaim-set', OTHER, 9n)]) }
+    });
+
+    const [disabled, set] = await client.getInputNoteDetails();
+    expect(disabled?.restriction).toEqual({ prefix: OTHER.prefix.toString(), suffix: OTHER.suffix.toString() });
+    expect(set).toBeDefined();
+    expect(set?.restriction).toBeUndefined();
+  });
+
   it('rebuilds the reader after a client replacement, and only then', async () => {
     const createClient = jest.fn(async () => emptyReader());
     const { makeClient, bumpWasmClientGeneration, log } = await importWithReader(createClient);
@@ -3790,6 +4860,31 @@ describe('MidenClientInterface', () => {
     expect(readerLines(log, 'building')[2]).toContain('(client replaced and endpoint changed)');
   });
 
+  // An E2E-injected fee faucet or a developer override can change it under the same node (#1482).
+  it('rebuilds the reader when the fee faucet changes with the same RPC URL', async () => {
+    let feeFaucetId = '0xfee-a';
+    const createClient = jest.fn(async () => emptyReader());
+    const { makeClient, log } = await importWithReader(createClient, undefined, () => feeFaucetId);
+    const client = makeClient();
+
+    await client.getConsumableNotes('mtst1account');
+    feeFaucetId = '0xfee-b';
+    await client.getConsumableNotes('mtst1account');
+    await client.getConsumableNotes('mtst1account');
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(createClient).toHaveBeenLastCalledWith(
+      'https://rpc.example',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      '0xfee-b'
+    );
+    expect(readerLines(log, 'building')[1]).toContain('(fee faucet changed)');
+  });
+
   it('logs only the host of the endpoint, never its credentials, path or query', async () => {
     let rpcUrl = 'https://user:secret@rpc.example:8443/v1/node?key=secret';
     const createClient = jest.fn(async () => emptyReader());
@@ -3815,7 +4910,8 @@ describe('MidenClientInterface', () => {
       state: () => 2,
       details: () => ({
         assets: () => ({
-          fungibleAssets: () => [{ faucetId: () => `faucet-${id}`, amount: () => ({ toString: () => '100' }) }]
+          fungibleAssets: () => [{ faucetId: () => `faucet-${id}`, amount: () => ({ toString: () => '100' }) }],
+          nonFungibleAssets: () => []
         })
       }),
       attachments: () => []
@@ -3922,17 +5018,29 @@ describe('MidenClientInterface', () => {
   });
 
   it('backs off a failed reader build instead of rebuilding on every read', async () => {
+    const failure = new DOMException(
+      'Unable to open database file at /private/0xfeed for balance 12.5',
+      'UnknownError'
+    );
     const createClient = jest
       .fn()
-      .mockRejectedValueOnce(new Error('rpc down'))
+      .mockRejectedValueOnce(failure)
       .mockImplementation(async () => emptyReader());
     const { makeClient, clock, log, warn } = await importWithReader(createClient);
     const client = makeClient();
 
-    await expect(client.getConsumableNotes('mtst1account')).rejects.toThrow('rpc down');
+    await expect(client.getConsumableNotes('mtst1account')).rejects.toBe(failure);
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    expect(snapshotCrashDiagnostics(failure)).toMatchObject({
+      operation: 'sdk_initialize',
+      stage: 'client_create',
+      workerMode: 'disabled',
+      clientRole: 'realm_reader'
+    });
+    expect(JSON.stringify(snapshotCrashDiagnostics(failure))).not.toMatch(/0xfeed|private|12\.5/);
     // A failed build may have stranded its store connection, so inside the window there is no new build.
     clock.now += 29_999;
-    await expect(client.getConsumableNotes('mtst1account')).rejects.toThrow('rpc down');
+    await expect(client.getConsumableNotes('mtst1account')).rejects.toBe(failure);
     expect(createClient).toHaveBeenCalledTimes(1);
     clock.now += 1;
     await expect(client.getConsumableNotes('mtst1account')).resolves.toEqual([]);
@@ -3940,10 +5048,7 @@ describe('MidenClientInterface', () => {
     // One warn for the failed build, naming its window and carrying the error; the read served from the window adds
     // none. The build that ended the window says why it ran, and that it ended the streak.
     expect(readerLines(warn, 'build ')).toEqual([expect.stringContaining('failed (1 in a row) - next build in 30s')]);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('[realm-reader]'),
-      expect.objectContaining({ message: 'rpc down' })
-    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[realm-reader]'), failure);
     const builds = readerLines(log, 'building');
     expect(builds).toHaveLength(2);
     expect(builds[1]).toContain('(backoff window ended)');
@@ -4211,6 +5316,25 @@ describe('MidenClientInterface', () => {
     await expect(second).resolves.toEqual([]);
   });
 
+  it('a build whose fee faucet moved while it was pending backs off only its own key', async () => {
+    let feeFaucetId = '0xfee-a';
+    const { createClient, build, waitForBuilds } = deferredCreateClient();
+    const { makeClient, warn } = await importWithReader(createClient, undefined, () => feeFaucetId);
+    const client = makeClient();
+
+    const first = client.getConsumableNotes('mtst1account');
+    await waitForBuilds(1);
+    feeFaucetId = '0xfee-b';
+    build(0).reject(new Error('stale build failed'));
+    await expect(first).rejects.toThrow('stale build failed');
+    expect(readerLines(warn, 'build ')).toEqual([expect.stringContaining('failed after the reader moved on')]);
+
+    const second = client.getConsumableNotes('mtst1account');
+    await waitForBuilds(2);
+    build(1).resolve(emptyReader());
+    await expect(second).resolves.toEqual([]);
+  });
+
   it('a build whose URL moved away and back before any read keeps its own window', async () => {
     let rpcUrl = 'https://rpc-a.example';
     const { createClient, build, waitForBuilds } = deferredCreateClient();
@@ -4295,3 +5419,9 @@ describe('MidenClientInterface', () => {
     expect(jest.isMockFunction(console.warn)).toBe(false);
   });
 });
+
+// Vault arithmetic has its own SDK-read regressions; these fixtures isolate staged proof routing.
+jest.mock('lib/miden/swap/balance', () => ({
+  getSwapFeeContextSync: jest.fn(() => ({})),
+  assertSwapAccountBalance: jest.fn()
+}));

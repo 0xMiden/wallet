@@ -7,6 +7,7 @@ export type ConfirmKind =
   | 'transaction'
   | 'consume'
   | 'sign'
+  | 'loginSign'
   | 'assets'
   | 'privateNotes'
   | 'consumableNotes'
@@ -24,6 +25,7 @@ export const CONFIRM_ACTIONS: Readonly<Record<ConfirmKind, { approve: string; de
   },
   consume: { approve: 'ConfirmPage/ConsumeAction/AcceptButton', decline: 'ConfirmPage/ConsumeAction/RejectButton' },
   sign: { approve: 'ConfirmPage/SignData/AcceptButton', decline: 'ConfirmPage/SignData/RejectButton' },
+  loginSign: { approve: 'ConfirmPage/LoginSign/AcceptButton', decline: 'ConfirmPage/LoginSign/RejectButton' },
   assets: { approve: 'ConfirmPage/RequestAssets/AcceptButton', decline: 'ConfirmPage/RequestAssets/RejectButton' },
   privateNotes: {
     approve: 'ConfirmPage/RequestPrivateNotes/AcceptButton',

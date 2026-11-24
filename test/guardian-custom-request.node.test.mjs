@@ -34,6 +34,10 @@ const imports = new Map([
   ],
   ['./miden-client', dataModule('export const assertWasmHoldCurrent = () => undefined;')],
   [
+    './sdk-error-code',
+    dataModule('export const rethrowTrapOrKill = error => { if (error instanceof WebAssembly.RuntimeError) throw error; };')
+  ],
+  [
     './custom-request-diagnostics',
     dataModule(`
       export const customRequestAuthDiagnostics = () => ({});
@@ -199,7 +203,7 @@ for (const [name, decorate, kept] of keptShapes) {
   });
 }
 
-test('keeps a custom note script and NetworkAccountTarget attachment', async () => {
+test('preserves a custom note script and NetworkAccountTarget attachment', async () => {
   const networkAccount = await client.accounts.create({ storage: 'public' });
   const script = await client.compile.noteScript({ code: '@note_script\npub proc main\n  push.1 drop\nend' });
   const attachment = new sdk.NetworkAccountTarget(networkAccount.id()).toAttachment();
@@ -288,7 +292,7 @@ test('keeps the input note of a guarded request that consumes a note and commits
 
 test('the transported bare request fails but wallet-prepared bytes commit with both signatures', async () => {
   const bare = bareBuilder().withFeeConversionSalt(salt()).build();
-  await assert.rejects(client.transactions.executeRequest(accountId, bare), /advice stack read failed/);
+  await assert.rejects(client.transactions.executeRequest(accountId, bare), /transaction is unauthorized with summary/);
   const transported = sdk.TransactionRequest.deserialize(await prepareBytes(bare.serialize()));
   const tx = await client.transactions.executeRequest(accountId, await sign(transported));
   assert.deepEqual(tx.result.executedTransaction().outputNotes().notes()[0].intoFull().serialize(), note.serialize());

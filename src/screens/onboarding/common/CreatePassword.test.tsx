@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { CreatePasswordScreen, PasswordStrengthIndicator, PasswordValidation } from './CreatePassword';
 
@@ -36,11 +38,11 @@ jest.mock('app/icons/v2', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 
-// len 9 (>= MIN 8, < STRONG 12), mixed case, letters+numbers, special char =>
-// 4 validation checks (> 1) but strongPasswordLength false.
-const VALID_PASSWORD = 'Abcdef12!';
-// len 12 => flips strongPasswordLength true => all 5 checks true.
+// len 12 (the new-password floor): every check passes.
+const VALID_PASSWORD = 'Abcdef12345!';
 const STRONG_PASSWORD = 'Abcdef123!@#';
+// len 11: meets every criterion except the floor.
+const ELEVEN_CHARS = 'Abcdef1234!';
 
 const buildValidation = (overrides: Partial<PasswordValidation> = {}): PasswordValidation => ({
   minChar: false,
@@ -55,6 +57,24 @@ const buildValidation = (overrides: Partial<PasswordValidation> = {}): PasswordV
 // PasswordStrengthIndicator (exported component, tested in isolation so every
 // message/color branch and the per-bar ternary are exercised directly).
 // ---------------------------------------------------------------------------
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('PasswordStrengthIndicator', () => {
   it('shows the minimum-chars hint when the password is empty (no bars rendered)', () => {
@@ -125,7 +145,7 @@ describe('PasswordStrengthIndicator', () => {
 
   it('renders the "8chars1number" fallback with all-gray bars for a non-empty weak password', () => {
     const { container } = render(
-      <PasswordStrengthIndicator password="a" validation={buildValidation({ minChar: true })} />
+      <PasswordStrengthIndicator password="a" validation={buildValidation({ cases: true, number: true })} />
     );
     expect(screen.getByText('8chars1number')).toBeInTheDocument();
     const bars = container.querySelectorAll('div.h-1.w-10');
@@ -182,7 +202,7 @@ describe('CreatePasswordScreen', () => {
 
     const termsLink = screen.getByRole('link', { name: 'termsOfUsage' });
     const privacyLink = screen.getByRole('link', { name: 'privacyPolicy' });
-    expect(termsLink).toHaveAttribute('href', 'https://0xmiden.github.io/wallet/privacy/');
+    expect(termsLink).toHaveAttribute('href', 'https://0xmiden.github.io/wallet/tos/');
     expect(privacyLink).toHaveAttribute('href', 'https://0xmiden.github.io/wallet/privacy/');
 
     // Nothing typed yet => CTA disabled and the empty-state strength hint shown.
@@ -299,6 +319,28 @@ describe('CreatePasswordScreen', () => {
     expect(screen.getByText('itsAMatch')).toHaveClass('hidden');
   });
 
+  it('keeps Continue disabled at 11 characters and shows the 12-character rule', () => {
+    const { setPassword, setVerify, continueBtn } = renderScreen();
+    setPassword(ELEVEN_CHARS);
+    setVerify(ELEVEN_CHARS);
+    expect(continueBtn).toBeDisabled();
+    expect(screen.getByText('8chars1number')).toBeInTheDocument();
+  });
+
+  it('enables Continue at 12 matching characters', () => {
+    const { setPassword, setVerify, continueBtn } = renderScreen();
+    setPassword('abcdefghijkl');
+    setVerify('abcdefghijkl');
+    expect(continueBtn).not.toBeDisabled();
+  });
+
+  it('shows the rule, not a strength, for a short password meeting three criteria', () => {
+    const { setPassword } = renderScreen();
+    setPassword('Abc1!');
+    expect(screen.getByText('8chars1number')).toBeInTheDocument();
+    expect(screen.queryByText('medium')).not.toBeInTheDocument();
+  });
+
   it('keeps the CTA disabled (and match hidden) for a too-weak password even when the fields are equal', () => {
     const { setPassword, setVerify, continueBtn } = renderScreen();
 
@@ -365,5 +407,45 @@ describe('CreatePasswordScreen', () => {
 
     // Enter + valid + onSubmit undefined => handleEnterKey guard short-circuits.
     expect(() => fireEvent.keyDown(verifyInput, { key: 'Enter' })).not.toThrow();
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports a password mismatch without sending either password', () => {
+    render(<CreatePasswordScreen />);
+    fireEvent.change(screen.getByPlaceholderText('enterPassword'), { target: { value: VALID_PASSWORD } });
+    fireEvent.change(screen.getByPlaceholderText('enterPasswordAgain'), { target: { value: privateErrorFixture } });
+    expect(screen.getByText('passwordsDoNotMatch')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('passwordsDoNotMatch', 'inline');
+  });
+  it('does not report strength guidance or the hidden mismatch paragraph', () => {
+    render(<CreatePasswordScreen />);
+    fireEvent.change(screen.getByPlaceholderText('enterPassword'), { target: { value: 'a' } });
+    expect(screen.getByText('8chars1number')).toBeVisible();
+    expect(screen.getByText('passwordsDoNotMatch')).toHaveClass('hidden');
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+  it('cancels a mismatch corrected before dwell', () => {
+    render(<CreatePasswordScreen />);
+    fireEvent.change(screen.getByPlaceholderText('enterPassword'), { target: { value: VALID_PASSWORD } });
+    fireEvent.change(screen.getByPlaceholderText('enterPasswordAgain'), { target: { value: privateErrorFixture } });
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    fireEvent.change(screen.getByPlaceholderText('enterPasswordAgain'), { target: { value: VALID_PASSWORD } });
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

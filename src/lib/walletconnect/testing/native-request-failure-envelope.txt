@@ -1,0 +1,1 @@
+REOWN_NATIVE_REQUEST_FAILURE:{"nativeOrigin":"wallet_error","walletResponseCode":"internal_error","requestAge":"120_to_300s","published":"confirmed","backgrounded":"yes"}

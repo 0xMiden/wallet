@@ -1,4 +1,10 @@
-import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, type PendingBridgeInIntent } from './bridge-in';
+import {
+  AdoptableNote,
+  applyBridgeInInfoForNotes,
+  applyBridgeInToBatchNote,
+  applyBridgeInToConsumeRow,
+  type PendingBridgeInIntent
+} from './bridge-in';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 let mockRow: ITransaction | undefined;
@@ -90,5 +96,43 @@ it('uses the delivered asset data from the consume mutation for linked updates',
     faucetId: 'fresh-faucet',
     transactionId: 'fresh-tx'
   });
+  expect(mockRegistry).toEqual([]);
+});
+
+const BATCH_NOTE: AdoptableNote = { id: 'note', senderAddress: 'solver', faucetId: 'note-faucet', amount: 2n };
+
+it.each(['restored', 'type', 'status', 'deleted'])(
+  'retains recovery and moves no linked row while a batch consume is %s',
+  async change => {
+    if (!mockRow) throw new Error('missing fixture');
+    if (change === 'restored') mockRow.restoredFromBackup = true;
+    if (change === 'type') mockRow.type = 'send';
+    if (change === 'status') mockRow.status = ITransactionStatus.Failed;
+    if (change === 'deleted') mockRow = undefined;
+    await expect(
+      applyBridgeInInfoForNotes(['note'], info => applyBridgeInToBatchNote('consume', info, BATCH_NOTE))
+    ).rejects.toThrow('Bridge receipt requires a completed local consume');
+    expect(mockRow?.extraInputs?.bridgeIn).toBeUndefined();
+    expect(mockRegistry).toHaveLength(1);
+    expect(mockWithdrawPhase).not.toHaveBeenCalled();
+    expect(mockReceivePhase).not.toHaveBeenCalled();
+  }
+);
+
+it("settles a batch delivery from the note's own asset and the consume's transaction id", async () => {
+  mockBeforeModify = () => {
+    throw new Error('a batch consume row is never written');
+  };
+  const settled = await applyBridgeInInfoForNotes(['note'], info =>
+    applyBridgeInToBatchNote('consume', info, BATCH_NOTE)
+  );
+  expect(settled).toBe(true);
+  expect(mockWithdrawPhase).toHaveBeenCalledWith('withdraw', 'received', expect.any(Object), 2n, expect.any(Object));
+  expect(mockReceivePhase).toHaveBeenCalledWith('receive', 'received', expect.any(Object), {
+    amount: 2n,
+    faucetId: 'note-faucet',
+    transactionId: 'old-tx'
+  });
+  expect(mockRow?.extraInputs?.bridgeIn).toBeUndefined();
   expect(mockRegistry).toEqual([]);
 });

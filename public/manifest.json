@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bread Wallet by Miden",
-  "version": "1.17.3",
+  "version": "1.18.1",
 
   "icons": {
     "16": "misc/logo-white-bg-16.png",
@@ -50,7 +50,7 @@
     "gecko": {
       "id": "support@miden.fi",
       "data_collection_permissions": {
-        "required": ["none"],
+        "required": ["locationInfo"],
         "optional": ["technicalAndInteraction"]
       }
     }
@@ -66,7 +66,7 @@
   },
 
   "action": {
-    "__chrome|firefox|opera__default_popup": "popup.html",
+    "__firefox|opera__default_popup": "popup.html",
     "default_icon": {
       "16": "misc/logo-white-bg-16.png",
       "32": "misc/logo-white-bg-32.png",

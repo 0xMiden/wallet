@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import type { UpdateNotice } from 'lib/update/types';
 
 import { UpdateNotificationCard } from './UpdateNotificationCard';
@@ -13,7 +14,12 @@ jest.mock('app/icons/v2', () => ({
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, string>) => (values ? `${key}:${Object.values(values).join(':')}` : key)
+    t: (key: string, values?: Record<string, string>) =>
+      key === 'updateNotificationActionFailed'
+        ? `Visible ${key}`
+        : values
+          ? `${key}:${Object.values(values).join(':')}`
+          : key
   })
 }));
 
@@ -89,7 +95,7 @@ describe('UpdateNotificationCard', () => {
     render(<UpdateNotificationCard notice={notice({ action })} onDismiss={jest.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'updateNotificationActionChrome' }));
-    expect(await screen.findByText('updateNotificationActionFailed')).toBeInTheDocument();
+    expect(await screen.findByText('Visible updateNotificationActionFailed')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'retry' }));
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
@@ -102,5 +108,85 @@ describe('UpdateNotificationCard', () => {
 
     expect(screen.getByText('updateNotificationReleaseNotes:<img src=x onerror=alert(1)>')).toBeInTheDocument();
     expect(document.querySelector('img')).toBeNull();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('user-visible update errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockReport.mockClear();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports updateNotificationActionFailed only after the real action failure dwells for 1000 ms', async () => {
+    render(
+      <UpdateNotificationCard
+        notice={notice({ action: jest.fn().mockRejectedValue(new Error('private update error')) })}
+        onDismiss={jest.fn()}
+      />
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('update-notification-action'));
+    });
+    expect(screen.getByText('Visible updateNotificationActionFailed')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([['updateNotificationActionFailed', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['updateNotificationActionFailed', 'inline']]);
+  });
+
+  it('does not report idle critical styling, pending action, or successful completion', async () => {
+    let finish!: () => void;
+    const action = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finish = resolve;
+        })
+    );
+    render(<UpdateNotificationCard notice={notice({ urgency: 'critical', action })} onDismiss={jest.fn()} />);
+    act(() => jest.advanceTimersByTime(1000));
+    fireEvent.click(screen.getByTestId('update-notification-action'));
+    expect(screen.getByTestId('update-notification-action')).toBeDisabled();
+    act(() => jest.advanceTimersByTime(1000));
+    await act(async () => {
+      finish();
+    });
+    expect(screen.getByTestId('update-notification-action')).toBeEnabled();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it.each(['retry', 'dismiss'])('drops a failed action dismissed before dwell by %s', async ending => {
+    const action = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('private failure'))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    const onDismiss = jest.fn();
+    const view = render(<UpdateNotificationCard notice={notice({ action })} onDismiss={onDismiss} />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('update-notification-action'));
+    });
+    expect(screen.getByText('Visible updateNotificationActionFailed')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    if (ending === 'retry') fireEvent.click(screen.getByTestId('update-notification-action'));
+    else {
+      fireEvent.click(screen.getByTestId('update-notification-dismiss'));
+      view.unmount();
+    }
+    expect(onDismiss).toHaveBeenCalledTimes(ending === 'dismiss' ? 1 : 0);
+    expect(screen.queryByText('Visible updateNotificationActionFailed')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
   });
 });

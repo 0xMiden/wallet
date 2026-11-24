@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EARN_PLACEHOLDER } from './earn-mapping';
@@ -105,6 +106,7 @@ jest.mock('./components', () => {
   const R = require('react');
   return {
     __esModule: true,
+    useEarnAssetFaucetId: () => undefined,
     EarnSummaryPanel: ({
       summary,
       titleId,
@@ -224,6 +226,37 @@ jest.mock('./useEarnPositions', () => ({
           { label: 'A', value: 50 },
           { label: 'B', value: 50 },
           { label: 'C', value: 50 }
+        ]
+      },
+      // A position in one of several Morpho USDC markets on one chain: its vault is its own market's.
+      {
+        id: 'pos-morpho',
+        vaultId: 'morpho-blue-0x3b37-8453-0x8335',
+        owner: '0xowner',
+        marketUid: 'MORPHO_BLUE_0X3B37:8453:0x8335',
+        chainId: '8453',
+        underlyingAddress: '0x8335',
+        withdrawable: '10',
+        decimals: 6,
+        protocol: 'Morpho',
+        marketName: 'Morpho uniBTC-USDC 77',
+        asset: 'USDC',
+        network: 'Base',
+        amount: '$10.00',
+        depositedAmount: '$10.00',
+        rewards: '—',
+        age: '—',
+        activeDuration: '—',
+        apy: '6.10%',
+        dailyAverage: '—',
+        started: '—',
+        yearlyEstimate: '+$0.61 / yr',
+        withdrawTime: '—',
+        route: 'Miden -> Morpho (Base)',
+        stale: false,
+        chartData: [
+          { label: '—', value: 10 },
+          { label: '—', value: 10 }
         ]
       },
       // A `depositsUsd` pair for the animated-USD-figure test below: switching `positionId`
@@ -427,6 +460,21 @@ describe('EarnPositionDetail', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
   });
 
+  it('names the market of a Morpho position, and deposits more into that same market', () => {
+    const { container } = renderDetail('pos-morpho');
+
+    expect(container.textContent).toContain('earnMarketLabel');
+    expect(container.textContent).toContain('Morpho uniBTC-USDC 77');
+    fireEvent.click(screen.getByRole('button', { name: 'earnDepositMore' }));
+    expect(mockNavigate).toHaveBeenLastCalledWith('/earn/vaults/morpho-blue-0x3b37-8453-0x8335/deposit');
+  });
+
+  it('draws no market row for a position its protocol identifies', () => {
+    const { container } = renderDetail('pos-flat');
+
+    expect(container.textContent).not.toContain('earnMarketLabel');
+  });
+
   it('navigates to the deposit and withdraw routes from the action buttons', () => {
     renderDetail('pos-flat');
 
@@ -437,7 +485,7 @@ describe('EarnPositionDetail', () => {
     expect(hapticLight).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
-    expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw');
     expect(hapticLight).not.toHaveBeenCalled();
   });
 
@@ -539,6 +587,24 @@ describe('EarnPositionDetail after a failed load', () => {
     mockStale = false;
   });
 
+  it('forwards the selected failure evidence from position detail to the real Notice', () => {
+    jest.useFakeTimers();
+    try {
+      jest.mocked(reportUserVisibleError).mockClear();
+      const evidence = {
+        kind: 'earn_positions_load',
+        earnPositionsLoadStage: 'position_decode',
+        earnPositionsLoadOutcome: 'complete_failure'
+      };
+      mockLoadState = Object.assign({ isLoading: false, error: 'private failure' }, { errorDiagnostics: evidence });
+      renderDetail('no-such-position');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['earnPositionsLoadError', 'notice', evidence]]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('says a per-owner positions failure too, which is not a request failure', () => {
     mockLoadState = { isLoading: false, error: 'owner unavailable' };
     renderDetail('no-such-position');
@@ -569,6 +635,7 @@ describe('EarnPositionDetail after a failed load', () => {
     mockLoadState = { isLoading: true };
     renderDetail('no-such-position');
 
+    expect(screen.getByRole('status', { name: 'loading' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: 'withdraw' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'earnDepositMore' })).toBeNull();
@@ -619,3 +686,5 @@ describe('EarnPositionDetail with no position to name', () => {
     expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
   });
 });
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));

@@ -1,4 +1,21 @@
-import { GUARDIAN_BRAND_NAME, GUARDIAN_OPTIONS } from './networks-config';
+import {
+  GUARDIAN_BRAND_NAME,
+  GUARDIAN_OPTIONS,
+  MIDEN_NETWORK_ENDPOINTS,
+  MIDEN_NETWORK_NAME,
+  MIDEN_NETWORKS
+} from './networks-config';
+
+describe('MIDEN_NETWORKS', () => {
+  // The dApp layer and the Network labels read this list: a network missing from it is refused or named as another.
+  it('lists every network the wallet can be on, mainnet included, at its build RPC', () => {
+    expect(MIDEN_NETWORKS.map(network => network.id).sort()).toEqual(Object.values(MIDEN_NETWORK_NAME).sort());
+    for (const network of MIDEN_NETWORKS) {
+      expect(network.rpcBaseURL).toBe(MIDEN_NETWORK_ENDPOINTS.get(network.id));
+    }
+    expect(MIDEN_NETWORKS.find(network => network.id === MIDEN_NETWORK_NAME.MAINNET)?.name).toBe('Mainnet');
+  });
+});
 
 /**
  * #464 — Guardian provider display names must be spelled canonically and come

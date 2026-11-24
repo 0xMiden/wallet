@@ -8,13 +8,16 @@ import { usePageActive } from 'app/layouts/page-active';
 import { Button } from 'components/Button';
 import { ChoiceCardGroup, ChoiceCardItem } from 'components/ui/ChoiceCard';
 import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import { pingGuardianEndpointLatency } from 'lib/miden/guardian/availability';
 import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
+import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 import { guardianOperatorCard } from './guardian-operator-card';
 import { GuardianInfoDrawer } from './GuardianInfoDrawer';
@@ -34,6 +37,7 @@ export interface ChooseGuardianScreenProps {
   // footer - not in the scrolling body - so it is capped there and scrolls within its
   // own box rather than growing the footer and pushing Continue off screen (#463).
   error?: string | null;
+  errorId?: UserErrorId | null;
   // The pushed page's header back action.
   onBack: () => void;
 }
@@ -43,6 +47,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   currentEndpoint,
   allowCustomEndpoint = false,
   error = null,
+  errorId = 'raw_choose_guardian_submit_failed',
   onBack
 }) => {
   const { t } = useTranslation();
@@ -50,6 +55,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const [isCustom, setIsCustom] = useState(false);
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
+  const [customErrorId, setCustomErrorId] = useState<UserErrorId | null>(null);
   const [checkingCustom, setCheckingCustom] = useState(false);
   // Numbers the custom-URL checks. Editing the URL, leaving custom mode, leaving the
   // page or unmounting advances it, so a verdict that lands later belongs to a URL no
@@ -138,6 +144,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       const sanitized = sanitizeGuardianUrl(customUrl);
       if (!isValidGuardianUrl(sanitized)) {
         setCustomError(t('invalidUrl'));
+        setCustomErrorId('invalidUrl');
         return;
       }
       setCustomError(null);
@@ -151,6 +158,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         setCheckingCustom(false);
         if (latency === null) {
           setCustomError(t('customGuardianUnreachable'));
+          setCustomErrorId('customGuardianUnreachable');
           return;
         }
         onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
@@ -167,36 +175,56 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
   };
 
-  const items: ChoiceCardItem[] = options.map(option => {
-    const isCurrent = sameGuardianEndpoint(option.endpoint, currentEndpoint);
-    // "Current" stays beside the offline verdict: the card most likely to be offline is the one the
-    // account is on, and that is exactly when the user needs to see which operator they are leaving.
-    const tag = isCurrent ? t('currentLabel') : undefined;
-    return guardianOperatorCard({
+  const toCard = (option: ResolvedGuardianOption): ChoiceCardItem =>
+    guardianOperatorCard({
       option,
-      subtitle: t('guardianCardMeta', { operator: option.operatedBy, location: option.location }),
-      tag,
+      subtitle: t('guardianCardMetaShort', { operator: option.operatedBy, location: option.location }),
       offline: isOfflineEndpoint(option.endpoint)
     });
-  });
+  // The account's own operator gets its own "Current" section above the others, so a card never needs a
+  // Current tag. With no current operator in the list (onboarding, or a custom URL) it is one plain list.
+  const currentOptions = options.filter(o => sameGuardianEndpoint(o.endpoint, currentEndpoint));
+  const otherOptions = options.filter(o => !sameGuardianEndpoint(o.endpoint, currentEndpoint));
 
+  // Guardian settings' info pill (brand dot, the line), sized to its label rather than the full width.
   const learnMore = (
-    <TextAction onClick={() => setIsInfoOpen(true)} className="-mx-1">
+    <Pill
+      onClick={() => setIsInfoOpen(true)}
+      aria-haspopup="dialog"
+      aria-expanded={isInfoOpen}
+      className="self-start"
+      icon={<span aria-hidden="true" className="h-2 w-2 rounded-full bg-accent-primary" />}
+    >
       {t('learnMoreAboutGuardian')}
-    </TextAction>
+    </Pill>
   );
 
   const body = (
     <>
       {/* `isCustom` overrides the cards, matching what Continue will submit: while the custom field
           is the live choice no card may report itself checked. */}
-      <ChoiceCardGroup
-        items={items}
-        value={isCustom || effectiveSelectedId === '' ? null : effectiveSelectedId}
-        onChange={handleSelect}
-        onReselect={handleSelect}
-        aria-label={t('chooseYourGuardian')}
-      />
+      {currentOptions.length > 0 && otherOptions.length > 0 ? (
+        <ChoiceCardGroup
+          sections={[
+            { label: t('currentLabel'), items: currentOptions.map(toCard) },
+            { label: t('otherGuardiansAvailable'), items: otherOptions.map(toCard) }
+          ]}
+          value={isCustom || effectiveSelectedId === '' ? null : effectiveSelectedId}
+          onChange={handleSelect}
+          onReselect={handleSelect}
+          surface="outline"
+          aria-label={t('chooseYourGuardian')}
+        />
+      ) : (
+        <ChoiceCardGroup
+          items={options.map(toCard)}
+          value={isCustom || effectiveSelectedId === '' ? null : effectiveSelectedId}
+          onChange={handleSelect}
+          onReselect={handleSelect}
+          surface="outline"
+          aria-label={t('chooseYourGuardian')}
+        />
+      )}
 
       {allowCustomEndpoint && (
         <div className="flex flex-col items-start gap-2">
@@ -225,6 +253,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
               spellCheck={false}
               enterKeyHint="done"
               error={customError ?? undefined}
+              errorId={customErrorId}
               onKeyDown={event => {
                 if (event.key === 'Enter') {
                   event.currentTarget.blur();
@@ -245,7 +274,12 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const footer = (
     <>
       {error && (
-        <Notice tone="negative" role="alert" className="max-h-24 overflow-y-auto select-text break-words">
+        <Notice
+          errorId={errorId}
+          tone="negative"
+          role="alert"
+          className="max-h-24 overflow-y-auto select-text break-words"
+        >
           {error}
         </Notice>
       )}
@@ -263,19 +297,23 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   return (
     <>
       {/* The title is the header's; the explainer opens the body. */}
-      <SubPageLayout
-        data-testid="onboarding-choose-guardian"
-        title={t('chooseYourGuardian')}
-        onBack={onBack}
-        footer={footer}
-        footerLayout="stack"
-      >
-        <div className="flex flex-col items-start gap-1 px-1">
-          <p className="text-explainer text-muted">{t('chooseGuardianDescription')}</p>
-          {learnMore}
-        </div>
-        {body}
-      </SubPageLayout>
+      {/* Every line on the screen is Nunito: the body styles that read the sans face resolve to the heading
+          face inside, the card subtitles, section labels, pill and custom-URL field included. */}
+      <div className="contents face-heading">
+        <SubPageLayout
+          data-testid="onboarding-choose-guardian"
+          title={t('chooseYourGuardian')}
+          onBack={onBack}
+          footer={footer}
+          footerLayout="stack"
+        >
+          <div className="flex flex-col gap-3">
+            <p className="px-1 text-explainer-heading text-muted">{t('chooseGuardianDescription')}</p>
+            {learnMore}
+          </div>
+          {body}
+        </SubPageLayout>
+      </div>
 
       <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />
     </>

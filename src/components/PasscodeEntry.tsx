@@ -4,11 +4,15 @@ import { useTranslation } from 'react-i18next';
 
 import { Numpad } from 'components/Numpad';
 import { PasscodeDots } from 'components/PasscodeDots';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 export const PASSCODE_LENGTH = 6;
 
 export interface PasscodeEntryProps {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
   /** Fired shortly after the sixth digit is entered. */
   onSubmit: (code: string) => void;
   /** Fired on every keypad press with the current value (e.g. to clear a stale error upstream). */
@@ -31,11 +35,13 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
   onSubmit,
   onChange,
   error,
+  errorId,
   subtitle,
   disabled = false,
   isSubmitting = false,
   className
 }) => {
+  useUserVisibleError(error ? errorId : null, 'passcode');
   const { t } = useTranslation();
   const [code, setCode] = useState('');
   // Synchronous mirror of `code`, updated inside the tap handlers so that several

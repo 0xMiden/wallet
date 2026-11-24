@@ -9,22 +9,22 @@ import { ROUTE_DWELL_MS } from '../../src/lib/telemetry/use-route-dwell';
 import { expect, test } from '../fixtures/extension';
 
 /**
- * What the wallet actually puts on the wire when a user opts in to telemetry.
+ * What the wallet actually sends to Aptabase when a user opts in to usage analytics.
  *
  * This exists because every other telemetry test is blind to the one thing that
  * matters most. The jest egress test asserts against a MOCKED transport with
  * synthetic fixtures, so it proves the serializer is well behaved and nothing
  * about the shipped service worker; and every e2e suite builds with no Aptabase
- * key, which makes telemetry inert by construction and means none of them has
+ * key, which makes usage analytics inert by construction and means none of them has
  * ever seen a single real request leave.
  *
  * Why this cannot live in an existing suite. The key and the host are baked in
  * at BUILD time by vite's `define`, so a suite that exercises egress needs a
  * differently-configured build and cannot share another job's artifact. And
- * `dismissTelemetryConsent` exists precisely because accepting consent arms real
- * egress for the life of the profile — accepting is only safe in a build whose
- * endpoint is a local sink and whose `SENTRY_DSN` is empty, which is what the
- * telemetry job configures and no other job does.
+ * `dismissTelemetryConsent` prevents usage analytics egress in other suites.
+ * This suite accepts consent with Aptabase pointed at a local sink. Crash
+ * reporting starts at launch independently of usage consent, so `SENTRY_DSN`
+ * must be empty to keep crash reports from leaving the runner.
  *
  * Runs on merge to main rather than per-PR: it needs its own build of the
  * extension, and the risk it guards against is a slow one — nobody lands a
@@ -47,18 +47,18 @@ test.beforeAll(async () => {
 });
 
 /**
- * Prove the artifact under test was built with telemetry pointed at the sink.
+ * Prove the artifact under test was built with Aptabase pointed at the sink.
  *
  * Without this the first test is VACUOUS in the most dangerous way: "the wallet
- * sent nothing before consent" is exactly what an unconfigured build does, so a
- * job that forgot the env would report the strongest guarantee in this file as
- * passing. Reading the key back out of the bundle is also the only check that
+ * sent no usage analytics before consent" is exactly what an unconfigured build
+ * does, so a job that forgot the env would report the strongest guarantee in
+ * this file as passing. Reading the key back out of the bundle also checks that
  * the build and this spec agree — they hold the constants separately, and a
  * mismatch would otherwise surface as a mysteriously silent wallet.
  *
- * Also asserts `SENTRY_DSN` did NOT get baked in. This is the one suite that
- * accepts consent, which arms the crash reporter; an empty DSN is what keeps
- * that from shipping a report off the runner.
+ * Also asserts `SENTRY_DSN` did NOT get baked in. Crash reporting starts at
+ * launch independently of usage consent; an empty DSN keeps crash reports from
+ * leaving the runner, including before the usage prompt is shown.
  */
 function assertBuildIsTelemetryConfigured(): void {
   const dist = process.env.EXTENSION_DIST ?? path.join(__dirname, '../../dist/chrome_unpacked');
@@ -69,7 +69,7 @@ function assertBuildIsTelemetryConfigured(): void {
   if (!joined.includes(APTABASE_APP_KEY)) {
     throw new Error(
       `The extension at ${dist} was not built with APTABASE_APP_KEY=${APTABASE_APP_KEY}. ` +
-        `Telemetry is inert in this build, which would make the pre-consent silence assertion vacuous. ` +
+        `Usage analytics are inert in this build, which would make the pre-consent silence assertion vacuous. ` +
         `Build with \`yarn build:chrome:telemetry\`.`
     );
   }
@@ -81,8 +81,8 @@ function assertBuildIsTelemetryConfigured(): void {
   const dsn = /https:\/\/[0-9a-f]{16,}@[\w.-]+\/\d+/.exec(joined);
   if (dsn) {
     throw new Error(
-      `The extension at ${dist} was built with a Sentry DSN (${dsn[0]}). This suite accepts telemetry ` +
-        `consent, which arms the crash reporter, so it must only ever run against a build with SENTRY_DSN unset.`
+      `The extension at ${dist} was built with a Sentry DSN (${dsn[0]}). Crash reporting starts at launch ` +
+        `independently of usage consent, so this suite must only run against a build with SENTRY_DSN unset.`
     );
   }
 }
@@ -107,24 +107,29 @@ test.afterAll(async () => {
   await sink?.close();
 });
 
-test.describe('Telemetry egress', () => {
+test.describe('Usage analytics egress', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension-only');
 
-  test('sends nothing at all until consent is given', async ({ extensionContext, extensionId }) => {
+  test('sends no usage analytics before consent or after declining', async ({ extensionContext, extensionId }) => {
     const before = sink.requests.length;
     const page = await extensionContext.newPage();
     await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
 
     // Everything up to and including the moment the prompt is on screen: app
-    // boot, the `open` flow, a whole onboarding. This is the window the wallet
-    // must be silent in, and the one a "fire the event, check consent later"
-    // regression would break. It is also the shape of the Google-Fonts bug this
-    // feature already had once — egress before anyone agreed to any.
+    // boot, the `open` flow, a whole onboarding. Aptabase must stay silent while
+    // usage consent is unset. Crash reports have a separate gate and this
+    // build has no Sentry DSN.
     await importWalletToConsentPrompt(page);
+
+    await sink.settle(SILENCE_WINDOW_MS);
+    expect(describeRequests(sink.requests.slice(before))).toEqual([]);
 
     await page.locator('[data-testid="help-improve-wallet-decline"]').click();
     await expect(page.locator(HANDOFF_SELECTOR)).toBeVisible({ timeout: 30_000 });
 
+    // A new `open` flow after declining must still send nothing to Aptabase.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#root > *', { timeout: 30_000 });
     await sink.settle(SILENCE_WINDOW_MS);
     expect(describeRequests(sink.requests.slice(before))).toEqual([]);
   });
@@ -357,7 +362,7 @@ test.describe('Telemetry egress', () => {
       }
     });
 
-    await test.step('withdrawing consent stops egress', async () => {
+    await test.step('withdrawing usage consent stops Aptabase egress', async () => {
       // Clicked through rather than deep-linked. `#/settings/general-settings`
       // renders the settings INDEX, not the tab — so a deep link looks like it
       // worked while leaving the toggle unmounted, and the test would fail on a
@@ -381,7 +386,7 @@ test.describe('Telemetry egress', () => {
       // suite found that (a `send` flow, cancelled seconds later, arriving with
       // `result: cancelled`) and it is a real if narrow limitation — recorded in
       // `docs/telemetry-limitations.md`. What must hold, and is what is asserted
-      // below, is that once withdrawal has landed nothing further is sent.
+      // below, is that once withdrawal has landed Aptabase receives nothing further.
       await sink.settle(SILENCE_WINDOW_MS);
       const afterPropagation = sink.requests.length;
 
@@ -436,7 +441,7 @@ function describeRequests(requests: readonly SinkRequest[]): string[] {
  */
 const ENVELOPE_KEYS = ['timestamp', 'sessionId', 'eventName', 'systemProps', 'props'];
 const SYSTEM_PROPS_KEYS = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
-const PROPS_KEYS = ['flowId', 'result', 'errorKind', 'durationMs', 'step'];
+const PROPS_KEYS = ['flowId', 'result', 'errorKind', 'durationMs', 'step', 'network'];
 
 function assertEnvelopeShape(request: SinkRequest): void {
   const envelope = JSON.parse(request.body) as Record<string, unknown>;

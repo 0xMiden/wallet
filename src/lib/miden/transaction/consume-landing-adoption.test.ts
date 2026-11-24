@@ -12,8 +12,23 @@ import { ITransaction, ITransactionStatus } from '../db/types';
 const mockConsumeNoteId = jest.fn();
 const mockGetInputNoteDetails = jest.fn();
 const mockDispatchGuardianPipeline = jest.fn();
+
+// The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
+// gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it.
+const mockLeafThroughGate = async (...a: unknown[]): Promise<unknown> => {
+  const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+  const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+  try {
+    const result = await mockDispatchGuardianPipeline(...a);
+    await gate?.();
+    return result;
+  } catch (error) {
+    if (!hasErrorBeforeSubmit(error)) await gate?.();
+    throw error;
+  }
+};
 jest.mock('../back/miden-client-proxy', () => ({
-  dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a),
+  dispatchGuardianPipeline: (...a: unknown[]) => mockLeafThroughGate(...a),
   midenClientProxy: {
     syncState: jest.fn(async () => {}),
     consumeNoteId: (...a: unknown[]) => mockConsumeNoteId(...a),
@@ -56,6 +71,11 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   clearGuardianServiceFor: jest.fn()
 }));
 jest.mock('../activity/notes', () => ({ importAllNotes: jest.fn(), queueNoteImport: jest.fn() }));
+// This proposal carries no summary; both signing-time effect checks have their own tests (#2147).
+jest.mock('./proposal-effect-guard', () => ({
+  assertProposalEffectApproved: async () => {},
+  isEffectChecked: () => false
+}));
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetId: async () => 'usdcx-faucet'

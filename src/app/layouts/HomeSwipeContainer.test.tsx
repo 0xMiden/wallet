@@ -1,128 +1,34 @@
 import React from 'react';
 
-import { render, act, fireEvent } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 
+import { pagerMotion, pagerTapDurationMs } from 'lib/animation';
 import { holdNavbarHidden, useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { _resetInteractionPriorityForTest, isInteracting } from 'lib/ui/interaction-priority';
 
 import HomeSwipeContainer from './HomeSwipeContainer';
 import { PageActiveContext, TabActiveContext, usePageActive } from './page-active';
 
-// ---------------------------------------------------------------------------
-// Mock capture holders. All are `mock`-prefixed so jest's factory-hoisting
-// rule permits referencing them from inside `jest.mock` factories. They are
-// only *dereferenced* lazily (when the mocked functions are called at
-// render/interaction time), never at factory-execution time, so no TDZ issue.
-// ---------------------------------------------------------------------------
 const mockNavigate = jest.fn();
 let mockPathname = '/';
 const mockSwapEnabled = { value: true };
 const mockReduceMotion = { value: false };
-const mockLinearEasing = { value: true };
-
-const mockAnimateStop = jest.fn();
-const mockAnimate = jest.fn((..._args: unknown[]) => ({ stop: mockAnimateStop }));
-// The motion value is stateful here, because the release path reads it back:
-// `snapToPage` derives both the release velocity and the committed page from
-// `x.get()`, so a `get` pinned to 0 would make every one of those tests agree
-// with itself and nothing else.
-let mockX = 0;
-const mockMotionSet = jest.fn((value: number) => {
-  mockX = value;
-});
-const mockMotionValue = { set: mockMotionSet, get: () => mockX };
-
-const mockDragStart = jest.fn();
-const mockDragControls = { start: mockDragStart };
+const mockHapticSelection = jest.fn();
 const mockBoostRefreshRate = jest.fn();
 const mockUseHideNavbarWhileOpen = useHideNavbarWhileOpen;
 const mockSwapReview = { open: false };
+const mockReceiveRenders = { count: 0 };
 
-// The spring is solved into a `linear()` easing before the release starts. The
-// null-below-half-a-pixel rule is the real one's, and matters: it's the branch a
-// snap-back-to-the-same-place takes.
-const mockSpringToLinearEasing = jest.fn((_transition: unknown, { distance }: { distance: number }) =>
-  Math.abs(distance) < 0.5 ? null : { duration: 340, easing: 'linear(0,0.5,1)' }
-);
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual('framer-motion'),
+  useReducedMotion: () => mockReduceMotion.value
+}));
 
-// The single `motion.div` in the component is the draggable track. We stash its
-// handlers on each render so tests can drive the gesture directly (framer's real
-// drag needs a pointer pipeline jsdom lacks).
-let mockLastDragEnd: ((e: unknown, info: unknown) => void) | null = null;
-let mockLastDragConstraints: unknown = null;
-// #481 — the `drag` prop toggles between 'x' (swipe enabled) and false (locked).
-let mockLastDrag: unknown = null;
-// The snap is chosen and started inside `modifyTarget`, which framer calls while
-// it handles pointer-up — a frame before `onDragEnd`. That ordering is the whole
-// point of the release path, so the tests drive it in that order too.
-let mockLastModifyTarget: ((ideal: number) => number) | null = null;
-let mockLastDragControlsProp: unknown = null;
-// Framer calls `onDragStart` once a pointer has travelled far enough to drag, and
-// only then. It is the one signal that tells a swipe's release from a tap's.
-let mockLastDragStart: (() => void) | null = null;
-// Framer notifies this before it resets the track's transform to measure layout.
-let mockLastBeforeLayoutMeasure: (() => void) | null = null;
-
-// framer-motion: `motion.div` -> passthrough div (drag props stripped so React
-// doesn't warn/attempt to render them). `animate`/`useMotionValue` are stubbed.
-jest.mock('framer-motion', () => {
-  const ReactActual = jest.requireActual('react');
-  const passthrough = ReactActual.forwardRef((props: any, ref: React.Ref<HTMLDivElement>) => {
-    const {
-      children,
-      onDragEnd,
-      onDragStart,
-      onBeforeLayoutMeasure,
-      dragConstraints,
-      // strip non-DOM / framer-only props
-      drag,
-      dragDirectionLock,
-      dragElastic,
-      dragMomentum,
-      dragTransition,
-      dragControls,
-      style,
-      ...rest
-    } = props;
-    if (onDragEnd) mockLastDragEnd = onDragEnd;
-    if (onDragStart) mockLastDragStart = onDragStart;
-    if (onBeforeLayoutMeasure) mockLastBeforeLayoutMeasure = onBeforeLayoutMeasure;
-    if (dragConstraints !== undefined) mockLastDragConstraints = dragConstraints;
-    if (dragTransition) mockLastModifyTarget = dragTransition.modifyTarget;
-    if (dragControls !== undefined) mockLastDragControlsProp = dragControls;
-    mockLastDrag = drag;
-    return ReactActual.createElement('div', { ref, ...rest }, children);
-  });
-  return {
-    __esModule: true,
-    motion: new Proxy({}, { get: () => passthrough }),
-    animate: (...args: unknown[]) => mockAnimate(...args),
-    useMotionValue: () => mockMotionValue,
-    useReducedMotion: () => mockReduceMotion.value,
-    useDragControls: () => mockDragControls
-  };
-});
-
-// woozie location/history stack is heavy; expose a controllable pathname and a
-// spy navigate.
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
   useLocation: () => ({ pathname: mockPathname })
 }));
 
-jest.mock('lib/animation', () => ({
-  springs: {
-    standard: { type: 'spring', stiffness: 1 },
-    dragRelease: { type: 'spring', stiffness: 2, damping: 3 }
-  },
-  // Reduced motion is asserted through the spring solver instead, which is where
-  // the component actually branches on it.
-  resolveTransition: (_reduceMotion: boolean, transition: unknown) => transition,
-  springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args),
-  supportsLinearEasing: () => mockLinearEasing.value
-}));
-
-// A swipe that lands on another page is a tab switch and buzzes once.
-const mockHapticSelection = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: (...args: unknown[]) => mockHapticSelection(...args)
 }));
@@ -131,9 +37,13 @@ jest.mock('lib/mobile/high-refresh-rate', () => ({
   boostRefreshRate: (...args: unknown[]) => mockBoostRefreshRate(...args)
 }));
 
-// Child pages pull in the full wallet/SDK stack — stub each to a marker div.
-// Each marker reports the page-active value its page renders under.
-function MockPage(props: React.ComponentProps<'div'>) {
+jest.mock('lib/feature-flags', () => ({
+  isSwapEnabled: () => mockSwapEnabled.value
+}));
+
+// Child pages pull in the full wallet stack; each marker reports the page-active value it renders under.
+function MockPage({ renders, ...props }: React.ComponentProps<'div'> & { renders?: { count: number } }) {
+  if (renders) renders.count += 1;
   return <div {...props} data-page-active={String(usePageActive())} />;
 }
 jest.mock('app/pages/Explore', () => ({
@@ -146,7 +56,7 @@ jest.mock('app/pages/Earn', () => ({
 }));
 jest.mock('app/pages/Receive', () => ({
   __esModule: true,
-  Receive: () => <MockPage data-testid="page-receive" />
+  Receive: () => <MockPage data-testid="page-receive" renders={mockReceiveRenders} />
 }));
 jest.mock('screens/send-flow/SendManager', () => ({
   __esModule: true,
@@ -156,8 +66,6 @@ jest.mock('screens/send-flow/SendManager', () => ({
     </MockPage>
   )
 }));
-// The swap pane carries the amount fields whose `<input>` made framer refuse to
-// start a drag, so this stub keeps one.
 jest.mock('screens/swap-flow/SwapManager', () => ({
   __esModule: true,
   SwapFlow: () => {
@@ -170,105 +78,74 @@ jest.mock('screens/swap-flow/SwapManager', () => ({
   }
 }));
 
-// Swap availability is gated by isSwapEnabled (false on iOS); toggle it to
-// assert the pane is added/removed and the track stays in sync.
-jest.mock('lib/feature-flags', () => ({
-  isSwapEnabled: () => mockSwapEnabled.value
-}));
-
-// ---------------------------------------------------------------------------
-// ResizeObserver is not implemented in jsdom. Provide a mock that captures the
-// observer callback so tests can drive width measurements deterministically.
-// ---------------------------------------------------------------------------
 let mockRoCallback: ((entries: unknown[]) => void) | null = null;
-const mockRoObserve = jest.fn();
 const mockRoDisconnect = jest.fn();
-
 class MockResizeObserver {
   constructor(cb: (entries: unknown[]) => void) {
     mockRoCallback = cb;
   }
-  observe(...args: unknown[]) {
-    mockRoObserve(...args);
-  }
-  unobserve() {
-    /* not used by the component */
-  }
-  disconnect(...args: unknown[]) {
-    mockRoDisconnect(...args);
+  observe() {}
+  unobserve() {}
+  disconnect() {
+    mockRoDisconnect();
   }
 }
 
-// The release runs on the compositor through the Web Animations API, which jsdom
-// has none of. Each animation is captured so tests can assert what the
-// compositor was handed, and drive its completion.
-interface MockRelease {
-  keyframes: unknown;
-  options: { duration: number; easing: string; fill: string };
-  // Tracked because "holding the transform" and "still running" are different
-  // questions in the component, and conflating them was a real bug.
-  playState: 'running' | 'finished' | 'idle';
+/** What the component hands the compositor for a tap's slide; jsdom has no Web Animations. */
+interface FakeAnimation {
+  keyframes: Keyframe[];
+  options: KeyframeAnimationOptions;
   cancel: jest.Mock;
   onfinish: (() => void) | null;
+  oncancel: (() => void) | null;
 }
-let mockReleases: MockRelease[] = [];
+let mockAnimations: FakeAnimation[] = [];
+
+const W = 300;
+let mockWidth = 0;
 
 beforeAll(() => {
-  (global as unknown as { ResizeObserver: unknown }).ResizeObserver = MockResizeObserver;
-
-  // The landing check defers itself by a frame, so framer's own release path runs
-  // first. Run it inline instead of making every test pump a clock.
-  (global as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = (cb: (t: number) => void) => {
-    cb(0);
-    return 0;
-  };
-
-  (Element.prototype as unknown as { animate: unknown }).animate = function (
-    keyframes: unknown,
-    options: MockRelease['options']
-  ) {
-    const release: MockRelease = {
-      keyframes,
-      options,
-      playState: 'running',
-      cancel: jest.fn(() => {
-        release.playState = 'idle';
-      }),
-      onfinish: null
-    };
-    mockReleases.push(release);
-    return release;
-  };
-
-  // Enough of DOMMatrixReadOnly to read back a translateX, which is all the
-  // component asks of it — and asking is the point: adopting the *on-screen*
-  // position is what stops an interrupted release from jumping.
-  (global as unknown as { DOMMatrixReadOnly: unknown }).DOMMatrixReadOnly = class {
-    m41: number;
-    constructor(transform: string) {
-      const match = /translateX\((-?[\d.]+)px\)/.exec(transform);
-      this.m41 = match ? Number(match[1]) : 0;
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    writable: true,
+    value: MockResizeObserver
+  });
+  Object.defineProperty(Element.prototype, 'animate', {
+    configurable: true,
+    writable: true,
+    value: (keyframes: Keyframe[], options: KeyframeAnimationOptions) => {
+      const animation: FakeAnimation = { keyframes, options, cancel: jest.fn(), onfinish: null, oncancel: null };
+      mockAnimations.push(animation);
+      return animation;
     }
-  };
+  });
+  // Enough of DOMMatrixReadOnly to read back a translateX, which is all the component asks of it.
+  Object.defineProperty(globalThis, 'DOMMatrixReadOnly', {
+    configurable: true,
+    writable: true,
+    value: class {
+      m41: number;
+      constructor(transform: string) {
+        const match = /translateX\((-?[\d.]+)px\)/.exec(transform);
+        this.m41 = match ? Number(match[1]) : 0;
+      }
+    }
+  });
+  // An engine with scrollend, unless a test removes it.
+  Object.defineProperty(window, 'onscrollend', { configurable: true, writable: true, value: null });
 });
 
 beforeEach(() => {
+  jest.useFakeTimers();
   jest.clearAllMocks();
+  _resetInteractionPriorityForTest();
   mockPathname = '/';
-  mockLastDragEnd = null;
-  mockLastDragConstraints = null;
-  mockLastDrag = null;
-  mockLastModifyTarget = null;
-  mockLastDragControlsProp = null;
-  mockLastDragStart = null;
-  mockLastBeforeLayoutMeasure = null;
-  mockRoCallback = null;
   mockSwapEnabled.value = true;
   mockSwapReview.open = false;
   mockReduceMotion.value = false;
-  mockLinearEasing.value = true;
-  mockX = 0;
-  mockReleases = [];
+  mockRoCallback = null;
+  mockAnimations = [];
+  mockWidth = 0;
   document.body.removeAttribute('data-hide-navbar');
 });
 
@@ -276,321 +153,845 @@ afterEach(() => {
   document.body.removeAttribute('data-hide-navbar');
 });
 
-// Drive the captured ResizeObserver callback to set a positive width.
+/** The scroller is the page wrappers' grandparent: scroller, then track, then one wrapper per page. */
+function scrollerOf(page: HTMLElement): HTMLElement {
+  const scroller = page.closest('[data-home-page]')?.parentElement?.parentElement;
+  if (!scroller) throw new Error('expected the pager scroller');
+  return scroller;
+}
+
+const mockScrollTo = jest.fn();
+
+/** jsdom has no layout or scrolling, so the scroller gets a width, a writable position and a scrollTo. */
+function mount(ui: React.ReactElement = <HomeSwipeContainer />) {
+  const view = render(ui);
+  const scroller = scrollerOf(view.getByTestId('page-explore'));
+  const track = scroller.firstElementChild;
+  if (!(track instanceof HTMLElement)) throw new Error('expected the pager track');
+  Object.defineProperty(scroller, 'scrollLeft', { configurable: true, writable: true, value: 0 });
+  Object.defineProperty(scroller, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({ width: mockWidth, height: 600, top: 0, left: 0, right: mockWidth, bottom: 600, x: 0, y: 0 })
+  });
+  mockScrollTo.mockImplementation((options: ScrollToOptions) => {
+    if (typeof options.left === 'number') scroller.scrollLeft = options.left;
+  });
+  Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: mockScrollTo });
+  return { ...view, scroller, track };
+}
+
 function measure(width: number) {
+  mockWidth = width;
   act(() => {
     mockRoCallback?.([{ contentRect: { width } }]);
   });
 }
 
-/**
- * Put the track at rest on a page. The mount effect animates there through the
- * (mocked) `animate`, which never moves the value, so a test starting anywhere
- * but index 0 has to say so.
- */
-function settleAt(x: number) {
-  mockX = x;
+/** `touches` is the count still down, or the targets of the fingers still down. */
+function fire(target: EventTarget, type: string, touches?: number | EventTarget[]): Event {
+  const init = { bubbles: true, cancelable: true };
+  const event = type.startsWith('touch') ? new TouchEvent(type, init) : new Event(type, init);
+  if (touches !== undefined) {
+    const down =
+      typeof touches === 'number'
+        ? Array.from({ length: touches }, () => ({ target }))
+        : touches.map(t => ({ target: t }));
+    Object.defineProperty(event, 'touches', { value: down });
+  }
+  act(() => {
+    target.dispatchEvent(event);
+  });
+  return event;
 }
 
-/** Land the track where the last `animate` call was taking it, as a finished animation would. */
-function finishAnimations() {
-  const target = mockAnimate.mock.calls[mockAnimate.mock.calls.length - 1]?.[1];
-  if (typeof target === 'number') settleAt(target);
+/** One rendering step: scroll events from a programmatic move have fired, and the frame's callbacks run. */
+function frame() {
+  act(() => {
+    jest.advanceTimersByTime(16);
+  });
 }
 
-/** The release in flight, asserting there is one. */
-function releaseInFlight(): MockRelease {
-  const animation = mockReleases[mockReleases.length - 1];
-  if (!animation) throw new Error('expected a compositor release to have been started');
+/** A user scroll that comes to rest at `left`, reported the way an engine with `scrollend` does. */
+function settleAt(scroller: HTMLElement, left: number) {
+  scroller.scrollLeft = left;
+  fire(scroller, 'scroll');
+  fire(scroller, 'scrollend');
+}
+
+function route(
+  rerender: (ui: React.ReactElement) => void,
+  path: string,
+  ui: React.ReactElement = <HomeSwipeContainer />
+) {
+  mockPathname = path;
+  act(() => {
+    rerender(ui);
+  });
+}
+
+function lastAnimation(): FakeAnimation {
+  const animation = mockAnimations[mockAnimations.length - 1];
+  if (!animation) throw new Error('expected a tap slide to have started');
   return animation;
 }
 
-/**
- * Run the release to its end, as the compositor would: it reports itself finished
- * and keeps holding the landing position, since nothing cancels it.
- */
-function finishRelease() {
-  const animation = releaseInFlight();
-  animation.playState = 'finished';
+function finishAnimation(animation: FakeAnimation) {
   act(() => {
     animation.onfinish?.();
   });
 }
 
-/**
- * Play a release the way framer does: `onDragStart` once the finger has moved far
- * enough to drag, `modifyTarget` with the coasting target it projected from the
- * finger, then `onDragEnd` once the frame ends.
- *
- * Returns what `modifyTarget` handed back, which is framer's own momentum target.
- */
-function release(idealX: number): number | undefined {
-  let parked: number | undefined;
-  act(() => {
-    mockLastDragStart?.();
-    parked = mockLastModifyTarget?.(idealX);
-    mockLastDragEnd?.(null, {
-      offset: { x: 0, y: 0 },
-      velocity: { x: 0, y: 0 },
-      point: { x: 0, y: 0 },
-      delta: { x: 0, y: 0 }
-    });
-  });
-  return parked;
+/** The pager after a tap on the bar has finished sliding to `path`. */
+function tapTo(rerender: (ui: React.ReactElement) => void, path: string) {
+  route(rerender, path);
+  frame();
+  if (mockAnimations.length) finishAnimation(lastAnimation());
 }
 
-/**
- * jsdom has no PointerEvent, and `fireEvent.pointerDown` silently drops
- * `pointerType` when it falls back to `Event` — which is the one field the
- * handler branches on, so it is set explicitly here.
- */
-function pointerDown(node: Element, pointerType: 'touch' | 'mouse', isPrimary?: boolean): Event {
-  const event = new Event('pointerdown', { bubbles: true, cancelable: true });
-  Object.defineProperty(event, 'pointerType', { value: pointerType });
-  // Left undefined unless a test asks, which is what a synthesized pointerdown carries and what
-  // every existing test here relies on.
-  if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
-  act(() => {
-    fireEvent(node, event);
-  });
-  return event;
+/** Takes `scrollend` away, as on an engine without it. Returns the restore. */
+function withoutScrollEnd(): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(window, 'onscrollend');
+  Reflect.deleteProperty(window, 'onscrollend');
+  return () => {
+    if (descriptor) Object.defineProperty(window, 'onscrollend', descriptor);
+  };
 }
 
-function pointerUp(node: Element, isPrimary?: boolean) {
-  const event = new Event('pointerup', { bubbles: true, cancelable: true });
-  // Same shape as `pointerDown`: left undefined unless a test asks, which is what a synthesized
-  // pointerup carries and what every existing test here relies on.
-  if (isPrimary !== undefined) Object.defineProperty(event, 'isPrimary', { value: isPrimary });
-  act(() => {
-    fireEvent(node, event);
-  });
-}
-
-/** A touch that lands and lifts without travelling far enough to drag. */
-function tap(node: Element) {
-  pointerDown(node, 'touch');
-  pointerUp(node);
-}
-
-/**
- * A tap as framer really handles one once any drag has resolved the constraints:
- * its pan session "resumes" them when a pointer lifts without dragging, which runs
- * `modifyTarget` with no velocity from wherever the tap stopped the track. No
- * `onDragStart` and no `onDragEnd`, because nothing was dragged.
- */
-function tapResumedByFramer(node: Element) {
-  tap(node);
-  act(() => {
-    mockLastModifyTarget?.(mockX);
-  });
-}
+const notInert = (scroller: HTMLElement) =>
+  Array.from(scroller.querySelectorAll('[data-home-page]'))
+    .filter(page => !page.hasAttribute('inert'))
+    .map(page => page.getAttribute('data-home-page'));
 
 describe('HomeSwipeContainer', () => {
-  it('releases a Swap review hold when its action page moves out of view', () => {
-    mockPathname = '/swap';
-    mockSwapReview.open = true;
-    const { rerender } = render(<HomeSwipeContainer />);
-    expect(document.body).toHaveAttribute('data-hide-navbar');
+  // #1811: framer drag measured the track mid-release and added the animated offset to the drag, so a
+  // second swipe from Earn toward Receive committed to Swap. The committed pane must be the one the
+  // scroller settled on.
+  it('commits the pane the scroller settled on, in the direction of the swipe (#1811)', () => {
+    const { scroller, rerender } = mount();
+    measure(W);
+    tapTo(rerender, '/swap');
+    scroller.scrollLeft = 4 * W;
 
-    mockPathname = '/receive';
-    rerender(<HomeSwipeContainer />);
-    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+    settleAt(scroller, 3 * W);
+    expect(mockNavigate).toHaveBeenLastCalledWith('/earn');
 
-    mockPathname = '/swap';
-    rerender(<HomeSwipeContainer />);
-    expect(document.body).toHaveAttribute('data-hide-navbar');
+    route(rerender, '/earn');
+    settleAt(scroller, 2 * W);
+
+    expect(mockNavigate.mock.calls).toEqual([['/earn'], ['/receive']]);
+    expect(mockNavigate).not.toHaveBeenCalledWith('/swap');
   });
 
-  it('marks only the selected action page active', () => {
-    mockPathname = '/swap';
-    const { getByTestId, rerender } = render(<HomeSwipeContainer />);
-    expect(getByTestId('page-swap')).toHaveAttribute('data-page-active', 'true');
-
-    mockPathname = '/receive';
-    rerender(<HomeSwipeContainer />);
-    expect(getByTestId('page-swap')).toHaveAttribute('data-page-active', 'false');
-  });
-
-  it('releases keyboard focus when a retained action page moves out of view', () => {
-    mockPathname = '/send';
-    const { getByTestId, rerender } = render(<HomeSwipeContainer />);
-    const input = getByTestId('send-amount-input');
-    let releaseNavbar: (() => void) | undefined;
-    input.addEventListener('focus', () => {
-      releaseNavbar = holdNavbarHidden();
-    });
-    input.addEventListener('blur', () => {
-      releaseNavbar?.();
+  describe('settling', () => {
+    it('stays silent when the scroller comes back to rest on the current page', () => {
+      mockPathname = '/send';
+      const { scroller } = mount();
+      measure(W);
+      settleAt(scroller, W);
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockHapticSelection).not.toHaveBeenCalled();
     });
 
-    input.focus();
-    expect(document.body).toHaveAttribute('data-hide-navbar');
-
-    mockPathname = '/receive';
-    rerender(<HomeSwipeContainer />);
-
-    expect(input).not.toHaveFocus();
-    expect(document.body).not.toHaveAttribute('data-hide-navbar');
-  });
-
-  it('mounts all five home pages in the track', () => {
-    const { getByTestId } = render(<HomeSwipeContainer />);
-    expect(getByTestId('page-explore')).toBeInTheDocument();
-    expect(getByTestId('page-send')).toBeInTheDocument();
-    expect(getByTestId('page-receive')).toBeInTheDocument();
-    expect(getByTestId('page-earn')).toBeInTheDocument();
-    expect(getByTestId('page-swap')).toBeInTheDocument();
-  });
-
-  it('passes isLoading={false} to the SendFlow', () => {
-    const { getByTestId } = render(<HomeSwipeContainer />);
-    expect(getByTestId('page-send')).toHaveAttribute('data-loading', 'false');
-  });
-
-  it('drops the Swap pane when swap is disabled, keeping the other four', () => {
-    mockSwapEnabled.value = false;
-    const { getByTestId, queryByTestId } = render(<HomeSwipeContainer />);
-    expect(queryByTestId('page-swap')).toBeNull();
-    expect(getByTestId('page-explore')).toBeInTheDocument();
-    expect(getByTestId('page-send')).toBeInTheDocument();
-    expect(getByTestId('page-receive')).toBeInTheDocument();
-    expect(getByTestId('page-earn')).toBeInTheDocument();
-    // Track math must derive from the 4-page filtered array — not a hardcoded 5 —
-    // so the drag bounds shrink accordingly (a phantom 5th slot would fail here).
-    measure(300);
-    expect(mockLastDragConstraints).toEqual({ left: -900, right: 0 }); // -(4 - 1) * 300
-  });
-
-  it('on mount at width 0 sets the motion value directly instead of animating', () => {
-    render(<HomeSwipeContainer />);
-    // The animate effect takes the `!width` branch: x.set(...) is called and
-    // `animate` is not invoked for the resting position while width is 0.
-    expect(mockMotionSet).toHaveBeenCalled();
-  });
-
-  it('registers a ResizeObserver on the container', () => {
-    render(<HomeSwipeContainer />);
-    expect(mockRoObserve).toHaveBeenCalledTimes(1);
-    expect(mockRoCallback).toBeInstanceOf(Function);
-  });
-
-  describe('activeIdx resolution', () => {
-    it('animates to index 0 (offset 0) for the overview path "/"', () => {
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+    it('buzzes once, then navigates, when it comes to rest on another page', () => {
+      const { scroller } = mount();
+      measure(W);
+      settleAt(scroller, W);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+      expect(mockHapticSelection.mock.invocationCallOrder[0]).toBeLessThan(mockNavigate.mock.invocationCallOrder[0]!);
     });
 
-    it('animates to the exact page index for a top-level path', () => {
-      mockPathname = '/receive'; // index 2
-      render(<HomeSwipeContainer />);
-      measure(300);
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -600, expect.anything());
+    // A navigation that is refused or redirected leaves the route where it was, so the next rest is
+    // judged against the route, not against the page that was asked for.
+    it('judges each rest against the route even after a navigation that did not land', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      settleAt(scroller, W);
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+
+      settleAt(scroller, 0);
+
+      expect(mockNavigate.mock.calls).toEqual([['/send']]);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
     });
 
-    it('matches by prefix for nested routes (e.g. /send/sub-step)', () => {
-      mockPathname = '/send/amount'; // prefix of /send -> index 1
-      render(<HomeSwipeContainer />);
-      measure(300);
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -300, expect.anything());
+    it('commits a rest once, however many times the engine reports it', () => {
+      const { scroller } = mount();
+      measure(W);
+      settleAt(scroller, W);
+      fire(scroller, 'scrollend');
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs * 2);
+      });
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to index 0 for an unknown path (no exact, no prefix)', () => {
-      mockPathname = '/totally-unknown';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      // -0 * 300 === -0 (index 0). Assert an animate call landed at index 0.
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+    it('stays silent at either end, where there is no page past the edge', () => {
+      mockPathname = '/swap';
+      const { scroller, rerender } = mount();
+      measure(W);
+      settleAt(scroller, 4 * W);
+      tapTo(rerender, '/');
+      settleAt(scroller, 0);
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockHapticSelection).not.toHaveBeenCalled();
+    });
+
+    it('never commits while a finger is still down', () => {
+      const { scroller } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      settleAt(scroller, W);
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      fire(scroller, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    // A touch keeps targeting the node it started on after that node leaves the document, and a
+    // detached node's events reach no ancestor: the scroller never hears this touch end.
+    it('commits after a touch whose target was removed while the finger was down', () => {
+      const { scroller, getByTestId } = mount();
+      measure(W);
+      const row = document.createElement('div');
+      getByTestId('page-explore').appendChild(row);
+      fire(row, 'touchstart', 1);
+      row.remove();
+      settleAt(scroller, W);
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      fire(row, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('waits for the last finger of several, wherever each started', () => {
+      const { scroller, getByTestId } = mount();
+      measure(W);
+      const row = document.createElement('div');
+      getByTestId('page-explore').appendChild(row);
+      fire(row, 'touchstart', 1);
+      fire(scroller, 'touchstart', 2);
+      row.remove();
+      settleAt(scroller, W);
+
+      fire(row, 'touchend', [scroller]);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      fire(scroller, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('lets go once the pager fingers lift, though a finger outside the pager is still down', () => {
+      const { scroller } = mount();
+      measure(W);
+      const outside = document.createElement('div');
+      document.body.appendChild(outside);
+      fire(scroller, 'touchstart', 1);
+      settleAt(scroller, W);
+
+      fire(scroller, 'touchend', [outside]);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+      outside.remove();
+    });
+
+    it('waits out a fling that is still coasting after the finger lifts', () => {
+      const { scroller } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      fire(scroller, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs - 20);
+      });
+      scroller.scrollLeft = 0.5 * W;
+      fire(scroller, 'scroll');
+      act(() => {
+        jest.advanceTimersByTime(20);
+      });
+      expect(mockScrollTo).not.toHaveBeenCalled();
       expect(mockNavigate).not.toHaveBeenCalled();
     });
 
-    it('does not treat the root "/" as a prefix match for other paths', () => {
-      // '/xyz' starts with '/' but the prefix scan explicitly skips p.path === '/'.
+    it('settles after a cancelled touch as after a lifted one', () => {
+      const { scroller } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      settleAt(scroller, W);
+      fire(scroller, 'touchcancel', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('lands a scroller left between two pages on the nearer one', () => {
+      const { scroller } = mount();
+      measure(W);
+      scroller.scrollLeft = 0.7 * W;
+      fire(scroller, 'scroll');
+      fire(scroller, 'scrollend');
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockScrollTo).toHaveBeenLastCalledWith({ left: W, behavior: 'smooth' });
+    });
+
+    it('commits nothing while the width is unmeasured', () => {
+      const { scroller } = mount();
+      act(() => {
+        mockRoCallback?.([{ contentRect: { width: 0 } }]);
+      });
+      settleAt(scroller, W);
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(isInteracting()).toBe(false);
+    });
+  });
+
+  describe('settling on an engine without scrollend', () => {
+    let restore: () => void = () => {};
+    beforeEach(() => {
+      restore = withoutScrollEnd();
+    });
+    afterEach(() => restore());
+
+    const scrollTo = (scroller: HTMLElement, left: number) => {
+      scroller.scrollLeft = left;
+      fire(scroller, 'scroll');
+    };
+    const idle = (ms: number) =>
+      act(() => {
+        jest.advanceTimersByTime(ms);
+      });
+
+    it('commits once the scroller has been still for the idle time, aligned and released', () => {
+      const { scroller } = mount();
+      measure(W);
+      scrollTo(scroller, W);
+      idle(pagerMotion.settleIdleMs - 1);
+      expect(mockNavigate).not.toHaveBeenCalled();
+      idle(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('leaves a tap slide to its own finish when an idle check armed before it comes due', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      scrollTo(scroller, 0);
+      route(rerender, '/send');
+      frame();
+      mockNavigate.mockClear();
+
+      scroller.scrollLeft = 4 * W;
+      idle(pagerMotion.settleIdleMs);
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      finishAnimation(lastAnimation());
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/swap');
+    });
+
+    it('waits for every scroll event, not the first', () => {
+      const { scroller } = mount();
+      measure(W);
+      scrollTo(scroller, 0.5 * W);
+      idle(pagerMotion.settleIdleMs - 1);
+      scrollTo(scroller, W);
+      idle(pagerMotion.settleIdleMs - 1);
+      expect(mockNavigate).not.toHaveBeenCalled();
+      idle(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('does not commit while a finger is down', () => {
+      const { scroller } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      scrollTo(scroller, W);
+      idle(pagerMotion.settleIdleMs * 3);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('does not commit while the scroller is between pages', () => {
+      const { scroller } = mount();
+      measure(W);
+      scrollTo(scroller, W + 2 * pagerMotion.alignTolerancePx);
+      idle(pagerMotion.settleIdleMs);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a tap on the bar', () => {
+    it('jumps the scroller and slides the track from where the content was', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+
+      route(rerender, '/earn');
+
+      expect(mockScrollTo).toHaveBeenLastCalledWith({ left: 3 * W, behavior: 'auto' });
+      expect(mockAnimations).toHaveLength(1);
+      expect(lastAnimation().keyframes).toEqual([{ transform: `translateX(${3 * W}px)` }, { transform: 'none' }]);
+      expect(lastAnimation().options).toEqual({ duration: pagerTapDurationMs(3), easing: pagerMotion.tapEasing });
+      expect(mockBoostRefreshRate).toHaveBeenCalledWith(pagerTapDurationMs(3));
+      expect(scroller.scrollLeft).toBe(3 * W);
+      expect(track.style.willChange).toBe('transform');
+      expect(isInteracting()).toBe(true);
+
+      finishAnimation(lastAnimation());
+      expect(track.style.willChange).toBe('');
+      expect(isInteracting()).toBe(false);
+    });
+
+    it('starts from the live position when the scroller is off its page', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      scroller.scrollLeft = 40;
+
+      route(rerender, '/send');
+
+      expect(lastAnimation().keyframes[0]).toEqual({ transform: `translateX(${W - 40}px)` });
+    });
+
+    it('stops a coasting scroller for a frame before it jumps', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      scroller.scrollLeft = 20;
+      fire(scroller, 'scroll');
+
+      route(rerender, '/receive');
+      expect(scroller.style.overflowX).toBe('hidden');
+      // Restored only after the frame that painted it hidden, so the compositor sees the stop.
+      frame();
+      expect(scroller.style.overflowX).toBe('hidden');
+      frame();
+      expect(scroller.style.overflowX).toBe('auto');
+    });
+
+    it('leaves a still scroller scrollable', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/receive');
+      expect(scroller.style.overflowX).toBe('auto');
+    });
+
+    it('never commits the scroll events its own jump fires', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+
+      // Move the scroller too: had the flag been dropped, this rest would commit Receive.
+      scroller.scrollLeft = 2 * W;
+      fire(scroller, 'scroll');
+      fire(scroller, 'scrollend');
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('does not count its own jump as the start of a user gesture', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      fire(scroller, 'scroll');
+      finishAnimation(lastAnimation());
+      expect(isInteracting()).toBe(false);
+    });
+
+    it('jumps with no slide under reduced motion', () => {
+      mockReduceMotion.value = true;
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      expect(scroller.scrollLeft).toBe(3 * W);
+      expect(mockAnimations).toHaveLength(0);
+    });
+
+    it('does nothing when the scroller is already on the page', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      scroller.scrollLeft = 2 * W;
+      mockScrollTo.mockClear();
+      route(rerender, '/receive');
+      expect(mockScrollTo).not.toHaveBeenCalled();
+      expect(mockAnimations).toHaveLength(0);
+    });
+
+    // Snap areas follow the track's transform, so a mandatory scroller would re-snap under the
+    // slide every frame: the slide never shows, and each re-snap reports a scroll.
+    it('turns snapping off before the jump and on again once the slide ends', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      const snapAtJump: string[] = [];
+      const jump = mockScrollTo.getMockImplementation();
+      mockScrollTo.mockImplementation((options: ScrollToOptions) => {
+        snapAtJump.push(scroller.style.scrollSnapType);
+        jump?.(options);
+      });
+
+      route(rerender, '/earn');
+      expect(snapAtJump).toEqual(['none']);
+      frame();
+      expect(scroller.style.scrollSnapType).toBe('none');
+
+      finishAnimation(lastAnimation());
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('keeps snapping off across a second tap and restores it when that slide ends', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      const first = lastAnimation();
+
+      route(rerender, '/send');
+      expect(first.cancel).toHaveBeenCalled();
+      expect(scroller.style.scrollSnapType).toBe('none');
+
+      finishAnimation(lastAnimation());
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('never navigates on the scroll and scrollend events fired during a slide', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+
+      // Past the jump's own events: a re-snap or any other engine scroll mid-slide.
+      scroller.scrollLeft = 2 * W;
+      fire(scroller, 'scroll');
+      fire(scroller, 'scrollend');
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs * 2);
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockHapticSelection).not.toHaveBeenCalled();
+      expect(mockScrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
+    });
+
+    it('starts a second tap from where the first slide is on screen', () => {
+      const { track, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      const first = lastAnimation();
+      // Two thirds of the way from Overview to Earn: on screen at 600, the track 300px from rest.
+      track.style.transform = `translateX(${W}px)`;
+
+      route(rerender, '/send');
+
+      expect(first.cancel).toHaveBeenCalled();
+      expect(lastAnimation().keyframes[0]).toEqual({ transform: `translateX(${W - 2 * W}px)` });
+    });
+  });
+
+  // A wheel or trackpad scroll sends no touches, so its events are dropped while the slide runs;
+  // the slide's end is then the only chance to notice the scroller is somewhere else.
+  describe('a wheel scroll during a tap slide', () => {
+    it('settles a finished slide onto the page a wheel left there', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/send');
+      frame();
+      mockNavigate.mockClear();
+      mockHapticSelection.mockClear();
+      mockScrollTo.mockClear();
+
+      scroller.scrollLeft = 4 * W;
+      finishAnimation(lastAnimation());
+
+      expect(mockNavigate).toHaveBeenCalledWith('/swap');
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+      expect(mockHapticSelection.mock.invocationCallOrder[0]).toBeLessThan(mockNavigate.mock.invocationCallOrder[0]!);
+      expect(scroller.scrollLeft).toBe(4 * W);
+      expect(mockScrollTo).not.toHaveBeenCalled();
+
+      route(rerender, '/swap');
+      expect(notInert(scroller)).toEqual(['swap']);
+    });
+
+    it('nudges a finished slide that a wheel left between pages', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      mockNavigate.mockClear();
+      mockHapticSelection.mockClear();
+      mockScrollTo.mockClear();
+
+      scroller.scrollLeft = 2 * W + 120;
+      finishAnimation(lastAnimation());
+
+      expect(mockScrollTo).toHaveBeenLastCalledWith({ left: 2 * W, behavior: 'smooth' });
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      scroller.scrollLeft = 2 * W;
+      fire(scroller, 'scrollend');
+
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/receive');
+    });
+
+    it('does not settle a slide a touch catches before it finishes', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      scroller.scrollLeft = 4 * W;
+
+      fire(scroller, 'touchstart', 1);
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(scroller.scrollLeft).toBe(3 * W);
+    });
+
+    it('settles a slide that finishes under a finger only once the finger lifts', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      route(rerender, '/send');
+      scroller.scrollLeft = 4 * W;
+
+      finishAnimation(lastAnimation());
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      fire(scroller, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/swap');
+    });
+  });
+
+  describe('a touch during a tap slide', () => {
+    it('catches the slide where it is on screen and hands it to the native scroll', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+
+      fire(scroller, 'touchstart', 1);
+
+      expect(lastAnimation().cancel).toHaveBeenCalled();
+      expect(scroller.scrollLeft).toBe(3 * W - 180);
+      expect(track.style.willChange).toBe('');
+      // Still a gesture: the finger is down.
+      expect(isInteracting()).toBe(true);
+    });
+
+    // A mandatory snap container re-snaps a programmatic scroll, which would jump the caught slide to
+    // a page edge, so snapping is off from the catch until the finger lifts.
+    it('suspends snapping from the catch until the finger lifts', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+
+      fire(scroller, 'touchstart', 1);
+      expect(scroller.style.scrollSnapType).toBe('none');
+
+      fire(scroller, 'touchend', 0);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('keeps snapping off until the finger lifts, even when a slide ends under it', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+      fire(scroller, 'touchstart', 1);
+
+      // A route change while the finger is still down slides, and that slide ends first.
+      route(rerender, '/send');
+      finishAnimation(lastAnimation());
+      expect(scroller.style.scrollSnapType).toBe('none');
+
+      fire(scroller, 'touchend', 0);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('restores snapping when the catching touch is cancelled', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+      fire(scroller, 'touchstart', 1);
+
+      fire(scroller, 'touchcancel', 0);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('leaves snapping alone for a touch that catches no slide', () => {
+      const { scroller } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('restores snapping on unmount mid-catch', () => {
+      const { scroller, track, rerender, unmount } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+      fire(scroller, 'touchstart', 1);
+
+      unmount();
+      expect(scroller.style.scrollSnapType).toBe('x mandatory');
+    });
+
+    it('lands on a page when the touch lifts without dragging', () => {
+      const { scroller, track, rerender } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      frame();
+      track.style.transform = 'translateX(180px)';
+      fire(scroller, 'touchstart', 1);
+      frame();
+
+      fire(scroller, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
+      });
+
+      // 720 is nearest Receive at 600.
+      expect(mockScrollTo).toHaveBeenLastCalledWith({ left: 2 * W, behavior: 'smooth' });
+    });
+
+    it('does not focus a field it lands on mid-slide', () => {
+      const { getByTestId, rerender } = mount();
+      measure(W);
+      route(rerender, '/swap');
+      expect(fire(getByTestId('swap-amount-input'), 'pointerdown').defaultPrevented).toBe(true);
+    });
+
+    it('lets a tap focus a field while nothing is sliding', () => {
+      const { getByTestId, rerender } = mount();
+      measure(W);
+      tapTo(rerender, '/swap');
+      expect(fire(getByTestId('swap-amount-input'), 'pointerdown').defaultPrevented).toBe(false);
+    });
+  });
+
+  describe('placement', () => {
+    it('places the route page without a slide once measured', () => {
+      mockPathname = '/receive';
+      const { scroller } = mount();
+      measure(W);
+      expect(scroller.scrollLeft).toBe(2 * W);
+      expect(mockAnimations).toHaveLength(0);
+    });
+
+    it('matches nested routes by prefix', () => {
+      mockPathname = '/send/amount';
+      const { scroller } = mount();
+      measure(W);
+      expect(scroller.scrollLeft).toBe(W);
+    });
+
+    it('falls back to Overview for an unknown path, never treating "/" as a prefix', () => {
       mockPathname = '/xyz';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+      const { scroller } = mount();
+      measure(W);
+      expect(scroller.scrollLeft).toBe(0);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('realigns to the route page without a slide when the width changes', () => {
+      mockPathname = '/send';
+      const { scroller } = mount();
+      measure(W);
+      measure(400);
+      expect(scroller.scrollLeft).toBe(400);
+      expect(mockAnimations).toHaveLength(0);
     });
   });
 
   describe('while another tab is showing', () => {
-    // TabLayout keeps the Home pane mounted, hidden, while Explore, Activity or
-    // Settings shows, and this component reads the live route. None of those
-    // routes is a home page, and treating them as Overview slid the hidden track
-    // there, so coming back showed Overview and then slid to the page the bar named.
     const pane = (shown: boolean) => (
       <TabActiveContext.Provider value={shown}>
         <HomeSwipeContainer />
       </TabActiveContext.Provider>
     );
 
-    it('holds the track on its page instead of sliding it to Overview', () => {
+    it('holds the pager on its page instead of sliding it to Overview', () => {
       mockPathname = '/send';
-      const { rerender } = render(pane(true));
-      measure(300);
-      settleAt(-300);
-      mockAnimate.mockClear();
-      mockMotionSet.mockClear();
+      const { scroller, rerender } = mount(pane(true));
+      measure(W);
+      mockScrollTo.mockClear();
 
-      mockPathname = '/history';
-      act(() => {
-        rerender(pane(false));
-      });
+      route(rerender, '/history', pane(false));
 
-      expect(mockAnimate).not.toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
-      expect(mockMotionSet).not.toHaveBeenCalledWith(-0);
+      expect(mockScrollTo).not.toHaveBeenCalled();
+      expect(mockAnimations).toHaveLength(0);
+      expect(scroller.scrollLeft).toBe(W);
     });
 
     it('shows the page again without a slide when the route comes back to it', () => {
       mockPathname = '/send';
-      const { rerender } = render(pane(true));
-      measure(300);
-      settleAt(-300);
-      mockPathname = '/history';
-      act(() => {
-        rerender(pane(false));
-      });
-      finishAnimations();
-      mockAnimate.mockClear();
+      const { scroller, rerender } = mount(pane(true));
+      measure(W);
+      route(rerender, '/history', pane(false));
 
-      mockPathname = '/send';
-      act(() => {
-        rerender(pane(true));
-      });
+      route(rerender, '/send', pane(true));
 
-      expect(mockAnimate).not.toHaveBeenCalled();
-      expect(mockX).toBe(-300);
+      expect(mockAnimations).toHaveLength(0);
+      expect(scroller.scrollLeft).toBe(W);
     });
 
     it('swaps straight to Overview when Home is chosen from another tab', () => {
       mockPathname = '/receive';
-      const { rerender } = render(pane(true));
-      measure(300);
-      settleAt(-600);
-      mockPathname = '/history';
-      act(() => {
-        rerender(pane(false));
-      });
-      finishAnimations();
-      mockAnimate.mockClear();
-      mockMotionSet.mockClear();
+      const { scroller, rerender } = mount(pane(true));
+      measure(W);
+      route(rerender, '/history', pane(false));
 
-      mockPathname = '/';
-      act(() => {
-        rerender(pane(true));
-      });
+      route(rerender, '/', pane(true));
 
-      // The pane was hidden, so the change is a tab swap: no slide across the
-      // pages in between as it appears.
-      expect(mockAnimate).not.toHaveBeenCalled();
-      expect(mockMotionSet).toHaveBeenLastCalledWith(-0);
-      expect(mockX).toBe(-0);
+      expect(mockAnimations).toHaveLength(0);
+      expect(scroller.scrollLeft).toBe(0);
     });
 
-    // Only the tab's return swaps (#1194). A slide page closing back onto another Home page
-    // (TokenDetail to Send, Earn's withdraw Done to Overview) flips PageActiveContext and the route in
-    // one commit while the tab stays shown, and that reveal slides, as the action bar above it does.
+    it('lets a slide in flight finish when another tab is chosen', () => {
+      const { rerender } = mount(pane(true));
+      measure(W);
+      route(rerender, '/earn', pane(true));
+      route(rerender, '/history', pane(false));
+      expect(lastAnimation().cancel).not.toHaveBeenCalled();
+    });
+
+    it('settles against the held page while the route names none', () => {
+      mockPathname = '/send';
+      const { scroller, rerender } = mount(pane(true));
+      measure(W);
+      route(rerender, '/history', pane(false));
+      settleAt(scroller, W);
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    // Only the tab's return swaps (#1194). A slide page closing back onto another Home page flips
+    // PageActiveContext and the route in one commit while the tab stays shown, and that reveal slides.
     it('slides when a slide page closes back onto another Home page', () => {
       const layer = (active: boolean) => (
         <TabActiveContext.Provider value={true}>
@@ -600,52 +1001,38 @@ describe('HomeSwipeContainer', () => {
         </TabActiveContext.Provider>
       );
       mockPathname = '/receive';
-      const { rerender } = render(layer(true));
-      measure(300);
-      settleAt(-600);
+      const { rerender } = mount(layer(true));
+      measure(W);
       act(() => {
         rerender(layer(false));
       });
-      finishAnimations();
-      mockAnimate.mockClear();
-      mockMotionSet.mockClear();
 
-      mockPathname = '/';
-      act(() => {
-        rerender(layer(true));
-      });
+      route(rerender, '/', layer(true));
 
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
-      expect(mockMotionSet).not.toHaveBeenCalledWith(-0);
+      expect(mockAnimations).toHaveLength(1);
     });
   });
 
   describe('which Home page is on screen', () => {
-    // Every Home page stays mounted in the track, so only the centred one may run
-    // display-only work such as Earn's positions poll.
     const pageActive = (getByTestId: (id: string) => HTMLElement, id: string) =>
       getByTestId(`page-${id}`).getAttribute('data-page-active');
 
     it('gives only Overview an active page at "/"', () => {
-      const { getByTestId } = render(<HomeSwipeContainer />);
+      const { getByTestId } = mount();
       expect(pageActive(getByTestId, 'explore')).toBe('true');
-      expect(pageActive(getByTestId, 'earn')).toBe('false');
-      for (const id of ['send', 'receive', 'swap']) expect(pageActive(getByTestId, id)).toBe('false');
+      for (const id of ['send', 'receive', 'earn', 'swap']) expect(pageActive(getByTestId, id)).toBe('false');
     });
 
     it('moves the active page to Earn when the route does', () => {
-      const { getByTestId, rerender } = render(<HomeSwipeContainer />);
-      mockPathname = '/earn';
-      act(() => {
-        rerender(<HomeSwipeContainer />);
-      });
+      const { getByTestId, rerender } = mount();
+      route(rerender, '/earn');
       expect(pageActive(getByTestId, 'earn')).toBe('true');
       for (const id of ['explore', 'send', 'receive', 'swap']) expect(pageActive(getByTestId, id)).toBe('false');
     });
 
     it('leaves every page inactive while another tab is showing', () => {
       mockPathname = '/history';
-      const { getByTestId } = render(
+      const { getByTestId } = mount(
         <PageActiveContext.Provider value={false}>
           <HomeSwipeContainer />
         </PageActiveContext.Provider>
@@ -654,583 +1041,188 @@ describe('HomeSwipeContainer', () => {
         expect(pageActive(getByTestId, id)).toBe('false');
       }
     });
-  });
 
-  describe('ResizeObserver callback branches', () => {
-    it('ignores measurements of width 0', () => {
-      mockPathname = '/send';
-      render(<HomeSwipeContainer />);
-      mockAnimate.mockClear();
-      act(() => {
-        mockRoCallback?.([{ contentRect: { width: 0 } }]);
-      });
-      // width stayed 0 -> the release is a no-op (early return in snapToPage).
-      release(-1000);
-      expect(mockNavigate).not.toHaveBeenCalled();
-    });
+    it('makes every pane but the settled one inert', () => {
+      const { scroller, rerender } = mount();
+      measure(W);
+      expect(notInert(scroller)).toEqual(['overview']);
 
-    it('handles an empty entries array without setting width', () => {
-      render(<HomeSwipeContainer />);
-      act(() => {
-        mockRoCallback?.([]); // entries[0] undefined -> w = 0
-      });
-      release(-1000);
-      expect(mockNavigate).not.toHaveBeenCalled();
+      settleAt(scroller, 3 * W);
+      expect(mockNavigate).toHaveBeenCalledWith('/earn');
+      route(rerender, '/earn');
+
+      expect(notInert(scroller)).toEqual(['earn']);
     });
   });
 
-  describe('committing a release', () => {
-    // `modifyTarget` receives framer's coasting target, `origin + power * velocity`
-    // with power 0.8, and commits when 300ms of that velocity would carry the
-    // track past 30% of a page. At width 300 and rest, that is a target beyond
-    // -240: velocity -375px/s, projected -112.5px, past the -90px threshold.
-    it('advances to the next page when the flick projects past the threshold', () => {
-      mockPathname = '/'; // index 0
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      expect(mockNavigate).toHaveBeenCalledWith('/send');
+  describe('pages', () => {
+    it('mounts all five home pages in the track', () => {
+      const { getByTestId } = mount();
+      for (const id of ['explore', 'send', 'receive', 'earn', 'swap']) {
+        expect(getByTestId(`page-${id}`)).toBeInTheDocument();
+      }
     });
 
-    it('goes to the previous page when flicked the other way', () => {
-      mockPathname = '/receive'; // index 2
-      render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-600);
-      release(-300); // velocity +375 -> projected +112.5
-      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    it('re-renders only the panes whose flags a route change flips', () => {
+      const { getByTestId, rerender } = mount();
+      measure(W);
+      const before = mockReceiveRenders.count;
+
+      tapTo(rerender, '/send');
+
+      expect(getByTestId('page-send')).toHaveAttribute('data-page-active', 'true');
+      expect(mockReceiveRenders.count).toBe(before);
+
+      tapTo(rerender, '/receive');
+      expect(mockReceiveRenders.count).toBe(before + 1);
     });
 
-    it('buzzes once when the swipe lands on another page, as a tap on the bar does', () => {
-      mockPathname = '/'; // index 0
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
-      // The buzz and the route change are the same switch.
-      expect(mockHapticSelection.mock.invocationCallOrder[0]).toBeLessThan(mockNavigate.mock.invocationCallOrder[0]!);
+    it('passes isLoading={false} to the SendFlow', () => {
+      const { getByTestId } = mount();
+      expect(getByTestId('page-send')).toHaveAttribute('data-loading', 'false');
     });
 
-    it('stays silent when the swipe snaps back to the same page', () => {
-      mockPathname = '/send'; // index 1
-      render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-300);
-      release(-310);
-      expect(mockHapticSelection).not.toHaveBeenCalled();
-    });
-
-    it('stays silent at either end, where there is no page to switch to', () => {
-      mockPathname = '/'; // index 0 (first)
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(300);
-      expect(mockHapticSelection).not.toHaveBeenCalled();
-    });
-
-    it('stays put when the flick is too weak to project past the threshold', () => {
-      mockPathname = '/send'; // index 1
-      render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-300);
-      release(-310); // velocity -12.5 -> projected -3.75
-      expect(mockNavigate).not.toHaveBeenCalled();
-    });
-
-    it('cannot advance past the last page', () => {
-      mockPathname = '/swap'; // index 4 (last)
-      render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-1200);
-      release(-1500);
-      expect(mockNavigate).not.toHaveBeenCalled();
-      // Same page, so the release has nowhere to travel: no compositor animation,
-      // and the resting position is restored directly.
-      expect(mockReleases).toHaveLength(0);
-      expect(mockMotionSet).toHaveBeenCalledWith(-1200);
-    });
-
-    it('cannot go before the first page', () => {
-      mockPathname = '/'; // index 0 (first)
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(300);
-      expect(mockNavigate).not.toHaveBeenCalled();
-      expect(mockReleases).toHaveLength(0);
-    });
-
-    it('parks framer\u2019s own momentum on the spot the finger left', () => {
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-42);
-      // Returning the origin leaves framer's inertia animation nothing to travel,
-      // so it cannot fight the compositor for the transform.
-      expect(release(-300)).toBe(-42);
-    });
-
-    it('is a no-op while width is unmeasured (0)', () => {
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      // Without a width there is no page geometry, so framer's own target is
-      // handed straight back.
-      expect(release(-1000)).toBe(-1000);
-      expect(mockNavigate).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('the release animation', () => {
-    it('hands the compositor a single transform animation from the finger to the page', () => {
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-120);
-      release(-300);
-
-      expect(mockReleases).toHaveLength(1);
-      expect(releaseInFlight().keyframes).toEqual([
-        { transform: 'translateX(-120px)' },
-        { transform: 'translateX(-300px)' }
-      ]);
-      // `fill: forwards` holds the landing position; without it the transform
-      // reverts to framer's stale inline value for a frame.
-      expect(releaseInFlight().options).toEqual({ duration: 340, easing: 'linear(0,0.5,1)', fill: 'forwards' });
-    });
-
-    it('seeds the spring with the release velocity, so the snap continues the flick', () => {
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      expect(mockSpringToLinearEasing).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ distance: 300, velocity: -375 })
-      );
-    });
-
-    it('asks for the display\u2019s full refresh rate only for the animation\u2019s duration', () => {
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      expect(mockBoostRefreshRate).toHaveBeenCalledWith(340);
-    });
-
-    it('syncs the motion value to the target once the animation finishes', () => {
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      mockMotionSet.mockClear();
-      finishRelease();
-      expect(mockMotionSet).toHaveBeenCalledWith(-300);
-      // Deliberately not cancelled here: dropping the compositor's hold before
-      // framer's next render would show the stale transform for a frame.
-      expect(releaseInFlight().cancel).not.toHaveBeenCalled();
-    });
-
-    it('jumps straight to the page when reduced motion is on', () => {
-      mockReduceMotion.value = true;
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      expect(mockReleases).toHaveLength(0);
-      expect(mockMotionSet).toHaveBeenCalledWith(-300);
-      expect(mockNavigate).toHaveBeenCalledWith('/send');
-    });
-
-    // Element.animate throws on an easing the engine cannot parse (linear() before Safari 17.2).
-    it('jumps straight to the page where the engine cannot parse linear()', () => {
-      mockLinearEasing.value = false;
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      expect(mockReleases).toHaveLength(0);
-      expect(mockMotionSet).toHaveBeenCalledWith(-300);
-      expect(mockNavigate).toHaveBeenCalledWith('/send');
-    });
-
-    it('adopts the on-screen position when a finger interrupts a release', () => {
-      mockPathname = '/';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-
-      // Mid-flight the compositor owns the transform; pretend it has carried the
-      // track to -180 while framer still believes the finger's last position.
-      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
-      track.style.transform = 'translateX(-180px)';
-      mockMotionSet.mockClear();
-
-      pointerDown(getByTestId('page-explore'), 'touch');
-
-      // Read and written before the hold is dropped — the other order leaves one
-      // frame of the stale transform, which measured as a 172px backward jump.
-      expect(mockMotionSet).toHaveBeenCalledWith(-180);
-      expect(releaseInFlight().cancel).toHaveBeenCalled();
-    });
-
-    it('lands the track on its page when a tap stops a release', () => {
-      mockPathname = '/';
-      const { getByTestId, rerender } = render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-
-      // The route commits the moment the finger lifts, so by now the active page
-      // is already the one the release is travelling to.
-      mockPathname = '/send';
-      act(() => {
-        rerender(<HomeSwipeContainer />);
-      });
-      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
-      track.style.transform = 'translateX(-180px)';
-      mockAnimate.mockClear();
-
-      tap(getByTestId('page-explore'));
-
-      // Without this the track stays at -180: framer starts no drag for a tap, and
-      // the resting-position effect won't re-run for an index that didn't change,
-      // so it sat stranded showing two pages at once.
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -300, expect.anything());
-    });
-
-    it('keeps a tap that stops a release on the page the route is on', () => {
-      mockPathname = '/';
-      const { getByTestId, rerender } = render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      mockPathname = '/send';
-      act(() => {
-        rerender(<HomeSwipeContainer />);
-      });
-      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
-      track.style.transform = 'translateX(-180px)';
-
-      tapResumedByFramer(getByTestId('page-explore'));
-
-      // The route and the action bar say Send. Judged as a swipe, the stop at -180
-      // is 120px short of Send, past the 90px threshold, so the tap sent the track
-      // back to Overview under a bar still showing Send.
-      expect(releaseInFlight().keyframes).toEqual([
-        { transform: 'translateX(-180px)' },
-        { transform: 'translateX(-300px)' }
-      ]);
-      expect(mockNavigate).toHaveBeenCalledTimes(1);
-    });
-
-    it('keeps a tap during a tab switch\u2019s slide on the tab that was chosen', () => {
-      mockPathname = '/';
-      const { getByTestId, rerender } = render(<HomeSwipeContainer />);
-      measure(300);
-      // Tapping Send on the action bar slides the track toward it; a finger landing
-      // 30% of the way there stops the slide at -90.
-      mockPathname = '/send';
-      act(() => {
-        rerender(<HomeSwipeContainer />);
-      });
-      settleAt(-90);
-
-      tapResumedByFramer(getByTestId('page-send'));
-
-      expect(releaseInFlight().keyframes).toEqual([
-        { transform: 'translateX(-90px)' },
-        { transform: 'translateX(-300px)' }
-      ]);
-      expect(mockNavigate).not.toHaveBeenCalled();
-    });
-
-    // A second finger landing mid-swipe is not a new gesture. Without the guard the capture handler
-    // cleared the drag flag, so the swipe in flight was judged a tap and snapped back to where it
-    // started. This is the same setup as the test below, with the one difference that matters.
-    it('keeps an in-flight drag when a second, non-primary finger lands', () => {
-      mockPathname = '/send';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-300);
-      act(() => {
-        mockLastDragStart?.();
-      });
-      settleAt(-120);
-
-      pointerDown(getByTestId('page-send'), 'touch', false);
-      act(() => {
-        mockLastModifyTarget?.(mockX);
-      });
-
-      expect(releaseInFlight().keyframes).not.toEqual([
-        { transform: 'translateX(-120px)' },
-        { transform: 'translateX(-300px)' }
-      ]);
-    });
-
-    // The same rule at the carousel's other two capture bindings: `onPointerUpCapture` and
-    // `onPointerCancelCapture` share one body, so one guard closes both. Without it a second
-    // finger LIFTING mid-gesture landed the track on the current page under a first finger that
-    // was still dragging. The positive control below is what makes this non-vacuous: the landing
-    // must still happen for an ordinary pointerup.
-    it('does not land the track when a second, non-primary finger lifts', () => {
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-120);
-      mockAnimate.mockClear();
-
-      pointerUp(getByTestId('page-send'), false);
-
-      expect(mockAnimate).not.toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
-    });
-
-    it('still lands the track when an ordinary pointer lifts', () => {
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-120);
-      mockAnimate.mockClear();
-
-      pointerUp(getByTestId('page-send'));
-
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
-    });
-
-    it('judges a drag that follows an unfinished drag as a new gesture', () => {
-      mockPathname = '/send';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-300);
-      // A drag that framer locked to the vertical axis never reaches `modifyTarget`,
-      // so whatever it recorded must not carry over to the next touch.
-      act(() => {
-        mockLastDragStart?.();
-      });
-      settleAt(-120);
-      tapResumedByFramer(getByTestId('page-send'));
-      expect(releaseInFlight().keyframes).toEqual([
-        { transform: 'translateX(-120px)' },
-        { transform: 'translateX(-300px)' }
-      ]);
-    });
-
-    it('does nothing when a tap lands on a track already at rest', () => {
-      mockPathname = '/';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      mockAnimate.mockClear();
-      tap(getByTestId('page-earn'));
-      expect(mockAnimate).not.toHaveBeenCalled();
-    });
-
-    it('leaves the landing to the release when the gesture was a drag', () => {
-      mockPathname = '/';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300); // a drag's own release is in flight
-      mockAnimate.mockClear();
-      pointerUp(getByTestId('page-explore'));
-      expect(mockAnimate).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('dragConstraints', () => {
-    it('clamps left to 0 while width is 0', () => {
-      render(<HomeSwipeContainer />);
-      expect(mockLastDragConstraints).toEqual({ left: 0, right: 0 });
-    });
-
-    it('repositions the track when the width changes after a snap-back', () => {
-      mockPathname = '/send'; // index 1
-      render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-300);
-      release(-310); // too weak to commit: snaps back to the same page
-      mockAnimate.mockClear();
-
-      measure(400); // rotation, split-screen, anything that resizes the container
-
-      // The snap-back recorded index 1 as the release target, and this effect
-      // doesn't re-run to consume it, so keying the early return on the index
-      // alone left the track at -300 against 400px pages — two panes at once.
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -400, expect.anything());
-    });
-
-    it('clamps left to -(pages-1)*width once measured', () => {
-      render(<HomeSwipeContainer />);
-      measure(300);
-      // 5 pages -> left edge at -(5 - 1) * 300 = -1200
-      expect(mockLastDragConstraints).toEqual({ left: -1200, right: 0 });
+    it('drops the Swap pane when swap is disabled, keeping the track math on four pages', () => {
+      mockSwapEnabled.value = false;
+      const { queryByTestId, getByTestId, scroller, track } = mount();
+      expect(queryByTestId('page-swap')).toBeNull();
+      for (const id of ['explore', 'send', 'receive', 'earn']) {
+        expect(getByTestId(`page-${id}`)).toBeInTheDocument();
+      }
+      expect(track.style.width).toBe('400%');
+      measure(W);
+      settleAt(scroller, 3 * W);
+      expect(mockNavigate).toHaveBeenCalledWith('/earn');
     });
   });
 
   describe('swipe lock (#481)', () => {
-    const flush = () => new Promise(res => setTimeout(res, 0));
+    it('stops user scrolling while data-hide-navbar is set, and gives it back after', async () => {
+      const { scroller } = mount();
+      expect(scroller.style.overflowX).toBe('auto');
 
-    it('enables drag by default and locks it while data-hide-navbar is set', async () => {
-      render(<HomeSwipeContainer />);
-      // Draggable by default (no focused sub-surface up).
-      expect(mockLastDrag).toBe('x');
-
-      // A focused sub-surface (keyboard up, or the send flow past the recipient
-      // step) raises the flag -> the carousel swipe must lock so it can't drag
-      // an adjacent pane over the active step.
       await act(async () => {
         document.body.setAttribute('data-hide-navbar', '');
-        await flush();
+        await Promise.resolve();
       });
-      expect(mockLastDrag).toBe(false);
+      expect(scroller.style.overflowX).toBe('hidden');
 
-      // ...and the swipe returns once that surface closes.
       await act(async () => {
         document.body.removeAttribute('data-hide-navbar');
-        await flush();
+        await Promise.resolve();
       });
-      expect(mockLastDrag).toBe('x');
+      expect(scroller.style.overflowX).toBe('auto');
     });
 
-    it('starts locked when the flag is already set at mount', () => {
+    it('starts locked when the flag is already set at mount, and still moves for a route change', () => {
       document.body.setAttribute('data-hide-navbar', '');
-      render(<HomeSwipeContainer />);
-      expect(mockLastDrag).toBe(false);
+      const { scroller, rerender } = mount();
+      expect(scroller.style.overflowX).toBe('hidden');
+      measure(W);
+      route(rerender, '/send');
+      expect(scroller.scrollLeft).toBe(W);
     });
   });
 
-  describe('swiping from a text field', () => {
-    // framer refuses to start a drag when the gesture lands on a form control, so
-    // that dragging inside one selects text. The swap screen's two amount fields
-    // are full-width and ~64px tall, which left most of that screen unable to
-    // swipe, so touch gestures start the drag here instead.
-    it('starts the drag itself for a touch that lands on an input', () => {
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      pointerDown(getByTestId('swap-amount-input'), 'touch');
-      expect(mockDragStart).toHaveBeenCalledTimes(1);
-      // Manual starts need framer's controls on the track, or they go nowhere.
-      expect(mockLastDragControlsProp).toBe(mockDragControls);
+  describe('focus and navbar holds', () => {
+    it('releases a Swap review hold when its action page moves out of view', () => {
+      mockPathname = '/swap';
+      mockSwapReview.open = true;
+      const { rerender } = mount();
+      expect(document.body).toHaveAttribute('data-hide-navbar');
+
+      route(rerender, '/receive');
+      expect(document.body).not.toHaveAttribute('data-hide-navbar');
+
+      route(rerender, '/swap');
+      expect(document.body).toHaveAttribute('data-hide-navbar');
     });
 
-    it('leaves a mouse on an input to framer, so drag-to-select still works', () => {
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      pointerDown(getByTestId('swap-amount-input'), 'mouse');
-      expect(mockDragStart).not.toHaveBeenCalled();
-    });
+    it('releases keyboard focus when a retained action page moves out of view', () => {
+      mockPathname = '/send';
+      const { getByTestId, rerender } = mount();
+      const input = getByTestId('send-amount-input');
+      let releaseNavbar: (() => void) | undefined;
+      input.addEventListener('focus', () => {
+        releaseNavbar = holdNavbarHidden();
+      });
+      input.addEventListener('blur', () => {
+        releaseNavbar?.();
+      });
 
-    it('leaves touches on ordinary content to framer\u2019s own listener', () => {
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      pointerDown(getByTestId('page-earn'), 'touch');
-      expect(mockDragStart).not.toHaveBeenCalled();
-    });
+      input.focus();
+      expect(document.body).toHaveAttribute('data-hide-navbar');
 
-    it('starts nothing while the swipe is locked (#481)', () => {
-      document.body.setAttribute('data-hide-navbar', '');
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      pointerDown(getByTestId('swap-amount-input'), 'touch');
-      expect(mockDragStart).not.toHaveBeenCalled();
-    });
+      route(rerender, '/receive');
 
-    it('does not focus a field tapped mid-transition', () => {
-      mockPathname = '/';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      // The fields are moving at that moment, so which one is under the finger is
-      // accidental — and the keyboard would interrupt the transition it stopped.
-      expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(true);
-    });
-
-    it('lets a tap focus a field while nothing is animating', () => {
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(false);
-    });
-
-    it('lets a tap focus a field once the transition has landed', () => {
-      mockPathname = '/';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
-      finishRelease();
-      // The finished animation still holds the transform, which is not the same as
-      // the track still moving. Reading it as "mid-transition" cost the first tap
-      // on every field after a flick — the keyboard needed a second tap.
-      expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(false);
+      expect(input).not.toHaveFocus();
+      expect(document.body).not.toHaveAttribute('data-hide-navbar');
     });
   });
 
-  describe('a layout measurement elsewhere in the tree', () => {
-    /**
-     * What framer does to the track whenever any `layout` node commits (the tab
-     * bars' pill, icon pop, a SegmentedControl): announce the measurement, reset
-     * the transform to `none` so the boxes beneath read untransformed, measure.
-     * It then re-renders the track only if that render isn't deduped against one
-     * already made at the same frame timestamp, and on WebKit it often is.
-     */
-    function measureLayout(track: HTMLElement) {
-      mockLastBeforeLayoutMeasure?.();
-      track.style.transform = 'none';
-    }
-
-    it('puts the track back on its page after framer resets it to measure', async () => {
-      mockPathname = '/send';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-300);
-      const track = getByTestId('page-send').parentElement?.parentElement as HTMLElement;
-      track.style.transform = 'translateX(-300px)';
-
-      measureLayout(track);
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      // Left at `none`, the track showed Overview under a bar naming Send — for a
-      // frame mid-slide, or for good when the reset landed as the slide settled.
-      expect(track.style.transform).toBe('translateX(-300px)');
+  describe('gesture signal', () => {
+    it('begins on touchstart and ends when the scroller settles', () => {
+      const { scroller } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      expect(isInteracting()).toBe(true);
+      fire(scroller, 'touchend', 0);
+      settleAt(scroller, W);
+      expect(isInteracting()).toBe(false);
     });
 
-    it('leaves the transform alone when framer re-rendered it itself', async () => {
-      mockPathname = '/send';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      settleAt(-300);
-      const track = getByTestId('page-send').parentElement?.parentElement as HTMLElement;
-
-      measureLayout(track);
-      track.style.transform = 'translateX(-299px)';
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      expect(track.style.transform).toBe('translateX(-299px)');
+    it('begins on the first scroll event, as a trackpad swipe sends no touches', () => {
+      const { scroller } = mount();
+      measure(W);
+      scroller.scrollLeft = 10;
+      fire(scroller, 'scroll');
+      expect(isInteracting()).toBe(true);
     });
 
-    it('keeps `none` on Overview, where it is the resting transform', async () => {
-      mockPathname = '/';
-      const { getByTestId } = render(<HomeSwipeContainer />);
-      measure(300);
-      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
-
-      measureLayout(track);
-      await act(async () => {
-        await Promise.resolve();
+    it('ends for a tap on content, which scrolls nothing', () => {
+      const { scroller } = mount();
+      measure(W);
+      fire(scroller, 'touchstart', 1);
+      fire(scroller, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs);
       });
-
-      expect(track.style.transform).toBe('none');
+      expect(isInteracting()).toBe(false);
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
   });
 
   describe('cleanup', () => {
-    it('disconnects the ResizeObserver and stops the animation on unmount', () => {
-      const { unmount } = render(<HomeSwipeContainer />);
-      measure(300); // width > 0 so the animate effect returns a stop() cleanup
+    it('stops listening for the end of a touch still down at unmount', () => {
+      const { scroller, getByTestId, unmount } = mount();
+      measure(W);
+      const row = document.createElement('div');
+      getByTestId('page-explore').appendChild(row);
+      fire(row, 'touchstart', 1);
+      scroller.scrollLeft = W;
+
       unmount();
-      expect(mockRoDisconnect).toHaveBeenCalled();
-      expect(mockAnimateStop).toHaveBeenCalled();
+      fire(row, 'touchend', 0);
+      act(() => {
+        jest.advanceTimersByTime(pagerMotion.settleIdleMs * 2);
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
 
-    it('cancels an in-flight release on unmount', () => {
-      mockPathname = '/';
-      const { unmount } = render(<HomeSwipeContainer />);
-      measure(300);
-      release(-300);
+    it('cancels a slide, ends the gesture and disconnects the observer on unmount', () => {
+      const { scroller, rerender, unmount } = mount();
+      measure(W);
+      route(rerender, '/earn');
+      fire(scroller, 'touchstart', 1);
+      route(rerender, '/send');
+      const slide = lastAnimation();
+
       unmount();
-      expect(releaseInFlight().cancel).toHaveBeenCalled();
+
+      expect(slide.cancel).toHaveBeenCalled();
+      expect(mockRoDisconnect).toHaveBeenCalled();
+      expect(isInteracting()).toBe(false);
     });
   });
 });

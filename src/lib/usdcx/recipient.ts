@@ -1,5 +1,7 @@
 import { Hex, pad } from 'viem';
 
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
+
 const MIDEN_ACCOUNT_HEX_ID = /^0x[0-9a-fA-F]{30}$/;
 
 /**
@@ -18,7 +20,7 @@ const MIDEN_ACCOUNT_HEX_ID = /^0x[0-9a-fA-F]{30}$/;
  */
 export function midenAccountHexToXReserveRecipient(hexId: string): Hex {
   if (!MIDEN_ACCOUNT_HEX_ID.test(hexId)) {
-    throw new Error(`Invalid Miden account id: ${hexId}`);
+    throw walletRaised(new Error(`Invalid Miden account id: ${hexId}`));
   }
   const suffixed: Hex = `0x${hexId.slice(2).toLowerCase()}00`;
   return pad(suffixed, { size: 32, dir: 'left' });

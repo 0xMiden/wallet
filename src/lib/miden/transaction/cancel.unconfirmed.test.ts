@@ -1,6 +1,10 @@
 import * as Repo from 'lib/miden/repo';
+import { classifyError } from 'lib/telemetry/classify';
+import { captureDiagnosticLog } from 'lib/telemetry/crash';
+import { annotateOffscreenDeadline } from 'lib/telemetry/offscreen-deadline-diagnostics';
 
-import { cancelTransactionAfterPipelineStopped, markTransactionUnconfirmed } from './cancel';
+import { cancelTransaction, cancelTransactionAfterPipelineStopped, markTransactionUnconfirmed } from './cancel';
+import { TRANSACTION_ENGINE_RECOVERED_ERROR } from './constants';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -12,6 +16,10 @@ jest.mock('../back/background-notification', () => ({
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
 jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/telemetry/crash', () => ({
+  ...jest.requireActual('lib/telemetry/crash'),
+  captureDiagnosticLog: jest.fn()
+}));
 
 const ID = `0x${'ab'.repeat(32)}`;
 const indefinite = () =>
@@ -63,6 +71,25 @@ describe('entering Unconfirmed (#1081)', () => {
     expect(report()).toHaveBeenCalledWith(expect.objectContaining({ result: 'errored' }));
   });
 
+  it('notifies a refusal past the crossing as not confirmed, as Activity reads it (#2060)', async () => {
+    const row = generating({
+      stage: 'submitting',
+      mayHaveSubmitted: true,
+      cancelledInFlightAt: undefined,
+      submitEvidence: [{ attemptId: 'a1', capturedAt: 1, source: 'stage' }]
+    });
+    await Repo.transactions.put(row);
+    await cancelTransaction(
+      row,
+      new Error(
+        'failed to submit proven transaction: RPC error: grpc request failed for submit_proven_transaction: invalid request parameters'
+      )
+    );
+    expect((await read())?.status).toBe(ITransactionStatus.Failed);
+    expect(notices().notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
+    expect(notices().notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
+  });
+
   // The burn note lands on its own once submitted, so failing the row would hide a burn the faucet still consumes.
   it('a USDCx burn waits for the verdict with its burn identity kept', async () => {
     const usdcxBurn = { noteId: 'burn-note', destinationDomain: 26, phase: 'pending' };
@@ -73,6 +100,16 @@ describe('entering Unconfirmed (#1081)', () => {
     expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
     expect(row?.extraInputs).toEqual({ provider: 'usdcx', usdcxBurn });
     expect(notices().notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
+  });
+
+  it('records a swap waiting for the verdict as unconfirmed (#1660)', async () => {
+    const swap = generating({ type: 'swap', displayIcon: 'SWAP' });
+    await Repo.transactions.put(swap);
+    await cancelTransactionAfterPipelineStopped(swap, indefinite());
+    expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(
+      jest.mocked(captureDiagnosticLog).mock.calls.map(([event, attributes]) => [event, attributes.outcome])
+    ).toEqual([['operation_end', 'unconfirmed']]);
   });
 
   it('marks an execute row`s entry with its origin', async () => {
@@ -138,5 +175,113 @@ describe('entering Unconfirmed (#1081)', () => {
     expect(row?.status).toBe(ITransactionStatus.Failed);
     expect(row?.mayHaveSubmitted).toBe(true);
     expect(row?.cancelledInFlightAt !== undefined).toBe(livenessMarked);
+  });
+});
+
+describe('persisted offscreen deadline evidence (#2203)', () => {
+  it.each([
+    { label: 'Failed', status: ITransactionStatus.Failed, record: cancelTransaction, errorKind: 'unknown' },
+    {
+      label: 'Unconfirmed',
+      status: ITransactionStatus.Unconfirmed,
+      record: markTransactionUnconfirmed,
+      errorKind: 'unknown'
+    },
+    {
+      label: 'Failed with timeout cause',
+      status: ITransactionStatus.Failed,
+      record: cancelTransaction,
+      errorKind: 'timeout'
+    }
+  ])('keeps the proving suffix local to $label deadline history and export', async ({ status, record, errorKind }) => {
+    const transaction = generating({ stage: 'proving', cancelledInFlightAt: undefined });
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    const failure = new Error('send interrupted', { cause: abort });
+    const nestedCause = errorKind === 'timeout' ? new Error('request timed out') : undefined;
+    if (nestedCause) {
+      abort.cause = nestedCause;
+    }
+    const originalError = `${failure} <- caused by ${abort}`;
+    const causeText = nestedCause ? ` <- caused by ${nestedCause}` : '';
+    expect(classifyError(originalError + causeText)).toBe(errorKind);
+    annotateOffscreenDeadline(abort, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'proving'
+    });
+    await Repo.transactions.put(transaction);
+    await record(transaction, failure);
+
+    const rawError =
+      originalError +
+      ' [offscreen deadline: owner=own; timer=started; trigger=write; method=guardianPipeline; stage=proving]' +
+      causeText;
+    expect(await read()).toMatchObject({ status, rawError });
+    const exported: { transactions: ITransaction[] } = JSON.parse(await Repo.exportDb());
+    expect(exported[Repo.Table.Transactions]).toEqual([
+      expect.objectContaining({ id: transaction.id, status, rawError })
+    ]);
+    expect(report()).toHaveBeenCalledWith(expect.objectContaining({ result: 'errored', errorKind }));
+  });
+
+  it('keeps an owned deadline in Failed history and its local export', async () => {
+    const transaction: ITransaction = generating({
+      stage: 'creating-proposal',
+      processingStartedAt: 1100,
+      cancelledInFlightAt: undefined,
+      mayHaveSubmitted: undefined,
+      submitEvidence: undefined
+    });
+    await Repo.transactions.put(transaction);
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'own', timer: 'started', killer: 'write' }
+    });
+    annotateOffscreenDeadline(abort, {
+      offscreenDeadlineMethod: 'guardianPipeline',
+      offscreenDeadlineStage: 'creating-proposal'
+    });
+    await cancelTransaction(transaction, abort);
+    const row = await read();
+    const expectedRawError =
+      'OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+      ' [offscreen deadline: owner=own; timer=started; trigger=write; method=guardianPipeline; stage=creating-proposal]';
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(row?.rawError).toBe(expectedRawError);
+    const exported: { transactions: ITransaction[] } = JSON.parse(await Repo.exportDb());
+    expect(exported[Repo.Table.Transactions]).toHaveLength(1);
+    expect(exported[Repo.Table.Transactions][0]).toMatchObject({
+      id: transaction.id,
+      error: TRANSACTION_ENGINE_RECOVERED_ERROR,
+      rawError: expectedRawError
+    });
+  });
+
+  it('keeps a collateral deadline in Unconfirmed history and its local export', async () => {
+    const transaction: ITransaction = generating({ stage: 'submitting', mayHaveSubmitted: true });
+    await Repo.transactions.put(transaction);
+    const abort = new OperationAbortedError('op-1', 'deadline', {
+      started: true,
+      deadline: { owner: 'collateral', timer: 'started', killer: 'write' }
+    });
+    await markTransactionUnconfirmed(transaction, abort);
+    const row = await read();
+    const expectedRawError =
+      'OperationAbortedError: Offscreen operation op-1 aborted (deadline)' +
+      ' [offscreen deadline: owner=collateral; timer=started; trigger=write; method=unobserved; stage=not_observed]';
+    expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(row?.mayHaveSubmitted).toBe(true);
+    expect(row?.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(row?.rawError).toBe(expectedRawError);
+    const exported: { transactions: ITransaction[] } = JSON.parse(await Repo.exportDb());
+    expect(exported[Repo.Table.Transactions]).toHaveLength(1);
+    expect(exported[Repo.Table.Transactions][0]).toMatchObject({
+      id: transaction.id,
+      error: TRANSACTION_ENGINE_RECOVERED_ERROR,
+      rawError: expectedRawError
+    });
   });
 });

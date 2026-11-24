@@ -1,9 +1,19 @@
 import { getAddress } from 'viem';
 
-import type { BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
+import type { EarnVaultInfo } from 'lib/epoch/pools-read';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
+
+import type { AgglayerDepositToken, BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import { type AgglayerRecoveryConfig, epochCollateralFaucetId, type SupportedEvmChainConfig } from './schema';
+import {
+  type AgglayerRecoveryConfig,
+  EARN_VAULT_LOGO,
+  type EarnVaultConfig,
+  epochCollateralFaucetId,
+  type SupportedEvmChainConfig
+} from './schema';
+import { bridgeConfigBaseUrl } from './source';
 import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
@@ -11,6 +21,7 @@ export class BridgeConfigUnavailableError extends Error {
   constructor(readonly value: string) {
     super(`The bridge config has no usable ${value}.`);
     this.name = 'BridgeConfigUnavailableError';
+    walletRaised(this);
   }
 }
 
@@ -18,6 +29,24 @@ export interface EvmUsdc extends TokenMetadata {
   /** Checksummed, as the Epoch intents carry it. */
   address: `0x${string}`;
   chainId: number;
+}
+
+/** One EVM token of an Epoch route, with the symbol and decimals its contract reports. */
+export interface EpochToken extends EvmUsdc {
+  /** The symbol the document keys the token under. */
+  key: string;
+  /** The Miden faucet the solver settles the token into (lowercase hex, `EpochTokenRead`); absent when none resolved. */
+  midenFaucetId?: string;
+  /** That faucet's on-chain symbol and decimals; absent when its metadata could not be read. */
+  midenSymbol?: string;
+  midenDecimals?: number;
+}
+
+/** An Epoch token a deposit can deliver: one whose Miden faucet, and that faucet's scale, are known. */
+export interface EpochDepositToken extends EpochToken {
+  midenFaucetId: string;
+  midenSymbol: string;
+  midenDecimals: number;
 }
 
 export interface EarnMarket {
@@ -35,6 +64,13 @@ const okValue = <T>(probe: Probe<T> | undefined): T | null => (probe?.state === 
 export function selectEpochChain(s: BridgeConfigSnapshot, chainId?: number): SupportedEvmChainConfig | null {
   const chains = Object.values(s.config?.supportedEvmChains ?? {});
   return chains.find(chain => chain.bridges.epoch && (chainId === undefined || chain.chainId === chainId)) ?? null;
+}
+
+/** The id of every chain with an Epoch route, in document order, whether or not the route takes deposits. */
+export function selectEpochChainIds(s: BridgeConfigSnapshot): number[] {
+  return Object.values(s.config?.supportedEvmChains ?? {}).flatMap(chain =>
+    chain.bridges.epoch ? [chain.chainId] : []
+  );
 }
 
 export function selectAgglayerChain(s: BridgeConfigSnapshot, chainId?: number): SupportedEvmChainConfig | null {
@@ -75,15 +111,60 @@ export function selectSwapPairs(s: BridgeConfigSnapshot): SwapPairs | null {
 }
 
 /** The faucet the solver lists a swap token under `ticker` at ('0x' + 30 lowercase hex), or null when it lists none. */
+
 export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string): string | null {
   return selectSwapPairs(s)?.tokens.find(token => token.ticker === ticker)?.faucetId ?? null;
 }
 
 export function selectEvmUsdc(s: BridgeConfigSnapshot, chainId?: number): EvmUsdc | null {
   const chain = selectEpochChain(s, chainId);
-  const address = chain?.bridges.epoch?.tokens.USDC?.contractAddress;
-  const token = okValue(chain ? s.derived?.chains[chain.chainId]?.epoch.evmUsdc : undefined);
-  return address && chain && token ? { address: getAddress(address), chainId: chain.chainId, ...token } : null;
+  const usdc = chain ? selectEpochToken(s, chain.chainId, 'USDC') : null;
+  return usdc ? { address: usdc.address, chainId: usdc.chainId, symbol: usdc.symbol, decimals: usdc.decimals } : null;
+}
+
+/**
+ * The token the document keys `key` on the Epoch route of `chainId`, or null while the route lists none or its
+ * contract read has not succeeded.
+ */
+export function selectEpochToken(s: BridgeConfigSnapshot, chainId: number, key: string): EpochToken | null {
+  const token = selectEpochChain(s, chainId)?.bridges.epoch?.tokens[key];
+  const read = okValue(s.derived?.chains[chainId]?.epoch.tokens[key]);
+  return token && read ? { key, address: getAddress(token.contractAddress), chainId, ...read } : null;
+}
+
+/** Every token of the Epoch route of `chainId` whose contract read has succeeded, in document order. */
+export function selectEpochTokens(s: BridgeConfigSnapshot, chainId: number): EpochToken[] {
+  const keys = Object.keys(selectEpochChain(s, chainId)?.bridges.epoch?.tokens ?? {});
+  return keys.flatMap(key => selectEpochToken(s, chainId, key) ?? []);
+}
+
+/**
+ * The tokens a Fast deposit can start from on `chainId`, in document order: those of a route with deposits on whose
+ * Miden faucet and its scale the derivation read. Empty while the route takes no deposit.
+ */
+export function selectEpochDepositTokens(s: BridgeConfigSnapshot, chainId: number): EpochDepositToken[] {
+  if (selectEpochChain(s, chainId)?.bridges.epoch?.depositEnabled !== true) return [];
+  return selectEpochTokens(s, chainId).flatMap(token => {
+    const { midenFaucetId, midenSymbol, midenDecimals } = token;
+    if (midenFaucetId === undefined || midenSymbol === undefined || midenDecimals === undefined) return [];
+    return [{ ...token, midenFaucetId, midenSymbol, midenDecimals }];
+  });
+}
+
+/**
+ * The EVM token a Fast send of the Miden faucet `midenFaucetId` (lowercase hex) arrives as on `chainId`: the route's
+ * token that settles into that faucet. A route none of whose tokens resolved a faucet is read as a document from
+ * before the token list, so its USDC is the output, as it always was. Null while no token of the route fits.
+ */
+export function selectEpochOutputToken(
+  s: BridgeConfigSnapshot,
+  chainId: number,
+  midenFaucetId: string
+): EpochToken | null {
+  const tokens = selectEpochTokens(s, chainId);
+  if (tokens.every(token => token.midenFaucetId === undefined)) return selectEpochToken(s, chainId, 'USDC');
+  const faucet = midenFaucetId.toLowerCase();
+  return tokens.find(token => token.midenFaucetId === faucet) ?? null;
 }
 
 /** Read the market returned by the Epoch positions service. */
@@ -92,9 +173,101 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
 }
 
 /**
+ * The Miden account (lowercase hex) that the derivation read from the Epoch allocator at `allocatorUrl`
+ * (`derived.epoch.allocatorAccount`). Null while no derivation holds one for that allocator, or while its read failed.
+ */
+export function selectEpochAllocatorAccount(s: BridgeConfigSnapshot): string | null {
+  return okValue(s.derived?.epoch.allocatorAccount)?.accountId ?? null;
+}
+
+/**
+ * The Epoch allocator the snapshot's document names, with the account the derivation read for it. Null while the
+ * document names no `epoch.allocatorUrl`. The account is null while its probe is not `ok`.
+ */
+export function selectEpochAllocator(
+  s: BridgeConfigSnapshot
+): { allocatorUrl: string; accountId: string | null } | null {
+  const allocatorUrl = s.config?.['bridge-providers'].epoch.allocatorUrl ?? null;
+  if (allocatorUrl === null) return null;
+  return { allocatorUrl, accountId: selectEpochAllocatorAccount(s) };
+}
+
+/**
+ * The Earn vault catalogue the derivation read (`derived.epoch.vaults`): the listed vaults the service serves, in the
+ * document's order. Null while no derivation holds one, or while its read failed or was skipped.
+ */
+export function selectEarnVaultCatalog(s: BridgeConfigSnapshot): EarnVaultInfo[] | null {
+  return okValue(s.derived?.epoch.vaults);
+}
+
+const NO_EARN_VAULTS: readonly EarnVaultConfig[] = [];
+
+/**
+ * The Earn vaults the document lists (`earn.vaults`), in picker order: the only markets the wallet offers, and the
+ * names it shows for them. Empty while no document is accepted, or when Earn is off.
+ */
+export function selectEarnVaults(s: BridgeConfigSnapshot): readonly EarnVaultConfig[] {
+  return s.config?.earn?.vaults ?? NO_EARN_VAULTS;
+}
+
+/**
+ * The Arcade sale configuration. The seller field is retained for compatibility, not seller filtering.
+ * Null while no document is accepted, or while `features.arcadeGcPurchase` is off; a document that turns the
+ * purchase off is the kill switch, and `getGcSaleConfig` (`lib/miden/arcade/gc-sale.ts`) tells the two apart.
+ */
+export function selectGcSale(s: BridgeConfigSnapshot): { seller: string } | null {
+  return s.config?.features.arcadeGcPurchase === true ? (s.config.arcade?.sale ?? null) : null;
+}
+
+/**
+ * The absolute URL of a listed vault's `logo`: the path resolved against the base URL the network's document is
+ * fetched from (`bridgeConfigBaseUrl`). Null when the entry names no logo. Draw it only through an `<img>`, so an SVG
+ * never runs.
+ */
+export function selectEarnVaultLogoUrl(s: BridgeConfigSnapshot, listing: EarnVaultConfig): string | null {
+  const { logo } = listing;
+  return logo !== undefined && EARN_VAULT_LOGO.test(logo) ? `${bridgeConfigBaseUrl(s.network)}/${logo}` : null;
+}
+
+/** The listed Earn vault of `marketUid` (in any case), or null when the document lists none for it. */
+export function selectEarnVault(s: BridgeConfigSnapshot, marketUid: string): EarnVaultConfig | null {
+  const key = marketUid.toLowerCase();
+  return selectEarnVaults(s).find(vault => vault.marketUid === key) ?? null;
+}
+
+/**
+ * The mainnet launch moment the document sets (`mainnetCountdown.launchAt`, epoch milliseconds, UTC). Null
+ * while the countdown is off, names no moment, or no document is accepted yet. Before the moment the
+ * wallet counts down to it; from the moment on, mainnet has launched (`hasMainnetLaunched`).
+ */
+export function selectMainnetLaunchAt(s: BridgeConfigSnapshot): number | null {
+  const countdown = s.config?.mainnetCountdown;
+  if (!countdown?.enabled || countdown.launchAt === undefined) return null;
+  return countdown.launchAt;
+}
+
+/**
+ * Whether mainnet has launched for this network at `now`: the countdown is on and its moment has passed.
+ * This is the one switch behind the invite-only Welcome, the recover-only reset and the switch-to-mainnet
+ * banner, so the document's moment is what moves every wallet, not a flag of its own.
+ */
+export function hasMainnetLaunched(s: BridgeConfigSnapshot, now: number): boolean {
+  const launchAt = selectMainnetLaunchAt(s);
+  return launchAt !== null && now >= launchAt;
+}
+
+/**
  * The registered token whose origin is native ETH on network 0: its faucet mints bridged ETH and sends its deliveries,
  * each a deposit of `w` wei arriving as `floor(w / 10^scale)` of the faucet's units.
  */
+/**
+ * The most the receiving account may hold in US dollars once a bridge-in lands (`limits.bridgeInMaxBalanceUsd`), or
+ * null when the document sets no ceiling.
+ */
+export function selectBridgeInMaxBalanceUsd(s: BridgeConfigSnapshot): number | null {
+  return s.config?.limits?.bridgeInMaxBalanceUsd ?? null;
+}
+
 export function selectNativeEthToken(s: BridgeConfigSnapshot, chainId?: number): BridgeToken | null {
   const tokens = okValue(agglayerReads(s, chainId)?.tokens) ?? [];
   return tokens.find(token => token.originToken === NATIVE_ETH && token.originNetwork === 0) ?? null;
@@ -109,6 +282,62 @@ export function selectNativeEthFaucet(s: BridgeConfigSnapshot, chainId?: number)
 export function selectNativeEthFaucets(s: BridgeConfigSnapshot): string[] {
   const chains = Object.values(s.config?.supportedEvmChains ?? {}).filter(chain => chain.bridges.agglayer);
   const faucets = chains.flatMap(chain => selectNativeEthFaucet(s, chain.chainId) ?? []);
+  return [...new Set(faucets)];
+}
+
+export type { AgglayerDepositToken };
+
+/**
+ * The ERC-20s the deposit picker offers on `chainId`, as the derivation verified them against the bridge registry
+ * (see probeDepositTokens): an empty list when there is nothing to offer, null while the read failed or has not
+ * landed, which the picker reports rather than showing a shorter list.
+ */
+export function selectAgglayerDepositTokens(s: BridgeConfigSnapshot, chainId?: number): AgglayerDepositToken[] | null {
+  const probe = agglayerReads(s, chainId)?.depositTokens;
+  switch (probe?.state) {
+    case 'ok':
+      return probe.value;
+    case 'absent':
+    case 'skipped':
+      return [];
+    default:
+      return null;
+  }
+}
+
+/**
+ * The registry entry for `originToken` (lowercase) on `chainId`: the faucet that mints its deliveries and the scale
+ * it mints at. The same address registered from another network is another bridged token, so the entry must be from
+ * `originNetwork` (a saved row's deposit network), else from the chain's read network id. Null while the registry
+ * read is not ok, while neither network is known, or while the registry holds no faucet for the token there.
+ */
+export function selectAgglayerRegistryToken(
+  s: BridgeConfigSnapshot,
+  originToken: string,
+  chainId?: number,
+  originNetwork?: number
+): BridgeToken | null {
+  const reads = agglayerReads(s, chainId);
+  const networkId = originNetwork ?? okValue(reads?.evmNetworkId);
+  if (networkId === null) return null;
+  const tokens = okValue(reads?.tokens) ?? [];
+  return registeredToken(tokens, originToken, networkId);
+}
+
+/** The entry for `originToken` registered from `networkId` in a registry read, or null. */
+export function registeredToken(tokens: BridgeToken[], originToken: string, networkId: number): BridgeToken | null {
+  return tokens.find(token => token.originToken === originToken && token.originNetwork === networkId) ?? null;
+}
+
+/**
+ * Every faucet the bridge registry of any listed AggLayer chain holds, each once: each mints one bridged token and
+ * sends its deliveries, so a note from any of them is a bridge delivery.
+ */
+export function selectAgglayerDeliveryFaucets(s: BridgeConfigSnapshot): string[] {
+  const chains = Object.values(s.config?.supportedEvmChains ?? {}).filter(chain => chain.bridges.agglayer);
+  const faucets = chains.flatMap(chain =>
+    (okValue(agglayerReads(s, chain.chainId)?.tokens) ?? []).map(token => token.midenFaucetId)
+  );
   return [...new Set(faucets)];
 }
 
@@ -136,30 +365,23 @@ export function getMidenUsdc(): MidenUsdc {
   return getValue('Earn collateral faucet', selectMidenUsdc);
 }
 
-export function getEvmUsdc(chainId?: number): EvmUsdc {
-  return getValue('EVM USDC', s => selectEvmUsdc(s, chainId));
+/** The token a Fast send of `midenFaucetId` (lowercase hex) arrives as on `chainId` (`selectEpochOutputToken`). */
+export function getEpochOutputToken(chainId: number, midenFaucetId: string): EpochToken {
+  return getValue('Epoch output token', s => selectEpochOutputToken(s, chainId, midenFaucetId));
 }
 
-/** The EVM USDC address from the document alone, checksummed: a recovery action never waits on the token's read. */
-export function getEvmUsdcAddress(): `0x${string}` {
-  return getValue('epoch.evmUsdc', s => {
-    const address = selectEpochChain(s)?.bridges.epoch?.tokens.USDC?.contractAddress;
-    return address ? getAddress(address) : null;
-  });
-}
-
-/** The EVM USDC on `chainId` (else the first Epoch chain) with symbol and decimals, or null until that read works. */
-export function findEvmUsdc(chainId?: number): EvmUsdc | null {
-  return selectEvmUsdc(getBridgeConfigSnapshot(), chainId);
-}
-
-/** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */
-export function findEpochUsdcAddress(chainId: number): string | null {
-  return selectEpochChain(getBridgeConfigSnapshot(), chainId)?.bridges.epoch?.tokens.USDC?.contractAddress ?? null;
+/** The chain ids of the accepted document's `supportedEvmChains`, in document order. Empty with no document. */
+export function getSupportedEvmChainIds(): number[] {
+  return Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {}).map(chain => chain.chainId);
 }
 
 export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
+}
+
+/** This realm's `selectEarnVaults`: an empty list, never a throw, when the document lists none. */
+export function getEarnVaults(): readonly EarnVaultConfig[] {
+  return selectEarnVaults(getBridgeConfigSnapshot());
 }
 
 export function getAgglayerMidenBridge(chainId?: number): string {

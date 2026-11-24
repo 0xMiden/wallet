@@ -5,10 +5,12 @@ import {
   TransactionReceiptNotFoundError,
   type Address,
   type Chain,
-  type Hash
+  type Hash,
+  type TransactionReceipt
 } from 'viem';
 
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from './config';
 
@@ -19,21 +21,38 @@ export class EvmTransactionRevertedError extends Error {
   }
 }
 
-export async function waitForEvmReceipt(hash: Hash, chain: Chain): Promise<void> {
+/** A misrouted or malformed RPC receipt cannot prove an outcome or authorize a retry. */
+function assertReceiptIdentity(hash: Hash, receipt: TransactionReceipt): void {
+  if (
+    typeof receipt?.transactionHash !== 'string' ||
+    receipt.transactionHash.toLowerCase() !== hash.toLowerCase() ||
+    (receipt.status !== 'success' && receipt.status !== 'reverted')
+  )
+    throw new Error('EVM receipt identity unavailable');
+}
+
+export async function waitForEvmReceipt(hash: Hash, chain: Chain, requireExactIdentity = false): Promise<void> {
   const rpcUrl = getChain(chain.id)?.rpcUrl;
-  if (!rpcUrl) throw new Error(`${chain.name} RPC is not configured`);
+  if (!rpcUrl) throw walletRaised(new Error(`${chain.name} RPC is not configured`));
   const client = createPublicClient({ chain, transport: http(rpcUrl) });
   const receipt = await client.waitForTransactionReceipt({ hash, confirmations: 1 });
+  if (requireExactIdentity) assertReceiptIdentity(hash, receipt);
   if (receipt.status !== 'success') throw new EvmTransactionRevertedError(chain.name);
 }
 
 /** A sent transaction's outcome as the chain reports it now: `pending` until it has a receipt. RPC failures throw. */
-export async function readEvmReceiptOutcome(hash: Hash, chain: Chain): Promise<'success' | 'reverted' | 'pending'> {
+export async function readEvmReceiptOutcome(
+  hash: Hash,
+  chain: Chain,
+  verifyReceipt?: (receipt: TransactionReceipt) => void
+): Promise<'success' | 'reverted' | 'pending'> {
   const rpcUrl = getChain(chain.id)?.rpcUrl;
   if (!rpcUrl) throw new Error(`${chain.name} RPC is not configured`);
   const client = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 10_000, retryCount: 0 }) });
   try {
     const receipt = await client.getTransactionReceipt({ hash });
+    if (verifyReceipt) assertReceiptIdentity(hash, receipt);
+    if (receipt.status === 'success') verifyReceipt?.(receipt);
     return receipt.status === 'success' ? 'success' : 'reverted';
   } catch (error) {
     if (error instanceof TransactionReceiptNotFoundError) return 'pending';
@@ -57,7 +76,7 @@ export async function readEvmErc20Allowance(
 ): Promise<bigint> {
   const rpcUrl = getChain(chainId)?.rpcUrl;
   const chain = EVM_CHAIN_DEFINITIONS.find(entry => entry.id === chainId);
-  if (!rpcUrl || !chain) throw new Error(`RPC is not configured for EVM chain ${chainId}`);
+  if (!rpcUrl || !chain) throw walletRaised(new Error(`RPC is not configured for EVM chain ${chainId}`));
   const client = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 5_000, retryCount: 0 }) });
   return withRpcTimeout(
     () => client.readContract({ address: token, abi: erc20Abi, functionName: 'allowance', args: [owner, spender] }),

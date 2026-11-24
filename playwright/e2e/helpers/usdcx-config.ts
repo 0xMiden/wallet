@@ -1,7 +1,7 @@
 import type { Address } from 'viem';
 
 import document from '../../../src/lib/remote-config/testing/testnet.json';
-import type { UsdcxDestination, UsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
+import type { UsdcxDestination, UsdcxExecutorSource, UsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
 import { ARC_TESTNET, EVM_CHAIN_DEFINITIONS } from '../../../src/lib/walletconnect/config';
 
 const provider = document['bridge-providers'].usdcx;
@@ -55,4 +55,34 @@ export function getUsdcxXReserveSource(chainId: number): UsdcxXReserveSource {
 /** The payout floor used by the E2E oracle for its configured destination. */
 export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
   return amount - (USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance ?? 0n);
+}
+
+/** The executor route the fixture names for `chainId`, built as the wallet's usdcxSourceChains builds it. */
+export function getUsdcxExecutorSource(chainId: number): UsdcxExecutorSource {
+  const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
+  const route = Object.values(document.supportedEvmChains).find(entry => entry.chainId === chainId)?.bridges.usdcx;
+  const deposit = route?.deposit;
+  if (!chain || !route || !deposit || !('tokenMessengerWithFees' in deposit)) {
+    throw new Error(`chain ${chainId} is no executor source in the testnet fixture`);
+  }
+  return {
+    route: 'cctp-executor',
+    chain,
+    usdc: address(route.tokens.USDC.contractAddress),
+    domain: route.domain,
+    midenDomain: provider.midenDomain,
+    tokenMessengerWithFees: address(deposit.tokenMessengerWithFees),
+    irisApi: provider.irisUrl,
+    target: {
+      midenDomain: provider.midenDomain,
+      chain: ARC_TESTNET,
+      domain: arc.domain,
+      executor: address(arc.executor.address),
+      handler: address(arc.executor.handler),
+      xReserve: address(arc.deposit.xReserve),
+      usdc: address(arc.tokens.USDC.contractAddress),
+      attestationApi: provider.attestationUrl,
+      irisApi: provider.irisUrl
+    }
+  };
 }

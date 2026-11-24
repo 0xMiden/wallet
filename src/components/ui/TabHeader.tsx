@@ -62,9 +62,8 @@ const TabHeaderSearchField: FC = () => {
 };
 
 /**
- * The icon button of a tab root's title row: the design system's `IconButton` in its 44px `filled` circle -
- * a 24px `ink` glyph on a `fill` circle, the same control the pushed-page back button and the
- * sheets use, so an icon button looks the same wherever the wallet puts one. Flat, not raised: the
+ * The icon button of a tab root's title row: that `filled` ink control, a 24px glyph on a 44px
+ * `fill` circle. The pushed-page back button is `back`, and sheets stay `circle`. Flat, not raised: the
  * raised bubble means "selected" now that the segmented control fills it with the accent tint, and a
  * plain action must not claim it.
  *

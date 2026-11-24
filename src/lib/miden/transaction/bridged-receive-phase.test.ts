@@ -44,6 +44,25 @@ describe('updateBridgedReceivePhase', () => {
     expect((await Repo.transactions.get(id))?.extraInputs.phase).toBe('received');
   });
 
+  it('changes the badge evidence revision when a mainnet phase changes', async () => {
+    const plain = await seed('ready');
+    await updateBridgedReceivePhase(plain, 'received', {}, { amount: 5n, faucetId: 'delivered-faucet' });
+    const plainRow = await Repo.transactions.get(plain);
+    expect(plainRow?.extraInputs.phase).toBe('received');
+    expect(plainRow).not.toHaveProperty('badgeEvidenceRevision');
+
+    const id = await seed('ready');
+    await Repo.transactions.update(id, { badgeNetwork: 'mainnet' });
+    const before = await Repo.transactions.get(id);
+    await updateBridgedReceivePhase(id, 'received', {}, { amount: 5n, faucetId: 'delivered-faucet' });
+    const after = await Repo.transactions.get(id);
+    expect(after?.extraInputs.phase).toBe('received');
+    expect(after?.badgeNetwork).toBe('mainnet');
+    expect(before?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(after?.badgeEvidenceRevision).toEqual(expect.any(String));
+    expect(after?.badgeEvidenceRevision).not.toBe(before?.badgeEvidenceRevision);
+  });
+
   it('never moves a ready row back to delivering, but still lets it fail', async () => {
     const id = await seed('ready');
 
@@ -54,6 +73,21 @@ describe('updateBridgedReceivePhase', () => {
     const row = await Repo.transactions.get(id);
     expect(row?.extraInputs.phase).toBe('failed');
     expect(row?.error).toBe('Bridge delivery timed out.');
+  });
+
+  // A cause can carry the wallet's message, an address or an amount: only the row's crash report reads it.
+  it('never stores what its writer said failed the row', async () => {
+    const id = await seed('submitting');
+
+    await updateBridgedReceivePhase(id, 'failed', {
+      error: 'User rejected the request.',
+      failure: { step: 'wallet_deposit', cause: new Error(`refused for 0x${'ab'.repeat(20)}`) }
+    });
+
+    const row = await Repo.transactions.get(id);
+    expect(row?.extraInputs.phase).toBe('failed');
+    expect(row?.error).toBe('User rejected the request.');
+    expect(Object.keys(row?.extraInputs ?? {})).not.toContain('failure');
   });
 
   it('accepts a write at the same phase, so the deposit screen can add the hash', async () => {

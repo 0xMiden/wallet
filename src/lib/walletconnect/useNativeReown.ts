@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 
@@ -37,6 +37,9 @@ export function configureNativeReown(recoveryChainId?: number): Promise<void> {
         chainIds: chains.map(chain => chain.id),
         chains: chains.map(chain => ({ ...chain, nativeCurrency: { ...chain.nativeCurrency } })),
         methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData'],
+        // Optional only, so that a wallet without them still pairs. `ensureNativeSessionChain` uses
+        // them to add a chain that the session did not approve.
+        optionalMethods: ['wallet_addEthereumChain', 'wallet_switchEthereumChain'],
         events: ['chainChanged', 'accountsChanged']
       });
       configuredKey = key;
@@ -54,13 +57,21 @@ export function useNativeReown() {
   const [state, setState] = useState<ReownState>(defaultState);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const observation = useRef(0);
+  const stateRef = useRef(defaultState);
+  const applyState = useCallback((nextState: ReownState) => {
+    stateRef.current = nextState;
+    setState(nextState);
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!available) return defaultState;
+    const started = observation.current;
     const nextState = await NativeReown.getState();
-    setState(nextState);
+    if (started !== observation.current) return stateRef.current;
+    applyState(nextState);
     return nextState;
-  }, [available]);
+  }, [available, applyState]);
 
   useEffect(() => {
     if (!available) return;
@@ -84,7 +95,8 @@ export function useNativeReown() {
         if (cancelled) return;
 
         const stateChanged = await NativeReown.addListener('stateChanged', nextState => {
-          setState(nextState);
+          observation.current += 1;
+          applyState(nextState);
         });
         if (!keep(stateChanged)) return;
         const socketStatus = await NativeReown.addListener('socketStatus', event => {
@@ -109,7 +121,7 @@ export function useNativeReown() {
         handle.remove();
       });
     };
-  }, [available, refresh, chainKey]);
+  }, [available, refresh, chainKey, applyState]);
 
   const present = useCallback(
     async (recoveryChainId?: number) => {

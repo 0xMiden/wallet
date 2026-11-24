@@ -54,6 +54,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeRegisterWalletFromHotKey = useWalletStore(s => s.registerWalletFromHotKey);
   const storeImportWalletFromClient = useWalletStore(s => s.importWalletFromClient);
   const storeUnlock = useWalletStore(s => s.unlock);
+  const platformUnlock = useWalletStore(s => s.platformUnlock);
   const storeCreateAccount = useWalletStore(s => s.createAccount);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
@@ -71,18 +72,19 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeStartGuardianRecovery = useWalletStore(s => s.startGuardianRecovery);
   const storeImportAccount = useWalletStore(s => s.importAccount);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
-  const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeSignEvm = useWalletStore(s => s.signEvm);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeSimulateCustomTransaction = useWalletStore(s => s.simulateCustomTransaction);
+  const estimateUsdcxBurnFee = useWalletStore(s => s.estimateUsdcxBurnFee);
   const storeConfirmDAppPermission = useWalletStore(s => s.confirmDAppPermission);
   const storeConfirmDAppSign = useWalletStore(s => s.confirmDAppSign);
   const storeConfirmDAppPrivateNotes = useWalletStore(s => s.confirmDAppPrivateNotes);
   const storeConfirmDAppAssets = useWalletStore(s => s.confirmDAppAssets);
   const storeConfirmDAppImportPrivateNote = useWalletStore(s => s.confirmDAppImportPrivateNote);
   const storeConfirmDAppConsumableNotes = useWalletStore(s => s.confirmDAppConsumableNotes);
+  const storeConfirmDAppUnlock = useWalletStore(s => s.confirmDAppUnlock);
   const storeConfirmDAppTransaction = useWalletStore(s => s.confirmDAppTransaction);
   const storeGetAllDAppSessions = useWalletStore(s => s.getAllDAppSessions);
   const storeRemoveDAppSession = useWalletStore(s => s.removeDAppSession);
@@ -101,8 +103,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [status, accounts, currentAccount, networks, settings, ownMnemonic]
   );
 
-  // AutoSync is now handled by the React SDK's MidenProvider — no manual state push needed.
-
   // Derive convenience booleans
   const idle = status === WalletStatus.Idle;
   const locked = status === WalletStatus.Locked;
@@ -119,9 +119,10 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       ownMnemonic: boolean,
-      guardianEndpoint?: string
+      guardianEndpoint?: string,
+      accessCode?: string
     ) => {
-      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint);
+      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode);
     },
     [storeRegisterWallet]
   );
@@ -154,7 +155,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
   const createAccount = useCallback(
     async (walletType: WalletType, name?: string) => {
-      await storeCreateAccount(walletType, name);
+      return storeCreateAccount(walletType, name);
     },
     [storeCreateAccount]
   );
@@ -255,13 +256,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeUpdateSettings]
   );
 
-  const signData = useCallback(
-    async (publicKey: string, signingInputs: string) => {
-      return storeSignData(publicKey, signingInputs);
-    },
-    [storeSignData]
-  );
-
   const signTransaction = useCallback(
     async (publicKey: string, signingInputs: string) => {
       return storeSignTransaction(publicKey, signingInputs);
@@ -345,6 +339,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeConfirmDAppConsumableNotes]
   );
 
+  const confirmDAppUnlock = useCallback(
+    async (id: string) => {
+      await storeConfirmDAppUnlock(id);
+    },
+    [storeConfirmDAppUnlock]
+  );
+
   const confirmDAppTransaction = useCallback(
     async (id: string, confirmed: boolean, delegate: boolean, spendingLimitAuthenticated?: true) => {
       await storeConfirmDAppTransaction(id, confirmed, delegate, spendingLimitAuthenticated);
@@ -410,6 +411,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     registerWallet,
     registerWalletFromHotKey,
     unlock,
+    platformUnlock,
 
     createAccount,
     updateCurrentAccount,
@@ -432,12 +434,12 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     importWatchOnlyAccount,
     importMnemonicAccount,
     updateSettings,
-    signData,
     signTransaction,
     signEvm,
     getAuthSecretKey,
     getDAppPayload,
     simulateCustomTransaction,
+    estimateUsdcxBurnFee,
     confirmDAppPermission,
     confirmDAppSign,
     confirmDAppDecrypt,
@@ -445,6 +447,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     confirmDAppAssets,
     confirmDAppImportPrivateNote,
     confirmDAppConsumableNotes,
+    confirmDAppUnlock,
     confirmDAppTransaction,
     confirmDAppBulkTransactions,
     confirmDAppDeploy,

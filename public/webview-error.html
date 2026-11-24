@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bread</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: #ffffff;
+        --ink: #3f3f3f;
+        --muted: #6b6b6b;
+        --accent: #e77537;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #191919;
+          --ink: #ffffff;
+          --muted: #a8a29c;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+        background: var(--page);
+      }
+
+      body {
+        min-height: 100%;
+        margin: 0;
+        padding: 24px;
+        padding: calc(24px + env(safe-area-inset-top, 0px)) calc(24px + env(safe-area-inset-right, 0px))
+          calc(24px + env(safe-area-inset-bottom, 0px)) calc(24px + env(safe-area-inset-left, 0px));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--page);
+        color: var(--ink);
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          'Helvetica Neue',
+          Arial,
+          'Noto Sans',
+          sans-serif;
+        text-align: center;
+      }
+
+      main {
+        width: 100%;
+        max-width: 420px;
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: 24px;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+
+      p {
+        margin: 0 0 32px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      #action {
+        display: block;
+        width: 100%;
+        min-height: 48px;
+        padding: 12px 16px;
+        border-radius: 16px;
+        background: var(--accent);
+        color: #ffffff;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.2;
+        text-decoration: none;
+      }
+
+      #action:focus {
+        outline: 2px solid var(--ink);
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <main aria-labelledby="title">
+      <div aria-live="polite">
+        <h1 id="title">Bread couldn't start</h1>
+        <p id="body">Something stopped Bread from loading. Try again, or close Bread and open it again.</p>
+      </div>
+      <a id="action" href="/">Try again</a>
+    </main>
+    <script src="webview-error.js"></script>
+  </body>
+</html>

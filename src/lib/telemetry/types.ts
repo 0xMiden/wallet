@@ -129,18 +129,27 @@ export type TelemetryStep =
   | 'prove_local'
   | 'prove_fallback';
 
-/** Broad categories only. Never a message, code, or detail string. */
-export type TelemetryErrorKind =
-  | 'network'
-  | 'rpc'
-  | 'proving'
-  | 'validation'
-  | 'storage'
-  | 'auth'
-  | 'timeout'
-  | 'unknown';
+/** Broad categories only. Never a message, code, or detail string. The privacy policy lists each one. */
+export const TELEMETRY_ERROR_KINDS = [
+  'network',
+  'rpc',
+  'proving',
+  'validation',
+  'storage',
+  'auth',
+  'timeout',
+  'unknown'
+] as const;
+
+export type TelemetryErrorKind = (typeof TELEMETRY_ERROR_KINDS)[number];
 
 export type TelemetryPlatform = 'extension' | 'ios' | 'android';
+
+/**
+ * The network the wallet was on. One build reaches every network, so without it a mainnet failure reads the same as
+ * a testnet one.
+ */
+export type TelemetryNetwork = 'mainnet' | 'testnet' | 'devnet' | 'localnet';
 
 /**
  * The identifier shared by every flow in one run of the app.
@@ -230,6 +239,7 @@ export type TelemetryEvent = FlowStartedEvent | FlowEndedEvent | OperationSettle
 export interface TelemetryContext {
   appVersion: string;
   platform: TelemetryPlatform;
+  network: TelemetryNetwork;
 }
 
 export interface TelemetryWirePayload {
@@ -247,4 +257,5 @@ export interface TelemetryWirePayload {
   step?: TelemetryStep;
   appVersion: string;
   platform: TelemetryPlatform;
+  network: TelemetryNetwork;
 }

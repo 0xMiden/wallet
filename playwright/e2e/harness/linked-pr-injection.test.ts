@@ -21,6 +21,10 @@ const GUARDED_EVENTS = ['push', 'workflow_dispatch'];
 const NOT_INJECTED =
   "steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'";
 const INJECTED = "steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'";
+const PRESENTATION_COMPARE_ONLY =
+  "github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures')";
+const PRESENTATION_COMPARE_TIMEOUT =
+  "${{ github.event_name == 'workflow_dispatch' && (inputs.suite == 'presentation-compare' || inputs.suite == 'presentation-gestures') && 180 || github.event_name == 'workflow_dispatch' && 90 || 60 }}";
 
 /** A step's content lines, trimmed, with the list item's `- ` removed from the first. */
 type Step = { line: number; lines: string[] };
@@ -105,7 +109,12 @@ const jobs = (file: string, text: string): Job[] => {
 
 const keyOf = (step: Step, key: string): string | undefined =>
   step.lines.map(line => new RegExp(`^${key}:\\s*(.*?)\\s*$`).exec(line)?.[1]).find(value => value !== undefined);
-const usesOf = (step: Step): string | undefined => keyOf(step, 'uses')?.replace(/^['"]|['"]$/g, '');
+const usesOf = (step: Step): string | undefined =>
+  keyOf(step, 'uses')
+    ?.replace(/\s+#.*$/, '')
+    .replace(/^['"]|['"]$/g, '');
+/** The action a step runs, without the commit it is pinned to (action-pins.test.ts holds every pin to a SHA). */
+const actionOf = (step: Step): string | undefined => usesOf(step)?.replace(/@[^@]*$/, '');
 /** The wallet's dependency install: the shared retrying action, or `yarn install` in a run script. */
 const installs = (step: Step): boolean =>
   usesOf(step) === './.github/actions/yarn-install' ||
@@ -153,17 +162,53 @@ const DISPATCH_CEILING = /^\$\{\{ github\.event_name == 'workflow_dispatch' && (
 const EVENT_TEST = /^github\.event_name\s*(==|!=)\s*'([^']*)'$/;
 const PLAIN_TERM = /^[A-Za-z_][\w.-]*(\s*(==|!=)\s*('[^']*'|[A-Za-z_][\w.-]*|\d+))?$/;
 
-/** The minutes every from-source build a dispatch can add to this job takes on its runner. */
-const dispatchMinutes = (file: string, job: Job): number => {
-  const runsOn = job.keys['runs-on'] ?? '';
-  const minutes = BUILD_MINUTES[/^macos-/.test(runsOn) ? 'macos' : (RUNNERS[runsOn] ?? '')];
-  if (minutes === undefined) throw new Error(`${file} ${job.id}: no recorded injection time for runs-on: ${runsOn}`);
-  const runs = (action: string): boolean => job.steps.some(step => usesOf(step) === action);
-  const node = runs(LOCAL_NODE) ? minutes.node : 0;
-  if (node === undefined)
-    throw new Error(`${file} ${job.id}: no recorded local node build time for runs-on: ${runsOn}`);
-  return minutes.webSdk + (runs(CLI) ? minutes.cli : 0) + node;
+/** A runs-on a dispatch picks through a choice input, with the runner every other event takes. */
+const INPUT_RUNNER =
+  /^\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.([A-Za-z0-9_-]+) \|\| '([^']+)' \}\}$/;
+
+/** The `options:` of the workflow_dispatch input `name`. */
+const choiceOptions = (file: string, text: string, name: string): string[] => {
+  const lines = text.split('\n');
+  const at = lines.findIndex(line => line === `      ${name}:`);
+  if (at === -1) throw new Error(`${file}: no workflow_dispatch input ${name}`);
+  const options: string[] = [];
+  let optionsIndent = -1;
+  for (const line of lines.slice(at + 1)) {
+    if (!isContent(line)) continue;
+    const indent = indentOf(line);
+    if (indent <= 6) break;
+    if (line.trim() === 'options:') optionsIndent = indent;
+    else if (optionsIndent !== -1 && indent > optionsIndent) options.push(line.trim().replace(/^- /, ''));
+    else optionsIndent = -1;
+  }
+  if (options.length === 0) throw new Error(`${file}: the input ${name} lists no options`);
+  return options;
 };
+
+/** Every runner the job can run on: its runs-on, or each option of the dispatch input that picks it. */
+const runnersOf = (file: string, text: string, job: Job): string[] => {
+  const runsOn = job.keys['runs-on'] ?? '';
+  const [, input, fallback] = INPUT_RUNNER.exec(runsOn) ?? [];
+  if (input === undefined || fallback === undefined) return [runsOn];
+  const options = choiceOptions(file, text, input);
+  if (!options.includes(fallback)) throw new Error(`${file} ${job.id}: ${fallback} is not an option of ${input}`);
+  return options;
+};
+
+/** The minutes every from-source build a dispatch can add to this job takes on its slowest runner. */
+const dispatchMinutes = (file: string, text: string, job: Job): number =>
+  Math.max(
+    ...runnersOf(file, text, job).map(runsOn => {
+      const minutes = BUILD_MINUTES[/^macos-/.test(runsOn) ? 'macos' : (RUNNERS[runsOn] ?? '')];
+      if (minutes === undefined)
+        throw new Error(`${file} ${job.id}: no recorded injection time for runs-on: ${runsOn}`);
+      const runs = (action: string): boolean => job.steps.some(step => usesOf(step) === action);
+      const node = runs(LOCAL_NODE) ? minutes.node : 0;
+      if (node === undefined)
+        throw new Error(`${file} ${job.id}: no recorded local node build time for runs-on: ${runsOn}`);
+      return minutes.webSdk + (runs(CLI) ? minutes.cli : 0) + node;
+    })
+  );
 
 /**
  * False when a job `if:` fails on every pull_request event: each `||` alternative has an `&&` term comparing the
@@ -209,20 +254,162 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
     injects.every(step => keyOf(step, 'if') === undefined) &&
     runsOnPullRequest(file, jobs(file, text), job);
   if (injectsOnPullRequests) return undefined;
+  if (
+    file === 'e2e-dapp-browser.yml' &&
+    job.id === 'android-dapp-browser' &&
+    ceiling === PRESENTATION_COMPARE_TIMEOUT
+  )
+    return undefined;
   const [, dispatch, push] = DISPATCH_CEILING.exec(ceiling) ?? [];
   if (dispatch === undefined || push === undefined)
     return `timeout-minutes ${ceiling} gives a dispatch no more than a push`;
-  const needed = Number(push) + dispatchMinutes(file, job);
+  const needed = Number(push) + dispatchMinutes(file, text, job);
   return Number(dispatch) < needed ? `a dispatch gets ${dispatch} minutes, under the ${needed} it needs` : undefined;
 };
 
+/** Store signing consumes a published tag, never the unpublished dependency links of a PR. */
+const immutableStoreWorkflow = (file: string, text: string): boolean => {
+  if (file !== 'build-store-artifacts.yml' || triggers(file, text).join(',') !== 'workflow_dispatch') return false;
+  const all = jobs(file, text);
+  if (
+    all
+      .map(job => job.id)
+      .sort()
+      .join(',') !== 'all-targets,android,chrome,ios,prepare'
+  )
+    return false;
+  const prepare = all.find(job => job.id === 'prepare');
+  const coordinator = all.find(job => job.id === 'all-targets');
+  if (
+    prepare === undefined ||
+    prepare.keys['if'] !==
+      "${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform != 'all' }}"
+  )
+    return false;
+  const checkedOut = (job: Job, path: string | undefined, ref: string): boolean =>
+    job.steps.some(
+      step =>
+        actionOf(step) === 'actions/checkout' &&
+        keyOf(step, 'path') === path &&
+        keyOf(step, 'ref') === ref &&
+        keyOf(step, 'persist-credentials') === 'false'
+    );
+  const builders = all.filter(job => job.id !== 'all-targets');
+  if (
+    builders.some(
+      job =>
+        !checkedOut(job, 'automation', '${{ github.workflow_sha }}') ||
+        !checkedOut(job, 'source', '${{ inputs.source_sha }}') ||
+        job.steps.some(step => [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? ''))
+    )
+  )
+    return false;
+  // The wrapper dispatches the same immutable producer as separate child runs and installs no dependencies.
+  const coordinatorLines = coordinator?.steps.flatMap(step => step.lines) ?? [];
+  if (
+    coordinator === undefined ||
+    coordinator.keys['if'] !==
+      "${{ github.repository == '0xMiden/wallet' && github.event.repository.fork == false && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.platform == 'all' }}" ||
+    !checkedOut(coordinator, undefined, '${{ github.workflow_sha }}') ||
+    coordinator.steps.filter(step => actionOf(step) === 'actions/checkout').length !== 1 ||
+    coordinator.steps.some(step => installs(step) || [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? '')) ||
+    !coordinatorLines.includes(
+      "import { validateBuildRequest } from './scripts/store-publishing/create-receipt.mjs';"
+    ) ||
+    !coordinatorLines.some(line =>
+      line.startsWith(
+        'const plan = validateBuildRequest({ releaseTag: process.env.RELEASE_TAG, sourceSha: process.env.SOURCE_SHA,'
+      )
+    ) ||
+    !coordinatorLines.includes(
+      'releaseTag: plan.releaseTag, sourceSha: plan.sourceSha, buildNumber: plan.buildNumber, targets: {} }));'
+    ) ||
+    !coordinatorLines.includes(
+      'run: node scripts/store-publishing/release-plan.mjs --stage build --plan "$RUNNER_TEMP/store-all-targets/store-build-plan.json" --journal "$RUNNER_TEMP/store-all-targets/store-build-journal.json"'
+    )
+  )
+    return false;
+  const lines = prepare.steps.flatMap(step => step.lines);
+  if (
+    !lines.some(line =>
+      line.startsWith('node automation/scripts/store-publishing/create-receipt.mjs validate-request')
+    ) ||
+    !lines.some(line =>
+      line.startsWith('node automation/scripts/store-publishing/create-receipt.mjs validate-source')
+    ) ||
+    !lines.some(line => line.startsWith('gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"')) ||
+    !lines.includes('--json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/wallet-release.json"') ||
+    !lines.includes('TAG_SHA=$(git -C source rev-parse "refs/tags/$RELEASE_TAG^{commit}")') ||
+    !lines.includes('CHECKED_OUT_SHA=$(git -C source rev-parse HEAD)') ||
+    !lines.includes('--manifest-file source/public/manifest.json') ||
+    !lines.some(line => line.includes('--checkout-sha "$CHECKED_OUT_SHA" --package-file source/package.json')) ||
+    !lines.some(line => line.includes('--release-file "$RUNNER_TEMP/wallet-release.json" --tag-sha "$TAG_SHA"')) ||
+    !lines.includes('node services/feature-eligibility/check-deployment.mjs')
+  )
+    return false;
+  return builders
+    .filter(job => job.id !== 'prepare')
+    .every(job => {
+      const install = job.steps.filter(installs);
+      return (
+        job.keys['needs'] === 'prepare' &&
+        job.keys['if'] === `\${{ needs.prepare.outputs.build_${job.id} == 'true' }}` &&
+        install.length === 1 &&
+        keyOf(install[0]!, 'run') === 'yarn install --frozen-lockfile --production=false' &&
+        keyOf(install[0]!, 'working-directory') === 'source'
+      );
+    });
+};
+
+/** This exception permits only fixed validator commands, never application builds or SDK consumers. */
+const technicalScreenshotWorkflow = (file: string, text: string): boolean => {
+  if (file !== 'store-screenshots.yml' || triggers(file, text).sort().join(',') !== 'pull_request,workflow_dispatch') return false;
+  if (/^(env|defaults):/m.test(text)) return false;
+  const permissions = /^permissions:\n((?:[ \t].*\n|\n)*)/m.exec(text)?.[1]?.trim();
+  if (permissions !== 'contents: read') return false;
+  const all = jobs(file, text);
+  if (all.length !== 1 || all[0]?.id !== 'eligibility') return false;
+  const job = all[0];
+  if (Object.keys(job.keys).sort().join(',') !== 'env,name,runs-on,steps,timeout-minutes' ||
+      job.keys.name !== 'Store screenshot eligibility' || job.keys['runs-on'] !== 'ubuntu-latest' ||
+      job.keys['timeout-minutes'] !== '60') return false;
+  const environment = /^    env:\n([\s\S]*?)^    steps:/m.exec(text)?.[1];
+  if (environment !== "      CI: 'true'\n      CARGO_BUILD_JOBS: '2'\n      RAYON_NUM_THREADS: '2'\n      VIPS_CONCURRENCY: '2'\n      UV_THREADPOOL_SIZE: '2'\n") return false;
+  const expected = [
+    ['uses: actions/checkout', 'with:', 'persist-credentials: false'],
+    ['uses: actions/setup-node', 'with:', 'node-version: 22', 'cache: yarn'],
+    ['run: >-', 'node --test --test-concurrency=2', 'scripts/store-listing/screenshots.test.mjs',
+      'scripts/store-publishing/screenshots.test.mjs', 'scripts/store-publishing/cli.test.mjs',
+      'scripts/store-publishing/publish-plan.test.mjs'],
+    ['timeout-minutes: 4', 'run: timeout 240s yarn install --frozen-lockfile --network-timeout 120000'],
+    ['run: git diff --exit-code -- package.json yarn.lock'],
+    ['run: node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json'],
+    ['run: yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand']
+  ];
+  return job.steps.length === expected.length && job.steps.every((step, index) =>
+    JSON.stringify(
+      step.lines
+        .filter(line => !line.startsWith('name:'))
+        .map(line => line.replace(/^uses: ([^@\s]+)@\S+(\s+#.*)?$/, 'uses: $1'))
+    ) === JSON.stringify(expected[index])
+  );
+};
+
 const workflowViolations = (file: string, text: string): string[] =>
-  guarded(file, text)
+  guarded(file, text) && !immutableStoreWorkflow(file, text) && !technicalScreenshotWorkflow(file, text)
     ? jobs(file, text).flatMap(job => {
         const why = violation(job);
         return why === undefined ? [] : [`${file} ${job.id}: ${why}`];
       })
     : [];
+
+/**
+ * e2e-upgrade.yml updates a wallet from the previous release to the version under test. The previous release, and a
+ * `to` ref it names, install in checkouts of their own from their own lockfiles: what users installed, never a linked
+ * PR. Its harness checkout injects like every other job.
+ */
+const publishedCheckoutInstall = (file: string, step: Step): boolean =>
+  file === 'e2e-upgrade.yml' && ['previous', 'candidate'].includes(keyOf(step, 'working-directory') ?? '');
 
 const workflowFiles = readdirSync(workflowsDir)
   .filter(name => /\.ya?ml$/.test(name))
@@ -230,7 +417,7 @@ const workflowFiles = readdirSync(workflowsDir)
 const source = (file: string): string => readFileSync(resolve(workflowsDir, file), 'utf8');
 /** Every job the rule checks, and each as `<file> <job>`. */
 const guardedJobs = workflowFiles.flatMap(file =>
-  guarded(file, source(file))
+  guarded(file, source(file)) && !immutableStoreWorkflow(file, source(file)) && !technicalScreenshotWorkflow(file, source(file))
     ? jobs(file, source(file))
         .filter(job => job.steps.some(installs))
         .map(job => ({ file, job }))
@@ -273,12 +460,18 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
         'e2e-bridge.yml chrome-bridge-testnet',
         'e2e-bridge-in.yml mobile-bridge-in-testnet',
         'e2e-dapp.yml dapp-e2e',
+        'e2e-dapp.yml dapp-e2e-ios',
+        'e2e-dapp.yml dapp-e2e-android',
         'e2e-dapp-browser.yml ios-dapp-browser',
         'e2e-dapp-browser.yml android-dapp-browser',
+        'e2e-mainnet-nightly.yml mainnet-nightly',
+        'e2e-mainnet-nightly.yml mainnet-agglayer',
         'e2e-resilience.yml resilience-chrome',
         'e2e-stress.yml stress-conservation',
         'e2e-telemetry.yml telemetry-egress',
-        'e2e-usdcx.yml chrome-usdcx-testnet',
+        'e2e-upgrade.yml upgrade',
+        'e2e-usdcx.yml chrome-usdcx-arc',
+        'e2e-usdcx.yml chrome-usdcx-l2',
         'pr-compile-surfaces.yml ios',
         'pr-e2e-local.yml chrome-local'
       ])
@@ -295,11 +488,18 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     const frozen = guardedJobs.flatMap(({ file, job }) =>
       job.steps
         .filter(step => step.lines.some(line => /yarn install --frozen-lockfile/.test(line)))
+        .filter(step => !publishedCheckoutInstall(file, step))
         .map(step => ({ entry: `${file} ${job.id}`, step, job }))
     );
     expect(frozen.map(({ entry }) => entry)).toEqual(expect.arrayContaining(['build-chrome.yml build']));
     for (const { entry, step, job } of frozen) {
-      expect([entry, keyOf(step, 'if')]).toEqual([entry, NOT_INJECTED]);
+      const isPresentationBaselineInstall =
+        entry === 'e2e-dapp-browser.yml android-dapp-browser' &&
+        keyOf(step, 'name') === 'Build baseline APK for presentation comparison';
+      expect([entry, keyOf(step, 'if')]).toEqual([
+        entry,
+        isPresentationBaselineInstall ? PRESENTATION_COMPARE_ONLY : NOT_INJECTED
+      ]);
       expect([entry, job.steps.some(other => keyOf(other, 'if') === INJECTED && installs(other))]).toEqual([
         entry,
         true
@@ -326,6 +526,26 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
   });
 
   it('gives a dispatch the time to build its linked PRs from source on top of an unchanged push ceiling', () => {
+    const presentationJob = jobOf('e2e-dapp-browser.yml', 'android-dapp-browser');
+    const baselineInstall = presentationJob.steps.find(
+      step => keyOf(step, 'name') === 'Build baseline APK for presentation comparison'
+    );
+    expect(baselineInstall?.lines.some(line => /yarn install --frozen-lockfile/.test(line))).toBe(true);
+    expect(keyOf(baselineInstall!, 'if')).toBe(PRESENTATION_COMPARE_ONLY);
+    const comparison = presentationJob.steps.find(
+      step => keyOf(step, 'name') === 'Run alternating native-tap FrameTimeline comparison'
+    );
+    expect(comparison).toBeDefined();
+    const comparisonScript = comparison!.lines.join('\n');
+    expect(comparisonScript).toContain('GITHUB_RUN_NUMBER % 2');
+    expect(comparisonScript).toContain('order=(before after)');
+    expect(comparisonScript).toContain('order=(after before)');
+    expect(comparisonScript).toContain('E2E_ANDROID_REBOOT_BEFORE_PRESENTATION');
+    expect(comparisonScript).toContain('PRESENTATION_ORDER="${order[*]}"');
+    expect(presentationJob.keys['timeout-minutes']).toBe(PRESENTATION_COMPARE_TIMEOUT);
+    expect(
+      keyOf(presentationJob.steps.find(step => keyOf(step, 'name') === 'Run dApp browser E2E (Android)')!, 'if')
+    ).toBe("github.event_name != 'workflow_dispatch' || inputs.suite == 'all'");
     expect(
       workflowFiles.flatMap(file =>
         jobs(file, source(file)).flatMap(job => {
@@ -335,6 +555,12 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       )
     ).toEqual([]);
     const ceilings = guardedJobs.flatMap(({ file, job }) => {
+      if (
+        file === 'e2e-dapp-browser.yml' &&
+        job.id === 'android-dapp-browser' &&
+        job.keys['timeout-minutes'] === PRESENTATION_COMPARE_TIMEOUT
+      )
+        return ['e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 180'];
       const [, dispatch, push] = DISPATCH_CEILING.exec(job.keys['timeout-minutes'] ?? '') ?? [];
       return dispatch === undefined ? [] : [`${file} ${job.id}: push ${push}, dispatch ${dispatch}`];
     });
@@ -351,15 +577,25 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-bridge-in.yml mobile-bridge-in-testnet: push 110, dispatch 195',
       'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 100',
       'e2e-dapp-browser.yml ios-dapp-browser: push 60, dispatch 135',
-      'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 90',
-      'e2e-dapp.yml dapp-e2e: push 190, dispatch 220',
+      'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 180',
+      'e2e-dapp-browser.yml android-presentation-gesture: push 90, dispatch 120',
+      'e2e-dapp-browser.yml android-auth-tab-acceptance: push 60, dispatch 90',
+      'e2e-dapp.yml dapp-e2e: push 220, dispatch 250',
+      'e2e-dapp.yml dapp-e2e-ios: push 160, dispatch 245',
+      'e2e-dapp.yml dapp-e2e-android: push 145, dispatch 190',
+      'e2e-mainnet-nightly.yml mainnet-nightly: push 200, dispatch 245',
+      'e2e-mainnet-nightly.yml mainnet-agglayer: push 185, dispatch 230',
       'e2e-resilience.yml resilience-chrome: push 60, dispatch 120',
       'e2e-stress.yml stress-conservation: push 90, dispatch 150',
       'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60',
+      'e2e-upgrade.yml upgrade: push 120, dispatch 165',
       'e2e-usdcx-live.yml mobile-usdcx-live: push 150, dispatch 235',
-      'e2e-usdcx.yml chrome-usdcx-testnet: push 210, dispatch 240',
+      'e2e-usdcx-live.yml mobile-usdcx-live-executor: push 200, dispatch 285',
+      'e2e-usdcx.yml chrome-usdcx-arc: push 210, dispatch 240',
+      'e2e-usdcx.yml chrome-usdcx-l2: push 325, dispatch 355',
       'pr-e2e-earn.yml earn-e2e: push 120, dispatch 270',
-      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270'
+      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270',
+      'red-before.yml run: push 30, dispatch 60'
     ]);
   });
 
@@ -371,6 +607,111 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       "github.event_name != 'pull_request'",
       "github.event_name != 'pull_request'"
     ]);
+  });
+
+  it('overlays only linked dependency revisions onto the presentation baseline', () => {
+    const sourceText = source('e2e-dapp-browser.yml');
+    expect(sourceText).toContain("<<'PRESENTATION_BASELINE_OVERLAY'");
+    const step = jobOf('e2e-dapp-browser.yml', 'android-dapp-browser').steps.find(
+      item => keyOf(item, 'name') === 'Build baseline APK for presentation comparison'
+    );
+    expect(step).toBeDefined();
+    const script = step!.lines.join('\n');
+    expect(script).toContain('git -C "$GITHUB_WORKSPACE" show HEAD:package.json');
+    expect(script).toContain('yarn install --network-timeout 600000');
+    expect(script).toContain('yarn install --frozen-lockfile');
+    const overlay =
+      /node <<'PRESENTATION_BASELINE_OVERLAY'\n([\s\S]*?)\nPRESENTATION_BASELINE_OVERLAY/.exec(script)?.[1];
+    expect(overlay).toBeDefined();
+
+    const dir = mkdtempSync(join(tmpdir(), 'presentation-baseline-overlay-'));
+    try {
+      const committed = join(dir, 'committed.json');
+      const patched = join(dir, 'patched.json');
+      const baseline = join(dir, 'baseline.json');
+      const runOverlay = (committedManifest: unknown, patchedManifest: unknown, baselineManifest: unknown) => {
+        writeFileSync(committed, JSON.stringify(committedManifest));
+        writeFileSync(patched, JSON.stringify(patchedManifest));
+        writeFileSync(baseline, JSON.stringify(baselineManifest));
+        const result = spawnSync(process.execPath, ['-e', overlay!], {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            COMMITTED_MANIFEST: committed,
+            PATCHED_MANIFEST: patched,
+            BASELINE_MANIFEST: baseline
+          }
+        });
+        expect([result.status, result.stderr]).toEqual([0, '']);
+        return { output: result.stdout.trim(), bytes: readFileSync(baseline, 'utf8') };
+      };
+
+      const changed = runOverlay(
+        {
+          dependencies: { '@miden-sdk/miden-sdk': '0.17.3', left: 'candidate-left' },
+          devDependencies: { '@miden-sdk/vite-plugin': '0.17.0' },
+          resolutions: {
+            '@miden-sdk/miden-sdk': '0.17.3',
+            left: 'candidate-resolution',
+            shared: 'shared-resolution'
+          }
+        },
+        {
+          dependencies: {
+            '@miden-sdk/miden-sdk': 'file:../web-sdk',
+            left: 'candidate-left',
+            absent: 'injected-only'
+          },
+          devDependencies: { '@miden-sdk/vite-plugin': 'file:../web-sdk/plugin' },
+          resolutions: {
+            left: 'candidate-resolution',
+            shared: 'shared-resolution',
+            '**/@openzeppelin/guardian-client': 'file:../guardian'
+          }
+        },
+        {
+          dependencies: { '@miden-sdk/miden-sdk': '0.17.2', left: 'baseline-left' },
+          devDependencies: { '@miden-sdk/vite-plugin': '0.16.0' },
+          resolutions: {
+            '@miden-sdk/miden-sdk': '0.17.2',
+            left: 'baseline-resolution',
+            shared: 'baseline-shared',
+            other: 'baseline-other'
+          }
+        }
+      );
+      expect(changed.output).toBe('changed');
+      expect(JSON.parse(changed.bytes)).toEqual({
+        dependencies: { '@miden-sdk/miden-sdk': 'file:../web-sdk', left: 'baseline-left' },
+        devDependencies: { '@miden-sdk/vite-plugin': 'file:../web-sdk/plugin' },
+        resolutions: {
+          left: 'baseline-resolution',
+          shared: 'baseline-shared',
+          other: 'baseline-other',
+          '**/@openzeppelin/guardian-client': 'file:../guardian'
+        }
+      });
+
+      const absentBaselineBytes = JSON.stringify({ dependencies: { left: 'baseline-left' } });
+      writeFileSync(baseline, absentBaselineBytes);
+      const absentBaseline = runOverlay(
+        { dependencies: { absent: '0.1.0' }, resolutions: {} },
+        { dependencies: { absent: 'file:../linked' }, resolutions: {} },
+        { dependencies: { left: 'baseline-left' } }
+      );
+      expect([absentBaseline.output, absentBaseline.bytes]).toEqual(['unchanged', absentBaselineBytes]);
+
+      const identicalBytes = JSON.stringify({ dependencies: { left: 'same' }, resolutions: { left: 'same' } });
+      writeFileSync(baseline, identicalBytes);
+      const identical = runOverlay(
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } },
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } },
+        { dependencies: { left: 'same' }, resolutions: { left: 'same' } }
+      );
+      expect([identical.output, identical.bytes]).toEqual(['unchanged', identicalBytes]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -564,6 +905,87 @@ describe('the rule itself', () => {
     expect(() => jobs('x.yml', workflow('  push:', [frozen]).replace(/^ {4}(?=\S)/gm, '      '))).toThrow(
       'not job keys indented 4'
     );
+  });
+});
+
+describe('published immutable store artifact builds', () => {
+  const file = 'build-store-artifacts.yml';
+
+  it('recognizes only the dedicated validated release workflow as an intentional exception', () => {
+    const text = source(file);
+    expect(immutableStoreWorkflow(file, text)).toBe(true);
+    expect(workflowViolations(file, text)).toEqual([]);
+    expect(workflowViolations('another-release.yml', text)).toHaveLength(3);
+    expect(guardedNames.some(name => name.startsWith(`${file} `))).toBe(false);
+  });
+
+  it('rejects an all-target wrapper that installs dependencies, dispatches another stage or bypasses intent validation', () => {
+    const text = source(file);
+    const unsafe = [
+      text.replace("inputs.platform == 'all'", "inputs.platform != 'all'"),
+      text.replace('const plan = validateBuildRequest({', 'const plan = uncheckedBuildRequest({'),
+      text.replace(
+        'releaseTag: plan.releaseTag, sourceSha: plan.sourceSha,',
+        'releaseTag: plan.releaseTag, sourceSha: process.env.SOURCE_SHA,'
+      ),
+      text.replace('release-plan.mjs --stage build', 'release-plan.mjs --stage submit'),
+      text.replace(
+        '      - name: Validate all-target build plan',
+        '      - run: yarn install\n      - name: Validate all-target build plan'
+      )
+    ];
+    for (const altered of unsafe) expect(immutableStoreWorkflow(file, altered)).toBe(false);
+  });
+
+  it('rejects broadened events, mutable checkouts, missing release validation and unfrozen installation', () => {
+    const text = source(file);
+    const unsafe = [
+      text.replace('on:\n', 'on:\n  push:\n'),
+      text.replace("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)", 'true'),
+      text.replace(/ref: \$\{\{ inputs\.source_sha \}\}/g, 'ref: ${{ github.ref }}'),
+      text.replace(/ref: \$\{\{ github\.workflow_sha \}\}/g, 'ref: ${{ github.ref }}'),
+      text.replace('--json tagName,isDraft,isPrerelease', '--json tagName'),
+      text.replace('create-receipt.mjs validate-source', 'create-receipt.mjs skip-source-validation'),
+      text.replace(/run: yarn install --frozen-lockfile --production=false/g, 'run: yarn install'),
+      text.replace(/needs: prepare/g, 'needs: another-job')
+    ];
+    for (const altered of unsafe) {
+      expect(immutableStoreWorkflow(file, altered)).toBe(false);
+      expect(workflowViolations(file, altered)).toHaveLength(3);
+    }
+  });
+});
+
+describe('technical screenshot eligibility is a narrow published-dependency exception', () => {
+  const file = 'store-screenshots.yml';
+
+  it('recognizes only the exact bounded image-validation job', () => {
+    const text = source(file);
+    expect(technicalScreenshotWorkflow(file, text)).toBe(true);
+    expect(technicalScreenshotWorkflow('another-workflow.yml', text)).toBe(false);
+    expect(workflowViolations(file, text)).toEqual([]);
+    expect(guardedNames.some(name => name.startsWith(`${file} `))).toBe(false);
+  });
+
+  it('rejects production builds, SDK consumers, mutable installs and alternate execution surfaces', () => {
+    const text = source(file);
+    const unsafe = [
+      text.replace('node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json', 'yarn build:chrome'),
+      text.replace('yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand', 'node scripts/check-native-prover-pin.mjs'),
+      text.replace('node --test --test-concurrency=2', 'node --import @miden-sdk/miden-sdk --test --test-concurrency=2'),
+      text.replace('--frozen-lockfile', ''),
+      text.replace('git diff --exit-code -- package.json yarn.lock', 'true'),
+      text.replace('timeout 240s', 'timeout 600s'),
+      text.replace('runs-on: ubuntu-latest', 'runs-on: macos-26'),
+      text.replace('contents: read', 'contents: write'),
+      text.replace("      CI: 'true'", "      CI: 'true'\n      NODE_OPTIONS: --import=@miden-sdk/miden-sdk"),
+      text.replace('  workflow_dispatch:', '  push:\n  workflow_dispatch:'),
+      text + '\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: yarn build:chrome\n'
+    ];
+    for (const altered of unsafe) {
+      expect(technicalScreenshotWorkflow(file, altered)).toBe(false);
+      expect(workflowViolations(file, altered)).not.toHaveLength(0);
+    }
   });
 });
 

@@ -2,6 +2,14 @@ import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 import { evmChainSlug } from './chains';
+import { type GeoBlocks, readGeoBlocks } from './geo';
+import type {
+  NearIntentsAddressKind,
+  NearIntentsChainConfig,
+  NearIntentsConfig,
+  NearIntentsMidenAssetConfig,
+  NearIntentsTokenConfig
+} from '../one-click/types';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];
@@ -9,11 +17,19 @@ export type BridgeSwitch = 'earn';
 
 export interface SwapConfig {
   /**
-   * The DEX solver's base URL. The swap registry is its `/v2/pairs` (see `swap-pairs.ts`) and `getSwapEta` appends
-   * `/v1/swap-eta` to it; absent means no swap tokens and no quotes.
+   * The DEX solver's base URL. The swap registry is its `/v2/pairs` (see `swap-pairs.ts`), and
+   * `lib/miden/swap/quote` appends `/v2/pair-price` and `/v2/swap-eta` to it; absent means no swap
+   * tokens and no quotes.
    */
   etaUrl?: string;
 }
+
+/** The address formats an origin chain of the `nearIntents` section can name. */
+export const NEAR_INTENTS_ADDRESS_KINDS: readonly NearIntentsAddressKind[] = ['evm', 'solana', 'bitcoin', 'near'];
+export const MAX_NEAR_INTENTS_MIDEN_ASSETS = 64;
+export const MAX_NEAR_INTENTS_CHAINS = 32;
+export const MAX_NEAR_INTENTS_TOKENS_PER_CHAIN = 64;
+export const MAX_NEAR_INTENTS_TOKEN_OUTPUTS = 8;
 
 /** The picker pings every listed Guardian operator, so the list is bounded. */
 export const MAX_GUARDIANS = 16;
@@ -44,9 +60,50 @@ export interface GuardianConfig {
 /** EVM chains the wallet ships RPC and explorer definitions for: the WalletConnect chain registry (Sepolia). */
 export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = SUPPORTED_CHAINS.map(chain => chain.id);
 
-/** Earn protocols the Earn code supports. */
-export const SUPPORTED_EARN_PROTOCOLS = ['dummy-lending'] as const;
-export type EarnProtocol = (typeof SUPPORTED_EARN_PROTOCOLS)[number];
+/**
+ * The protocol strings a listed Earn vault can name. A deposit's `protocolHashIdentifier` is
+ * `keccak256(toBytes(protocol))`. The testnet deposits use the hash of `dummy-lending`.
+ */
+export const EARN_VAULT_PROTOCOLS = ['1delta', 'dummy-lending'] as const;
+export type EarnVaultProtocol = (typeof EARN_VAULT_PROTOCOLS)[number];
+
+/** The risk levels a listed Earn vault can name. */
+export const EARN_VAULT_RISKS = ['low', 'medium', 'high'] as const;
+export type EarnVaultRisk = (typeof EARN_VAULT_RISKS)[number];
+
+/** The longest vault name and `about` sentence the wallet shows. */
+export const MAX_EARN_VAULT_NAME_LENGTH = 64;
+export const MAX_EARN_VAULT_ABOUT_LENGTH = 200;
+
+/**
+ * A vault's `logo`: a file under `icons/` of the config repo, relative to the base URL the document was fetched from.
+ * The rule of the config repo's validator (scripts/validate.mjs).
+ */
+export const EARN_VAULT_LOGO = /^icons\/[a-z0-9]+(-[a-z0-9]+)*\.(svg|png)$/;
+
+/**
+ * An Earn vault as the document lists it. The list is the only source of the vaults the wallet offers: a market of
+ * the Epoch catalogue that no entry names is not offered. The text fields are literal: the wallet shows them as
+ * written in every language.
+ */
+export interface EarnVaultConfig {
+  /** Unique in the list: `^[a-z][a-z0-9-]*$`. The vault's route id (`/earn/vaults/{id}`). */
+  id: string;
+  /** `LENDER_KEY:chainId:underlying`, lowercase; unique in the list. */
+  marketUid: string;
+  name: string;
+  /** The protocol string a deposit hashes into its `protocolHashIdentifier`. */
+  protocol: EarnVaultProtocol;
+  about?: string;
+  risk?: EarnVaultRisk;
+  /** False when the document stops new deposits into the vault. True when the document does not set it. */
+  depositsEnabled: boolean;
+  /**
+   * The vault's mark, a path such as `icons/aave.svg` relative to the document's base URL (`EARN_VAULT_LOGO`).
+   * Several vaults may name one file. Resolve it with `selectEarnVaultLogoUrl`.
+   */
+  logo?: string;
+}
 
 /** A 20-byte EVM address, lowercase. */
 export type EvmAddress = `0x${string}`;
@@ -57,23 +114,59 @@ export interface MainnetCountdownConfig {
   launchAt?: number;
 }
 
+/**
+ * The ceilings the document puts on bridge transfers. `bridgeInMaxBalanceUsd` is the most the receiving account may
+ * hold, in US dollars, once a bridge-in lands: the wallet refuses a deposit that takes the account's valued balance
+ * past it. Absent means no ceiling.
+ */
+export interface BridgeLimitsConfig {
+  bridgeInMaxBalanceUsd?: number;
+}
+
 export interface RouteSwitches {
   depositEnabled: boolean;
   withdrawalEnabled: boolean;
 }
 
+/**
+ * One token of an Epoch route. The Miden faucet the solver settles it into is the token-list's entry for
+ * `midenSymbol` (the token's own key when absent), unless `outputs` names entries of `bridge-providers.epoch.outputs`:
+ * then it is the first one's, as on testnet, whose Epoch faucet the token-list does not list.
+ */
+export interface EpochTokenConfig {
+  contractAddress: EvmAddress;
+  midenSymbol?: string;
+  outputs: string[];
+}
+
 export interface EpochChainConfig extends RouteSwitches {
-  tokens: { USDC?: { contractAddress: EvmAddress; outputs: string[] } };
+  /** The EVM tokens the route carries, keyed by the symbol the wallet shows. Never empty. */
+  tokens: Record<string, EpochTokenConfig>;
+}
+
+export interface AgglayerDepositTokenConfig {
+  contractAddress: EvmAddress;
 }
 
 export interface AgglayerChainConfig extends RouteSwitches {
   contractAddress: EvmAddress;
   midenBridgeId: string;
+  /**
+   * The ERC-20 source tokens the document lists for a deposit, by the symbol the picker shows. Native ETH is never
+   * listed: the wallet finds it in the bridge's faucet registry, which is also what verifies each token here.
+   * Absent when the document lists none.
+   */
+  tokens?: Record<string, AgglayerDepositTokenConfig>;
+  /**
+   * A Blockscout API root (`.../api/v2`) that lists an address's ERC-20 holdings on this chain. On a test network the
+   * picker offers the connected wallet's holdings through it; absent, and on mainnet, only `tokens` are offered.
+   */
+  tokenApiUrl?: string;
 }
 
 export type UsdcxDepositConfig =
   | { route: 'xreserve'; xReserve: EvmAddress }
-  | { route: 'executor'; executorChain: string; tokenMessenger: EvmAddress; tokenMessengerWithFees: EvmAddress };
+  | { route: 'executor'; executorChain: string; tokenMessengerWithFees: EvmAddress; tokenMessenger?: EvmAddress };
 
 export interface UsdcxChainConfig extends RouteSwitches {
   domain: number;
@@ -114,18 +207,60 @@ export interface BridgeConfig {
   version: number;
   'bridge-providers': BridgeProviders;
   supportedEvmChains: Record<string, SupportedEvmChainConfig>;
-  features: { earn: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
+  features: {
+    earn: boolean;
+    nearIntents: boolean;
+    fastBridge?: boolean;
+    bridgeIn?: boolean;
+    bridgeOut?: boolean;
+    /** Buying Game Coins in Arcade; only there when the document sets it, and `arcade` exists exactly when true. */
+    arcadeGcPurchase?: boolean;
+    openFullscreen?: boolean;
+  };
+  /**
+   * Places where a feature must not start. Only the "yes" answers are kept. Absent means no place
+   * blocks the feature. A withdrawal of an existing Earn position is not a start.
+   */
+  geo?: GeoBlocks;
+  /**
+   * The mainnet launch. Before its moment Welcome shows the create and recover flows, with the logo taps
+   * as the unlock of the invite-only way in; from the moment on Welcome shows the invite-only way in
+   * directly and an existing test-network wallet is offered the switch to mainnet. The document's
+   * `onboarding.inviteOnly` is no longer read: the moment is the one switch.
+   */
   mainnetCountdown?: MainnetCountdownConfig;
+  /** Only there when the document sets a `limits` section. */
+  limits?: BridgeLimitsConfig;
   swap?: SwapConfig;
+  /**
+   * The NEAR Intents (1Click) deposit routes of the Receive page. Only there on mainnet, or on localnet under the
+   * hermetic E2E gate, when the document sets the section. `features.nearIntents` is the switch: read it through
+   * `getNearIntentsConfig` (`lib/one-click/config`), which checks both.
+   */
+  nearIntents?: NearIntentsConfig;
   /**
    * The network's Guardian operators in picker order, the first being the default. Never empty. Absent means the
    * document names none, and the wallet uses the list it ships with (`lib/miden-chain/guardian-registry`).
    */
   guardians?: GuardianConfig[];
+  /**
+   * The Earn vaults the wallet offers, in picker order. Present, and never empty, exactly when `features.earn` is
+   * true.
+   */
+  earn?: { vaults: EarnVaultConfig[] };
+  /**
+   * The Arcade sale configuration. The seller field is retained for compatibility; purchases accept any seller
+   * with the required script, asset pair and price. Present
+   * exactly when `features.arcadeGcPurchase` is true (`lib/miden/arcade/gc-sale.ts`).
+   */
+  arcade?: { sale: { seller: string } };
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
+// An ERC-20 symbol as an AggLayer or Epoch route keys it: 1 to 11 upper-case ASCII letters or digits. The same rule
+// as the config repo's validator (scripts/validate.mjs).
+const BRIDGE_TOKEN_SYMBOL = /^[A-Z0-9]{1,11}$/;
 // Lower-case letters and digits in groups joined by single hyphens.
 const GUARDIAN_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // C0 controls, DEL and C1 controls: none belongs in a line of text the wallet shows.
@@ -133,11 +268,19 @@ const GUARDIAN_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 // An RFC 3339 timestamp in UTC, such as 2026-10-26T00:00:00Z: one spelling, so every wallet reads the same instant.
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+// The Earn vault rules of the config repo's validator (scripts/validate.mjs).
+const EARN_VAULT_ID = /^[a-z][a-z0-9-]*$/;
+const EARN_LENDER_KEY = /^[A-Z0-9_]+$/;
+const EARN_CHAIN_ID = /^[1-9][0-9]*$/;
+const LOWERCASE_EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
+// The `nearIntents` key rules: a Miden asset id, and an origin chain as the 1Click API names its blockchain.
+const NEAR_INTENTS_MIDEN_ASSET_KEY = /^[a-z][a-z0-9-]*$/;
+const NEAR_INTENTS_CHAIN_KEY = /^[a-z][a-z0-9-]{0,31}$/;
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
 // What this build does not know or cannot complete (a newer chain, route, token or output) is left out instead, so
-// only its own routes go unavailable. mainnetCountdown, which only drives a banner, is off when malformed.
+// only its own routes go unavailable. mainnetCountdown is off when malformed: no banner and no launch.
 const invalid = (): never => {
   throw new Error('invalid bridge config');
 };
@@ -182,6 +325,109 @@ function baseUrl(value: unknown, allowLocalHttp: boolean): string {
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : invalid();
+}
+
+// Text that the wallet sends to the 1Click API or shows as written: 1 to `maxLength` characters, no control character.
+function plainText(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength || CONTROL_CHARACTER.test(value))
+    return invalid();
+  return value;
+}
+
+function tokenDecimals(value: unknown): number {
+  return isSafeIntegerInRange(value, 0, 38) ? value : invalid();
+}
+
+// A keyed map of 1 to `max` entries, in the order of the document. The order is the display order. Note: JSON.parse
+// puts an integer-like key (such as "123") before the other keys, so such a key does not keep its place.
+function keyedEntries(value: unknown, max: number): [string, unknown][] {
+  const entries = Object.entries(record(value));
+  return entries.length === 0 || entries.length > max ? invalid() : entries;
+}
+
+// The Miden tokens a deposit can deliver, keyed by the id that a chain token refers to. No asset id or faucet twice.
+function nearIntentsMidenAssets(value: unknown): NearIntentsMidenAssetConfig[] {
+  const assetIds = new Set<string>();
+  const faucetIds = new Set<string>();
+  return keyedEntries(value, MAX_NEAR_INTENTS_MIDEN_ASSETS).map(([id, entry]) => {
+    if (!NEAR_INTENTS_MIDEN_ASSET_KEY.test(id)) return invalid();
+    const asset = record(entry);
+    const assetId = plainText(asset.assetId, 256);
+    const faucetId = midenAccountId(asset.faucetId);
+    if (assetIds.has(assetId) || faucetIds.has(faucetId)) return invalid();
+    assetIds.add(assetId);
+    faucetIds.add(faucetId);
+    return { id, assetId, faucetId, decimals: tokenDecimals(asset.decimals) };
+  });
+}
+
+// One token of an origin chain, keyed by its symbol. `miden` names 1 to 8 different keys of `midenAssets`.
+function nearIntentsToken(symbol: string, value: unknown, midenIds: ReadonlySet<string>): NearIntentsTokenConfig {
+  const token = record(value);
+  const contractAddress = read(token, 'contractAddress', address => plainText(address, 256));
+  const outputs = token.miden;
+  if (!Array.isArray(outputs) || outputs.length === 0 || outputs.length > MAX_NEAR_INTENTS_TOKEN_OUTPUTS)
+    return invalid();
+  const miden = outputs.map((id: unknown) => (typeof id === 'string' && midenIds.has(id) ? id : invalid()));
+  if (new Set(miden).size !== miden.length) return invalid();
+  return {
+    symbol: plainText(symbol, 32),
+    assetId: plainText(token.assetId, 256),
+    decimals: tokenDecimals(token.decimals),
+    ...(contractAddress === undefined ? {} : { contractAddress }),
+    miden
+  };
+}
+
+// The origin chains, keyed by the 1Click blockchain name. A token asset id is unique in the whole section, and no
+// token asset id is also the asset id of a Miden token.
+function nearIntentsChains(
+  value: unknown,
+  midenAssets: readonly NearIntentsMidenAssetConfig[]
+): NearIntentsChainConfig[] {
+  const midenIds = new Set(midenAssets.map(asset => asset.id));
+  const assetIds = new Set(midenAssets.map(asset => asset.assetId));
+  return keyedEntries(value, MAX_NEAR_INTENTS_CHAINS).map(([id, entry]) => {
+    if (!NEAR_INTENTS_CHAIN_KEY.test(id) || id === 'miden') return invalid();
+    const chain = record(entry);
+    const name = plainText(chain.name, 64);
+    const addressKind = oneOf(NEAR_INTENTS_ADDRESS_KINDS, chain.addressKind);
+    const tokens = keyedEntries(chain.tokens, MAX_NEAR_INTENTS_TOKENS_PER_CHAIN).map(([symbol, token]) => {
+      const parsed = nearIntentsToken(symbol, token, midenIds);
+      if (assetIds.has(parsed.assetId)) return invalid();
+      assetIds.add(parsed.assetId);
+      return parsed;
+    });
+    return { id, name, addressKind, tokens };
+  });
+}
+
+// Undefined on a network that does not offer NEAR Intents: the section is then not read, so it cannot reject the
+// document. Mainnet only, and localnet under the hermetic E2E gate, where the service must be a loopback host.
+function nearIntents(
+  value: unknown,
+  network: string,
+  allowLocalHttp: boolean,
+  allowOneClickLocalE2E: boolean
+): NearIntentsConfig | undefined {
+  const localE2E = network === 'localnet' && allowOneClickLocalE2E;
+  if (network !== 'mainnet' && !localE2E) return undefined;
+  const config = record(value);
+  const serviceUrl = baseUrl(config.serviceUrl, localE2E && allowLocalHttp);
+  if (localE2E && !LOCAL_HTTP_HOSTS.includes(new URL(serviceUrl).hostname)) return invalid();
+  // A document that still names `appFees` is accepted and the list is not read: NEAR sets the fees up on the
+  // partner key.
+  const midenAssets = nearIntentsMidenAssets(config.midenAssets);
+  const chains = nearIntentsChains(config.chains, midenAssets);
+  return { serviceUrl, chains, midenAssets };
+}
+
+function isSafeIntegerInRange(value: unknown, min: number, max: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max;
+}
+
 function featureSwitch(features: Record<string, unknown>, name: string): boolean {
   const value = features[name];
   if (value === undefined) return false;
@@ -209,6 +455,34 @@ function readCountdown(value: unknown): MainnetCountdownConfig {
 
 type ConfigValue = Parameters<typeof section>[0];
 
+// A ceiling in US dollars: a finite number above zero. A malformed ceiling fails the document, since a ceiling the
+// wallet silently dropped would let a deposit through that the operator meant to refuse.
+function usdCeiling(value: ConfigValue): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return invalid();
+  return value;
+}
+
+function readLimits(value: ConfigValue): BridgeLimitsConfig | undefined {
+  if (value === undefined) return undefined;
+  const bridgeInMaxBalanceUsd = read(section(value), 'bridgeInMaxBalanceUsd', usdCeiling);
+  return bridgeInMaxBalanceUsd === undefined ? undefined : { bridgeInMaxBalanceUsd };
+}
+
+/**
+ * The Arcade GC sale (the config repo's `readArcade`): the section exists exactly while `features.arcadeGcPurchase`
+ * is on, so a stale seller cannot linger behind a switched-off feature, and names the seller as a 15-byte hex
+ * account id. A bad section rejects the document.
+ */
+function readArcade(value: ConfigValue, enabled: boolean): { sale: { seller: string } } | undefined {
+  if (value === undefined) return enabled ? invalid() : undefined;
+  if (!enabled) return invalid();
+  const sale = section(section(value).sale);
+  const seller = read(sale, 'seller', candidate =>
+    typeof candidate === 'string' && MIDEN_ACCOUNT_ID.test(candidate) ? candidate.toLowerCase() : invalid()
+  );
+  return seller === undefined ? invalid() : { sale: { seller } };
+}
+
 function requiredBoolean(value: ConfigValue): boolean {
   return typeof value === 'boolean' ? value : invalid();
 }
@@ -232,30 +506,56 @@ function outputNames(value: ConfigValue): string[] {
   return names;
 }
 
-// Undefined for a route that lists no token this build knows.
+// Undefined for a route that lists no token. A map keyed by symbol, each entry an EVM address, no address twice: the
+// rules the config repo's validator applies.
 function epochChain(value: ConfigValue): EpochChainConfig | undefined {
   const bridge = section(value);
   const routeSwitches = switches(bridge);
-  const tokens = section(bridge.tokens);
-  if (tokens.USDC === undefined) return undefined;
-  const token = section(tokens.USDC);
-  return {
-    ...routeSwitches,
-    tokens: {
-      USDC: {
-        contractAddress: evmAddress(token.contractAddress),
-        outputs: token.outputs === undefined ? [] : outputNames(token.outputs)
-      }
-    }
-  };
+  const tokens: Record<string, EpochTokenConfig> = {};
+  const addresses = new Set<string>();
+  for (const [symbol, entry] of Object.entries(section(bridge.tokens))) {
+    if (!BRIDGE_TOKEN_SYMBOL.test(symbol)) return invalid();
+    const token = section(entry);
+    const contractAddress = evmAddress(token.contractAddress);
+    if (addresses.has(contractAddress)) return invalid();
+    addresses.add(contractAddress);
+    const midenSymbol = read(token, 'midenSymbol', value =>
+      typeof value === 'string' && BRIDGE_TOKEN_SYMBOL.test(value) ? value : invalid()
+    );
+    tokens[symbol] = {
+      contractAddress,
+      ...(midenSymbol === undefined ? {} : { midenSymbol }),
+      outputs: token.outputs === undefined ? [] : outputNames(token.outputs)
+    };
+  }
+  if (Object.keys(tokens).length === 0) return undefined;
+  return { ...routeSwitches, tokens };
 }
 
-function agglayerChain(value: ConfigValue): AgglayerChainConfig {
+// A map keyed by symbol, each entry an EVM address, no address twice: the rules the config repo's validator applies.
+function agglayerDepositTokens(value: ConfigValue): Record<string, AgglayerDepositTokenConfig> {
+  const tokens: Record<string, AgglayerDepositTokenConfig> = {};
+  const addresses = new Set<string>();
+  for (const [symbol, token] of Object.entries(section(value))) {
+    if (!BRIDGE_TOKEN_SYMBOL.test(symbol)) return invalid();
+    const contractAddress = evmAddress(section(token).contractAddress);
+    if (addresses.has(contractAddress)) return invalid();
+    addresses.add(contractAddress);
+    tokens[symbol] = { contractAddress };
+  }
+  return tokens;
+}
+
+function agglayerChain(value: ConfigValue, url: (value: ConfigValue) => string): AgglayerChainConfig {
   const bridge = section(value);
+  const tokens = read(bridge, 'tokens', agglayerDepositTokens);
+  const tokenApiUrl = read(bridge, 'tokenApiUrl', url);
   return {
     ...switches(bridge),
     contractAddress: evmAddress(bridge.contractAddress),
-    midenBridgeId: midenAccountId(bridge.midenBridgeId)
+    midenBridgeId: midenAccountId(bridge.midenBridgeId),
+    ...(tokens === undefined ? {} : { tokens }),
+    ...(tokenApiUrl === undefined ? {} : { tokenApiUrl })
   };
 }
 
@@ -270,8 +570,8 @@ function usdcxDeposit(value: ConfigValue): UsdcxDepositConfig | undefined {
       return {
         route: 'executor',
         executorChain: deposit.executorChain,
-        tokenMessenger: evmAddress(deposit.tokenMessenger),
-        tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees)
+        tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees),
+        ...(deposit.tokenMessenger === undefined ? {} : { tokenMessenger: evmAddress(deposit.tokenMessenger) })
       };
     default:
       return typeof deposit.route === 'string' ? undefined : invalid();
@@ -304,7 +604,10 @@ function usdcxChain(value: ConfigValue): UsdcxChainConfig | undefined {
   };
 }
 
-function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainConfig> {
+function supportedChains(
+  value: ConfigValue,
+  url: (value: ConfigValue) => string
+): Record<string, SupportedEvmChainConfig> {
   const chains: Record<string, SupportedEvmChainConfig> = {};
   const ids = new Set<number>();
   // Chains skipped, or whose xreserve deposit was left out: an executor deposit through one is left out too.
@@ -323,7 +626,7 @@ function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainCo
     ids.add(item.chainId);
     const bridges = section(item.bridges);
     const epoch = read(bridges, 'epoch', epochChain);
-    const agglayer = read(bridges, 'agglayer', agglayerChain);
+    const agglayer = read(bridges, 'agglayer', value => agglayerChain(value, url));
     const usdcx = read(bridges, 'usdcx', usdcxChain);
     if (section(bridges.usdcx).deposit !== undefined && !usdcx?.deposit) incomplete.add(slug);
     chains[slug] = {
@@ -386,7 +689,86 @@ function readGuardians(value: unknown, url: (value: unknown) => string): Guardia
   return guardians;
 }
 
-function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
+const member = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
+
+// The chain ids of the document's `supportedEvmChains`: the chains a vault can name. The parser reads them from the
+// document as written, as the config repo's validator reads them. Thus a chain that this build leaves out (a newer
+// build's chain, a chain with no usable bridge) still names its vaults. The vault's token does not have to be a
+// bridge token of that chain.
+function evmChainIds(value: unknown): Set<number> {
+  const chainIds = new Set<number>();
+  if (!isRecord(value)) return chainIds;
+  for (const entry of Object.values(value)) {
+    const chainId = member(entry, 'chainId');
+    if (isPositiveSafeInteger(chainId)) chainIds.add(chainId);
+  }
+  return chainIds;
+}
+
+// `LENDER_KEY:chainId:underlying`, lowercase. The chain is one of `chainIds`. The underlying is any EVM address in
+// lower case.
+function earnMarketUid(value: unknown, chainIds: ReadonlySet<number>): string {
+  if (typeof value !== 'string') return invalid();
+  const parts = value.split(':');
+  const [lenderKey = '', chainId = '', underlying = ''] = parts;
+  if (parts.length !== 3 || !EARN_LENDER_KEY.test(lenderKey) || !EARN_CHAIN_ID.test(chainId)) return invalid();
+  if (!LOWERCASE_EVM_ADDRESS.test(underlying) || !Number.isSafeInteger(Number(chainId))) return invalid();
+  return chainIds.has(Number(chainId)) ? value.toLowerCase() : invalid();
+}
+
+// Literal text, shown as written: 1 to `maxLength` characters. Unlike a Guardian's text, neither the config repo's
+// validator nor this parser checks its characters or spaces.
+function earnVaultText(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) return invalid();
+  return value;
+}
+
+// A path under `icons/`, never a URL: the wallet resolves it against the document's own base URL.
+function earnVaultLogo(value: unknown): string {
+  return typeof value === 'string' && EARN_VAULT_LOGO.test(value) ? value : invalid();
+}
+
+function oneOf<T extends string>(values: readonly T[], value: unknown): T {
+  return values.find(known => known === value) ?? invalid();
+}
+
+function readEarnVault(value: unknown, chainIds: ReadonlySet<number>): EarnVaultConfig {
+  if (!isRecord(value)) return invalid();
+  if (typeof value.id !== 'string' || !EARN_VAULT_ID.test(value.id)) return invalid();
+  const about = read(value, 'about', about => earnVaultText(about, MAX_EARN_VAULT_ABOUT_LENGTH));
+  const risk = read(value, 'risk', risk => oneOf(EARN_VAULT_RISKS, risk));
+  const logo = read(value, 'logo', earnVaultLogo);
+  return {
+    id: value.id,
+    marketUid: earnMarketUid(value.marketUid, chainIds),
+    name: earnVaultText(value.name, MAX_EARN_VAULT_NAME_LENGTH),
+    protocol: oneOf(EARN_VAULT_PROTOCOLS, value.protocol),
+    ...(about === undefined ? {} : { about }),
+    ...(risk === undefined ? {} : { risk }),
+    depositsEnabled: read(value, 'depositsEnabled', requiredBoolean) ?? true,
+    ...(logo === undefined ? {} : { logo })
+  };
+}
+
+// The section exists exactly when Earn is on: Earn on with no vault would offer nothing, and vaults with Earn off
+// would be a list nothing reads. Two entries for one id or one market are ambiguous.
+function readEarn(value: unknown, earnEnabled: boolean, chains: unknown): { vaults: EarnVaultConfig[] } | undefined {
+  if (value === undefined) return earnEnabled ? invalid() : undefined;
+  if (!earnEnabled || !isRecord(value) || !Array.isArray(value.vaults) || value.vaults.length === 0) return invalid();
+  const chainIds = evmChainIds(chains);
+  const vaults = value.vaults.map((entry: unknown) => readEarnVault(entry, chainIds));
+  const ids = new Set(vaults.map(vault => vault.id));
+  const markets = new Set(vaults.map(vault => vault.marketUid));
+  if (ids.size !== vaults.length || markets.size !== vaults.length) return invalid();
+  return { vaults };
+}
+
+function readConfig(
+  body: unknown,
+  network: string,
+  allowLocalHttp: boolean,
+  allowOneClickLocalE2E: boolean
+): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
   if (body.network !== network || !isPositiveSafeInteger(version)) return invalid();
@@ -410,17 +792,27 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const irisUrl = read(usdcx, 'irisUrl', url);
   const swap = section(body.swap);
   const etaUrl = read(swap, 'etaUrl', url);
-  const supportedEvmChains = supportedChains(body.supportedEvmChains);
+  // A `swap.oneClick` that an older document still carries is not read: NEAR Intents is the top-level section now.
+  const nearIntentsConfig = read(body, 'nearIntents', value =>
+    nearIntents(value, network, allowLocalHttp, allowOneClickLocalE2E)
+  );
+  const supportedEvmChains = supportedChains(body.supportedEvmChains, url);
   // A route without the provider values it runs on is left out; so is a token output nothing declares.
   for (const { bridges } of Object.values(supportedEvmChains)) {
     if (bridges.epoch && (!allocatorUrl || !positionsUrl)) delete bridges.epoch;
     if (bridges.agglayer && !indexerUrl) delete bridges.agglayer;
     if (bridges.usdcx && (midenDomain === undefined || !attestationUrl || !irisUrl)) delete bridges.usdcx;
-    const usdc = bridges.epoch?.tokens.USDC;
     // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
-    if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
+    for (const token of Object.values(bridges.epoch?.tokens ?? {}))
+      token.outputs = token.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
   }
   const guardians = readGuardians(body.guardians, url);
+  const limits = readLimits(body.limits);
+  const geo = readGeoBlocks(body.geo, invalid);
+  const features = section(body.features);
+  const earnEnabled = featureSwitch(features, 'earn');
+  const earn = readEarn(body.earn, earnEnabled, body.supportedEvmChains);
+  const arcade = readArcade(body.arcade, featureSwitch(features, 'arcadeGcPurchase'));
   return {
     network,
     version,
@@ -439,24 +831,35 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     },
     supportedEvmChains,
     features: {
-      earn: featureSwitch(section(body.features), 'earn'),
+      earn: earnEnabled,
+      nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
-        ['fastBridge', 'bridgeIn', 'bridgeOut']
-          .filter(name => section(body.features)[name] !== undefined)
-          .map(name => [name, featureSwitch(section(body.features), name)])
+        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase', 'openFullscreen']
+          .filter(name => features[name] !== undefined)
+          .map(name => [name, featureSwitch(features, name)])
       )
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
-    swap: etaUrl === undefined ? {} : { etaUrl },
-    ...(guardians === undefined ? {} : { guardians })
+    ...(limits === undefined ? {} : { limits }),
+    swap: { ...(etaUrl === undefined ? {} : { etaUrl }) },
+    ...(nearIntentsConfig === undefined ? {} : { nearIntents: nearIntentsConfig }),
+    ...(guardians === undefined ? {} : { guardians }),
+    ...(earn === undefined ? {} : { earn }),
+    ...(arcade === undefined ? {} : { arcade }),
+    ...(geo === undefined ? {} : { geo })
   };
 }
 
-/** The Earn collateral faucet: the output the Epoch USDC token declares first, as the Epoch provider lists it. */
+/** The Miden faucet an Epoch token settles into: its first output, as the Epoch provider lists it. */
+export function epochTokenFaucetId(config: BridgeConfig, token: EpochTokenConfig | undefined): string | undefined {
+  const name = token?.outputs[0];
+  return name === undefined ? undefined : config['bridge-providers'].epoch.outputs?.[name]?.faucetId;
+}
+
+/** The Earn collateral faucet: the faucet the first Epoch route's USDC settles into. */
 export function epochCollateralFaucetId(config: BridgeConfig): string | undefined {
   const epoch = Object.values(config.supportedEvmChains).find(chain => chain.bridges.epoch)?.bridges.epoch;
-  const name = epoch?.tokens.USDC?.outputs[0];
-  return name === undefined ? undefined : config['bridge-providers'].epoch.outputs?.[name]?.faucetId;
+  return epochTokenFaucetId(config, epoch?.tokens.USDC);
 }
 
 /**
@@ -467,10 +870,10 @@ export function epochCollateralFaucetId(config: BridgeConfig): string | undefine
 export function parseBridgeConfig(
   body: unknown,
   network: string,
-  options: { allowLocalHttp?: boolean } = {}
+  options: { allowLocalHttp?: boolean; allowOneClickLocalE2E?: boolean } = {}
 ): BridgeConfig | null {
   try {
-    return readConfig(body, network, options.allowLocalHttp === true);
+    return readConfig(body, network, options.allowLocalHttp === true, options.allowOneClickLocalE2E === true);
   } catch {
     return null;
   }

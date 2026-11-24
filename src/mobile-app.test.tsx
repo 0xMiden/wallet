@@ -20,6 +20,11 @@ import React from 'react';
 // *invoked* lazily when `./mobile-app` is required, by which point these
 // consts are initialised.
 // ---------------------------------------------------------------------------
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
 const mockInitTheme = jest.fn();
 const mockInstallGuardianFetchBoundary = jest.fn();
 const mockInitMobileBackHandler = jest.fn<Promise<void>, []>();
@@ -270,5 +275,50 @@ describe('mobile-app entry point — bootstrap failure (showError paths)', () =>
     expect(errorSpy).toHaveBeenCalledWith('Mobile app error:', 'Unhandled initialization error', err);
     expect(document.getElementById('root')).toBeNull();
     expect(mockCreateRoot).not.toHaveBeenCalled();
+  });
+});
+
+describe('mobile startup user-visible reporting', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="root"></div>';
+    mockAdapterInit.mockResolvedValue(undefined);
+  });
+
+  it('reports the root-missing path once with a closed startup identity', async () => {
+    document.body.innerHTML = '';
+    await loadModule();
+    expect(errorSpy).toHaveBeenCalledWith('Mobile app error:', 'Root container not found', undefined);
+    expect(mockCreateRoot).not.toHaveBeenCalled();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_root_missing', 'startup']]);
+  });
+
+  it('reports initialization rejection once despite both real catch displays', async () => {
+    const error = new Error('private init detail 0x1234 amount 42');
+    mockAdapterInit.mockRejectedValueOnce(error);
+    await loadModule();
+    expect(errorSpy).toHaveBeenCalledWith('Mobile app error:', 'Failed to initialize', error);
+    expect(errorSpy).toHaveBeenCalledWith('Mobile app error:', 'Unhandled initialization error', error);
+    expect(document.getElementById('root')?.textContent).toContain('Unhandled initialization error');
+    expect(document.getElementById('root')?.textContent).toContain(error.message);
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_init_failed', 'startup']]);
+  });
+
+  it('keeps successful initialization quiet', async () => {
+    await loadModule();
+    expect(mockRender).toHaveBeenCalledTimes(1);
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('reports each fresh startup but does not repeat for a cached module import', async () => {
+    document.body.innerHTML = '';
+    await loadModule();
+    require('./mobile-app');
+    await flush();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([['raw_startup_root_missing', 'startup']]);
+    await loadModule();
+    expect(mockReportUserVisibleError.mock.calls).toEqual([
+      ['raw_startup_root_missing', 'startup'],
+      ['raw_startup_root_missing', 'startup']
+    ]);
   });
 });

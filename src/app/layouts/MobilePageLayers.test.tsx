@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { pageSlideDim, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
+import { pageSlideCovered, pageSlideDim, presets, reducedMotionTransition } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { setReturningFromWebview } from 'lib/mobile/webview-state';
 import { HistoryAction } from 'lib/woozie/history';
@@ -342,7 +342,7 @@ it('moves the layers on the page preset: the covered page to the parallax offset
   rerender(view('/settings', true));
 
   const covered = mockMotion.layers['/history'];
-  expect(covered.animate).toEqual({ x: pageSlideParallax });
+  expect(covered.animate).toEqual(pageSlideCovered);
   expect(covered.transition).toBe(presets.page.transition);
   expect(mockMotion.layers['/settings'].transition).toBe(presets.page.transition);
 

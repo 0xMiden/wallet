@@ -31,7 +31,7 @@ const configNaming = (midenBridge: string): BridgeConfigSnapshot => ({
         }
       }
     },
-    features: { earn: false }
+    features: { earn: false, nearIntents: false }
   },
   derived: null,
   lastFetch: null
@@ -144,6 +144,20 @@ it('blocks a failed read', async () => {
   await waitFor(() => expect(result.current).toBe('error'));
   expect(warn.mock.calls.map(call => call[call.length - 1])).toContain(failure);
   warn.mockRestore();
+});
+
+it('does not query the registry while inactive, and checks again when the route opens', async () => {
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
+  const { result, rerender } = renderHook(({ active }) => useAgglayerEligibility('token', undefined, active), {
+    initialProps: { active: false }
+  });
+  expect(result.current).toBe('loading');
+  expect(isAgglayerFaucetAllowed).not.toHaveBeenCalled();
+  rerender({ active: true });
+  await waitFor(() => expect(result.current).toBe('allowed'));
+  expect(isAgglayerFaucetAllowed).toHaveBeenCalledTimes(1);
+  rerender({ active: false });
+  expect(result.current).toBe('loading');
 });
 
 it('does not apply an old approval to a newly selected token', async () => {

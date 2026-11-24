@@ -6,13 +6,12 @@ name: Infra Resilience E2E (Chrome)
 # note-transport from run-note-transport.sh (both HOST processes on 0.16); only
 # the two guardians come from docker-compose.local.yml.
 #
-# Trigger: push to main (post-merge signal), manual dispatch, and a nightly cron.
-# This is NOT a required pre-merge PR gate (spec decision) — a full docker stack
-# per PR is too costly; it runs after merge and nightly to catch resilience
+# Trigger: its own nightly cron (main's scheduled run, so Release E2E does not
+# dispatch it on its nightly), manual dispatch, and Release E2E's on-demand and
+# release runs. This is NOT a required pre-merge PR gate (spec decision) - a full
+# docker stack per PR is too costly; it runs nightly to catch resilience
 # regressions over time.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
   schedule:
     # Nightly at 05:00 UTC (after the stress suite's 04:00).
@@ -38,13 +37,13 @@ jobs:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
       # Pinned exact (NOT @stable): a binary built with a newer rustc can reject
       # the pinned older CLI/transport crates. Bump deliberately (and the cache
       # key). Mirrors pr-e2e-local.yml.
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so this suite restores it
       # instead of spending ~12 min rebuilding binaries that are byte-identical
@@ -66,7 +65,7 @@ jobs:
           fi
           echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin
@@ -136,6 +135,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
       - name: Drop apt repositories this repo never installs from
@@ -176,7 +178,7 @@ jobs:
         if: failure()
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -400
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: e2e-resilience-report

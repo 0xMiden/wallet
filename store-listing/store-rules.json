@@ -1,13 +1,8 @@
 {
   "schemaVersion": 1,
-  "checkedAt": "2026-09-15",
+  "checkedAt": "2026-10-25",
   "maxAgeDays": 180,
-  "sharedSceneOrder": [
-    "wallet-keys",
-    "send-privacy",
-    "receive",
-    "guardian"
-  ],
+  "sharedSceneOrder": ["wallet-keys", "send-privacy", "receive", "guardian"],
   "platforms": {
     "appStore": {
       "label": "App Store",
@@ -16,10 +11,7 @@
         "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information",
         "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information"
       ],
-      "allowedPlatformScenes": [
-        "ios-dapp-browser",
-        "ios-protection"
-      ],
+      "allowedPlatformScenes": ["ios-dapp-browser", "ios-protection"],
       "copyLimits": {
         "nameCharacters": 30,
         "subtitleCharacters": 30,
@@ -44,7 +36,118 @@
             "height": 2868
           }
         ],
-        "alphaAllowed": false
+        "alphaAllowed": false,
+        "formats": ["png", "jpeg"],
+        "colorSpaces": ["srgb", "rgb"],
+        "depths": ["uchar"],
+        "requiredFamilies": ["iphone"],
+        "displayTypes": {
+          "APP_IPHONE_67": {
+            "family": "iphone",
+            "dimensions": [
+              {
+                "width": 1260,
+                "height": 2736
+              },
+              {
+                "width": 2736,
+                "height": 1260
+              },
+              {
+                "width": 1290,
+                "height": 2796
+              },
+              {
+                "width": 2796,
+                "height": 1290
+              },
+              {
+                "width": 1320,
+                "height": 2868
+              },
+              {
+                "width": 2868,
+                "height": 1320
+              }
+            ]
+          },
+          "APP_IPHONE_61": {
+            "family": "iphone",
+            "dimensions": [
+              {
+                "width": 1179,
+                "height": 2556
+              },
+              {
+                "width": 2556,
+                "height": 1179
+              },
+              {
+                "width": 1206,
+                "height": 2622
+              },
+              {
+                "width": 2622,
+                "height": 1206
+              }
+            ]
+          },
+          "APP_IPHONE_65": {
+            "family": "iphone",
+            "dimensions": [
+              {
+                "width": 1284,
+                "height": 2778
+              },
+              {
+                "width": 2778,
+                "height": 1284
+              },
+              {
+                "width": 1242,
+                "height": 2688
+              },
+              {
+                "width": 2688,
+                "height": 1242
+              }
+            ]
+          },
+          "APP_IPAD_PRO_3GEN_129": {
+            "family": "ipad",
+            "dimensions": [
+              {
+                "width": 2064,
+                "height": 2752
+              },
+              {
+                "width": 2752,
+                "height": 2064
+              },
+              {
+                "width": 2048,
+                "height": 2732
+              },
+              {
+                "width": 2732,
+                "height": 2048
+              }
+            ]
+          },
+          "APP_IPAD_PRO_129": {
+            "family": "ipad",
+            "dimensions": [
+              {
+                "width": 2048,
+                "height": 2732
+              },
+              {
+                "width": 2732,
+                "height": 2048
+              }
+            ]
+          }
+        }
       },
       "requiredKinds": {},
       "recommendations": {
@@ -57,13 +160,10 @@
       "label": "Google Play",
       "sources": [
         "https://support.google.com/googleplay/android-developer/answer/9866151",
-        "https://support.google.com/googleplay/android-developer/answer/9859152"
+        "https://support.google.com/googleplay/android-developer/answer/9859152",
+        "https://play.google.com/console/"
       ],
-      "allowedPlatformScenes": [
-        "android-dapp-browser",
-        "android-local-proving",
-        "android-protection"
-      ],
+      "allowedPlatformScenes": ["android-dapp-browser", "android-local-proving", "android-protection"],
       "copyLimits": {
         "nameCharacters": 30,
         "shortDescriptionCharacters": 80,
@@ -75,7 +175,11 @@
         "minDimension": 320,
         "maxDimension": 3840,
         "maxLongToShortRatio": 2,
-        "alphaAllowed": false
+        "alphaAllowed": false,
+        "formats": ["png", "jpeg"],
+        "colorSpaces": ["srgb", "rgb"],
+        "depths": ["uchar"],
+        "maxBytes": 8388608
       },
       "requiredKinds": {
         "featureGraphic": {
@@ -107,11 +211,7 @@
         "https://developer.chrome.com/docs/webstore/cws-dashboard-listing",
         "https://developer.chrome.com/docs/extensions/reference/manifest/description"
       ],
-      "allowedPlatformScenes": [
-        "chrome-connect",
-        "chrome-confirm",
-        "chrome-side-panel"
-      ],
+      "allowedPlatformScenes": ["chrome-connect", "chrome-confirm", "chrome-side-panel"],
       "copyLimits": {
         "nameCharacters": 75,
         "shortDescriptionCharacters": 132
@@ -129,7 +229,10 @@
             "height": 400
           }
         ],
-        "alphaAllowed": false
+        "alphaAllowed": false,
+        "formats": ["png", "jpeg"],
+        "colorSpaces": ["srgb", "rgb", "rgb16"],
+        "depths": ["uchar", "ushort"]
       },
       "requiredKinds": {
         "smallPromo": {

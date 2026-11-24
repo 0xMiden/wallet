@@ -9,9 +9,10 @@ import { cn } from 'lib/ui/util';
 
 /** `bare`: a 24px glyph alone in a 44px hit area, `ink` - the last few rows that have not moved.
  *  `circle`: a 32px (or 36px) circle on `fill`, `muted` small glyph - sheets and overlays.
- *  `filled`: a 44px circle on `fill` with an `ink` 24px glyph - a pushed page's back button and a
- *  tab root's header actions. `active` fills it with `accent` and turns the glyph white. */
-export type IconButtonAppearance = 'bare' | 'circle' | 'filled';
+ *  `filled`: a 44px circle on `fill` with an `ink` 24px glyph - a tab root's header action.
+ *  `active` fills it with `accent` and turns the glyph white. `back` is the pushed-page back button,
+ *  the same circle in `back-glyph`, with no `active` restyle. */
+export type IconButtonAppearance = 'bare' | 'circle' | 'filled' | 'back';
 
 const iconButtonVariants = cva(
   [
@@ -27,7 +28,8 @@ const iconButtonVariants = cva(
         // page's own edge, the way the row it sits in expects.
         bare: '-mx-2.5 h-11 w-11 text-ink',
         circle: 'bg-fill text-muted hover:bg-fill-pressed',
-        filled: 'h-11 w-11 bg-fill text-ink hover:bg-fill-pressed'
+        filled: 'h-11 w-11 bg-fill text-ink hover:bg-fill-pressed',
+        back: 'h-11 w-11 bg-fill text-back-glyph hover:bg-fill-pressed'
       },
       circleSize: {
         '32': '',

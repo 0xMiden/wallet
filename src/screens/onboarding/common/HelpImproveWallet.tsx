@@ -8,7 +8,6 @@ import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { Hero } from 'components/ui/Hero';
 import { ListGroup } from 'components/ui/ListGroup';
 import { setTelemetrySetting } from 'lib/settings/helpers';
-import { initCrashReporting } from 'lib/telemetry/crash';
 
 export interface HelpImproveWalletScreenProps {
   onSubmit?: () => void;
@@ -19,8 +18,8 @@ export interface HelpImproveWalletScreenProps {
  *
  * Both buttons record a choice: a skip is an answer, not the absence of one, so
  * `hasTelemetryChoice()` reads true either way and the prompt does not come
- * back on the next launch. Nothing is recorded by merely rendering — consent is
- * off until the user presses something.
+ * back on the next launch. Usage sharing stays off until the user accepts;
+ * crash reporting starts at app launch independently of this choice.
  */
 export const HelpImproveWalletScreen: React.FC<HelpImproveWalletScreenProps> = ({ onSubmit }) => {
   const { t } = useTranslation();
@@ -31,16 +30,9 @@ export const HelpImproveWalletScreen: React.FC<HelpImproveWalletScreenProps> = (
   // flight makes which value they see a race. See `setTelemetrySetting`.
   const onAccept = useCallback(async () => {
     await setTelemetrySetting(true);
-    // Startup gated the reporter on a consent that was not yet given, so start
-    // it here rather than leaving this whole first session unreported.
-    initCrashReporting();
     onSubmit?.();
   }, [onSubmit]);
 
-  // No teardown counterpart to the accept path's `initCrashReporting`: this
-  // screen only renders before the user has ever answered, and consent defaults
-  // to off, so there is nothing running here to stop. The Settings toggle, which
-  // *can* be reached with sharing under way, does the tearing down.
   const onDecline = useCallback(async () => {
     await setTelemetrySetting(false);
     onSubmit?.();
@@ -92,6 +84,9 @@ export const HelpImproveWalletScreen: React.FC<HelpImproveWalletScreenProps> = (
                 description={t('helpImproveWalletNoTrackingDescription')}
               />
             </ListGroup>
+            <p className="text-center text-body-sm text-muted" data-testid="help-improve-wallet-crash-reports">
+              {t('helpImproveWalletCrashReports')}
+            </p>
             <p className="text-center text-body-sm text-muted">{t('helpImproveWalletChangeAnyTime')}</p>
           </div>
         </div>

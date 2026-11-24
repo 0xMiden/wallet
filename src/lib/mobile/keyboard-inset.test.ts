@@ -27,6 +27,9 @@ const setAccessoryBarVisibleMock = Keyboard.setAccessoryBarVisible as jest.Mock;
 /** Keyboard listeners captured per event name by the addListener mock. */
 let listeners: Record<string, (info?: { keyboardHeight?: number }) => void>;
 
+/** A wallet field that holds focus, so a keyboard report reads as the wallet's own keyboard. */
+let walletField: HTMLInputElement;
+
 // jsdom reports a zero rect for every element, which reads as "on screen".
 // Put the field below the fold so the nudge has something to do.
 function placeBelowFold(element: HTMLElement) {
@@ -46,6 +49,9 @@ describe('keyboard-inset', () => {
       return Promise.resolve({ remove: jest.fn() });
     });
     document.documentElement.style.removeProperty('--keyboard-height');
+    walletField = document.createElement('input');
+    document.body.appendChild(walletField);
+    walletField.focus();
   });
 
   afterEach(() => {
@@ -89,6 +95,58 @@ describe('keyboard-inset', () => {
     listeners['keyboardWillHide']!();
     expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('0px');
     expect(document.body).not.toHaveAttribute('data-hide-navbar');
+  });
+
+  it('ignores a keyboard raised while nothing in the wallet is being edited (a dApp WebView keyboard)', async () => {
+    isMobileMock.mockReturnValue(true);
+
+    await initKeyboardInset();
+
+    // The embedded dApp browser's keyboard notification reaches the wallet too. Padding the body
+    // for it shrinks the dApp slot and the native re-fit dismisses that keyboard.
+    walletField.blur();
+    listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+    expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('');
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+
+    // The hide that follows is harmless: nothing to release.
+    listeners['keyboardWillHide']!();
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+
+    // A wallet field focused again takes the inset as before.
+    walletField.focus();
+    listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+    expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('336px');
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+  });
+
+  it('ignores a dApp keyboard while a wallet field is still the active element of an unfocused page', async () => {
+    isMobileMock.mockReturnValue(true);
+
+    await initKeyboardInset();
+
+    // The dApp window took focus from the wallet page: the page is no longer focused, but the
+    // field it last edited stays document.activeElement.
+    const hasFocus = jest.spyOn(document, 'hasFocus').mockReturnValue(false);
+    try {
+      listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+      expect(document.documentElement.style.getPropertyValue('--keyboard-height')).toBe('');
+      expect(document.body).not.toHaveAttribute('data-hide-navbar');
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
+
+  it('on Android holds the navbar for a keyboard report even when no wallet field is being edited', async () => {
+    isMobileMock.mockReturnValue(true);
+    isIOSMock.mockReturnValue(false);
+
+    await initKeyboardInset();
+
+    // The dApp window re-fit that dismisses its keyboard is iOS-only, so the gate is too.
+    walletField.blur();
+    listeners['keyboardWillShow']!({ keyboardHeight: 336 });
+    expect(document.body).toHaveAttribute('data-hide-navbar');
   });
 
   it('takes one hold however many times the keyboard reports it is showing', async () => {

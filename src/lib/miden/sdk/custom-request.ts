@@ -5,6 +5,7 @@ import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-fa
 import { customRequestAccountAuthCode, customRequestAuthDiagnostics } from './custom-request-diagnostics';
 import { accountRefToSdk, randomFeeSalt } from './helpers';
 import { assertWasmHoldCurrent, type WasmLockHold } from './miden-client';
+import { rethrowTrapOrKill } from './sdk-error-code';
 
 /**
  * Resolve a dApp request's missing Guardian auth while holding the wallet's client lock.
@@ -41,7 +42,8 @@ export async function prepareCustomRequestBytes(
     if (observe) {
       try {
         diagnostics.accountAuthCode = await customRequestAccountAuthCode(client, accountRefToSdk(account).toString());
-      } catch {
+      } catch (error) {
+        rethrowTrapOrKill(error);
         diagnostics.accountAuthCode = 'unavailable';
       }
       assertWasmHoldCurrent(hold, 'after custom request diagnostics');

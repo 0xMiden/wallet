@@ -1,11 +1,16 @@
 import React from 'react';
 
-import { render, act, waitFor } from '@testing-library/react';
+import { render, act, waitFor, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
-import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
+import {
+  GUARDIAN_ACCOUNT_NOT_FOUND,
+  GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
+  GUARDIAN_RECOVERY_UNVERIFIED
+} from 'lib/miden/sdk/guardian-recovery-errors';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import {
   type GuardianProbeState,
   NO_GUARDIAN_ID,
@@ -54,18 +59,113 @@ const finishWarns = (warn: jest.SpyInstance) =>
 // exercises ONLY Welcome.tsx's own branching.
 // ---------------------------------------------------------------------------
 
+let mockInviteOnly = false;
+const mockUnlockInviteOnly = jest.fn();
+const mockNetworkPolicy = jest.fn();
+jest.mock('app/templates/OnboardingNetwork', () => ({
+  OnboardingNetwork: ({
+    children,
+    requireInviteOnly,
+    showWhilePreparing
+  }: {
+    children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => React.ReactNode;
+    requireInviteOnly?: boolean;
+    showWhilePreparing: boolean;
+  }) => {
+    mockNetworkPolicy({ requireInviteOnly, showWhilePreparing });
+    return children(mockInviteOnly, mockUnlockInviteOnly);
+  }
+}));
+const setOnboardingRegistrationActive = jest.fn((active: boolean) => {
+  jest
+    .requireActual<typeof import('app/templates/onboarding-registration')>('app/templates/onboarding-registration')
+    .setOnboardingRegistrationActive(active);
+});
+jest.mock('app/templates/onboarding-registration', () => {
+  const actual = jest.requireActual<typeof import('app/templates/onboarding-registration')>(
+    'app/templates/onboarding-registration'
+  );
+  return {
+    ...actual,
+    setOnboardingRegistrationActive: (active: boolean) => setOnboardingRegistrationActive(active)
+  };
+});
+
 // Latest props handed to the stubbed OnboardingFlow (re-read after every render
 // so `onAction` always reflects the component's current closure/state).
 const mockFlowProps: { current: any } = { current: null };
+let mockRealRecoveryFlow = false;
+let mockRealConfirmationFlow = false;
 // Called with the props on every render of the stub, for tests that act at a precise point of a commit.
 const mockOnFlowRender: { current: ((props: any) => void) | null } = { current: null };
 jest.mock('screens/onboarding/navigator', () => ({
   OnboardingFlow: (props: any) => {
     mockFlowProps.current = props;
     mockOnFlowRender.current?.(props);
+    if (mockRealRecoveryFlow) {
+      const { OnboardingFlow } =
+        jest.requireActual<typeof import('screens/onboarding/navigator')>('screens/onboarding/navigator');
+      return <OnboardingFlow {...props} />;
+    }
     return <div data-testid="onboarding-flow" data-step={props.step} />;
   }
 }));
+
+// The integration opt-in keeps the actual navigator, recovery screen and Notice.
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+jest.mock('lib/telemetry/crash-diagnostics', () => ({ annotateCrash: jest.fn() }));
+jest.mock('react-i18next', () => {
+  const keys = [
+    'guardianAccountNotFound',
+    'guardianUrlUnreachable',
+    'smthWentWrong',
+    'importHotKeyNoAccount',
+    'walletSetupDidNotComplete'
+  ];
+  const t = (key: string) => (mockRealRecoveryFlow && keys.includes(key) ? `translated:${key}` : key);
+  return { useTranslation: () => ({ t }) };
+});
+jest.mock('screens/onboarding/common/OnboardingStepLayer', () => ({
+  OnboardingStepLayer: ({ children }: { children: React.ReactNode }) => <>{children}</>
+}));
+jest.mock('components/PageHeader', () => ({ PageHeader: () => null }));
+jest.mock('components/ProgressIndicator', () => ({ ProgressIndicator: () => null }));
+jest.mock('components/GuardianLogoTile', () => ({ GuardianLogoTile: () => null }));
+jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+jest.mock('screens/onboarding/common/Welcome', () => ({ WelcomeScreen: () => null }));
+jest.mock('screens/onboarding/common/ChooseProtection', () => ({ ChooseProtectionScreen: () => null }));
+jest.mock('screens/onboarding/common/Confirmation', () => ({
+  ConfirmationScreen: (
+    props: React.ComponentProps<typeof import('screens/onboarding/common/Confirmation').ConfirmationScreen>
+  ) => {
+    if (!mockRealConfirmationFlow) return null;
+    const { ConfirmationScreen } = jest.requireActual<typeof import('screens/onboarding/common/Confirmation')>(
+      'screens/onboarding/common/Confirmation'
+    );
+    return <ConfirmationScreen {...props} />;
+  }
+}));
+jest.mock('screens/onboarding/common/NetworkNotice', () => ({ NetworkNoticeScreen: () => null }));
+jest.mock('screens/onboarding/common/MainnetAccess', () => ({ MainnetAccessScreen: () => null }));
+jest.mock('screens/onboarding/common/CreatePassword', () => ({ CreatePasswordScreen: () => null }));
+jest.mock('screens/onboarding/common/SetupBiometric', () => ({ SetupBiometricScreen: () => null }));
+jest.mock('screens/onboarding/common/SetupPasscode', () => ({ SetupPasscodeScreen: () => null }));
+jest.mock('screens/onboarding/common/GuardianIntro', () => ({ GuardianIntroScreen: () => null }));
+jest.mock('screens/onboarding/common/MeetGuardian', () => ({ MeetGuardianScreen: () => null }));
+jest.mock('screens/onboarding/create-wallet-flow/BackUpSeedPhrase', () => ({ BackUpSeedPhraseScreen: () => null }));
+jest.mock('screens/onboarding/create-wallet-flow/SelectRecoveryMethod', () => ({
+  SelectRecoveryMethodScreen: () => null
+}));
+jest.mock('screens/onboarding/create-wallet-flow/SelectTransactionType', () => ({
+  SelectTransactionTypeScreen: () => null
+}));
+jest.mock('screens/onboarding/create-wallet-flow/VerifySeedPhrase', () => ({ VerifySeedPhraseScreen: () => null }));
+jest.mock('screens/onboarding/import-wallet-flow/ImportSeedPhrase', () => ({ ImportSeedPhraseScreen: () => null }));
+jest.mock('screens/onboarding/import-wallet-flow/SelectImportType', () => ({ SelectImportTypeScreen: () => null }));
+jest.mock('screens/onboarding/import-wallet-flow/ImportWalletFile', () => ({ ImportWalletFileScreen: () => null }));
+jest.mock('screens/onboarding/import-wallet-flow/ImportHotKey', () => ({ ImportHotKeyScreen: () => null }));
 
 // AwaitFonts wraps children behind a suspense font-load gate; render children
 // straight through so the flow probe mounts synchronously.
@@ -197,7 +297,10 @@ jest.mock('lib/settings/constants', () => ({}));
 // unanswered case has its own describe block.
 const mockTelemetryChoice = { made: true };
 jest.mock('lib/settings/helpers', () => ({
-  hasTelemetryChoice: () => mockTelemetryChoice.made
+  hasTelemetryChoice: () => mockTelemetryChoice.made,
+  isValidGuardianUrl: () => true,
+  sameGuardianEndpoint: (left: string, right: string) => left === right,
+  sanitizeGuardianUrl: (url: string) => url
 }));
 
 // Telemetry: every beginFlow() call records the flow name and hands back a fresh
@@ -239,9 +342,37 @@ jest.mock('lib/shared/types', () => ({
 
 // The network notice only shows on a test network; null stands for mainnet.
 let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
+let mockDeveloperChoice = false;
+const mockHasDeveloperNetworkChoice = jest.fn(() => mockDeveloperChoice);
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getTestNetworkNameKey: () => mockTestNetworkKey
+  getTestNetworkNameKey: () => mockTestNetworkKey,
+  hasDeveloperNetworkChoice: () => mockHasDeveloperNetworkChoice()
+}));
+
+// The code a switch to mainnet carried to the code step; the code step itself reads it.
+const mockForgetCarriedCode = jest.fn<Promise<void>, []>();
+jest.mock('lib/carried-mainnet-code', () => ({
+  forgetCarriedMainnetAccessCode: () => mockForgetCarriedCode()
+}));
+
+// Default: countdown disabled, so a confirmation still registers. A test that has passed the moment
+// replaces this; nothing here advances a launch timer, and inviteOnly stays the rendered sample.
+let mockMainnetCountdown: { enabled: boolean; launchAt?: number } | null = { enabled: false };
+const mockPrepareMainnet = jest.fn(() => Promise.resolve());
+const mockWaitForMainnetPreparation = jest.fn(() => Promise.resolve());
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => ({
+    network: 'testnet',
+    status: 'ready',
+    config: mockMainnetCountdown === null ? null : { mainnetCountdown: mockMainnetCountdown },
+    derived: null,
+    lastFetch: null
+  })
+}));
+jest.mock('lib/miden/prepare-mainnet', () => ({
+  prepareMainnet: () => mockPrepareMainnet(),
+  waitForMainnetPreparation: () => mockWaitForMainnetPreparation()
 }));
 
 const READY = 2;
@@ -299,6 +430,18 @@ async function setHash(h: string) {
     rerenderFn(<Welcome />);
     await Promise.resolve();
     await Promise.resolve();
+  });
+}
+
+// The router applies a hash before the next render. Replaying that here lets the in-flight guard
+// force Confirmation if the attempt has not released the ref yet.
+function followAccessStepNavigation(): void {
+  mockNavigate.mockImplementation((to: string) => {
+    if (to !== '/#mainnet-access') return;
+    mockHash = '#mainnet-access';
+    act(() => {
+      rerenderFn(<Welcome />);
+    });
   });
 }
 
@@ -386,9 +529,18 @@ beforeEach(() => {
   mockCanHandoff = false;
   mockTelemetryChoice.made = true;
   mockFlowProps.current = null;
+  mockRealRecoveryFlow = false;
+  mockRealConfirmationFlow = false;
   mockOnFlowRender.current = null;
   mockBackHandlerRef.current = null;
   mockTestNetworkKey = 'testnet';
+  mockDeveloperChoice = false;
+  mockInviteOnly = false;
+  mockMainnetCountdown = { enabled: false };
+  mockPrepareMainnet.mockReset();
+  mockPrepareMainnet.mockImplementation(() => Promise.resolve());
+  mockWaitForMainnetPreparation.mockReset();
+  mockWaitForMainnetPreparation.mockImplementation(() => Promise.resolve());
   mockIsMobileFn.mockReturnValue(false);
   mockIsDesktopFn.mockReturnValue(false);
   mockDesktopHW.mockResolvedValue(false);
@@ -416,6 +568,39 @@ afterEach(() => {
 // ===========================================================================
 // Render + mount effects
 // ===========================================================================
+
+describe('Welcome network policy', () => {
+  it('delegates launch policy and keeps Welcome visible only without a route hash', async () => {
+    await renderWelcome();
+    expect(mockHasDeveloperNetworkChoice).not.toHaveBeenCalled();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+
+    await dispatch({ id: 'choose-protection' });
+    await setHash('#network-notice');
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: false });
+  });
+
+  it('keeps the configured launch policy in E2E builds', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+  });
+
+  it('keeps an explicit developer network choice', async () => {
+    mockDeveloperChoice = true;
+    await renderWelcome();
+    expect(mockNetworkPolicy).toHaveBeenLastCalledWith({ requireInviteOnly: undefined, showWhilePreparing: true });
+  });
+
+  it('recovery skips the test-network notice while the host requires mainnet', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+  });
+});
 
 describe('Welcome — mount & hardware-security check', () => {
   it('renders the onboarding flow on the Welcome step by default', async () => {
@@ -661,7 +846,7 @@ describe('Welcome — hash → step routing', () => {
       await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
       expect(mockFlowProps.current.seedPhrase).not.toBeNull();
       // Back from the flow's first step cancels it and returns to Welcome.
-      await setHash('#network-notice');
+      await setHash('#mainnet-access');
       await dispatch({ id: 'back' });
       expect(mockNavigate).toHaveBeenCalledWith('/');
       mockNavigate.mockClear();
@@ -1020,12 +1205,90 @@ describe('Welcome — hash → step routing', () => {
 // onAction — forward navigation branches
 // ===========================================================================
 
-describe('Welcome - network notice (#875)', () => {
+describe('Welcome - mainnet access and the network notice (#875)', () => {
+  it.each(['#select-wallet-type', '#choose-protection', '#setup-biometric', '#setup-passcode'])(
+    'requires a code for the direct create route %s in invite-only mode',
+    async hash => {
+      mockInviteOnly = true;
+      await renderWelcome();
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenLastCalledWith('/');
+      expect(currentStep()).toBe(OnboardingStep.Welcome);
+    }
+  );
+
+  it('sends a general create action in invite-only mode back to Welcome: no create screen without a code', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await setHash('#network-notice');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/');
+    expect(currentStep()).toBe(OnboardingStep.Welcome);
+  });
+
+  it('hands the host its invite-only variant and unlock', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    expect(mockFlowProps.current.inviteOnly).toBe(true);
+    mockFlowProps.current.onUnlockInviteOnly();
+    expect(mockUnlockInviteOnly).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows mainnet recovery without a code in invite-only mode', async () => {
+    mockInviteOnly = true;
+    mockTestNetworkKey = null;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#select-import-type');
+    await setHash('#import-from-seed');
+    expect(currentStep()).toBe(OnboardingStep.ImportFromSeed);
+  });
+
+  it('keeps the accepted code through the mobile protection screen', async () => {
+    mockInviteOnly = true;
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await setHash('#choose-protection');
+    expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
+    await setHash('#setup-biometric');
+    expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
+  });
+
+  it('invite-only Welcome: parks the create flow behind the mainnet access step and starts it on an accepted code', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await setHash('#mainnet-access');
+    expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+
+    mockNavigate.mockClear();
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+  });
+
+  it('asks for the code on mainnet too: the step is not a test-network screen', async () => {
+    mockTestNetworkKey = null;
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await setHash('#mainnet-access');
+    expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+  });
+
   it('parks the create flow behind the notice and starts it on acknowledge', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#mainnet-access');
     await setHash('#network-notice');
     expect(currentStep()).toBe(OnboardingStep.NetworkNotice);
 
@@ -1046,17 +1309,73 @@ describe('Welcome - network notice (#875)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
   });
 
+  it('bounces #mainnet-access to Welcome when the chosen flow was lost (reload)', async () => {
+    await renderWelcome();
+    await setHash('#mainnet-access');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(currentStep()).not.toBe(OnboardingStep.MainnetAccess);
+  });
+
+  it('ignores a code check that answers after Back left the code step', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'back' });
+    await setHash('');
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(currentStep()).toBe(OnboardingStep.Welcome);
+  });
+
+  it('back from the mainnet access step returns to Welcome', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'back' });
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('keeps the code a switch carried while the invite flow goes on, and forgets it once the flow is left', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await setHash('#create-password');
+    expect(mockForgetCarriedCode).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'back' });
+    await setHash('');
+    expect(mockForgetCarriedCode).toHaveBeenCalled();
+  });
+
+  it('keeps the code a switch carried when a recovery is left: only the create flow it was offered to ends it', async () => {
+    mockInviteOnly = true;
+    mockTestNetworkKey = null;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#select-import-type');
+    await dispatch({ id: 'back' });
+    await setHash('');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/');
+    expect(mockForgetCarriedCode).not.toHaveBeenCalled();
+  });
+
   it('skips the notice on mainnet', async () => {
     mockTestNetworkKey = null;
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
-
     await dispatch({ id: 'choose-protection' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#create-password');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
 
     await dispatch({ id: 'select-import-type' });
     expect(mockNavigate).toHaveBeenLastCalledWith('/#select-import-type');
     expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#mainnet-access');
   });
 
   it('bounces #network-notice to Welcome when the chosen flow was lost (reload)', async () => {
@@ -1067,10 +1386,9 @@ describe('Welcome - network notice (#875)', () => {
   });
 
   it('bounces #network-notice to Welcome on mainnet', async () => {
+    mockTestNetworkKey = null;
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
-    mockTestNetworkKey = null;
-    mockNavigate.mockClear();
     await setHash('#network-notice');
     expect(mockNavigate).toHaveBeenCalledWith('/');
     expect(currentStep()).not.toBe(OnboardingStep.NetworkNotice);
@@ -1350,7 +1668,8 @@ describe('Welcome — choose-guardian-submit', () => {
       '111111',
       expect.any(String),
       false,
-      'https://g'
+      'https://g',
+      undefined
     );
   });
 
@@ -1393,6 +1712,7 @@ describe('Welcome — choose-guardian-submit', () => {
       '111111',
       expect.any(String),
       false,
+      undefined,
       undefined
     );
   });
@@ -1530,7 +1850,14 @@ describe('Welcome — import-select-recovery-method', () => {
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw', expect.any(String), true, 'https://g');
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      true,
+      'https://g',
+      undefined
+    );
   });
 
   it('threads no endpoint for non-guardian wallets', async () => {
@@ -1546,7 +1873,177 @@ describe('Welcome — import-select-recovery-method', () => {
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OffChain, 'pw', expect.any(String), true, undefined);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.OffChain,
+      'pw',
+      expect.any(String),
+      true,
+      undefined,
+      undefined
+    );
+  });
+});
+
+// ===========================================================================
+// A new account from the phrase an import entered, when no backup was found
+// ===========================================================================
+
+describe('Welcome — a new account from an entered phrase', () => {
+  // A seed import up to its recovery-method step, where the lookup found nothing.
+  async function stageNoBackup() {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#import-select-recovery-method');
+  }
+
+  async function stageReusedPhrase() {
+    await stageNoBackup();
+    await dispatch({ id: 'create-with-phrase' });
+    await setHash('#reused-phrase');
+  }
+
+  it('offers the new account only to a seed import on a network that can create one', async () => {
+    await stageNoBackup();
+    expect(mockFlowProps.current.canCreateWithPhrase).toBe(true);
+  });
+
+  it('does not offer it on an invite-only network, which cannot create without a code', async () => {
+    mockInviteOnly = true;
+    await stageNoBackup();
+    expect(mockFlowProps.current.canCreateWithPhrase).toBe(false);
+  });
+
+  it('does not offer it to a hot-key import, which holds no phrase', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-key' });
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#import-select-recovery-method');
+    expect(mockFlowProps.current.canCreateWithPhrase).toBe(false);
+  });
+
+  it('shows the reused-phrase warning before anything is created, as a create flow on the same phrase', async () => {
+    await stageNoBackup();
+    await dispatch({ id: 'create-with-phrase' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#reused-phrase');
+    await setHash('#reused-phrase');
+    expect(currentStep()).toBe(OnboardingStep.ReusedPhrase);
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockFlowProps.current.seedPhrase).toEqual(['aa', 'bb', 'cc', 'dd']);
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+
+  it('continues to the Guardian intro once the warning is acknowledged', async () => {
+    await stageReusedPhrase();
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'reused-phrase-acknowledge' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
+    await setHash('#guardian-intro');
+    expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
+  });
+
+  it('creates a Guardian account from the entered phrase, not a recovery, and skips the backup prompt', async () => {
+    await stageReusedPhrase();
+    await dispatch({ id: 'reused-phrase-acknowledge' });
+    await setHash('#guardian-intro');
+    await dispatch({
+      id: 'choose-guardian-submit',
+      payload: { guardianId: 'open-zeppelin', guardianEndpoint: 'https://g' }
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
+
+    await dispatch({ id: 'confirmation' });
+
+    // isImport=false: the Guardian lookup is a creation here, with the password the import already took.
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'aa bb cc dd',
+      false,
+      'https://g',
+      undefined
+    );
+    // The phrase is the user's own, so there is no new phrase to back up.
+    expect(mockSeedWalletPrompt).not.toHaveBeenCalled();
+  });
+
+  it('ignores the offer when there is no entered phrase to create from', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'create-with-phrase' });
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#reused-phrase');
+  });
+
+  it('ignores the offer on an invite-only network', async () => {
+    mockInviteOnly = true;
+    await stageNoBackup();
+    mockNavigate.mockClear();
+    await dispatch({ id: 'create-with-phrase' });
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#reused-phrase');
+  });
+
+  it('does not move on from the warning that was never offered', async () => {
+    await stageNoBackup();
+    mockNavigate.mockClear();
+    await dispatch({ id: 'reused-phrase-acknowledge' });
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('sends a reload or a history jump to the reused-phrase step back to Welcome', async () => {
+    await renderWelcome();
+    await setHash('#reused-phrase');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('goes back from the warning to the lookup, as the import it came from', async () => {
+    await stageReusedPhrase();
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'back' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    await setHash('#import-select-recovery-method');
+    expect(currentStep()).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+  });
+
+  it('goes back from the Guardian intro to the warning rather than a protection step', async () => {
+    await stageReusedPhrase();
+    await dispatch({ id: 'reused-phrase-acknowledge' });
+    await setHash('#guardian-intro');
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'back' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#reused-phrase');
+  });
+
+  it('turns back into an import when history returns to the lookup', async () => {
+    await stageReusedPhrase();
+
+    await setHash('#import-select-recovery-method');
+
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    // A recovery from here is a recovery: the registration is an import again.
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      'aa bb cc dd',
+      true,
+      'https://g',
+      undefined
+    );
   });
 });
 
@@ -1566,6 +2063,7 @@ describe('Welcome — confirmation / register', () => {
       '123456',
       expect.any(String),
       false,
+      undefined,
       undefined
     );
     // Create flow triggers the verify-seed prompt.
@@ -1588,7 +2086,8 @@ describe('Welcome — confirmation / register', () => {
       undefined,
       expect.any(String),
       false,
-      'https://g'
+      'https://g',
+      undefined
     );
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
@@ -1611,6 +2110,313 @@ describe('Welcome — confirmation / register', () => {
     expect(mockRegisterWallet).not.toHaveBeenCalled();
     expect(mockProbeStart).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('registers a create with the granted access code as its last argument', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g', guardianEndpoint: 'https://g' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      false,
+      'https://g',
+      '8gKIgL0O6HcU'
+    );
+  });
+
+  it('returns a create whose code the node refused to the code step, without the code', async () => {
+    mockRegisterWallet.mockRejectedValueOnce(
+      Object.assign(new Error('mainnetAccessCodeRejected'), { code: 'MAINNET_ACCESS_CODE_REJECTED' })
+    );
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g', guardianEndpoint: 'https://g' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await setHash('#mainnet-access');
+    expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+    expect(mockFlowProps.current.mainnetAccessRejected).toBe(true);
+
+    // The refused code is gone: a registration from here carries none.
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenLastCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      false,
+      'https://g',
+      undefined
+    );
+  });
+
+  describe('launch recheck at registration', () => {
+    const pastMoment = () => {
+      mockMainnetCountdown = { enabled: true, launchAt: Date.now() - 1_000 };
+    };
+
+    it('refuses a code-less confirmation once the moment has passed, before any launch wake', async () => {
+      pastMoment();
+      await renderWelcome();
+      await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+      mockNavigate.mockClear();
+      followAccessStepNavigation();
+      try {
+        await dispatch({ id: 'confirmation' });
+
+        expect(mockUnlockInviteOnly).toHaveBeenCalledTimes(1);
+        expect(mockPrepareMainnet).toHaveBeenCalledTimes(1);
+        expect(mockUnlockInviteOnly.mock.invocationCallOrder[0]).toBeLessThan(
+          mockPrepareMainnet.mock.invocationCallOrder[0]!
+        );
+        expect(mockRegisterWallet).not.toHaveBeenCalled();
+        expect(mockImportWalletFromClient).not.toHaveBeenCalled();
+        expect(mockRegisterWalletFromHotKey).not.toHaveBeenCalled();
+        expect(mockFlowProps.current.mainnetAccessRejected).toBe(false);
+        expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+        expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
+        expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+      } finally {
+        mockNavigate.mockReset();
+      }
+    });
+
+    it('registers a code-less create after the moment when Developer Settings chose the network', async () => {
+      pastMoment();
+      mockDeveloperChoice = true;
+      await renderWelcome();
+      await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      expect(mockRegisterWallet.mock.calls[0]![5]).toBeUndefined();
+      expect(mockPrepareMainnet).not.toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
+    });
+
+    it('registers a seed import after the moment when Developer Settings chose the network', async () => {
+      pastMoment();
+      mockDeveloperChoice = true;
+      await renderWelcome();
+      await stageSeedRecovery({ walletType: WalletType.OnChain });
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      expect(mockRegisterWallet.mock.calls[0]![5]).toBeUndefined();
+      expect(mockPrepareMainnet).not.toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
+    });
+
+    it('refuses a code-less side-panel auto-register once the moment has passed, before any launch wake', async () => {
+      pastMoment();
+      mockCanHandoff = true;
+      await renderWelcome();
+      await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+      mockNavigate.mockClear();
+      followAccessStepNavigation();
+      try {
+        await setHash('#confirmation');
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        expect(mockUnlockInviteOnly).toHaveBeenCalledTimes(1);
+        expect(mockPrepareMainnet).toHaveBeenCalledTimes(1);
+        expect(mockUnlockInviteOnly.mock.invocationCallOrder[0]).toBeLessThan(
+          mockPrepareMainnet.mock.invocationCallOrder[0]!
+        );
+        expect(mockRegisterWallet).not.toHaveBeenCalled();
+        expect(mockFlowProps.current.mainnetAccessRejected).toBe(false);
+        expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+        expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
+        expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+      } finally {
+        mockNavigate.mockReset();
+      }
+    });
+
+    it('prepares mainnet before registering a create that already holds a code', async () => {
+      pastMoment();
+      let finishPrepare: () => void = () => undefined;
+      mockPrepareMainnet.mockImplementation(
+        () =>
+          new Promise<void>(resolve => {
+            finishPrepare = resolve;
+          })
+      );
+      await renderWelcome();
+      await dispatch({ id: 'mainnet-access' });
+      await setHash('#mainnet-access');
+      await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+      await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+      await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g', guardianEndpoint: 'https://g' } });
+
+      let pending: Promise<void> | undefined;
+      await act(async () => {
+        pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+      });
+      expect(mockPrepareMainnet).toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).toHaveBeenCalledTimes(1);
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+
+      await act(async () => {
+        finishPrepare();
+        await pending;
+      });
+      expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      expect(mockRegisterWallet).toHaveBeenCalledWith(
+        WalletType.Guardian,
+        'pw',
+        expect.any(String),
+        false,
+        'https://g',
+        '8gKIgL0O6HcU'
+      );
+      expect(mockPrepareMainnet.mock.invocationCallOrder[0]).toBeLessThan(
+        mockRegisterWallet.mock.invocationCallOrder[0]!
+      );
+      expect(mockFlowProps.current.mainnetAccessRejected).toBe(false);
+    });
+
+    it('registers a seed import after the moment without preparing mainnet', async () => {
+      pastMoment();
+      await renderWelcome();
+      await stageSeedRecovery({ walletType: WalletType.OnChain });
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockRegisterWallet).toHaveBeenCalledWith(
+        WalletType.OnChain,
+        'pw',
+        'aa bb cc dd',
+        true,
+        undefined,
+        undefined
+      );
+      expect(mockPrepareMainnet).not.toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
+    });
+
+    it('registers a file import after the moment without preparing mainnet', async () => {
+      pastMoment();
+      await renderWelcome();
+      await stageFileRestore();
+      await dispatch({ id: 'create-password-submit', payload: { password: 'new-password' } });
+      await dispatch({ id: 'confirmation' });
+
+      expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+        'new-password',
+        'alpha beta gamma delta',
+        VERSION_TWO_PAYLOAD.accounts,
+        VERSION_TWO_PAYLOAD.importedAccounts
+      );
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+      expect(mockPrepareMainnet).not.toHaveBeenCalled();
+      expect(mockUnlockInviteOnly).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+      'waits for an already-started launch preparation before seed import registration (side panel: %s)',
+      async sidePanel => {
+        pastMoment();
+        mockCanHandoff = sidePanel;
+        let finishPreparation!: () => void;
+        mockWaitForMainnetPreparation.mockImplementation(
+          () => new Promise<void>(resolve => (finishPreparation = resolve))
+        );
+        await renderWelcome();
+        await stageSeedRecovery({ walletType: WalletType.OnChain });
+
+        let registration: Promise<void> | undefined;
+        if (sidePanel) {
+          await setHash('#confirmation');
+          await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+          });
+        } else {
+          await act(async () => {
+            registration = mockFlowProps.current.onAction({ id: 'confirmation' });
+            await Promise.resolve();
+          });
+        }
+
+        expect(mockWaitForMainnetPreparation).toHaveBeenCalledTimes(1);
+        expect(mockRegisterWallet).not.toHaveBeenCalled();
+        await act(async () => {
+          finishPreparation();
+          await registration;
+          await Promise.resolve();
+        });
+        expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('sends an active create draft to code entry and resumes its route afterward', async () => {
+      await renderWelcome();
+      await dispatch({ id: 'choose-protection' });
+      await setHash('#network-notice');
+      await dispatch({ id: 'network-notice-acknowledge' });
+      await setHash('#create-password');
+      await dispatch({ id: 'create-password-submit', payload: { password: 'draft-password' } });
+      await setHash('#guardian-intro');
+      const seedPhrase = mockFlowProps.current.seedPhrase;
+      expect(seedPhrase).toEqual(expect.any(Array));
+
+      pastMoment();
+      mockInviteOnly = true;
+      mockNavigate.mockClear();
+      await act(async () => {
+        rerenderFn(<Welcome />);
+        await Promise.resolve();
+      });
+
+      expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+      expect(mockRegisterWallet).not.toHaveBeenCalled();
+      expect(mockFlowProps.current.seedPhrase).toEqual(seedPhrase);
+      await setHash('#mainnet-access');
+      expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+
+      await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+      expect(mockNavigate).toHaveBeenLastCalledWith('/#guardian-intro');
+      await setHash('#guardian-intro');
+      expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
+      expect(mockFlowProps.current.seedPhrase).toEqual(seedPhrase);
+    });
+  });
+
+  it('restores a wallet file without the access code a create left held', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await dispatch({ id: 'import-from-file' });
+    await setHash('#import-from-file');
+    await dispatch({ id: 'import-wallet-file-submit', payload: VERSION_TWO_PAYLOAD });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'new-password' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockImportWalletFromClient).toHaveBeenCalledTimes(1);
+    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+      'new-password',
+      'alpha beta gamma delta',
+      VERSION_TWO_PAYLOAD.accounts,
+      VERSION_TWO_PAYLOAD.importedAccounts
+    );
   });
 
   it('retries a failed file restore on Confirmation without routing to Guardian recovery', async () => {
@@ -1757,6 +2563,32 @@ describe('Welcome — confirmation / register', () => {
     expect(mockFlowProps.current.guardianLookupFailure).toBe('guardianUrlUnreachable');
   });
 
+  // The refusal text is already localized and says what to do; a network-sounding word in it must not route it to the
+  // operator notice.
+  it.each([
+    [
+      GUARDIAN_RECOVERY_NETWORK_UNREACHABLE,
+      'Could not reach the Miden network to check your accounts. Your recovery phrase is fine. Check your connection and try again.'
+    ],
+    [GUARDIAN_RECOVERY_UNVERIFIED, 'Your accounts could not be restored: the account check timed out.']
+  ])('keeps the %s recovery refusal message instead of the operator notice', async (code, message) => {
+    mockRegisterWallet.mockRejectedValue(Object.assign(new Error(message), { code }));
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    expect(mockFlowProps.current.guardianLookupFailure).toBe(message);
+  });
+
   it('maps an RPC timeout to the guardianUrlUnreachable notice', async () => {
     mockRegisterWallet.mockRejectedValue(new Error('RPC "recoverGuardianByKey" timed out after 30000ms'));
     await renderWelcome();
@@ -1810,7 +2642,14 @@ describe('Welcome — confirmation / register', () => {
     mockNavigate.mockClear();
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, undefined, 'aa bb cc dd', true, 'https://g');
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      undefined,
+      'aa bb cc dd',
+      true,
+      'https://g',
+      undefined
+    );
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
     // The failure belongs to the recovery method; counting it would walk the user towards the password fallback.
     expect(mockFlowProps.current.biometricAttempts).toBe(0);
@@ -2003,7 +2842,8 @@ describe('Welcome — confirmation / register', () => {
       '123456',
       expect.any(String),
       false,
-      'https://g1'
+      'https://g1',
+      undefined
     );
   });
 
@@ -2089,7 +2929,8 @@ describe('Welcome — confirmation / register', () => {
       'pw',
       expect.any(String),
       false,
-      'https://g1'
+      'https://g1',
+      undefined
     );
   });
 
@@ -2340,7 +3181,8 @@ describe('Welcome — confirmation / register', () => {
       'first-password',
       expect.any(String),
       false,
-      'https://g1'
+      'https://g1',
+      undefined
     );
   });
 
@@ -2384,7 +3226,8 @@ describe('Welcome — confirmation / register', () => {
       'first-password',
       expect.any(String),
       false,
-      'https://g1'
+      'https://g1',
+      undefined
     );
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/');
@@ -2727,7 +3570,8 @@ describe('Welcome — waitForReadyState resilience', () => {
         'second-password',
         expect.any(String),
         false,
-        'https://g1'
+        'https://g1',
+        undefined
       );
     } finally {
       jest.useRealTimers();
@@ -2769,7 +3613,8 @@ describe('Welcome — waitForReadyState resilience', () => {
         'first-password',
         expect.any(String),
         false,
-        'https://g1'
+        'https://g1',
+        undefined
       );
     } finally {
       jest.useRealTimers();
@@ -3161,6 +4006,111 @@ describe('Welcome — back navigation', () => {
   });
 });
 
+describe('Welcome — registration holds preparation', () => {
+  function holdRegister() {
+    let settle!: (error?: unknown) => void;
+    let duringFailure: unknown;
+    mockRegisterWallet.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          settle = (error?: unknown) => {
+            if (error === undefined) resolve();
+            else reject(error);
+          };
+          try {
+            expect(setOnboardingRegistrationActive).toHaveBeenCalledWith(true);
+          } catch (error) {
+            duringFailure = error;
+          }
+        })
+    );
+    return {
+      settle(error?: unknown) {
+        settle(error);
+      },
+      during() {
+        expect(mockRegisterWallet).toHaveBeenCalled();
+        if (duringFailure !== undefined) throw duringFailure;
+      }
+    };
+  }
+
+  async function reachConfirmationTap() {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await setHash('#choose-protection');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+  }
+
+  async function finishHeld(held: { settle: (error?: unknown) => void }, pending?: Promise<unknown>, error?: unknown) {
+    await act(async () => {
+      held.settle(error);
+      if (pending) await pending;
+    });
+    await waitFor(() => expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(false));
+  }
+
+  it('marks a confirmation tap active until registration resolves', async () => {
+    // The assertions live in `held.during` and `finishHeld`.
+    expect.hasAssertions();
+    await reachConfirmationTap();
+    const held = holdRegister();
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
+
+    await finishHeld(held, pending);
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('clears a confirmation tap when registration rejects', async () => {
+    expect.hasAssertions();
+    await reachConfirmationTap();
+    const held = holdRegister();
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
+
+    await finishHeld(held, pending, new Error('boom'));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('marks a side-panel auto-register active until registration resolves', async () => {
+    expect.hasAssertions();
+    mockCanHandoff = true;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    const held = holdRegister();
+    await setHash('#confirmation');
+    held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
+
+    await finishHeld(held);
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('clears a side-panel auto-register when registration rejects', async () => {
+    expect.hasAssertions();
+    mockCanHandoff = true;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    const held = holdRegister();
+    await setHash('#confirmation');
+    held.during();
+    expect(setOnboardingRegistrationActive).toHaveBeenLastCalledWith(true);
+
+    await finishHeld(held, undefined, new Error('creation failed'));
+    expect(setOnboardingRegistrationActive.mock.calls).toEqual([[true], [false]]);
+  });
+});
+
 // ===========================================================================
 // Side-panel handoff auto-register effect
 // ===========================================================================
@@ -3453,7 +4403,14 @@ describe('Welcome — side-panel handoff', () => {
     });
 
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', 'aa bb cc dd', true, undefined);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.OnChain,
+      'pw',
+      'aa bb cc dd',
+      true,
+      undefined,
+      undefined
+    );
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(ONBOARDING_HANDOFF_ROUTES.has(mockNavigate.mock.calls.at(-1)?.[0])).toBe(true);
     // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
@@ -3820,6 +4777,67 @@ describe('Welcome — E2E onboarding bypass', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
   });
 
+  it('imports a public account and passes the access code through to registerWallet', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    window.history.replaceState(
+      null,
+      '',
+      '/?__test_skip_onboarding=1&walletType=on-chain&seed=alpha+beta+gamma&accessCode=ABCD23456789&password=pw'
+    );
+    await renderWelcome();
+    expect(mockFlowProps.current.seedPhrase).toEqual(['alpha', 'beta', 'gamma']);
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.OnChain,
+      'pw',
+      'alpha beta gamma',
+      true,
+      undefined,
+      'ABCD23456789'
+    );
+    expect(log.mock.calls.flat().join(' ')).not.toContain('ABCD23456789');
+    log.mockRestore();
+  });
+
+  it('reads a create access code from the E2E global and does not log it', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    (globalThis as { __TEST_MAINNET_ACCESS_CODE__?: string }).__TEST_MAINNET_ACCESS_CODE__ = 'ABCD23456789';
+    window.history.replaceState(null, '', '/?__test_skip_onboarding=1&walletType=on-chain&password=pw');
+    try {
+      await renderWelcome();
+      expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+      await dispatch({ id: 'confirmation' });
+      expect(mockRegisterWallet).toHaveBeenCalledWith(
+        WalletType.OnChain,
+        'pw',
+        expect.any(String),
+        false,
+        undefined,
+        'ABCD23456789'
+      );
+      expect(log.mock.calls.flat().join(' ')).not.toContain('ABCD23456789');
+    } finally {
+      delete (globalThis as { __TEST_MAINNET_ACCESS_CODE__?: string }).__TEST_MAINNET_ACCESS_CODE__;
+      log.mockRestore();
+    }
+  });
+
+  it('imports the seed passed on the E2E global', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    (globalThis as { __TEST_IMPORT_SEED__?: string }).__TEST_IMPORT_SEED__ = 'alpha beta gamma';
+    window.history.replaceState(null, '', '/?__test_skip_onboarding=1&walletType=on-chain&password=pw');
+    try {
+      await renderWelcome();
+      expect(mockFlowProps.current.seedPhrase).toEqual(['alpha', 'beta', 'gamma']);
+      expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    } finally {
+      delete (globalThis as { __TEST_IMPORT_SEED__?: string }).__TEST_IMPORT_SEED__;
+    }
+  });
+
   it('creates a fresh off-chain wallet via the CDP global', async () => {
     process.env.MIDEN_E2E_TEST = 'true';
     (globalThis as any).__TEST_SKIP_ONBOARDING = true;
@@ -3852,7 +4870,8 @@ describe('Welcome — E2E onboarding bypass', () => {
       'pw',
       expect.any(String),
       false, // not an import
-      'http://localhost:3001' // the threaded override
+      'http://localhost:3001', // the threaded override
+      undefined
     );
     // The bypass threads the endpoint and writes nothing to storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
@@ -3878,7 +4897,8 @@ describe('Welcome — E2E onboarding bypass', () => {
       'pw',
       expect.any(String),
       true, // import → ownMnemonic drives Vault.spawn's recovery branch
-      'http://localhost:3001'
+      'http://localhost:3001',
+      undefined
     );
   });
 });
@@ -4555,5 +5575,120 @@ describe('Welcome - Guardian discovery across browser history', () => {
     await dispatch({ id: 'import-wallet-file-submit', payload: VERSION_TWO_PAYLOAD });
 
     expect(mockFlowProps.current.guardianProbe).toEqual({ status: 'idle' });
+  });
+});
+
+describe('user-visible lookup producer reporting', () => {
+  const rawLookupFailure =
+    'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    mockRealRecoveryFlow = false;
+    mockRealConfirmationFlow = false;
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it.each([
+    { kind: 'missing-account', id: 'guardianAccountNotFound' },
+    { kind: 'network', id: 'guardianUrlUnreachable' },
+    { kind: 'no-text', id: 'smthWentWrong' },
+    { kind: 'key-account', id: 'importHotKeyNoAccount' },
+    { kind: 'raw', id: 'raw_import_recovery_lookup_failed' }
+  ])('reports the actual $kind producer through navigator and the real recovery notice', async ({ kind, id }) => {
+    const error =
+      kind === 'missing-account' || kind === 'key-account'
+        ? Object.assign(new Error(kind === 'key-account' ? 'translated:importHotKeyNoAccount' : rawLookupFailure), {
+            code: GUARDIAN_ACCOUNT_NOT_FOUND
+          })
+        : kind === 'network'
+          ? new Error('Failed to fetch')
+          : kind === 'no-text'
+            ? {}
+            : new Error(rawLookupFailure);
+    mockRegisterWallet.mockRejectedValue(error);
+    mockRegisterWalletFromHotKey.mockRejectedValue(error);
+    await renderWelcome();
+    if (kind === 'key-account') {
+      await setHash('#import-from-key');
+      await dispatch({ id: 'import-hot-key-submit', payload: `${'ab'.repeat(32)}:${'cd'.repeat(32)}` });
+    } else {
+      await dispatch({ id: 'select-import-type' });
+      await dispatch({ id: 'import-from-seed' });
+      await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    }
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://guardian.example.com' }
+    });
+    await setHash('#confirmation');
+    // Enable the real flow before the producer translates its closed failure copy.
+    mockRealRecoveryFlow = true;
+    await dispatch({ id: 'confirmation' });
+    await setHash('#import-select-recovery-method');
+    expect(screen.getByRole('alert')).toHaveTextContent(kind === 'raw' ? rawLookupFailure : `translated:${id}`);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'notice']]);
+    expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain('translated:');
+    expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(rawLookupFailure);
+  });
+  it.each([
+    { kind: 'raw', id: 'raw_onboarding_recovery_failed' },
+    { kind: 'no-text', id: 'smthWentWrong' }
+  ])('reports the actual $kind registration producer through the real Confirmation notice', async ({ kind, id }) => {
+    mockRegisterWallet.mockRejectedValue(kind === 'raw' ? new Error(rawLookupFailure) : new Error(''));
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await setHash('#confirmation');
+    mockRealRecoveryFlow = true;
+    mockRealConfirmationFlow = true;
+    await dispatch({ id: 'confirmation' });
+    expect(screen.getByRole('alert')).toHaveTextContent(kind === 'raw' ? rawLookupFailure : 'translated:smthWentWrong');
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'notice']]);
+  });
+
+  it('reports the actual wallet-readiness failure using its closed key', async () => {
+    mockFetchState.mockResolvedValue({ status: IDLE });
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await setHash('#confirmation');
+    mockRealRecoveryFlow = true;
+    mockRealConfirmationFlow = true;
+    let pending: Promise<void> | undefined;
+    await act(async () => {
+      pending = mockFlowProps.current.onAction({ id: 'confirmation' });
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5500);
+      await pending;
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('translated:walletSetupDidNotComplete');
+    // The episode begins when the failure commits after the readiness polling has ended.
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['walletSetupDidNotComplete', 'notice']]);
   });
 });

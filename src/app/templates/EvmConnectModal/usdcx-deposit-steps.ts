@@ -25,7 +25,8 @@ export interface UsdcxDepositStepsInput {
  * A direct xReserve deposit has three: the deposit on the source chain, Circle's attestation of it, and
  * the mint on Miden. An executor-route deposit has two more between the first and the second: Circle's
  * attestation of the CCTP burn, and the execute on Arc, which Circle does for a forwarded burn and the
- * user does otherwise. A failed row marks the step it was on as failed and leaves the rest pending.
+ * user does once Circle gave up on it, or its execute reverted or stalled. A failed row marks the step it
+ * was on as failed and leaves the rest pending.
  */
 export function usdcxDepositSteps({
   sourceChainId,

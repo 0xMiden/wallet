@@ -16,6 +16,9 @@ jest.mock('app/icons/v2', () => ({
 const mockHapticLight = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: (...args: unknown[]) => mockHapticLight(...args) }));
 
+const mockPrepareMorph = jest.fn();
+jest.mock('lib/dapp-browser/morph-boost', () => ({ prepareMorph: () => mockPrepareMorph() }));
+
 jest.mock('lib/dapp-browser', () => ({
   getDappDisplayName: (session: { title?: string; origin: string }) => session.title ?? session.origin,
   getDappHostname: (url: string) => new URL(url).hostname,
@@ -66,6 +69,25 @@ describe('CapsuleBar', () => {
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
   });
 
+  it('starts the minimize before its haptic', () => {
+    const { onMinimize } = renderBar();
+
+    fireEvent.click(screen.getByTestId('dapp-capsule-minimize'));
+
+    expect(onMinimize.mock.invocationCallOrder[0]).toBeLessThan(mockHapticLight.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it('raises the frame rate when a finger lands on Minimize, before the tap parks', () => {
+    const { onMinimize } = renderBar();
+
+    fireEvent.pointerDown(screen.getByTestId('dapp-capsule-minimize'));
+
+    expect(mockPrepareMorph).toHaveBeenCalledTimes(1);
+    expect(onMinimize).not.toHaveBeenCalled();
+    fireEvent.pointerDown(screen.getByLabelText('reload'));
+    expect(mockPrepareMorph).toHaveBeenCalledTimes(1);
+  });
+
   it('draws no Minimize button when the caller cannot park', () => {
     renderBar({ onMinimize: undefined });
 
@@ -95,6 +117,13 @@ describe('CapsuleBar', () => {
     expect(onOpenSwitcher).toHaveBeenCalledTimes(1);
     expect(onOpenActions).toHaveBeenCalledTimes(1);
     expect(mockHapticLight).toHaveBeenCalledTimes(4);
+  });
+
+  it('forwards its ref to the header', () => {
+    const ref = React.createRef<HTMLElement>();
+    render(<CapsuleBar ref={ref} session={SESSION} onClose={jest.fn()} onReload={jest.fn()} />);
+
+    expect(ref.current).toBe(screen.getByTestId('dapp-capsule'));
   });
 
   it('hides the tabs badge while only one dApp is open', () => {

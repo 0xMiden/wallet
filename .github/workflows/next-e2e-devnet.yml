@@ -1,0 +1,45 @@
+name: Next E2E (devnet)
+
+# Runs next's E2E suite nightly on devnet, next's protocol line, in place of the
+# run every push to next used to start (#1714). A schedule runs only main's
+# workflow files, so this file lives on main and dispatches next's own
+# e2e-blockchain.yml with `--ref next`: that run uses next's workflow and specs.
+# Its network input is passed explicitly rather than read from next's default.
+#
+# GITHUB_TOKEN can start it: a workflow_dispatch it creates does start a run.
+# This job only dispatches, and fails when the dispatch does; the suite's own run
+# is the test result and records the commit it tested. The summary gives next's
+# head at dispatch time, which a later push to next can move before it checks out.
+# The testnet suites on main are Release E2E (release-e2e.yml).
+
+on:
+  schedule:
+    # 01:31 UTC: before Release E2E (02:13) and the other nightly crons.
+    - cron: '31 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch next's E2E suite on devnet
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch e2e-blockchain.yml on next
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits/next" --jq .sha)
+          if ! gh workflow run e2e-blockchain.yml --repo "$GITHUB_REPOSITORY" --ref next -f network=devnet; then
+            echo "::error title=Next E2E (devnet)::could not dispatch e2e-blockchain.yml on next (${sha})"
+            exit 1
+          fi
+          {
+            echo "### Next E2E (devnet): e2e-blockchain.yml started on \`next\`, head ${sha:0:9} at dispatch"
+            echo
+            echo "The suite's own run records the commit it tested."
+          } >> "$GITHUB_STEP_SUMMARY"

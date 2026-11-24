@@ -19,7 +19,7 @@ function config(chainIds: number[]): BridgeConfig {
   return {
     network: 'mainnet',
     version: 1,
-    features: { earn: false },
+    features: { earn: false, nearIntents: false },
     'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
     supportedEvmChains: Object.fromEntries(chainIds.map(id => [`chain-${id}`, { chainId: id, bridges: {} }]))
   };

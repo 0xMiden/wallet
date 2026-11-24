@@ -1,12 +1,17 @@
 import {
   AllowedPrivateData,
+  type InputNoteDetails,
   PrivateDataPermission,
   WalletAdapterNetwork,
   WalletError
 } from '@miden-sdk/miden-wallet-adapter-base';
 
 import * as client from 'lib/adapter/client';
-import { MidenDAppMessageType } from 'lib/adapter/types';
+import {
+  MidenDAppMessageType,
+  type DAppConsumableNote,
+  type MidenDAppConsumableNotesResponse
+} from 'lib/adapter/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 
 import { MidenWindowObject } from './midenWindowObject';
@@ -41,6 +46,8 @@ jest.mock('lib/adapter/client', () => ({
   requestPrivateNotes: jest.fn(),
   waitForTransaction: jest.fn(),
   signBytes: jest.fn(),
+  requestLoginKey: jest.fn(),
+  signLoginBytes: jest.fn(),
   importPrivateNote: jest.fn(),
   requestAssets: jest.fn(),
   requestConsumableNotes: jest.fn(),
@@ -163,7 +170,7 @@ describe('MidenWindowObject', () => {
       const data = new Uint8Array([10, 20, 30]);
       const signatureBytes = new Uint8Array([9, 8, 7, 0, 255]);
       const signatureB64 = u8ToB64(signatureBytes);
-      mockClient.signBytes.mockResolvedValue(signatureB64);
+      mockClient.signBytes.mockResolvedValue({ signature: signatureB64 });
 
       const obj = makeConnected();
       obj.publicKey = publicKey;
@@ -180,6 +187,58 @@ describe('MidenWindowObject', () => {
       const [, hexArg, b64Arg] = mockClient.signBytes.mock.calls[0]!;
       expect(hexArg).toBe('0102ff');
       expect(b64ToU8(b64Arg as string)).toEqual(data);
+    });
+  });
+
+  describe('signBytes signed commitment', () => {
+    const signature = new Uint8Array([9, 8, 7]);
+    const commitment = Uint8Array.from({ length: 32 }, (_, i) => i);
+
+    it('returns the signed commitment beside the signature', async () => {
+      mockClient.signBytes.mockResolvedValue({ signature: u8ToB64(signature), signedCommitment: u8ToB64(commitment) });
+      const obj = makeConnected();
+      obj.publicKey = new Uint8Array([1]);
+      const result = await obj.signBytes(new Uint8Array([1]), 'word' as any);
+      expect(result).toStrictEqual({ signature, signedCommitment: commitment });
+    });
+
+    it('omits signedCommitment when the wallet sends none', async () => {
+      mockClient.signBytes.mockResolvedValue({ signature: u8ToB64(signature) });
+      const obj = makeConnected();
+      obj.publicKey = new Uint8Array([1]);
+      const result = await obj.signBytes(new Uint8Array([1]), 'word' as any);
+      expect(result).toStrictEqual({ signature });
+    });
+  });
+
+  describe('login key', () => {
+    it('requests the login key for the connected account', async () => {
+      const loginKey = Uint8Array.from({ length: 32 }, (_, i) => i);
+      mockClient.requestLoginKey.mockResolvedValue(u8ToB64(loginKey));
+      const obj = makeConnected();
+
+      const result = await obj.requestLoginKey();
+
+      expect(mockClient.requestLoginKey).toHaveBeenCalledWith(ADDRESS);
+      expect(result.loginKey).toBeInstanceOf(Uint8Array);
+      expect(result.loginKey).toHaveLength(32);
+      expect(Array.from(result.loginKey)).toEqual(Array.from(loginKey));
+    });
+
+    it('signs login bytes as base64 with the kind', async () => {
+      const data = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+      const signature = Uint8Array.from({ length: 66 }, (_, i) => i);
+      mockClient.signLoginBytes.mockResolvedValue(u8ToB64(signature));
+      const obj = makeConnected();
+
+      const result = await obj.signLoginBytes(data, 'word');
+
+      expect(mockClient.signLoginBytes).toHaveBeenCalledWith(ADDRESS, u8ToB64(data), 'word');
+      const [, b64Arg] = mockClient.signLoginBytes.mock.calls[0]!;
+      expect(b64ToU8(b64Arg)).toEqual(data);
+      expect(result.signature).toBeInstanceOf(Uint8Array);
+      expect(result.signature).toHaveLength(66);
+      expect(Array.from(result.signature)).toEqual(Array.from(signature));
     });
   });
 
@@ -557,5 +616,22 @@ describe('MidenWindowObject', () => {
       expect(obj.address).toBeUndefined();
       expect(obj.permission).toBeUndefined();
     });
+  });
+});
+
+// Checked by `yarn ts`: the response and the provider type each consumable note with standardPayment.
+type KeepsNoteFields<T> = [T] extends [InputNoteDetails] ? true : false;
+type RequiresFlag<T> = [InputNoteDetails] extends [T] ? false : true;
+type ResponseNote = MidenDAppConsumableNotesResponse['consumableNotes'][number];
+type WindowNote = Awaited<ReturnType<MidenWindowObject['requestConsumableNotes']>>['consumableNotes'][number];
+
+describe('consumable note types', () => {
+  it('carry standardPayment on the response and on the provider', () => {
+    const responseKeeps: KeepsNoteFields<ResponseNote> = true;
+    const responseFlag: RequiresFlag<ResponseNote> = true;
+    const windowKeeps: KeepsNoteFields<WindowNote> = true;
+    const windowFlag: RequiresFlag<WindowNote> = true;
+    const aliasFlag: RequiresFlag<DAppConsumableNote> = true;
+    for (const value of [responseKeeps, responseFlag, windowKeeps, windowFlag, aliasFlag]) expect(value).toBe(true);
   });
 });

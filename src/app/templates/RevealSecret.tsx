@@ -13,8 +13,9 @@ import { CheckboxConsent } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
+import { MaskedSecretBox, SeedRevealToggle } from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
-import { TextField } from 'components/ui/TextField';
+import { SECRET_REVEAL_MS, TextField } from 'components/ui/TextField';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
@@ -22,6 +23,8 @@ import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
+import { revealMaskApplies, useRevealMask } from 'lib/ui/useRevealMask';
 import { truncateAddress } from 'utils/string';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -67,6 +70,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   } = useForm<FormData>();
 
   const passwordValue = watch('password');
+  const [passwordErrorId, setPasswordErrorId] = useState<UserErrorId | null>(null);
   const [secret, setSecret] = useSecretState();
   useEffect(() => {
     if (revealUnavailable) setSecret(null);
@@ -80,6 +84,13 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // captures. The hook withholds `true` until the native guard is actually
   // enabled, so the unprotected first frames are never rendered.
   const isGuardReady = useScreenshotGuard(secret !== null);
+  // Off mobile the mask is a revealed key's only visibility state, so it carries the 30 s window the
+  // field cover gave the private key on main. A recovery phrase is written down and keeps no timer, and
+  // the hot-key view never had a cover.
+  const mask = useRevealMask({
+    resetKey: secret,
+    autoHideMs: reveal === 'private-key' ? SECRET_REVEAL_MS : undefined
+  });
   const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   // Keep parked dApp trays out of the way while the reveal screen is mounted.
   useHideDappBubblesWhileOpen(true);
@@ -107,7 +118,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       secretFieldRef.current?.focus();
       secretFieldRef.current?.select();
     }
-  }, [secret]);
+  }, [secret, mask.masked]);
 
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -164,6 +175,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
         if (generation !== secretGeneration.current) return;
+        setPasswordErrorId(err instanceof Error ? 'raw_secret_reveal_failed' : 'smthWentWrong');
         setError('password', {
           type: SUBMIT_ERROR_TYPE,
           message: err instanceof Error ? err.message : t('smthWentWrong')
@@ -193,6 +205,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       case 'private-key':
         return {
           name: t('privateKey'),
+          hiddenLabel: t('privateKeyHidden'),
           // Which account's key this is: a plain row, like every other account row.
           accountBanner: (
             <ListGroup>
@@ -210,6 +223,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       case 'seed-phrase':
         return {
           name: t('seedPhrase'),
+          hiddenLabel: t('recoveryPhraseHidden'),
           accountBanner: null,
           fieldDesc: (
             <div className="flex flex-col gap-3">
@@ -225,6 +239,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       case 'hot-key':
         return {
           name: t('privateKey'),
+          hiddenLabel: t('privateKeyHidden'),
           accountBanner: null,
           fieldDesc: t('revealHotKeyDescription')
         };
@@ -236,21 +251,34 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       // Withhold until the native guard reports the screen is protected — an
       // in-progress screen recording would otherwise capture the first frames.
       if (!isGuardReady) return null;
-      if (reveal === 'hot-key') return <PrivateKeyPair payload={secret} />;
+      if (reveal === 'hot-key') {
+        return (
+          <>
+            <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
+            <PrivateKeyPair payload={secret} masked={mask.masked} />
+          </>
+        );
+      }
       return (
         <SubPageSection description={texts.fieldDesc}>
-          <TextField
-            ref={secretFieldRef}
-            secret
-            multiline
-            rows={4}
-            readOnly
-            label={texts.name}
-            id="reveal-secret-secret"
-            spellCheck={false}
-            className={secretFieldClassName}
-            value={secret}
-          />
+          <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
+          {mask.masked ? (
+            <MaskedSecretBox label={texts.hiddenLabel} className="h-[108px]" data-testid="reveal-secret-mask" />
+          ) : (
+            <TextField
+              ref={secretFieldRef}
+              secret
+              secretCover={!revealMaskApplies()}
+              multiline
+              rows={4}
+              readOnly
+              label={texts.name}
+              id="reveal-secret-secret"
+              spellCheck={false}
+              className={secretFieldClassName}
+              value={secret}
+            />
+          )}
         </SubPageSection>
       );
     }
@@ -260,7 +288,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         {hasHardwareProtector ? (
           <SubPageSection description={t('revealSecretUnlockDescription', { secretName: texts.name })}>
             {errors.password && (
-              <Notice tone="negative" role="alert" title={t('error')}>
+              <Notice tone="negative" role="alert" title={t('error')} errorId={passwordErrorId}>
                 {errors.password.message || ''}
               </Notice>
             )}
@@ -269,6 +297,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           <PasscodeEntry
             onSubmit={code => onSubmit({ password: code })}
             onChange={() => clearErrors()}
+            errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
             error={errors.password?.message ?? null}
             subtitle={t('revealSecretPasscodeInputDescription', { secretName: texts.name })}
             disabled={requiresAcknowledge && !privateKeyAcknowledged}
@@ -279,6 +308,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             {...register('password', { required: t('required') })}
             label={t('password')}
             hint={t('revealSecretPasswordInputDescription', { secretName: texts.name })}
+            errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
             error={errors.password?.message}
             id="reveal-secret-password"
             type="password"
@@ -293,10 +323,14 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     );
   }, [
     errors,
+    passwordErrorId,
     isGuardReady,
     onSubmit,
     register,
     secret,
+    mask.masked,
+    mask.revealed,
+    mask.toggle,
     texts,
     clearErrors,
     t,
@@ -327,8 +361,12 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     return <SubPageLayout data-testid="reveal-secret">{null}</SubPageLayout>;
   }
 
+  // A revealed secret remounts the header so its title takes focus: off mobile the reveal starts
+  // masked, with no field to focus, and the submit control that held focus is gone.
   return (
     <SubPageLayout
+      key={secret ? 'revealed' : undefined}
+      focusTitleOnMount={secret ? true : undefined}
       data-testid="reveal-secret"
       footer={
         showButton &&

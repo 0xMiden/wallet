@@ -9,7 +9,9 @@ import { act, renderHook } from '@testing-library/react';
 import { dappConfirmationStore, type DAppConfirmationRequest } from './confirmation-store';
 import { useDappConfirmation } from './use-dapp-confirmation';
 
-function makeRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
+function makeRequest(
+  overrides: Partial<Exclude<DAppConfirmationRequest, { type: 'loginSign' }>> = {}
+): DAppConfirmationRequest {
   return {
     id: 'req-1',
     type: 'connect',

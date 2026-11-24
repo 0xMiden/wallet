@@ -16,6 +16,7 @@ import {
   UsdcxDepositDeps,
   UsdcxDomainNotRegisteredError
 } from './deposit';
+import * as protocol from './protocol';
 
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
@@ -265,4 +266,9 @@ it('uses one captured xReserve route when the configuration changes during the d
   } finally {
     snapshotRead.mockRestore();
   }
+});
+
+it("re-exports the protocol's domain error, so a check against either module holds for both", () => {
+  expect(UsdcxDomainNotRegisteredError).toBe(protocol.UsdcxDomainNotRegisteredError);
+  expect(isUsdcxDomainNotRegisteredError(new protocol.UsdcxDomainNotRegisteredError(10007))).toBe(true);
 });

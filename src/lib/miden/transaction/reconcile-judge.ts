@@ -4,8 +4,8 @@
 // batch can erase a landed attempt's notes and its nullifiers with them.
 import { pipelineMayStillBeRunning } from './cancel';
 import { AccountRead, AccountState, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
-import { isCheckable, isProvable, latestEntry, ProvableEvidence } from './verdict-rules';
-import { ISubmitEvidence, ITransaction, isLiveTransaction } from '../db/types';
+import { admitsInclusionAt, isCheckable, isProvable, latestEntry, ProvableEvidence } from './verdict-rules';
+import { ISubmitEvidence, ITransaction, isLiveTransaction, type NeverCommittedBy } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
 
 /** The node keeps ~50 blocks of account history; a read pinned to a block stops 10 short of losing it. */
@@ -22,7 +22,8 @@ export type EntryResult =
 
 export type LandingProof =
   | { kind: 'commitment' }
-  | { kind: 'note'; noteId: string }
+  /** `block` is the one that includes the note, which only an attempt whose window admits it can have created. */
+  | { kind: 'note'; noteId: string; block: number }
   | { kind: 'nullifier'; nullifier: string; finalCommitment: string };
 
 export interface EntryJudgement {
@@ -38,6 +39,7 @@ export interface EntryJudgement {
   readsFailed: boolean;
   /** The reads found a landing or a candidate note and the header re-read then failed: held, with nothing written. */
   landingSuspected?: boolean;
+  neverCommittedBy?: NeverCommittedBy;
 }
 
 export interface VerdictReads {
@@ -55,6 +57,8 @@ export interface RowJudgement {
   entries: EntryJudgement[];
   landed?: { attemptId: string; proof: LandingProof; boundTransactionId?: string };
   allDead: boolean;
+  /** On an all-dead row: the rule its dead attempts share, in this pass or stored by an earlier one, or `mixed`. */
+  neverCommittedBy?: NeverCommittedBy | 'mixed';
   /**
    * A landing or candidate note the deferral holds, one found before a header re-read that failed, or a recorded
    * landing whose reads failed this time.
@@ -130,6 +134,13 @@ const noteBlockers = (noteId: string, others: readonly ITransaction[]): ITransac
     )
   );
 
+/** Whether another row of `row`'s account could have produced `noteId`, by the rule a note landing is attributed by. */
+export const noteClaimedElsewhere = (
+  row: ITransaction,
+  noteId: string,
+  accountRows: readonly ITransaction[]
+): boolean => noteBlockers(noteId, accountOthers(row, accountRows)).length > 0;
+
 /**
  * Another recorded attempt that is not proven dead and reaches the same final commitment, whatever its pre-state: the
  * commitment does not cover the notes a transaction consumed, so its landing would look exactly like E's.
@@ -181,13 +192,17 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
 
   let notes: ReadonlyMap<string, number> = new Map();
   if ((offInitial || !moved) && entry.outputNoteIds.length > 0) {
-    const read = await reads.node.noteInclusions(entry.outputNoteIds, RPC_READ_TIMEOUT_MS);
+    // E's notes are the ones its run created as this account, and a note's id commits to its sender, so an execute's
+    // read counts only a copy this account created: one the node holds only under another sender fails the read.
+    const read =
+      row.type === 'execute'
+        ? await reads.node.noteInclusions(entry.outputNoteIds, RPC_READ_TIMEOUT_MS, row.accountId)
+        : await reads.node.noteInclusions(entry.outputNoteIds, RPC_READ_TIMEOUT_MS);
     if (read === undefined) return noRead();
     notes = read;
   }
   // E could be included only after its reference block and at or before X, so a copy outside that window is never E's.
-  const inWindow = (block: number): boolean =>
-    block > entry.refBlock && (expiration === undefined || block <= expiration);
+  const inWindow = (block: number): boolean => admitsInclusionAt(entry, block);
   const onChain = [...notes].filter(([, block]) => inWindow(block));
 
   let spend: { nullifier: string; height: number } | undefined;
@@ -303,7 +318,11 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     return { ...withRecord, result: deferralHolds(entry, proof, others) ? 'deferred' : 'landed', proof };
   }
   if (attributable !== undefined)
-    return { ...withRecord, result: 'landed', proof: { kind: 'note', noteId: attributable[0] } };
+    return {
+      ...withRecord,
+      result: 'landed',
+      proof: { kind: 'note', noteId: attributable[0], block: attributable[1] }
+    };
   if (row3 && spend !== undefined) {
     const proof: LandingProof = {
       kind: 'nullifier',
@@ -320,7 +339,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
       state =>
         state.blockNum >= expiration && (state.commitment === undefined || state.commitment === entry.initialCommitment)
     );
-    if (expired) return { ...withRecord, result: 'never-committed' };
+    if (expired) return { ...withRecord, result: 'never-committed', neverCommittedBy: 'expired' };
   }
   if (moved) {
     const superseded = accountReads.some(
@@ -330,16 +349,20 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
         state.commitment !== undefined &&
         state.commitment !== entry.finalCommitment
     );
-    if (superseded) return { ...withRecord, result: 'never-committed' };
+    if (superseded) return { ...withRecord, result: 'never-committed', neverCommittedBy: 'superseded' };
   }
   if (moved && spend !== undefined) {
     const spentElsewhere =
       (atSpend !== undefined && atSpend.blockNum >= spend.height && atSpend.commitment === entry.initialCommitment) ||
       (spend.height <= tip.blockNum && tip.commitment === entry.initialCommitment);
-    if (spentElsewhere) return { ...withRecord, result: 'never-committed' };
+    if (spentElsewhere) return { ...withRecord, result: 'never-committed', neverCommittedBy: 'spent_elsewhere' };
     if (bindingLost) return { ...withRecord, result: 'unresolvable' };
   }
-  return { ...withRecord, result: pastInitial ? 'unresolvable' : 'pending' };
+  // A private account shows no nonce, so a tip off E.initial alone is not S-1. Once X is past reading no later pass can
+  // read more than this one did, and without this E would wait on inputs that never change (#2060).
+  const xUnreadable =
+    offInitial && expiration !== undefined && bindingBudgetMs(tip.blockNum, expiration, reads.cadenceMs) <= 0;
+  return { ...withRecord, result: pastInitial || xUnreadable ? 'unresolvable' : 'pending' };
 }
 
 const ruledOutFor = (
@@ -414,6 +437,18 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
     judgedEntries.every(
       entry => entry.preSubmitEnd === true || (isProvable(entry) && verdictOf(entry) === 'never-committed')
     );
+  // An attempt stored dead before the rule was recorded has none, and the row's rule is then not guessed.
+  const rules = new Set(
+    judgedEntries
+      .filter(entry => entry.preSubmitEnd !== true && verdictOf(entry) === 'never-committed')
+      .map(
+        entry =>
+          entries.find(judgement => judgement.attemptId === entry.attemptId)?.neverCommittedBy ?? entry.neverCommittedBy
+      )
+  );
+  const [rule] = rules;
+  const neverCommittedBy: RowJudgement['neverCommittedBy'] =
+    !allDead || rules.has(undefined) ? undefined : rules.size > 1 ? 'mixed' : rule;
   const landingHeld =
     entries.some(judgement => judgement.result === 'deferred' || judgement.landingSuspected === true) ||
     entries.some(
@@ -436,6 +471,7 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
           }
         }),
     allDead,
+    ...(neverCommittedBy === undefined ? {} : { neverCommittedBy }),
     landingHeld,
     ...(tipBlock === undefined ? {} : { tipBlock })
   };

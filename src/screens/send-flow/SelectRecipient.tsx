@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useEffect, useRef } from 'react';
+import React, { ChangeEvent, useEffect, useId, useRef } from 'react';
 
 import clsx from 'clsx';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
@@ -11,6 +11,9 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { ClearFieldButton, Pill } from 'components/ui';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { clearFieldValue } from 'lib/ui/clear-field';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
@@ -26,10 +29,12 @@ const EASE = [0.32, 0.72, 0, 1] as const;
 const DURATION = 0.28;
 
 export interface SelectRecipientProps {
+  embedded?: boolean;
   networks?: readonly BridgeNetwork[];
   address: string;
   isValidAddress: boolean;
   error?: string;
+  errorDiagnostics?: UiEvidenceInput;
   /**
    * Chain detected from the typed address. `ethereum` offers the cross-chain
    * destination networks; `miden` is same-chain, so Miden is its only network.
@@ -62,9 +67,11 @@ export interface SelectRecipientProps {
 }
 
 export const SelectRecipient: React.FC<SelectRecipientProps> = ({
+  embedded,
   address,
   isValidAddress,
   error,
+  errorDiagnostics,
   chain,
   network,
   networks,
@@ -81,6 +88,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
+  useUserVisibleError(
+    isUserErrorId(error) ? error : null,
+    'inline',
+    undefined,
+    error === 'invalidMidenAccountId' ? errorDiagnostics : undefined
+  );
   const reduceMotion = useReducedMotion();
   const transition = reduceMotion ? { duration: 0 } : { duration: DURATION, ease: EASE };
   // Collapses/expands a block's height so the content under it slides instead of jumping.
@@ -97,6 +110,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
     exit: { opacity: 0, y: -4, transition: reduceMotion ? { duration: 0 } : { duration: 0.14, ease: EASE } }
   };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const addressId = useId();
   const selectedNetwork = network === 'miden' ? undefined : getBridgeNetwork(network);
   const isEthereum = chain === 'ethereum';
   const hasAddress = address.trim().length > 0;
@@ -136,11 +150,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
   return (
     <SendStepLayout
+      embedded={embedded}
       tabRoot
       title={t('sendTo')}
       footer={
         <Button
-          title={t('confirm')}
+          title={t('continue')}
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}
@@ -150,7 +165,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         />
       }
     >
-      <div className="relative mt-3">
+      <div className={clsx('relative', !embedded && 'mt-3')}>
+        {embedded && (
+          <label htmlFor={addressId} className="mb-2 block text-body-sm text-muted">
+            {t('sendTo')}
+          </label>
+        )}
         {recipientName && (
           <div className="mb-2 flex items-center gap-3">
             <span data-testid="send-recipient-avatar" className="flex shrink-0">
@@ -161,9 +181,15 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             </span>
           </div>
         )}
-        <div className="flex items-start">
+        <div
+          className={clsx(
+            'flex items-start',
+            embedded && 'rounded-xl border border-hairline bg-page px-3 py-3 focus-within:border-accent-tint-ink'
+          )}
+        >
           <textarea
             ref={textareaRef}
+            id={embedded ? addressId : undefined}
             data-testid="send-recipient-input"
             rows={1}
             placeholder={addressPlaceholder}
@@ -172,7 +198,8 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
               'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
               // Below the tab title, never above it: 24px holds the placeholder to two lines on a
               // 375pt phone, and a pasted address wraps to three.
-              'text-hero-name font-bold wrap-break-word placeholder:text-muted/70 focus:placeholder:text-transparent',
+              'wrap-break-word focus:placeholder:text-transparent',
+              embedded ? 'text-body placeholder:text-muted' : 'text-hero-name font-bold placeholder:text-muted/70',
               'caret-accent-send',
               error ? 'text-negative-tint-ink' : 'text-ink'
             )}

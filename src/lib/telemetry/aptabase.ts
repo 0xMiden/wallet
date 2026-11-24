@@ -1,6 +1,7 @@
 import {
   TelemetryErrorKind,
   TelemetryFlow,
+  TelemetryNetwork,
   TelemetryOperation,
   TelemetryPlatform,
   TelemetryResult,
@@ -14,7 +15,7 @@ import {
  *
  * The policy at `docs/privacy/index.md` names Aptabase as the processor for
  * usage data, so this module is what makes that sentence true. It maps the
- * ten-field allowlisted payload onto Aptabase's envelope and does nothing
+ * twelve-field allowlisted payload onto Aptabase's envelope and does nothing
  * else — no queueing, no batching, and no network call. The single egress
  * point stays `sink.ts`.
  *
@@ -89,6 +90,10 @@ export interface AptabaseProps {
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
   step?: TelemetryStep;
+  /**
+   * A prop, not a system prop: Aptabase reads only its own system fields, and that allowlist stays the four below.
+   */
+  network: TelemetryNetwork;
 }
 
 export interface AptabaseSystemProps {
@@ -123,7 +128,7 @@ export const APTABASE_ENVELOPE_KEYS: readonly string[] = [
 
 export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
 
-export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'errorKind', 'durationMs', 'step'];
+export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'errorKind', 'durationMs', 'step', 'network'];
 
 /**
  * Every shape the event name may take. Three lower-case words at most, then the
@@ -185,13 +190,13 @@ export function isNameableEvent(payload: TelemetryWirePayload): boolean {
  * mode the allowlist exists to prevent and which `yarn ts` can no longer catch
  * on its own once the payload lands in an open object.
  *
- * Each of the eleven allowlisted fields appears exactly once in the result —
+ * Each of the twelve allowlisted fields appears exactly once in the result:
  * `phase` with either `flow` or `operation` in `eventName`, `runId` in
  * `sessionId`, `appVersion` and `platform` in `systemProps`, and the remaining
- * five in `props`.
+ * six in `props`.
  */
 export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Date()): AptabaseEnvelope {
-  const props: AptabaseProps = {};
+  const props: AptabaseProps = { network: payload.network };
   if (payload.flowId !== undefined) props.flowId = payload.flowId;
   if (payload.result !== undefined) props.result = payload.result;
   if (payload.errorKind !== undefined) props.errorKind = payload.errorKind;

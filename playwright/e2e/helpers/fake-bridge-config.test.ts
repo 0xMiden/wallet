@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { parseBridgeConfig } from 'lib/remote-config/schema';
+import { epochTokenFaucetId, parseBridgeConfig } from 'lib/remote-config/schema';
 
 import {
   FakeBridgeConfig,
@@ -35,11 +35,21 @@ describe('served documents', () => {
   // feature "not configured" and each suite timing out on a greyed-out control.
   it('the localnet Epoch document passes the wallet parser with Earn and Fast on', () => {
     const config = parseBridgeConfig(localnetEpochDocument(), 'localnet', { allowLocalHttp: true });
-    expect(config?.features).toEqual({ earn: true });
+    expect(config?.features).toEqual({ earn: true, nearIntents: false });
     expect(config?.['bridge-providers'].epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
     expect(config?.['bridge-providers'].epoch.positionsUrl).toBe('http://127.0.0.1:8549');
     expect(config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId).toBeUndefined();
     expect(config?.['bridge-providers'].agglayer).toEqual({});
+  });
+
+  it('declares the generated bridge faucet as the Sepolia Epoch output', () => {
+    const faucetId = '0x537c15a622074e91188aa894456c52';
+    const config = parseBridgeConfig(localnetEpochDocument(faucetId), 'localnet', { allowLocalHttp: true });
+    if (!config) throw new Error('The local bridge config is invalid.');
+    const token = config.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC;
+    expect(token?.outputs).toEqual(['usdc-localnet-output']);
+    expect(epochTokenFaucetId(config, token)).toBe(faucetId);
+    expect(config.supportedEvmChains.sepolia?.bridges.agglayer).toBeUndefined();
   });
 
   it('the bridge-in document takes the Miden side from the published one and the EVM side from Anvil', () => {
@@ -55,7 +65,7 @@ describe('served documents', () => {
       '0x537c15a622074e91188aa894456c52'
     );
     expect(config?.['bridge-providers'].epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
-    expect(config?.features).toEqual({ earn: true });
+    expect(config?.features).toEqual({ earn: true, nearIntents: false });
     expect(document.version).toBe(4);
   });
 

@@ -1,3 +1,4 @@
+import { MidenMessageType } from 'lib/miden/types';
 import { isDesktop, isMobile } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
@@ -182,9 +183,29 @@ describe('IntercomClient', () => {
 
   it('rejects immediately if the signal is already aborted', async () => {
     await flushPromises();
+    const listenersAfterConnect = mockAddListener.mock.calls.length;
     const controller = new AbortController();
     controller.abort();
     await expect(client.request({ action: 'x' }, { signal: controller.signal })).rejects.toThrow('Aborted');
+    expect(mockPostMessage).not.toHaveBeenCalled();
+    expect(mockAddListener).toHaveBeenCalledTimes(listenersAfterConnect);
+  });
+
+  it('rejects a signal aborted before the port is ready without sending', async () => {
+    const fresh = new IntercomClient();
+    const controller = new AbortController();
+    controller.abort();
+    const caught = fresh.request({ action: 'x' }, { signal: controller.signal }).then(
+      () => {
+        throw new Error('request resolved');
+      },
+      (error: unknown) => error
+    );
+    await flushPromises();
+    await expect(caught).resolves.toMatchObject({ message: 'Aborted' });
+    expect(mockPostMessage).not.toHaveBeenCalled();
+    expect(ports.every(port => port.listeners.length === 1)).toBe(true);
+    expect(mockAddListener).toHaveBeenCalledTimes(ports.length);
   });
 
   it('abort after port replacement does not throw (cleanup swallows dead-port removeListener)', async () => {
@@ -244,16 +265,89 @@ describe('IntercomClient', () => {
     deliverToPort(0, { type: MessageType.Err, reqId: 0, data: { message: 'first failure' } });
     expect(snapshotCrashDiagnostics(await firstError)).toEqual({
       operation: 'intercom_request',
-      requestType: WalletMessageType.UnlockRequest
+      requestType: WalletMessageType.UnlockRequest,
+      portReconnected: false
     });
     expect(snapshotCrashDiagnostics(await secondError)).toEqual({
       operation: 'intercom_request',
-      requestType: WalletMessageType.GetStateRequest
+      requestType: WalletMessageType.GetStateRequest,
+      portReconnected: false
     });
     expect(mockPostMessage.mock.calls.map(call => Object.keys(call[0]).sort())).toEqual([
       ['data', 'reqId', 'type'],
       ['data', 'reqId', 'type']
     ]);
+  });
+
+  it("names the background's confirmation state, and whether the port was rebuilt, on a Not Found", async () => {
+    await flushPromises();
+    const payloadRequest = { type: MidenMessageType.DAppGetPayloadRequest, id: ['V1StGXR8_Z5jdHi6B-myT'] };
+    const notFound = (code: string) => ['Not Found', undefined, 'Error', undefined, { code }];
+
+    const beforeRebuild = client.request(payloadRequest).catch(error => error);
+    await flushPromises();
+    deliverToPort(0, { type: MessageType.Err, reqId: 0, data: notFound('confirmation_expired') });
+    const expired = await beforeRebuild;
+    expect(expired.message).toBe('Not Found');
+    expect(snapshotCrashDiagnostics(expired)).toEqual({
+      operation: 'intercom_request',
+      requestType: MidenMessageType.DAppGetPayloadRequest,
+      confirmationHandler: 'expired',
+      pageNavigation: 'unknown',
+      portReconnected: false
+    });
+
+    disconnectCallback!();
+    jest.advanceTimersByTime(1000);
+    await flushPromises();
+    expect(ports).toHaveLength(2);
+
+    const afterRebuild = client.request(payloadRequest).catch(error => error);
+    await flushPromises();
+    deliverToPort(1, { type: MessageType.Err, reqId: 1, data: notFound('confirmation_unknown') });
+    expect(snapshotCrashDiagnostics(await afterRebuild)).toEqual({
+      operation: 'intercom_request',
+      requestType: MidenMessageType.DAppGetPayloadRequest,
+      confirmationHandler: 'unknown',
+      pageNavigation: 'unknown',
+      portReconnected: true
+    });
+  });
+
+  it("adds the background's labels and how this page was loaded to an approval's Not Found", async () => {
+    await flushPromises();
+    const payloadRequest = { type: MidenMessageType.DAppGetPayloadRequest, id: ['V1StGXR8_Z5jdHi6B-myT'] };
+    Object.defineProperty(performance, 'getEntriesByType', {
+      configurable: true,
+      value: (type: string) => (type === 'navigation' ? [{ type: 'reload' }] : [])
+    });
+    try {
+      const failed = client.request(payloadRequest).catch(error => error);
+      await flushPromises();
+      deliverToPort(0, {
+        type: MessageType.Err,
+        reqId: 0,
+        data: [
+          'Not Found',
+          undefined,
+          'Error',
+          undefined,
+          { code: 'confirmation_unknown:array_with_string:empty:under_10s' }
+        ]
+      });
+      expect(snapshotCrashDiagnostics(await failed)).toEqual({
+        operation: 'intercom_request',
+        requestType: MidenMessageType.DAppGetPayloadRequest,
+        confirmationHandler: 'unknown',
+        confirmationRequestShape: 'array_with_string',
+        confirmationRegistry: 'empty',
+        backgroundAge: 'under_10s',
+        pageNavigation: 'reload',
+        portReconnected: false
+      });
+    } finally {
+      Reflect.deleteProperty(performance, 'getEntriesByType');
+    }
   });
 
   it('increments reqId for each request', async () => {

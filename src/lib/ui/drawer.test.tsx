@@ -3,6 +3,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { flushSync } from 'react-dom';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { sheetMotionVars } from 'lib/animation';
 import { isExtension } from 'lib/platform';
 
@@ -31,6 +32,18 @@ jest.mock('lib/mobile/back-handler', () => ({
 const liveBackHandlers = () => mockRegistrations.filter(r => r.unregister.mock.calls.length === 0);
 
 describe('Drawer', () => {
+  it('installs the sheet keyframes once the drawer is on screen', () => {
+    document.getElementById('miden-sheet-keyframes')?.remove();
+    render(
+      <Drawer open onOpenChange={() => {}}>
+        <DrawerContent>
+          <DrawerTitle>Keyframes</DrawerTitle>
+        </DrawerContent>
+      </Drawer>
+    );
+    expect(document.head.querySelectorAll('#miden-sheet-keyframes')).toHaveLength(1);
+  });
+
   it('renders the open drawer through the local API and closes from the header button', () => {
     const onOpenChange = jest.fn();
 
@@ -51,6 +64,26 @@ describe('Drawer', () => {
     fireEvent.click(screen.getByLabelText('close'));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps a body-portaled Command picker dark without restyling Compact', () => {
+    const picker = (value: 'command' | 'compact') => (
+      <FlowPresentationProvider value={value}>
+        <div data-testid="picker-host">
+          <Drawer open>
+            <DrawerContent>
+              <DrawerTitle>Pick a token</DrawerTitle>
+            </DrawerContent>
+          </Drawer>
+        </div>
+      </FlowPresentationProvider>
+    );
+    const { rerender } = render(picker('compact'));
+    const dialog = screen.getByRole('dialog', { name: 'Pick a token' });
+    expect(screen.getByTestId('picker-host')).not.toContainElement(dialog);
+    expect(dialog).not.toHaveClass('dark');
+    rerender(picker('command'));
+    expect(screen.getByRole('dialog', { name: 'Pick a token' })).toHaveClass('dark');
   });
 
   it('stops taking pointer events once dismissed, so a tap during the close reaches what is underneath', () => {

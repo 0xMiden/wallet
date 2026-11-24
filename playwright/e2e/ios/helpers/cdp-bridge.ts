@@ -8,6 +8,11 @@ const SELECT_APP_TIMEOUT = 60_000;
 const SELECT_APP_POLL_MS = 1_500;
 const PAGE_READY_TIMEOUT = 15_000;
 const SOCKET_DISCOVERY_TIMEOUT = 30_000;
+// Healthy selects took at most 51 s over 3,558 CI attaches; a wedged one returns at appium's fixed 180 s lock.
+const SELECT_PAGE_TIMEOUT_MS = 90_000;
+const DISCONNECT_TIMEOUT_MS = 5_000;
+// The timeline keeps each console entry whole, so a dump of every argument is capped as network-capture caps a body.
+const CONSOLE_TEXT_MAX_CHARS = 2_000;
 
 // A synchronous `execute_script` (reading window.__TEST_* globals) returns in
 // milliseconds. If `executeAtom` hasn't resolved within this window, the
@@ -16,6 +21,9 @@ const SOCKET_DISCOVERY_TIMEOUT = 30_000;
 // --retries restart on a fresh app + CDP, instead of the whole test hanging
 // until the global Playwright timeout. Mirrors evalAsync's async-callback guard.
 const EVAL_HARD_TIMEOUT_MS = 30_000;
+// The probe gets the bound every eval gets: a cold first launch's select can run 51 s, and its main thread may stay busy
+// after it, so a shorter bound would relaunch a slow but healthy wallet.
+const LIVENESS_PROBE_TIMEOUT_MS = EVAL_HARD_TIMEOUT_MS;
 
 /**
  * Race a CDP call against a hard wall-clock timeout. A WebKit RemoteDebugger
@@ -277,7 +285,23 @@ export class CdpBridge {
     }
     const appKey = pageId.slice(0, dotIndex);
     const pageNum = parseInt(pageId.slice(dotIndex + 1), 10);
-    await (rd as unknown as SelectPageCapable).selectPage(appKey, pageNum);
+    try {
+      await withHardTimeout(
+        (rd as unknown as SelectPageCapable).selectPage(appKey, pageNum),
+        SELECT_PAGE_TIMEOUT_MS,
+        'selectPage'
+      );
+      // selectPage also returns once appium's page-init lock times out (a main frame replaced mid-init), and that
+      // session never sends another command; one trivial eval proves the session reaches the page.
+      await withHardTimeout(
+        (rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', ['return document.readyState;', []]),
+        LIVENESS_PROBE_TIMEOUT_MS,
+        'liveness probe'
+      );
+    } catch (err) {
+      await withHardTimeout(rd.disconnect(), DISCONNECT_TIMEOUT_MS, 'disconnect').catch(() => undefined);
+      throw new CdpSessionWedgedError(bundleId, udid, err instanceof Error ? err.message : String(err));
+    }
 
     return new CdpSession(rd);
   }
@@ -318,11 +342,20 @@ function sleep(ms: number): Promise<void> {
 
 function extractConsoleText(m: WebKitConsoleMessage | undefined): string {
   if (!m) return '';
-  if (m.text) return m.text;
+  // WebKit's `text` is the first argument only, so `console.error('Error in syncState:', err)` lost its error.
+  if (m.text && (m.parameters?.length ?? 0) <= 1) return m.text;
   if (m.parameters) {
-    return m.parameters
+    const format = m.parameters[0]?.value;
+    // A %c directive's argument is CSS, which Capacitor's bridge passes with every native call it logs.
+    const directives = typeof format === 'string' ? (format.match(/%[sdifoOc]/g) ?? []) : [];
+    const text = m.parameters
+      .filter((_, index) => index === 0 || directives[index - 1] !== '%c')
       .map(p => (typeof p.value === 'string' ? p.value : (p.description ?? JSON.stringify(p.value))))
-      .join(' ');
+      .join(' ')
+      .replace(/\s*\n\s*/g, ' ');
+    return text.length > CONSOLE_TEXT_MAX_CHARS
+      ? `${text.slice(0, CONSOLE_TEXT_MAX_CHARS)}... (truncated, ${text.length} total)`
+      : text;
   }
   return '';
 }
@@ -393,4 +426,25 @@ export class CdpNoPagesError extends Error {
 
 export function isCdpNoPagesError(err: unknown): err is CdpNoPagesError {
   return err instanceof CdpNoPagesError;
+}
+
+/**
+ * Thrown when `selectPage`, or the liveness probe after it, fails or does not return in time. A main frame replaced
+ * while appium-remote-debugger initializes the page leaves its init waiting on a lock that releases only after 180 s,
+ * and every later command on that session stays queued. The simulator subsystem is healthy (the other wallet attaches
+ * normally), so callers relaunch that one app instead of running `recoverSimSubsystem`.
+ */
+export class CdpSessionWedgedError extends Error {
+  constructor(
+    public readonly bundleId: string,
+    public readonly udid: string,
+    public readonly reason: string
+  ) {
+    super(`CdpBridge: the CDP session for bundleId=${bundleId} on udid=${udid} is wedged at attach: ${reason}`);
+    this.name = 'CdpSessionWedgedError';
+  }
+}
+
+export function isCdpSessionWedgedError(err: unknown): err is CdpSessionWedgedError {
+  return err instanceof CdpSessionWedgedError;
 }

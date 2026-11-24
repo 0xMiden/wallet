@@ -23,9 +23,60 @@ function setSetting(key: string, value: boolean) {
   } /* c8 ignore next -- jsdom localStorage.setItem is non-configurable */ catch {}
 }
 
+function readSetting(key: string, defaultValue: boolean): boolean | null {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored === null) return defaultValue;
+    const value: unknown = JSON.parse(stored);
+    return typeof value === 'boolean' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function getSetting(key: string, defaultValue: boolean) {
-  const stored = localStorage.getItem(key);
-  return stored ? (JSON.parse(stored) as boolean) : defaultValue;
+  return readSetting(key, defaultValue) ?? defaultValue;
+}
+
+function getOperationalSetting(key: string, defaultValue: boolean) {
+  return readSetting(key, defaultValue) ?? false;
+}
+
+let backgroundMirrorAttempt = 0;
+const settingWriteTails = new Map<string, Promise<void>>();
+
+// One tail per key. An idle write runs before enqueue returns. A busy key runs the
+// next write after the previous one settles, fulfilled or rejected. The stored tail
+// always fulfills and drops itself if it is still the tail, so a rejection does not
+// stick. A synchronous throw from an idle write leaves no tail.
+function trackSettingWrite(key: string, pending: Promise<void>): void {
+  const tail = pending.then(
+    () => {},
+    () => {}
+  );
+  settingWriteTails.set(key, tail);
+  void tail.then(() => {
+    if (settingWriteTails.get(key) === tail) settingWriteTails.delete(key);
+  });
+}
+
+function enqueueSettingWrite(key: string, write: () => Promise<void>): Promise<void> {
+  const current = settingWriteTails.get(key);
+  if (current === undefined) {
+    try {
+      const pending = write();
+      trackSettingWrite(key, pending);
+      return pending;
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+  const pending = current.then(
+    () => write(),
+    () => write()
+  );
+  trackSettingWrite(key, pending);
+  return pending;
 }
 
 /**
@@ -35,23 +86,27 @@ function getSetting(key: string, defaultValue: boolean) {
  */
 function mirrorSetting(key: string, value: boolean): Promise<void> {
   try {
-    return getStorageProvider()
-      .set({ [key]: value })
-      .catch(() => {});
+    return enqueueSettingWrite(key, () => getStorageProvider().set({ [key]: value })).catch(() => {});
   } catch {
     /* storage not ready — the startup mirror / defaults cover it */
     return Promise.resolve();
   }
 }
 
-/** Service-worker-safe read of a mirrored boolean setting (default on read-miss). */
-async function readMirroredSetting(key: string, defaultValue: boolean): Promise<boolean> {
+/** Service-worker-safe read of a mirrored boolean. A missing key returns `defaultValue`. */
+async function readMirroredSetting(
+  key: string,
+  defaultValue: boolean,
+  invalidValue: boolean = defaultValue
+): Promise<boolean> {
   try {
     const items = await getStorageProvider().get([key]);
+    // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
+    if (!Object.prototype.hasOwnProperty.call(items, key)) return defaultValue;
     const value = items[key];
-    return typeof value === 'boolean' ? value : defaultValue;
+    return typeof value === 'boolean' ? value : invalidValue;
   } catch {
-    return defaultValue;
+    return invalidValue;
   }
 }
 
@@ -61,7 +116,7 @@ export function setDelegateProofSetting(enabled: boolean) {
 }
 
 export function isDelegateProofEnabled() {
-  return getSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+  return getOperationalSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
 }
 
 /**
@@ -70,7 +125,25 @@ export function isDelegateProofEnabled() {
  * the user's delegated/local choice, exactly like every in-page proving path.
  */
 export function isDelegateProofEnabledAsync(): Promise<boolean> {
-  return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+  return readMirroredSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF, false);
+}
+
+/**
+ * The delegated-proving mirror without the absent-key default. A missing key is
+ * `undefined`. A stored boolean is that boolean. A non-boolean or a thrown read
+ * is false, so an unusable value cannot select remote proving.
+ */
+export async function readMirroredDelegateProof(): Promise<boolean | undefined> {
+  try {
+    const key = DELEGATE_PROOF_STORAGE_KEY;
+    const items = await getStorageProvider().get([key]);
+    // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
+    if (!Object.prototype.hasOwnProperty.call(items, key)) return undefined;
+    const value = items[key];
+    return typeof value === 'boolean' ? value : false;
+  } catch {
+    return false;
+  }
 }
 
 export function setAutoConsumeSetting(enabled: boolean) {
@@ -79,7 +152,7 @@ export function setAutoConsumeSetting(enabled: boolean) {
 }
 
 export function isAutoConsumeEnabled() {
-  return getSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+  return getOperationalSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
 }
 
 /**
@@ -89,7 +162,7 @@ export function isAutoConsumeEnabled() {
  * opted out of background auto-consume.
  */
 export function isAutoConsumeEnabledAsync(): Promise<boolean> {
-  return readMirroredSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+  return readMirroredSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME, false);
 }
 
 /**
@@ -131,9 +204,8 @@ const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';
  *
  * Firefox 140+ asks the user whether the extension may collect
  * `technicalAndInteraction` data — at install time, and again in `about:addons`
- * → Permissions and data. That is a second consent sitting beside "Share usage
- * data", and two consents that can disagree is a defect, so both have to say
- * yes before anything is sent.
+ * → Permissions and data. Its answer applies to both usage data and crash
+ * reports, independently of the wallet's "Share usage data" setting.
  *
  * **How "this browser has no such concept" is told apart from "this browser
  * said no".** This is the whole difficulty, and getting it backwards fails
@@ -150,7 +222,7 @@ const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';
  *
  * - **Key absent** — the browser does not implement data-collection consent at
  *   all (Chrome, any Firefox below 140). There is no browser-level answer to
- *   honour, so this gate abstains and the wallet's own setting decides.
+ *   honour, so this gate abstains.
  * - **Key present** — the browser implements it and its answer is
  *   authoritative. Granted only if the array actually names our data type. An
  *   empty array is a refusal, not an absence, and that is the distinction the
@@ -162,8 +234,8 @@ const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';
  * granted.
  *
  * Off-extension (mobile, desktop) there is no extension permission model to
- * consult, so this abstains rather than failing closed. Abstaining is not
- * failing open: the caller still requires the wallet's own setting to be on.
+ * consult, so this abstains rather than failing closed. Usage data separately
+ * requires the wallet's own setting to be on.
  */
 async function isDataCollectionPermitted(): Promise<boolean> {
   if (!isExtension()) return true;
@@ -184,11 +256,9 @@ async function isDataCollectionPermitted(): Promise<boolean> {
 }
 
 /**
- * Service-worker-safe read of the telemetry consent toggle. The background is
- * the single consent gate for every send, so this is the authoritative read,
- * and it is the one place the browser-level permission is ANDed in — both
- * egress points (`lib/telemetry/sink` and `lib/telemetry/crash`) call this, so
- * there is one gate to audit rather than a discipline applied twice.
+ * Service-worker-safe read of the usage-data consent toggle. The background
+ * sink uses this authoritative read to require both the wallet's setting and
+ * the browser-level permission before sending usage data.
  *
  * Defaults to OFF on read-miss — unlike auto-consume, a missing mirror here
  * must fail closed.
@@ -202,30 +272,90 @@ export async function isTelemetryEnabledAsync(): Promise<boolean> {
 }
 
 /**
- * Whether the user has ever answered the telemetry prompt. Absence of the key
- * means "never asked", which is what drives the first-launch step — and which
- * still sends nothing, since `isTelemetryEnabled()` reads false.
+ * Crash reports are independent of the usage-data choice, but Firefox's optional
+ * data-collection permission still applies, so only the browser's answer gates them.
  */
-export function hasTelemetryChoice(): boolean {
-  return localStorage.getItem(TELEMETRY_STORAGE_KEY) !== null;
+export function isCrashReportingEnabledAsync(): Promise<boolean> {
+  return isDataCollectionPermitted();
 }
 
 /**
- * One-shot migration: copy the current `localStorage` values of the settings the
- * extension service worker needs — auto-consume (whether to run) and delegated-proving
- * (how to prove) — into the platform KV mirror, so the SW honors a user's choices it
- * otherwise can't read. Setting changes also write-through via their setters; this
- * covers existing users who never re-toggle. Call from a frontend context (the popup)
- * where `localStorage` is available.
+ * Whether the user has ever answered the telemetry prompt. Absence of the key
+ * means "never asked", which is what drives the first-launch step — and which
+ * still sends no usage data, since `isTelemetryEnabled()` reads false.
+ */
+export function hasTelemetryChoice(): boolean {
+  try {
+    return localStorage.getItem(TELEMETRY_STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+function enqueueMirroredChoice(key: string, defaultValue: boolean): Promise<void> {
+  return enqueueSettingWrite(key, () => {
+    const value = readSetting(key, defaultValue);
+    if (value === null) throw new Error('unreadable setting');
+    return getStorageProvider().set({ [key]: value });
+  });
+}
+
+function enqueueMirrorMarker(attempt: number, mirrored: boolean): Promise<void> {
+  if (attempt !== backgroundMirrorAttempt) return Promise.resolve();
+  return enqueueSettingWrite(BG_SETTINGS_MIRRORED_KEY, () => {
+    if (attempt !== backgroundMirrorAttempt) return Promise.resolve();
+    return getStorageProvider().set({ [BG_SETTINGS_MIRRORED_KEY]: mirrored });
+  });
+}
+
+async function copyBackgroundSettings(attempt: number): Promise<void> {
+  let complete = true;
+  try {
+    await enqueueMirrorMarker(attempt, false);
+  } catch {
+    complete = false;
+  }
+  if (complete) {
+    try {
+      await enqueueMirroredChoice(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+    } catch {
+      complete = false;
+    }
+    try {
+      await enqueueMirroredChoice(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+    } catch {
+      complete = false;
+    }
+  }
+  try {
+    await enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+  } catch {
+    complete = false;
+  }
+  if (complete) await enqueueMirrorMarker(attempt, true).catch(() => undefined);
+}
+
+/**
+ * Copy auto-consume, delegated proving, and telemetry from `localStorage` into the
+ * platform KV mirror the service worker reads. Readable telemetry is repaired even
+ * when an operational read or write, or the marker clear, fails. Operational writes
+ * require a fulfilled clear, and publication requires all three choices to succeed.
+ * Each write reads the current local choice; only the newest copy changes the marker.
+ * Call from a frontend context where `localStorage` is available.
  */
 export function mirrorBackgroundSettings(): void {
-  mirrorSetting(AUTO_CONSUME_STORAGE_KEY, isAutoConsumeEnabled());
-  mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, isDelegateProofEnabled());
-  mirrorSetting(TELEMETRY_STORAGE_KEY, isTelemetryEnabled());
-  // Marker last: the SW treats an absent marker as "settings not yet mirrored" and
-  // holds off background native-consume, so it never acts on read-miss defaults for a
-  // user who opted out of auto-consume or remote proving.
-  mirrorSetting(BG_SETTINGS_MIRRORED_KEY, true);
+  const autoConsume = readSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
+  const delegateProof = readSetting(DELEGATE_PROOF_STORAGE_KEY, DEFAULT_DELEGATE_PROOF);
+  const telemetry = readSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+  if (telemetry === null) return;
+  if (autoConsume === null || delegateProof === null) {
+    void enqueueMirroredChoice(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY).catch(() => undefined);
+    return;
+  }
+
+  // The entry reads only decide whether to start. Each write reads again in its own turn.
+  const attempt = ++backgroundMirrorAttempt;
+  void copyBackgroundSettings(attempt);
 }
 
 /**

@@ -7,7 +7,17 @@
  */
 
 import { Chain, defineChain } from 'viem';
-import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, optimism, sepolia } from 'viem/chains';
+import {
+  arbitrum,
+  arbitrumSepolia,
+  base,
+  baseSepolia,
+  mainnet,
+  optimism,
+  polygon,
+  robinhood,
+  sepolia
+} from 'viem/chains';
 
 export const ARC_TESTNET = defineChain({
   id: 5042002,
@@ -16,6 +26,15 @@ export const ARC_TESTNET = defineChain({
   rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'] } },
   blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.testnet.arc.io' } },
   testnet: true
+});
+
+// viem's `arc` has no RPC and no explorer; these are Circle's, from https://docs.arc.io/arc/references/rpc-endpoints.
+const ARC_MAINNET = defineChain({
+  id: 5042,
+  name: 'Arc',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: ['https://rpc.mainnet.arc.io'] } },
+  blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.arc.io' } }
 });
 
 /** The Reown project id every bundle uses unless `WALLETCONNECT_PROJECT_ID` is set at build time. */
@@ -33,6 +52,11 @@ export type EvmChain = {
   id: number;
   name: string;
   rpcUrl: string;
+  /**
+   * The chain's public RPC endpoint. `wallet_addEthereumChain` sends this one to the external
+   * wallet: `rpcUrl` can be the WalletConnect proxy, which carries our project id.
+   */
+  publicRpcUrl: string;
   explorer: string;
   nativeCurrency: { name: string; symbol: string; decimals: number };
 };
@@ -52,6 +76,7 @@ function walletConnectChain(chain: Chain): EvmChain {
     id: chain.id,
     name: chain.name,
     rpcUrl: RPC(chain.id),
+    publicRpcUrl: chain.rpcUrls.default.http[0] ?? '',
     explorer: chain.blockExplorers?.default.url ?? '',
     nativeCurrency: chain.nativeCurrency
   };
@@ -66,15 +91,33 @@ export const EVM_CHAIN_DEFINITIONS: [Chain, ...Chain[]] = [
   mainnet,
   base,
   arbitrum,
-  arc,
-  optimism
+  ARC_MAINNET,
+  optimism,
+  polygon,
+  robinhood
 ];
+
+/**
+ * `value` with every plain object and array copied, at any depth; functions and other values stay shared. Take one
+ * before handing a shared chain above to code that keeps it: AppKit's valtio state proxies nested objects in place,
+ * and IndexedDB cannot store a Proxy.
+ */
+export function copyPlainData<T>(value: T): T;
+export function copyPlainData(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry: unknown) => copyPlainData(entry));
+  if (typeof value !== 'object' || value === null) return value;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, copyPlainData(entry)]));
+}
 
 /** This registry does not enable connections. The remote document selects those chains. */
 export const SUPPORTED_CHAINS: EvmChain[] = EVM_CHAIN_DEFINITIONS.map(chain => {
   switch (chain.id) {
+    // Not on the WalletConnect RPC proxy: read through the chain's own public RPC.
     case ARC_TESTNET.id:
-    case arc.id:
+    case ARC_MAINNET.id:
+    case robinhood.id:
       return {
         ...walletConnectChain(chain),
         rpcUrl: chain.rpcUrls.default.http[0] ?? RPC(chain.id)
@@ -88,11 +131,17 @@ export const DEFAULT_CHAIN_ID = 11155111;
 
 export const APP_METADATA = {
   name: 'Bread Wallet',
-  description: 'Bread — Miden wallet. Sign EVM transactions to bridge assets to and from Miden.',
+  description:
+    'Bread Wallet connects to your Ethereum wallet for bridge deposits and claims. Review token approvals and transactions before confirming.',
   url: 'https://miden.io',
   icons: ['https://miden.io/favicon.ico']
 };
 
 export function getChain(id: number): EvmChain | undefined {
   return SUPPORTED_CHAINS.find(c => c.id === id);
+}
+
+/** `chain`'s explorer page for a transaction or an address, or undefined when the wallet knows no explorer for it. */
+export function evmExplorerUrl(chain: EvmChain | undefined, kind: 'tx' | 'address', id: string): string | undefined {
+  return chain?.explorer ? `${chain.explorer}/${kind}/${id}` : undefined;
 }

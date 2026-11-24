@@ -8,12 +8,29 @@ const _g = globalThis as any;
 _g.__providerTest = {
   isExtension: false,
   ready: true,
-  getMidenClientCalls: 0
+  getMidenClientCalls: 0,
+  backgroundLockRenders: 0,
+  backgroundLockMounted: false
 };
 
+// Read while the provider's imports load, which runs before the state above is assigned.
 jest.mock('lib/platform', () => ({
-  isExtension: () => (globalThis as any).__providerTest.isExtension,
-  isMobile: () => (globalThis as any).__providerTest.isMobile ?? false
+  isExtension: () => (globalThis as any).__providerTest?.isExtension ?? false,
+  isMobile: () => (globalThis as any).__providerTest?.isMobile ?? false,
+  isDesktop: () => false
+}));
+
+jest.mock('lib/lock-up/BackgroundLockManager', () => ({
+  BackgroundLockManager: () => {
+    React.useEffect(() => {
+      (globalThis as any).__providerTest.backgroundLockMounted = true;
+      return () => {
+        (globalThis as any).__providerTest.backgroundLockMounted = false;
+      };
+    }, []);
+    (globalThis as any).__providerTest.backgroundLockRenders++;
+    return null;
+  }
 }));
 
 jest.mock('../sdk/miden-client', () => ({
@@ -63,6 +80,8 @@ jest.mock('./useSyncTrigger', () => ({
 jest.mock('./NativeNoteAutoConsumeManager', () => ({
   NativeNoteAutoConsumeManager: () => null
 }));
+jest.mock('lib/badges/BadgeIssuanceManager', () => ({ BadgeIssuanceManager: () => null }));
+jest.mock('lib/miden/activity/BridgeIntentWatcher', () => ({ BridgeIntentWatcher: () => null }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
@@ -70,7 +89,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 
 jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: jest.fn() }));
 
-// The provider gates SdkMidenProvider on WASM readiness via
+// The provider gates its children on WASM readiness via
 // ensureSdkWasmReady(); resolve immediately in jsdom (no WASM here),
 // keep the real constants for everything else.
 jest.mock('lib/miden-chain/constants', () => ({
@@ -78,16 +97,79 @@ jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(() => Promise.resolve())
 }));
 
+jest.mock('lib/miden/portfolio-observations', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/portfolio-observations')>(
+    'lib/miden/portfolio-observations'
+  );
+  return { ...actual, prunePortfolioObservations: jest.fn(actual.prunePortfolioObservations) };
+});
+
+import {
+  prunePortfolioObservations,
+  readPortfolioObservations,
+  recordPortfolioObservation
+} from 'lib/miden/portfolio-observations';
+import { portfolioObservations } from 'lib/miden/repo';
+import { WalletStatus, type WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
+
 import { MidenProvider, STORAGE_PRELOAD_BUDGET_MS } from './provider';
 
 beforeEach(() => {
   _g.__providerTest.isExtension = false;
   _g.__providerTest.ready = true;
   _g.__providerTest.getMidenClientCalls = 0;
+  _g.__providerTest.backgroundLockRenders = 0;
   mockPreloadStorage.mockClear();
+  jest.mocked(prunePortfolioObservations).mockClear();
+  useWalletStore.setState({ status: WalletStatus.Idle, accounts: [] });
 });
 
 describe('MidenProvider', () => {
+  it('prunes only on a ready authoritative account list, not loading or network-filtered views', async () => {
+    const scope = { accountId: 'account-retired', network: 'testnet', rpcUrl: 'https://node-a' };
+    const capturedAt = Math.floor(Date.now() / 900_000) * 900_000;
+    await recordPortfolioObservation({
+      ...scope,
+      currency: 'USD',
+      bucket: capturedAt,
+      capturedAt,
+      value: '1',
+      coverage: 'complete',
+      coverageKey: 'priced:a'
+    });
+    useWalletStore.setState({ status: WalletStatus.Idle, accounts: [] });
+    const root = render(
+      <MidenProvider>
+        <div>child</div>
+      </MidenProvider>
+    );
+    await root.findByText('child');
+    expect(await readPortfolioObservations(scope, 0)).toHaveLength(1);
+    const account = (publicKey: string): WalletAccount => ({
+      publicKey,
+      name: publicKey,
+      isPublic: false,
+      type: WalletType.OnChain,
+      hdIndex: 0,
+      authScheme: 'falcon'
+    });
+    act(() =>
+      useWalletStore.setState({
+        status: WalletStatus.Ready,
+        accounts: [account('account-retired'), account('account-kept')]
+      })
+    );
+    await waitFor(() => expect(prunePortfolioObservations).toHaveBeenCalledTimes(1));
+    expect(await readPortfolioObservations(scope, 0)).toHaveLength(1);
+    act(() => useWalletStore.setState({ accounts: [account('account-kept'), account('account-retired')] }));
+    expect(prunePortfolioObservations).toHaveBeenCalledTimes(1);
+    act(() => useWalletStore.setState({ accounts: [account('account-kept')] }));
+    await waitFor(async () => expect(await readPortfolioObservations(scope, 0)).toHaveLength(0));
+    root.unmount();
+    await portfolioObservations.clear();
+  });
   it('renders children inside the provider tree (ready)', async () => {
     const { findByText } = render(
       <MidenProvider>
@@ -107,6 +189,45 @@ describe('MidenProvider', () => {
       </MidenProvider>
     );
     expect(await findByText('child-not-ready')).toBeDefined();
+  });
+
+  it('mounts the background lock manager only while the wallet is ready', async () => {
+    _g.__providerTest.ready = false;
+    const notReady = render(
+      <MidenProvider>
+        <div>locked-child</div>
+      </MidenProvider>
+    );
+    await notReady.findByText('locked-child');
+    expect(_g.__providerTest.backgroundLockRenders).toBe(0);
+    notReady.unmount();
+
+    _g.__providerTest.ready = true;
+    const ready = render(
+      <MidenProvider>
+        <div>ready-child</div>
+      </MidenProvider>
+    );
+    await ready.findByText('ready-child');
+    expect(_g.__providerTest.backgroundLockRenders).toBeGreaterThan(0);
+  });
+
+  it('unmounts the background lock manager when the wallet stops being ready', async () => {
+    const view = render(
+      <MidenProvider>
+        <div>flip-child</div>
+      </MidenProvider>
+    );
+    await view.findByText('flip-child');
+    expect(_g.__providerTest.backgroundLockMounted).toBe(true);
+
+    _g.__providerTest.ready = false;
+    view.rerender(
+      <MidenProvider>
+        <div>flip-child</div>
+      </MidenProvider>
+    );
+    await waitFor(() => expect(_g.__providerTest.backgroundLockMounted).toBe(false));
   });
 
   it('eagerly initializes the Miden client on non-extension', async () => {
@@ -143,7 +264,16 @@ describe('MidenProvider', () => {
     );
     expect(mockPreloadStorage).toHaveBeenCalledTimes(1);
     expect(mockPreloadStorage).toHaveBeenCalledWith(
-      ['tokens_base_metadata', 'fiat_currency', 'last_shown_changelog_version', 'network_id'],
+      [
+        'tokens_base_metadata',
+        'fiat_currency',
+        'last_shown_changelog_version',
+        'network_id',
+        'wallet_badges:v1:mainnet',
+        'wallet_badges_seen:v1:mainnet',
+        'seed_backup_required_v1',
+        'wallet_prompts_v1'
+      ],
       expect.objectContaining({ onSettled: expect.any(Function) })
     );
   });

@@ -11,14 +11,30 @@ import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/sw
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
 
-// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
 afterAll(() => _setSwapTokensForTest(undefined));
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('lib/usdcx/withdrawal', () => ({ isUsdcxWithdrawalAvailable: jest.fn(() => false) }));
 
@@ -43,6 +59,10 @@ afterEach(() => {
   mockBridgeSnapshot = undefined;
 });
 
+// The discovered native asset; none until a case discovers one.
+let mockNativeFaucetId: string | null = null;
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
+
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
 // component consumes so we can drive account / balances / metadata by hand.
 const mockUseAccount = jest.fn(() => ({ publicKey: 'pk-abc' }) as { publicKey: string });
@@ -59,7 +79,9 @@ jest.mock('lib/miden/front', () => ({
 
 // `lib/store` is the zustand wallet store; the component only reads
 // `tokenPrices` via a selector, so run the selector against a controllable slice.
-let mockStoreState: { tokenPrices: Record<string, unknown> } = { tokenPrices: {} };
+let mockStoreState: { tokenPrices: Record<string, unknown>; tokenPricesStatus?: 'loading' | 'ready' | 'error' } = {
+  tokenPrices: {}
+};
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
@@ -118,10 +140,10 @@ jest.mock('components/ui/SearchInput', () => ({
 }));
 
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
-// surfaces the `symbol`/`size` props the row passes through.
+// surfaces the `faucetId`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, faucetId, size }: { symbol: string; faucetId?: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-faucet-id={faucetId} data-size={size} />
+  TokenLogo: ({ faucetId, size }: { faucetId: string | undefined; size?: string }) => (
+    <span data-testid="token-logo" data-faucet-id={faucetId} data-size={size} />
   )
 }));
 
@@ -189,6 +211,8 @@ const search = () => screen.getByTestId('send-token-search') as HTMLInputElement
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  mockNativeFaucetId = null;
   mockUseAccount.mockReturnValue({ publicKey: 'pk-abc' });
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
@@ -198,6 +222,66 @@ beforeEach(() => {
 
 afterEach(() => {
   mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+});
+
+it('shows no $0.00 for an unread known-scale row when the quote is ready', () => {
+  mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+  const unread = {
+    data: [{ ...BTC, balance: 0 }],
+    isLoading: true,
+    isValidating: true,
+    mutate: jest.fn()
+  };
+  mockUseAllBalances.mockReturnValue(unread);
+  renderDrawer();
+
+  expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+  expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
+});
+
+it('keeps unread availability warnings out of the picker while search remains usable', () => {
+  mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+  mockNativeFaucetId = MIDEN.tokenId;
+  const unread = {
+    data: [{ ...BTC, tokenId: TEST_TOKEN_IETH.faucetId, balance: 0 }],
+    isLoading: true,
+    isValidating: true,
+    mutate: jest.fn()
+  };
+  mockUseAllBalances.mockReturnValue(unread);
+  renderDrawer();
+
+  expect(screen.queryByTestId('send-picker-held-notice')).not.toBeInTheDocument();
+  expect(screen.getByTestId('send-token-skeleton')).toBeInTheDocument();
+  fireEvent.change(search(), { target: { value: 'BTC' } });
+  expect(search()).toHaveValue('BTC');
+});
+
+it('keeps all 32 assets searchable in the anchored desktop picker and picks the exact match', async () => {
+  const anchorRef = React.createRef<HTMLButtonElement>();
+  const options = Array.from({ length: 32 }, (_, i) => ({
+    ...XYZ,
+    tokenId: `asset-${i}`,
+    metadata: { ...XYZ.metadata, symbol: `Asset ${i}` }
+  }));
+  setBalances(options);
+  const onSelect = jest.fn();
+  const onOpenChange = jest.fn();
+  render(
+    <>
+      <button ref={anchorRef}>Pick an asset</button>
+      <SelectTokenDrawer open anchorRef={anchorRef} onSelect={onSelect} onOpenChange={onOpenChange} />
+    </>
+  );
+  const panel = await screen.findByRole('dialog', { name: 'selectAToken' });
+  expect(panel).toHaveClass('overflow-y-auto', 'overscroll-contain');
+  expect(within(panel).getAllByTestId(/^send-token-Asset /)).toHaveLength(32);
+  fireEvent.change(search(), { target: { value: 'asset 31' } });
+  const [match] = within(panel).getAllByTestId(/^send-token-Asset /);
+  expect(within(panel).getAllByTestId(/^send-token-Asset /)).toHaveLength(1);
+  fireEvent.click(match!);
+  expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'asset-31' }));
+  expect(onOpenChange).toHaveBeenCalledWith(false);
 });
 
 describe('SelectTokenDrawer', () => {
@@ -414,6 +498,42 @@ describe('SelectTokenDrawer', () => {
     expect(within(screen.getByTestId('send-token-ETH')).queryByText(/^\$/)).not.toBeInTheDocument();
   });
 
+  it('shows loading and failed quote states in the fiat slot', () => {
+    setBalances([BTC]);
+    mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'loading' };
+    const loading = renderDrawer();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('loading')).toBeInTheDocument();
+    loading.unmount();
+
+    mockStoreState = { tokenPrices: {}, tokenPricesStatus: 'error' };
+    renderDrawer();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('unavailable')).toBeInTheDocument();
+  });
+
+  it('shows unsupported and unknown-scale states without inventing a value', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+    setBalances([
+      XYZ,
+      {
+        ...BTC,
+        metadata: { ...BTC.metadata, scaleIsUnknown: true } as Balance['metadata']
+      }
+    ]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-XYZ')).getByText('assetPriceUnsupported')).toBeInTheDocument();
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('assetValueUnknownScale')).toBeInTheDocument();
+    expect(within(screen.getByTestId('send-token-BTC')).queryByText(/^\$/)).not.toBeInTheDocument();
+  });
+
+  it('shows $0.00 when a supported token has a known zero balance and quote', () => {
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } }, tokenPricesStatus: 'ready' };
+    setBalances([{ ...BTC, balance: 0 }]);
+    renderDrawer();
+
+    expect(within(screen.getByTestId('send-token-BTC')).getByText('$0.00')).toBeInTheDocument();
+  });
+
   it('values the native token at the nominal $1 with the nominal rate on, and hands the amount step that price', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
     mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
@@ -437,7 +557,7 @@ describe('SelectTokenDrawer', () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_TOKEN_IETH.faucetId, fiatPrice: 3 }));
   });
 
-  it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {
+  it('stacks the rows unboxed with a 72px floor, divided by a hairline like the home assets list', () => {
     setBalances([BTC, ETH]);
     renderDrawer();
 
@@ -446,47 +566,64 @@ describe('SelectTokenDrawer', () => {
     expect(list.className).toContain('divide-rule-default');
     expect(list.className).not.toContain('bg-fill');
     expect(list.className).not.toContain('rounded-2xl');
-    expect(screen.getByTestId('send-token-ETH').className).toContain('h-18');
+    const rowClasses = screen.getByTestId('send-token-ETH').className.split(/\s+/);
+    expect(rowClasses).toContain('min-h-18');
+    expect(rowClasses).not.toContain('h-18');
   });
 });
 
-describe('SelectTokenDrawer testnet bridge USDC label', () => {
-  const BRIDGE_USDC: Balance = {
+describe('SelectTokenDrawer Testnet Epoch USDC sunset', () => {
+  const LEGACY = {
     tokenId: TEST_MIDEN_USDC_FAUCET,
     metadata: { symbol: 'USDC', name: 'USDC', decimals: 6 },
     balance: 3,
     fiatPrice: 1
   };
-
-  it('names the row by the testnet label, keeps its USDC logo and hands the amount step the chain symbol', () => {
+  it('removes the legacy faucet from new send choices while keeping other assets', () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-    setBalances([BRIDGE_USDC]);
-    const { onSelect } = renderDrawer();
-
-    const row = screen.getByTestId('send-token-USDC');
-    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
-    expect(within(row).getByText('3.00 Test Epoch USDC')).toBeInTheDocument();
-    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
-
-    fireEvent.click(row);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' }));
-  });
-
-  it('finds the row by its label', () => {
-    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-    setBalances([BRIDGE_USDC, BTC]);
+    setBalances([LEGACY, BTC]);
     renderDrawer();
-
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
+  });
+  it('cannot bring the retired faucet back through search', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    setBalances([LEGACY]);
+    renderDrawer();
     fireEvent.change(search(), { target: { value: 'epoch' } });
-
-    expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
-    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
   });
-
-  it('finds the row by its label once the bridge config publishes under a search already typed', () => {
-    setBalances([BRIDGE_USDC, BTC]);
+  it('holds legacy choices while config loads and after it arrives', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    setBalances([LEGACY]);
     renderDrawer();
-    fireEvent.change(search(), { target: { value: 'test epoch' } });
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
+  it('lists the native USDCx and holds the legacy row while no document has arrived', () => {
+    const native = {
+      tokenId: '0x4cbdcaffe75f0a317482224dae6436',
+      metadata: { symbol: 'USDCX', name: 'USDCx', decimals: 6 },
+      balance: 7,
+      fiatPrice: 1
+    };
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    mockNativeFaucetId = native.tokenId;
+    setBalances([LEGACY, native]);
+    renderDrawer();
+    expect(screen.getByTestId('send-token-USDCX')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+  });
+  it('says why it holds a token back until the document arrives, and drops a retired one silently', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    mockNativeFaucetId = MIDEN.tokenId;
+    setBalances([LEGACY]);
+    renderDrawer();
+    expect(screen.getByTestId('send-picker-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
     expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
 
     act(() => {
@@ -494,8 +631,75 @@ describe('SelectTokenDrawer testnet bridge USDC label', () => {
       publishMockBridgeSnapshot();
     });
 
-    const row = screen.getByTestId('send-token-USDC');
-    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
-    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-picker-held-notice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
   });
+  it('leaves the same asset available off Testnet', () => {
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, network: 'devnet' };
+    setBalances([LEGACY]);
+    renderDrawer();
+    expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
+  });
+});
+
+it('does not report the pending token availability warning as a user-visible error', async () => {
+  jest.useFakeTimers();
+  try {
+    jest.mocked(reportUserVisibleError).mockClear();
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null, status: 'loading' };
+    mockNativeFaucetId = MIDEN.tokenId;
+    setBalances([{ ...BTC, tokenId: TEST_TOKEN_IETH.faucetId }]);
+    renderDrawer();
+    expect(screen.getByTestId('send-picker-held-notice')).toHaveTextContent('sendTokenAvailabilityChecking');
+    expect(screen.getByTestId('send-picker-held-notice')).toHaveAttribute('data-tone', 'warning');
+
+    await act(async () => jest.advanceTimersByTimeAsync(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it('filters assets by destination and updates the list when the destination changes', () => {
+  const { config, derived } = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  const reads = derived?.chains[11155111];
+  if (!config || !derived || !reads) throw new Error('The test config is missing.');
+  mockBridgeSnapshot = {
+    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+    network: 'mainnet',
+    config: {
+      ...config,
+      supportedEvmChains: {
+        robinhood: {
+          chainId: 4663,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { ETH: { contractAddress: '0x0000000000000000000000000000000000000000', outputs: [] } }
+            }
+          }
+        }
+      }
+    },
+    derived: {
+      ...derived,
+      chains: {
+        4663: {
+          ...reads,
+          epoch: {
+            tokens: { ETH: { state: 'ok', value: { symbol: 'ETH', decimals: 18, midenFaucetId: ETH.tokenId } } }
+          }
+        }
+      }
+    }
+  };
+  setBalances([ETH, BTC, XYZ]);
+  const { onSelect, onOpenChange, rerender } = renderDrawer({ destinationChainId: 4663 });
+  expect(screen.getByTestId('send-token-ETH')).toBeEnabled();
+  expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('send-token-XYZ')).not.toBeInTheDocument();
+
+  rerender(<SelectTokenDrawer open onSelect={onSelect} onOpenChange={onOpenChange} />);
+  expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
 });

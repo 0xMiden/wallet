@@ -83,9 +83,10 @@ const CALL_SITES: readonly { path: string; text: string }[] = sourceFiles(SRC)
  * coincidence is written by somebody who has never read this file.
  *
  * A file that reports telemetry imports telemetry. That is not a heuristic, it
- * is a consequence, and it holds for the two known coincidences: neither
- * `VerifySeedPhraseFlow.tsx` nor `lib/epoch/store.ts` imports anything from
- * here.
+ * is a consequence, and it holds for `VerifySeedPhraseFlow.tsx`, which imports
+ * nothing from here. `lib/epoch/store.ts` imports the bridge failure marker
+ * (`walletRaised`), so its `status: 'signing'` is kept out by the table shape
+ * counting only in `STEP_TABLES`.
  *
  * The absolute prefix, and not also a relative one. An earlier version allowed
  * `from './types'` so that `transaction-operation.ts` would qualify — and 43

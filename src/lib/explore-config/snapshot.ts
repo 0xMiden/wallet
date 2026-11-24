@@ -1,6 +1,6 @@
 import faucetIcon from 'app/misc/dapp-icons/faucet.png';
 import forkchoiceFaucetIcon from 'app/misc/dapp-icons/forkchoice-faucet.png';
-import whereLegendsGrowIcon from 'app/misc/dapp-icons/where-legends-grow.png';
+import port0Icon from 'app/misc/dapp-icons/port0.png';
 
 import devnet from './snapshot/devnet.json';
 import testnet from './snapshot/testnet.json';
@@ -17,5 +17,5 @@ export function bundledExploreConfig(network: string): unknown {
 export const BUNDLED_EXPLORE_ICONS: Readonly<Record<string, string>> = {
   'icons/faucet.png': faucetIcon,
   'icons/forkchoice-faucet.png': forkchoiceFaucetIcon,
-  'icons/where-legends-grow.png': whereLegendsGrowIcon
+  'icons/port0.png': port0Icon
 };

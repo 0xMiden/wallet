@@ -39,6 +39,7 @@ const EXPECTED: Record<(typeof TYPE_STYLES)[number], [string, string, string, st
   body: [SANS, '16px', '24px', '400'],
   'body-strong': [SANS, '16px', '24px', '600'],
   explainer: [SANS, '15px', '22px', '400'],
+  'explainer-heading': [HEADING, '15px', '22px', '600'],
   'body-sm': [SANS, '14px', '20px', '400'],
   label: [SANS, '13px', '17px', '700'],
   caption: [SANS, '13px', '17px', '400'],

@@ -8,6 +8,7 @@ import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chai
 import { isCoveredSymbol } from 'lib/prices/usd';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { parseSwapPairs, type SwapPairs } from 'lib/remote-config/swap-pairs';
+import { peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { bridgePriceAllowlist } from './bridge-price-allowlist';
 import {
@@ -21,10 +22,8 @@ import {
 } from './testing/registry';
 import {
   canonicalFaucetId,
-  deriveRequestAmount,
   getDefaultSwapPair,
   getSwapTokenByFaucetId,
-  getSwapEta,
   getSwapPartners,
   getSwapTokens,
   isSwapPair,
@@ -32,7 +31,6 @@ import {
   normalizedFaucetId,
   priceSymbolFor,
   strictPriceSymbolFor,
-  SwapEtaUnavailableError,
   tokenQuote,
   _allowlistedPriceSymbolsForTest,
   _resetNormalizedFaucetIdsForTest,
@@ -40,6 +38,7 @@ import {
 } from './tokens';
 
 // The bridged price entries: the testnet config's by default (the manual mock's answer), and others a test sets.
+jest.mock('lib/token-list/runtime', () => ({ peekTokenPriceAssets: jest.fn() }));
 jest.mock('./bridge-price-allowlist', () => ({ bridgePriceAllowlist: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
@@ -68,7 +67,7 @@ const withPairs = (pairs: NonNullable<NonNullable<BridgeConfigSnapshot['derived'
     version: 3,
     'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
     supportedEvmChains: {},
-    features: { earn: false },
+    features: { earn: false, nearIntents: false },
     swap: { etaUrl: 'https://quotes.example' }
   },
   derived: {
@@ -77,7 +76,13 @@ const withPairs = (pairs: NonNullable<NonNullable<BridgeConfigSnapshot['derived'
     derivedAt: 0,
     chains: {},
     agglayer: { indexer: SKIPPED },
-    epoch: { allocator: SKIPPED, market: SKIPPED, midenUsdcFaucet: SKIPPED },
+    epoch: {
+      allocator: SKIPPED,
+      allocatorAccount: SKIPPED,
+      market: SKIPPED,
+      midenUsdcFaucet: SKIPPED,
+      vaults: SKIPPED
+    },
     swap: { pairs }
   }
 });
@@ -112,6 +117,12 @@ const mockNetworkName = jest.mocked(getEffectiveNetworkName);
 
 beforeEach(() => {
   _resetNormalizedFaucetIdsForTest();
+  jest.mocked(peekTokenPriceAssets).mockReturnValue(
+    new Map([
+      [TEST_TOKEN_IBTC.faucetId, 'BTC'],
+      [TEST_TOKEN_IETH.faucetId, 'ETH']
+    ])
+  );
   jest
     .mocked(bridgePriceAllowlist)
     .mockReset()
@@ -164,27 +175,6 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokenBySymbol('IETH')?.faucetId).toBe(canonical(TEST_TOKEN_IETH.faucetId));
   });
 
-  it("draws a token under the mark of the asset its ticker names behind an 'I', else under its own ticker", () => {
-    const token = (ticker: string, last: string) => ({
-      faucetId: `0x00000000000000000000000000${last}`,
-      ticker,
-      decimals: 8
-    });
-    mockSnapshot.mockReturnValue(
-      listing({
-        tokens: [
-          token('IABC', '00ab'),
-          token('IETH', '00ac'),
-          token('IMIDEN', '00ad'),
-          token('USDCX', '00ae'),
-          token('BTC', '00af')
-        ],
-        pairs: []
-      })
-    );
-    expect(getSwapTokens().map(token => token.logoSymbol)).toEqual(['IABC', 'ETH', 'MIDEN', 'USDCX', 'BTC']);
-  });
-
   it.each([
     ['the document is still loading', UNLOADED],
     ['no document is accepted', NO_DOCUMENT],
@@ -206,8 +196,7 @@ describe('swap token registry accessor', () => {
       {
         symbol: 'MIDEN',
         faucetId: 'mtst1native',
-        decimals: 6,
-        logoSymbol: 'MIDEN'
+        decimals: 6
       },
       ...listed
     ]);
@@ -229,7 +218,7 @@ describe('swap token registry accessor', () => {
   });
 
   it('override replaces the registry for all readers', () => {
-    const t = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: TEST_SWAP_TOKEN_DECIMALS, logoSymbol: 'MIDEN' };
+    const t = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: TEST_SWAP_TOKEN_DECIMALS };
     mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
     _setSwapTokensForTest([t]);
     expect(getSwapTokens()).toEqual([t]);
@@ -242,6 +231,19 @@ describe('swap token price symbols', () => {
   it('prices IETH and IBTC as the ETH and BTC the feed lists', () => {
     expect(getSwapTokenBySymbol('IETH')?.priceSymbol).toBe('ETH');
     expect(getSwapTokenBySymbol('IBTC')?.priceSymbol).toBe('BTC');
+  });
+
+  // #2112: the solver's own asset (USDT, SOL, NEAR, PAXG) is dropped unless the feed's short list has it, so the
+  // picker showed no value for them while home, which reads the verified token list, did.
+  it('prices a registry token the verified token list prices, whatever asset the solver names', () => {
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(
+      new Map([
+        [TEST_TOKEN_IUSDT.faucetId, 'USDT'],
+        [TEST_TOKEN_IMIDEN.faucetId, 'SOL']
+      ])
+    );
+    expect(getSwapTokenBySymbol('IUSDT')?.priceSymbol).toBe('USDT');
+    expect(getSwapTokenBySymbol('IMIDEN')?.priceSymbol).toBe('SOL');
   });
 
   it('leaves IUSDT and IMIDEN unpriced: the feed quotes neither asset the solver prices them with', () => {
@@ -309,14 +311,16 @@ describe('priceSymbolFor', () => {
     expect(priceSymbolFor(`testnet:${TEST_TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBeUndefined();
   });
 
-  it('prices the E2E fixture symbol TST by symbol only in an E2E build', () => {
+  it.each(['TST', 'SWPA', 'SWPB'])('prices fixture %s by symbol only in an E2E build', symbol => {
     const previous = process.env.MIDEN_E2E_TEST;
     try {
       process.env.MIDEN_E2E_TEST = 'true';
-      expect(priceSymbolFor('mtst1fixture', 'TST')).toBe('TST');
-      expect(priceSymbolFor('mtst1fixture', 'USDC')).toBeUndefined();
-      delete process.env.MIDEN_E2E_TEST;
-      expect(priceSymbolFor('mtst1fixture', 'TST')).toBeUndefined();
+      expect(priceSymbolFor('mtst1fixture', symbol)).toBe(symbol);
+      for (const forged of ['USDC', 'SWPA_FAKE', 'SWPBX', 'swpa', '__proto__']) {
+        expect(priceSymbolFor('mtst1fixture', forged)).toBeUndefined();
+      }
+      process.env.MIDEN_E2E_TEST = 'false';
+      expect(priceSymbolFor('mtst1fixture', symbol)).toBeUndefined();
     } finally {
       if (previous === undefined) delete process.env.MIDEN_E2E_TEST;
       else process.env.MIDEN_E2E_TEST = previous;
@@ -378,9 +382,7 @@ describe('strictPriceSymbolFor', () => {
   });
 
   it('matches the bridge config before an overriding registry token that names the same faucet', () => {
-    _setSwapTokensForTest([
-      { symbol: 'IWETH', faucetId: MIDEN_AGGLAYER_FAUCET_ID, decimals: 8, logoSymbol: 'ETH', priceSymbol: 'USDC' }
-    ]);
+    _setSwapTokensForTest([{ symbol: 'IWETH', faucetId: MIDEN_AGGLAYER_FAUCET_ID, decimals: 8, priceSymbol: 'USDC' }]);
     try {
       expect(strictPriceSymbolFor(canonicalFaucetId(MIDEN_AGGLAYER_FAUCET_ID), 'IWETH')).toBe('ETH');
     } finally {
@@ -390,7 +392,7 @@ describe('strictPriceSymbolFor', () => {
 
   it('leaves the display match lenient: the same entry failure gives no price instead of throwing', () => {
     usdcEntryFailsToParse();
-    const usdc = { price: 1, change24h: 0, percentageChange24h: 0 };
+    const usdc = { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
     expect(priceSymbolFor(`testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
     expect(tokenQuote({ USDC: usdc }, `testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
   });
@@ -398,13 +400,14 @@ describe('strictPriceSymbolFor', () => {
 
 describe('tokenQuote', () => {
   beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
-  const eth = { price: 3000, change24h: 40, percentageChange24h: 1.2 };
+  const eth = { price: 3000, change24h: 40, percentageChange24h: 1.2, kind: 'market' as const };
 
   it('quotes a registry token under its price symbol, IETH at ETH', () => {
     expect(tokenQuote({ ETH: eth }, TEST_TOKEN_IETH.faucetId, 'IETH')).toEqual({
       price: 3000,
       change24h: 40,
-      percentageChange24h: 1.2
+      percentageChange24h: 1.2,
+      kind: 'market' as const
     });
   });
 
@@ -416,7 +419,11 @@ describe('tokenQuote', () => {
 
   it('gives no quote for a zero price', () => {
     expect(
-      tokenQuote({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, TEST_TOKEN_IETH.faucetId, 'IETH')
+      tokenQuote(
+        { ETH: { price: 0, change24h: 0, percentageChange24h: 0, kind: 'market' as const } },
+        TEST_TOKEN_IETH.faucetId,
+        'IETH'
+      )
     ).toBeUndefined();
   });
 });
@@ -484,54 +491,10 @@ describe('getSwapTokenByFaucetId', () => {
   });
 
   it('reads through the overridden registry', () => {
-    const token = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: TEST_SWAP_TOKEN_DECIMALS, logoSymbol: 'MIDEN' };
+    const token = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: TEST_SWAP_TOKEN_DECIMALS };
     _setSwapTokensForTest([token]);
     expect(getSwapTokenByFaucetId('mtst1local')).toEqual(token);
     expect(getSwapTokenByFaucetId(TEST_TOKEN_IMIDEN.faucetId)).toBeUndefined();
-  });
-});
-
-describe('deriveRequestAmount', () => {
-  it('discounts the fair quote by the solver margin', () => {
-    // 10 offered * 2 per offered = 20 fair, less 5% => 19.
-    expect(deriveRequestAmount('10', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('19');
-  });
-
-  it('rounds down to the requested token precision', () => {
-    // 1 * 1 * 0.95 = 0.95, truncated to 1 decimal => 0.9.
-    expect(deriveRequestAmount('1', '1', 1)).toBe('0.9');
-  });
-
-  it.each([
-    ['11', '1', '10'],
-    ['200', '1', '190'],
-    ['2000', '1', '1900']
-  ])('preserves significant integer zeros for offer %s at zero decimals', (offer, rate, expected) => {
-    expect(deriveRequestAmount(offer, rate, 0)).toBe(expected);
-  });
-
-  it('returns empty for a missing or unusable offered amount', () => {
-    expect(deriveRequestAmount('', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('0', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('abc', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-  });
-
-  it('returns empty for a missing or non-finite rate', () => {
-    expect(deriveRequestAmount('10', null, TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('10', undefined, TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('10', '0', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('10', 'not-a-rate', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-    expect(deriveRequestAmount('10', 'Infinity', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
-  });
-
-  it('returns empty when the quote rounds away to zero at the token precision', () => {
-    expect(deriveRequestAmount('0.0001', '0.0001', 2)).toBe('');
-  });
-
-  it('returns empty when the fair quote is non-positive', () => {
-    // A negative offered amount is truthy (passes the earlier `!offered` guard)
-    // but produces a negative quote, so the `quote <= 0` guard returns ''.
-    expect(deriveRequestAmount('-5', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
   });
 });
 
@@ -636,62 +599,6 @@ describe('getSwapPartners', () => {
   });
 });
 
-describe('getSwapEta', () => {
-  const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
-
-  it('asks the quote service the document names, and none while the document names no service', async () => {
-    const fetchMock = jest.fn(async (_url: string, _init: RequestInit) => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ canFill: true })
-    }));
-    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
-    await expect(getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n)).resolves.toEqual({ canFill: true });
-    expect(fetchMock.mock.calls[0]?.[0]).toMatch(/^https:\/\/quotes\.example\/v1\/swap-eta\?offered_faucet=/);
-
-    mockSnapshot.mockReturnValue({ ...LOADED, config: { ...LOADED.config!, swap: {} } });
-    await expect(getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n)).rejects.toBeInstanceOf(
-      SwapEtaUnavailableError
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-    if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
-    else Reflect.deleteProperty(globalThis, 'fetch');
-  });
-
-  it('bounds the quote body read too, rejecting once the 10 s timeout passes', async () => {
-    jest.useFakeTimers();
-    // Headers arrive, then a body that ends only when the request's signal aborts, as a real stream does.
-    let signal: AbortSignal | undefined;
-    const fetchMock = jest.fn(async (_url: string, init: RequestInit) => {
-      const given = init.signal ?? undefined;
-      signal = given;
-      const json = () =>
-        new Promise((_resolve, reject) => given?.addEventListener('abort', () => reject(given.reason)));
-      return { ok: true, status: 200, json };
-    });
-    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
-    const quote: { outcome: unknown } = { outcome: 'pending' };
-    void getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n).then(
-      () => {
-        quote.outcome = 'resolved';
-      },
-      (error: unknown) => {
-        quote.outcome = error;
-      }
-    );
-
-    await jest.advanceTimersByTimeAsync(9_999);
-    expect(quote.outcome).toBe('pending');
-    await jest.advanceTimersByTimeAsync(1);
-
-    expect(quote.outcome).toBe(signal?.reason);
-  });
-});
-
 describe('SDK-confirmed native stablecoin pricing', () => {
   beforeEach(() => {
     mockGetNativeAssetIdSync.mockReturnValue('testnet:0xfee');
@@ -700,7 +607,12 @@ describe('SDK-confirmed native stablecoin pricing', () => {
   });
   it('prices the confirmed native faucet through either canonical spelling', () => {
     expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
-    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({
+      price: 1,
+      change24h: 0,
+      percentageChange24h: 0,
+      kind: 'fixed' as const
+    });
   });
   it('does not price a copied symbol or an arbitrary configured native override', () => {
     expect(tokenQuote({}, 'other-faucet', 'USDCX')).toBeUndefined();
@@ -709,7 +621,12 @@ describe('SDK-confirmed native stablecoin pricing', () => {
   });
   it('quotes the native USDCX unit independently of scale and respects a different chain symbol', () => {
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true });
-    expect(tokenQuote({}, '0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(tokenQuote({}, '0xfee', 'USDCX')).toEqual({
+      price: 1,
+      change24h: 0,
+      percentageChange24h: 0,
+      kind: 'fixed' as const
+    });
     expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
     expect(tokenQuote({}, '0xfee', 'MIDEN')).toBeUndefined();
@@ -724,7 +641,12 @@ describe('SDK-confirmed provisional native unit pricing', () => {
   });
   it('quotes the provisional native USDCX unit at one dollar before its scale resolves', () => {
     expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
-    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({
+      price: 1,
+      change24h: 0,
+      percentageChange24h: 0,
+      kind: 'fixed' as const
+    });
     expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
   });
   it('does not quote a copied symbol, missing SDK proof or an unsynced override', () => {
@@ -738,5 +660,25 @@ describe('SDK-confirmed provisional native unit pricing', () => {
   it('stops the default USDCX quote when authoritative chain metadata identifies MIDEN', () => {
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
     expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toBeUndefined();
+  });
+});
+
+describe('verified list price mapping', () => {
+  it('uses a verified faucet asset without trusting a reported symbol', () => {
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(new Map([['mtst1verified', 'ARB']]));
+    expect(priceSymbolFor('mtst1verified', 'ETH')).toBe('ARB');
+    expect(priceSymbolFor('mtst1other', 'ARB')).toBeUndefined();
+    expect(isCoveredSymbol('ARB')).toBe(true);
+  });
+
+  it('uses full verified symbols before bridge price aliases', () => {
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(
+      new Map([
+        [TEST_TOKEN_IETH.faucetId, 'IETH'],
+        ['mtst1listed', 'IBTC']
+      ])
+    );
+    expect(priceSymbolFor(TEST_TOKEN_IETH.faucetId, 'IETH')).toBe('IETH');
+    expect(priceSymbolFor('mtst1listed', 'BTC')).toBe('IBTC');
   });
 });

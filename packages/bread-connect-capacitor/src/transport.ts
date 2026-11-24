@@ -1,0 +1,362 @@
+import {
+  ANSWER_WAIT_MS,
+  AppConnection,
+  AppSession,
+  ConnectAnswer,
+  DAppMessage,
+  finishConnect,
+  isErrorCode,
+  isRecord,
+  ProtocolError,
+  readLink,
+  readResponse,
+  RequestAnswer,
+  sendRequest,
+  startConnect,
+  TransactionOutcome
+} from '@miden-sdk/bread-connect';
+
+import { KeyValueStorage, readJson, writeJson } from './storage.js';
+
+const SESSION_KEY = 'bread-connect:session';
+const PENDING_KEY = 'bread-connect:pending';
+const OUTCOMES_KEY = 'bread-connect:outcomes';
+const OUTCOME_LIMIT = 20;
+
+/** The links the app is opened with. */
+export interface LinkSource {
+  launchUrl(): Promise<string | undefined>;
+  onUrl(listener: (url: string) => void): () => void;
+}
+
+export interface TransportOptions {
+  /** The app's https callback; its association files give the link to the app. */
+  callback: string;
+  storage: KeyValueStorage;
+  links: LinkSource;
+  /** Opens Bread's link in Bread only; false when Bread is not installed and its store page opened instead. */
+  openWallet: (link: string) => Promise<boolean>;
+  now?: () => number;
+}
+
+interface ManagedTransportOptions extends Omit<TransportOptions, 'openWallet'> {
+  openWallet?: never;
+  managedOpener: (link: string, signal: AbortSignal) => Promise<boolean>;
+}
+
+/** A connected session, with the permission request it answered and Bread's answer. */
+export interface StoredSession extends AppSession {
+  request: DAppMessage;
+  permission: DAppMessage;
+  /** Bread has since refused a request in the session, as it does every request once the user switches accounts. */
+  recheck?: boolean;
+}
+
+type Pending =
+  | { kind: 'connect'; connection: AppConnection; request: DAppMessage; sentAt: number }
+  | { kind: 'request'; id: string; session: string; sentAt: number };
+
+interface Waiter {
+  pending: Pending;
+  resolve: (answer: DAppMessage) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+  controller: AbortController;
+}
+
+export type BreadConnectErrorCode = ProtocolError['code'] | 'NOT_INSTALLED' | 'SUPERSEDED' | 'CANCELLED' | 'TIMEOUT';
+
+export class BreadConnectError extends Error {
+  name = 'BreadConnectError';
+
+  constructor(
+    readonly code: BreadConnectErrorCode,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Carries requests to Bread and its answers back through app switches, one request at a time: a new request
+ * replaces the one still waiting. The session and the waiting request are stored, so an answer that relaunches
+ * the app after the system stopped it still completes a connection and records a transaction's outcome.
+ */
+export class AppSwitchTransport {
+  private waiter: Waiter | null = null;
+  /** The last request this client settled: a record of it left in storage takes no answer until a relaunch. */
+  private settledId: string | null = null;
+  private started: Promise<void> | null = null;
+  private unsubscribe: (() => void) | null = null;
+  /** Every cancel so far: one that comes while a connect or request awaits `start` finds no waiter to settle. */
+  private cancellations = 0;
+  private readonly openWallet: (link: string, signal: AbortSignal) => Promise<boolean>;
+
+  constructor(private readonly options: TransportOptions | ManagedTransportOptions) {
+    if ('managedOpener' in options) {
+      this.openWallet = options.managedOpener;
+    } else {
+      const openWallet = options.openWallet;
+      this.openWallet = link => openWallet.call(options, link);
+    }
+  }
+
+  /** Listens for Bread's answers and reads the link the app was launched with. */
+  start(): Promise<void> {
+    if (!this.started) {
+      this.unsubscribe = this.options.links.onUrl(url => this.receive(url));
+      this.started = this.options.links
+        .launchUrl()
+        .then(url => {
+          if (url) this.receive(url);
+        })
+        .catch(() => undefined);
+    }
+    return this.started;
+  }
+
+  stop(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.started = null;
+    this.cancelPending();
+  }
+
+  /** The stored session, unless it was made for another callback: Bread answers in it only there. */
+  session(): StoredSession | null {
+    const stored = readJson(this.options.storage, SESSION_KEY);
+    return isStoredSession(stored) && stored.callback === this.options.callback ? stored : null;
+  }
+
+  forgetSession(): void {
+    this.options.storage.removeItem(SESSION_KEY);
+  }
+
+  /** The outcome Bread reported with a transaction's answer, when this app sent it. */
+  transactionOutcome(transactionId: string): TransactionOutcome | undefined {
+    const outcomes = readJson(this.options.storage, OUTCOMES_KEY);
+    if (!Array.isArray(outcomes)) return undefined;
+    for (const entry of outcomes) {
+      if (isRecord(entry) && entry.transactionId === transactionId && isOutcome(entry.outcome)) return entry.outcome;
+    }
+    return undefined;
+  }
+
+  /** Asks Bread for a permission; resolves with Bread's PERMISSION_RESPONSE and keeps the session. */
+  async connect(request: DAppMessage): Promise<DAppMessage> {
+    const cancellations = this.cancellations;
+    await this.start();
+    this.endIfCancelled(cancellations);
+    const { link, connection } = startConnect(this.options.callback, request);
+    return this.exchange({ kind: 'connect', connection, request, sentAt: this.now() }, link);
+  }
+
+  /** Sends a request in the connected session; resolves with Bread's response. */
+  async request(request: DAppMessage): Promise<DAppMessage> {
+    const cancellations = this.cancellations;
+    await this.start();
+    this.endIfCancelled(cancellations);
+    const session = this.session();
+    if (!session) throw new BreadConnectError('NOT_GRANTED', 'The app is not connected to Bread');
+    const sentAt = this.now();
+    const { link, id } = sendRequest(session, request, sentAt);
+    return this.exchange({ kind: 'request', id, session: session.session, sentAt }, link);
+  }
+
+  /** Stops waiting for the answer to the request in flight, and ends any connect or request not yet sent. */
+  cancelPending(): void {
+    this.cancellations += 1;
+    this.settle(new BreadConnectError('CANCELLED', 'The request to Bread was cancelled'));
+  }
+
+  private endIfCancelled(cancellations: number): void {
+    if (this.cancellations !== cancellations) {
+      throw new BreadConnectError('CANCELLED', 'The request to Bread was cancelled');
+    }
+  }
+
+  /** Reads a link the app was opened with; anything but an answer to the waiting request is dropped. */
+  receive(url: string): void {
+    const read = readLink(url, this.options.callback);
+    if (read?.kind !== 'envelope') return;
+    const pending = this.waiter?.pending ?? this.storedPending();
+    if (!pending) return;
+    const envelope = read.envelope;
+
+    if (envelope.type === 'connected' && pending.kind === 'connect' && envelope.id === pending.connection.id) {
+      let finished: ReturnType<typeof finishConnect>;
+      try {
+        finished = finishConnect(envelope, pending.connection);
+      } catch {
+        return;
+      }
+      if ('response' in finished.answer) {
+        const session: StoredSession = {
+          ...finished.session,
+          request: pending.request,
+          permission: finished.answer.response
+        };
+        try {
+          writeJson(this.options.storage, SESSION_KEY, session);
+        } catch (error) {
+          this.settle(new BreadConnectError('INTERNAL_ERROR', `The session could not be kept: ${String(error)}`));
+          return;
+        }
+      }
+      this.settle(finished.answer);
+      return;
+    }
+
+    if (envelope.type === 'response' && pending.kind === 'request' && envelope.id === pending.id) {
+      let session: StoredSession | null;
+      try {
+        session = this.session();
+      } catch {
+        // Without the session the link cannot be authenticated, and only an authenticated answer settles a request.
+        return;
+      }
+      if (!session || session.session !== pending.session) return;
+      let answer: RequestAnswer;
+      try {
+        answer = readResponse(envelope, session);
+      } catch {
+        return;
+      }
+      if ('error' in answer && answer.error.code === 'NOT_GRANTED' && !session.recheck) {
+        try {
+          writeJson(this.options.storage, SESSION_KEY, { ...session, recheck: true });
+        } catch {
+          // Unmarked, the session keeps answering the app's connect, as it did before the refusal.
+        }
+      }
+      const transactionId = 'response' in answer ? answer.response.transactionId : undefined;
+      if ('response' in answer && answer.transaction && typeof transactionId === 'string') {
+        try {
+          this.recordOutcome(transactionId, answer.transaction);
+        } catch {
+          // The caller still gets the answer and its transaction id; only waitForTransaction goes without the outcome.
+        }
+      }
+      this.settle(answer);
+      return;
+    }
+
+    if (envelope.type === 'error' && envelope.id !== undefined && envelope.id === pendingId(pending)) {
+      if (envelope.error.code === 'SESSION_NOT_FOUND') {
+        try {
+          this.forgetSession();
+        } catch {
+          // Kept, the dead session draws the same answer from Bread on the app's next request.
+        }
+      }
+      this.settle({ error: envelope.error });
+    }
+  }
+
+  private exchange(pending: Pending, link: string): Promise<DAppMessage> {
+    this.settle(new BreadConnectError('SUPERSEDED', 'A newer request to Bread replaced this one'));
+    writeJson(this.options.storage, PENDING_KEY, pending);
+    const controller = new AbortController();
+    const answer = new Promise<DAppMessage>((resolve, reject) => {
+      const timer = setTimeout(
+        () => this.settle(new BreadConnectError('TIMEOUT', 'Bread did not answer in time')),
+        ANSWER_WAIT_MS
+      );
+      this.waiter = { pending, resolve, reject, timer, controller };
+    });
+    const waiter = this.waiter;
+    const opening = this.openWallet(link, controller.signal);
+    opening.then(
+      opened => {
+        if (!opened && this.waiter === waiter) {
+          this.settle(new BreadConnectError('NOT_INSTALLED', 'Bread is not installed; its store page is open'));
+        }
+      },
+      error => {
+        if (this.waiter === waiter) {
+          this.settle(new BreadConnectError('INTERNAL_ERROR', `Bread could not be opened: ${String(error)}`));
+        }
+      }
+    );
+    return answer;
+  }
+
+  /** Ends the waiting request, if any, and forgets it. */
+  private settle(outcome: ConnectAnswer | RequestAnswer | BreadConnectError): void {
+    try {
+      this.options.storage.removeItem(PENDING_KEY);
+    } catch {
+      // Left behind, the record only lets a late answer to its request land after a relaunch.
+    }
+    const waiter = this.waiter;
+    if (!waiter) return;
+    this.waiter = null;
+    waiter.controller.abort();
+    this.settledId = pendingId(waiter.pending);
+    clearTimeout(waiter.timer);
+    if (outcome instanceof BreadConnectError) waiter.reject(outcome);
+    else if ('error' in outcome) waiter.reject(new BreadConnectError(outcome.error.code, outcome.error.message));
+    else waiter.resolve(outcome.response);
+  }
+
+  private storedPending(): Pending | null {
+    const stored = readJson(this.options.storage, PENDING_KEY);
+    if (!isPending(stored) || this.now() - stored.sentAt > ANSWER_WAIT_MS || pendingId(stored) === this.settledId) {
+      return null;
+    }
+    return stored;
+  }
+
+  private recordOutcome(transactionId: string, outcome: TransactionOutcome): void {
+    const stored = readJson(this.options.storage, OUTCOMES_KEY);
+    const kept = Array.isArray(stored)
+      ? stored.filter(entry => isRecord(entry) && entry.transactionId !== transactionId)
+      : [];
+    writeJson(this.options.storage, OUTCOMES_KEY, [...kept, { transactionId, outcome }].slice(-OUTCOME_LIMIT));
+  }
+
+  private now(): number {
+    return (this.options.now ?? Date.now)();
+  }
+}
+
+function pendingId(pending: Pending): string {
+  return pending.kind === 'connect' ? pending.connection.id : pending.id;
+}
+
+function isDAppMessage(value: unknown): value is DAppMessage {
+  return isRecord(value) && typeof value.type === 'string';
+}
+
+function isStrings<T extends Record<string, unknown>, K extends string>(
+  value: T,
+  keys: readonly K[]
+): value is T & Record<K, string> {
+  return keys.every(key => typeof value[key] === 'string');
+}
+
+function isStoredSession(value: unknown): value is StoredSession {
+  return (
+    isRecord(value) &&
+    isStrings(value, ['session', 'callback', 'appSecretKey', 'appPublicKey', 'walletPublicKey']) &&
+    isDAppMessage(value.request) &&
+    isDAppMessage(value.permission)
+  );
+}
+
+function isPending(value: unknown): value is Pending {
+  if (!isRecord(value) || typeof value.sentAt !== 'number') return false;
+  if (value.kind === 'request') return isStrings(value, ['id', 'session']);
+  return (
+    value.kind === 'connect' &&
+    isDAppMessage(value.request) &&
+    isRecord(value.connection) &&
+    isStrings(value.connection, ['id', 'callback', 'appSecretKey', 'appPublicKey'])
+  );
+}
+
+function isOutcome(value: unknown): value is TransactionOutcome {
+  if (!isRecord(value)) return false;
+  if ('output' in value) return value.error === undefined;
+  return isRecord(value.error) && isErrorCode(value.error.code) && typeof value.error.message === 'string';
+}

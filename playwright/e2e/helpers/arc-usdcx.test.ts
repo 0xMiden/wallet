@@ -1,6 +1,7 @@
 /**
  * @jest-environment node
  */
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
@@ -17,6 +18,7 @@ import {
   parseAbi,
   pad,
   parseTransaction,
+  RpcRequestError,
   TimeoutError,
   toBytes,
   toHex,
@@ -25,6 +27,7 @@ import {
   type PublicClient
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { mainnet } from 'viem/chains';
 
 import {
   arcEndpoints,
@@ -33,6 +36,7 @@ import {
   confirmDepositToMiden,
   decodeDepositIntent,
   KEY_MOVED_NOTE,
+  L2_LATE_PAYOUT_NOTE,
   LATE_PAYOUT_NOTE,
   PayoutGateError,
   PREFUNDED_KEY_NOTE,
@@ -40,8 +44,10 @@ import {
   readArcUsdcSnapshot,
   readXReserveDomainState,
   scanArcLogs,
+  SEPOLIA_LATE_PAYOUT_NOTE,
   submitDepositToMiden,
   waitForGatewayPayout,
+  waitForReceipt,
   waitForXReserveAttestation,
   XRESERVE_HARNESS_ABI,
   type ArcClock
@@ -50,11 +56,13 @@ import arcVectors from './arc-usdcx.vectors.json';
 import type { BridgedSendRow } from './bridge';
 import { TxStatus } from './history';
 import {
+  ARBITRUM_SEPOLIA_PAYOUT,
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
   ARC_CIRCLE_DOMAIN,
   ARC_DRPC_URL,
   ARC_KEY_LEDGER_DIR,
+  ARC_PAYOUT,
   ARC_PUBLIC_URL,
   ARC_QUICKNODE_URL,
   ARC_READ_STEP_BUDGET_MS,
@@ -62,9 +70,12 @@ import {
   ARC_USDC,
   ARC_XRESERVE,
   ATTESTATION_USED_TOPIC,
+  BASE_OFFICIAL_LOG_CHUNK,
+  BASE_SEPOLIA_PAYOUT,
   BURN_UNITS,
   DEFAULT_ARC_RPCS,
   DEPOSIT_UNITS,
+  ETHEREUM_SEPOLIA_PAYOUT,
   FEE_RESERVE_MULTIPLE,
   GAS_RESERVE_UNITS,
   GATEWAY_MINTER,
@@ -72,16 +83,19 @@ import {
   GRANT_UNITS,
   HARNESS_ARC_KEY_FILE,
   isWorthClaiming,
+  L2_LOG_CHUNK,
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS,
+  payoutChainFor,
   WALLET_CONFIRM_TIMEOUT_MS
 } from './usdcx-constants';
-import { harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
-import { newRunEvidence, withStepBudget, type NamedStep } from './usdcx-run';
+import l2Vectors from './usdcx-l2.vectors.json';
+import { burnTarget, harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
+import { newRunEvidence, withStepBudget, type NamedStep, type RunEvidence } from './usdcx-run';
 import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation-protocol';
 import attestationVectors from '../../../src/lib/usdcx/attestation.vectors.json';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
-import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
+import { ARC_TESTNET, WC_PROJECT_ID } from '../../../src/lib/walletconnect/config';
 
 function addressOf(value: string): Address {
   if (!isAddress(value, { strict: false })) throw new Error(`${value} is not an address`);
@@ -118,9 +132,9 @@ describe('usdcx-constants', () => {
     expect(HARNESS_ARC_KEY_FILE).toBe(path.join(os.homedir(), '.miden-e2e', 'arc-keys', 'harness.json'));
   });
 
-  it("sizes the run on the faucet's minimum burn, one 10 USDCx grant and a deposit the wallet claims", () => {
+  it("sizes the run on the wallet's minimum burn, one 10 USDCx grant and a deposit the wallet claims", () => {
     expect([BURN_UNITS, GRANT_UNITS, GRANT_MARGIN_UNITS, DEPOSIT_UNITS, GAS_RESERVE_UNITS]).toEqual([
-      1_000_000n,
+      5_000_000n,
       10_000_000n,
       1_000_000n,
       1_000n,
@@ -215,6 +229,12 @@ function fakeClock(start = 0): ArcClock & { slept: number[] } {
 function payoutAt(index: number): (typeof arcVectors.payouts)[number] {
   const payout = arcVectors.payouts[index];
   if (!payout) throw new Error(`arc-usdcx.vectors.json has no payout ${index}`);
+  return payout;
+}
+
+function l2PayoutOn(chainId: number): (typeof l2Vectors.payouts)[number] {
+  const payout = l2Vectors.payouts.find(candidate => candidate.chainId === chainId);
+  if (!payout) throw new Error(`usdcx-l2.vectors.json has no payout on chain ${chainId}`);
   return payout;
 }
 
@@ -423,11 +443,17 @@ describe('scanArcLogs', () => {
 type CapturedLog = (typeof arcVectors.payouts)[number]['log'];
 
 /** The payout gate's Arc: a head that moves, a scripted balance, and the captured logs and gatewayMint transactions. */
-function payoutChain(world: { balances: readonly bigint[]; logs: readonly CapturedLog[]; failLogs?: boolean }): Rpc {
+function payoutChain(world: {
+  balances: readonly bigint[];
+  logs: readonly CapturedLog[];
+  failLogs?: boolean;
+  /** Each balance read's token address, lowercase. */
+  tokens?: string[];
+}): Rpc {
   let head = 66483820n;
   let balanceReads = 0;
   const transactions = new Map<string, unknown>(
-    arcVectors.payouts.map(payout => [payout.transaction.hash, payout.transaction])
+    [...arcVectors.payouts, ...l2Vectors.payouts].map(payout => [payout.transaction.hash, payout.transaction])
   );
   return (method, params) => {
     switch (method) {
@@ -435,6 +461,10 @@ function payoutChain(world: { balances: readonly bigint[]; logs: readonly Captur
         head += 2n;
         return toHex(head);
       case 'eth_call': {
+        const [request] = params;
+        world.tokens?.push(
+          String(request !== null && typeof request === 'object' ? Reflect.get(request, 'to') : '').toLowerCase()
+        );
         const balance = world.balances[Math.min(balanceReads, world.balances.length - 1)] ?? 0n;
         balanceReads += 1;
         return encodeUint(balance);
@@ -473,8 +503,7 @@ describe('waitForGatewayPayout', () => {
     fromBlock: 66483700n,
     consumeTsMs: CONSUME_MS,
     deadlineMs: CONSUME_MS + PAYOUT_TIMEOUT_MS,
-    depositor: hexOf(arcVectors.remoteDomainDepositor),
-    minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BigInt(SPIKE.burnUnits))
+    depositor: hexOf(arcVectors.remoteDomainDepositor)
   };
   // Another recipient's payout inside the scanned range: only the recipient topic keeps it out.
   const neighbour = movedTo(payoutAt(1).log, 66483790n);
@@ -516,8 +545,7 @@ describe('waitForGatewayPayout', () => {
           recipient: addressOf(payout.recipient),
           burnNoteId: hexOf(payout.burnNoteId),
           burnUnits: BigInt(payout.burnUnits),
-          fromBlock: block - 50n,
-          minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BigInt(payout.burnUnits))
+          fromBlock: block - 50n
         },
         {
           endpoints: [ARC_QUICKNODE_URL],
@@ -654,8 +682,7 @@ describe('waitForGatewayPayout delta mode', () => {
     balanceBefore: HELD,
     consumeTsMs: CONSUME_MS,
     deadlineMs: CONSUME_MS + PAYOUT_TIMEOUT_MS,
-    depositor: hexOf(arcVectors.remoteDomainDepositor),
-    minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BigInt(ONE_USDCX.burnUnits))
+    depositor: hexOf(arcVectors.remoteDomainDepositor)
   };
   // The key's earlier payouts, the second in the snapshot block itself: both are already inside balanceBefore.
   const history = [movedTo(EARLIER.log, 66483650n), movedTo(OTHER.log, 66483700n)];
@@ -768,6 +795,382 @@ describe('waitForGatewayPayout delta mode', () => {
   });
 });
 
+describe('payout chains (usdcx-constants.ts)', () => {
+  it("keeps Arc's payout chain exactly the Arc values every Arc test read before the L2 suite", () => {
+    expect(ARC_PAYOUT).toMatchObject({
+      chainId: ARC_CHAIN_ID,
+      chain: ARC_TESTNET,
+      label: 'Arc',
+      rpcUrls: DEFAULT_ARC_RPCS,
+      usdc: ARC_USDC,
+      burnDomain: ARC_CIRCLE_DOMAIN,
+      attestationSourceDomain: ARC_CIRCLE_DOMAIN,
+      reviewNetwork: 'arc-testnet',
+      networkName: 'Arc Testnet',
+      explorer: ARC_TESTNET.blockExplorers.default.url,
+      walletRpcUrl: ARC_PUBLIC_URL,
+      walletRpcName: 'arc.io',
+      burnUnits: 5_000_000n
+    });
+  });
+
+  it("reads each L2 from the wallet's tables: the burn carries its own domain, every payout Arc's 26", () => {
+    expect(BASE_SEPOLIA_PAYOUT).toMatchObject({
+      chainId: 84532,
+      label: 'Base Sepolia',
+      rpcUrls: [
+        'https://base-sepolia-rpc.publicnode.com',
+        'https://base-sepolia.gateway.tenderly.co',
+        'https://sepolia.base.org'
+      ],
+      usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+      burnDomain: 6,
+      attestationSourceDomain: 26,
+      reviewNetwork: 'base-sepolia',
+      networkName: 'Base Sepolia',
+      explorer: 'https://sepolia.basescan.org',
+      walletRpcName: 'rpc.walletconnect.org',
+      burnUnits: 5_000_000n
+    });
+    expect(ARBITRUM_SEPOLIA_PAYOUT).toMatchObject({
+      chainId: 421614,
+      label: 'Arbitrum Sepolia',
+      rpcUrls: [
+        'https://sepolia-rollup.arbitrum.io/rpc',
+        'https://arbitrum-sepolia-rpc.publicnode.com',
+        'https://arbitrum-sepolia.gateway.tenderly.co'
+      ],
+      usdc: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+      burnDomain: 3,
+      attestationSourceDomain: 26,
+      reviewNetwork: 'arbitrum-sepolia',
+      networkName: 'Arbitrum Sepolia',
+      explorer: 'https://sepolia.arbiscan.io',
+      walletRpcName: 'rpc.walletconnect.org',
+      burnUnits: 5_000_000n
+    });
+    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT]) {
+      expect(chain.walletRpcUrl).toBe(
+        `https://rpc.walletconnect.org/v1?chainId=eip155:${chain.chainId}&projectId=${WC_PROJECT_ID}`
+      );
+      // drpc fails near the head on both L2s and serves no Sepolia, and the wallet's own RPC is what the tests check.
+      expect(chain.rpcUrls.filter(url => /drpc|walletconnect/.test(url))).toEqual([]);
+    }
+  });
+
+  it("reads Ethereum Sepolia from the wallet's tables: the burn carries domain 0, the payout Arc's 26, and it burns 5 USDCx", () => {
+    expect(ETHEREUM_SEPOLIA_PAYOUT).toMatchObject({
+      chainId: 11155111,
+      label: 'Ethereum Sepolia',
+      rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com', 'https://sepolia.gateway.tenderly.co'],
+      usdc: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+      burnDomain: 0,
+      attestationSourceDomain: 26,
+      reviewNetwork: 'sepolia',
+      networkName: 'Sepolia',
+      explorer: 'https://sepolia.etherscan.io',
+      walletRpcName: 'rpc.walletconnect.org',
+      burnUnits: 5_000_000n
+    });
+  });
+
+  it('refuses a chain Send does not offer, and a burn its payout fee allowance takes whole, which Send refuses', () => {
+    const reads = { rpcUrls: [], logChunk: () => L2_LOG_CHUNK };
+    expect(() => payoutChainFor(1, reads)).toThrow('chain 1 is not a Send destination');
+    // An explicit 1 USDCx amount does not clear Ethereum's 1.5 USDC allowance.
+    expect(() => payoutChainFor(11155111, { ...reads, burnUnits: 1_000_000n })).toThrow(
+      'a 1 USDCx burn to Sepolia does not exceed its 1.5 USDC payout fee allowance, so the Send flow refuses it'
+    );
+    expect(() => payoutChainFor(11155111, { ...reads, burnUnits: 1_500_000n })).toThrow(
+      'a 1.5 USDCx burn to Sepolia does not exceed its 1.5 USDC payout fee allowance'
+    );
+    expect(payoutChainFor(11155111, { ...reads, burnUnits: 1_500_001n }).burnUnits).toBe(1_500_001n);
+    expect(() => payoutChainFor(84532, { ...reads, burnUnits: 100_000n })).toThrow(
+      'a 0.1 USDCx burn to Base Sepolia does not exceed its 0.1 USDC payout fee allowance'
+    );
+  });
+
+  it("scans Base Sepolia's own RPC in 200-block windows, Arc's drpc in 100 and every other endpoint in 1000", () => {
+    expect([BASE_OFFICIAL_LOG_CHUNK, L2_LOG_CHUNK]).toEqual([200, 1000]);
+    expect(BASE_SEPOLIA_PAYOUT.rpcUrls.map(url => BASE_SEPOLIA_PAYOUT.logChunk(url))).toEqual([1000, 1000, 200]);
+    expect(ARBITRUM_SEPOLIA_PAYOUT.rpcUrls.map(url => ARBITRUM_SEPOLIA_PAYOUT.logChunk(url))).toEqual([
+      1000, 1000, 1000
+    ]);
+    // publicnode and tenderly served 10_000-block eth_getLogs on Sepolia's GatewayMinter when probed (2026-10-16).
+    expect(ETHEREUM_SEPOLIA_PAYOUT.rpcUrls.map(url => ETHEREUM_SEPOLIA_PAYOUT.logChunk(url))).toEqual([1000, 1000]);
+    expect(DEFAULT_ARC_RPCS.map(url => ARC_PAYOUT.logChunk(url))).toEqual([100, 1000, 1000]);
+  });
+
+  it('gives an L2 read step the Arc read budget, which outlasts a stall on every L2 endpoint', () => {
+    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT]) {
+      expect(chain.rpcUrls.length * ARC_RPC_TIMEOUT_MS + 15_000).toBeLessThanOrEqual(ARC_READ_STEP_BUDGET_MS);
+    }
+  });
+});
+
+describe('reads on an L2 payout chain', () => {
+  const RECIPIENT = addressOf(l2PayoutOn(84532).recipient);
+
+  it("reads the L2's own USDC and names the L2 when no endpoint answers", async () => {
+    const asked: string[] = [];
+    const answering = stubClient((_method, params) => {
+      const [request] = params;
+      asked.push(String(request !== null && typeof request === 'object' ? Reflect.get(request, 'to') : ''));
+      return encodeUint(988_901n);
+    });
+    const reads = {
+      endpoints: ['https://base-sepolia-rpc.publicnode.com'],
+      publicClient: () => answering,
+      payoutChain: BASE_SEPOLIA_PAYOUT
+    };
+    await expect(readArcUsdc(RECIPIENT, reads)).resolves.toBe(988_901n);
+    expect(asked.map(to => to.toLowerCase())).toEqual([BASE_SEPOLIA_PAYOUT.usdc.toLowerCase()]);
+    const failing = stubClient(() => {
+      throw rpcError(-32005, 'rate limit exceeded');
+    });
+    await expect(readArcUsdcSnapshot(RECIPIENT, { ...reads, publicClient: () => failing })).rejects.toThrow(
+      /^Base Sepolia USDC snapshot of 0x[0-9a-fA-F]{40}: no Base Sepolia endpoint answered\n {2}base-sepolia-rpc\.publicnode\.com: /
+    );
+  });
+
+  it("snapshots the key's balance of the L2's own USDC at the L2's head", async () => {
+    const tokens: string[] = [];
+    const reads = {
+      endpoints: ['https://base-sepolia-rpc.publicnode.com'],
+      publicClient: () => stubClient(payoutChain({ balances: [988_901n], logs: [], tokens })),
+      payoutChain: BASE_SEPOLIA_PAYOUT
+    };
+    await expect(readArcUsdcSnapshot(RECIPIENT, reads)).resolves.toEqual({
+      endpoint: 'https://base-sepolia-rpc.publicnode.com',
+      blockNumber: 66483822n,
+      balance: 988_901n
+    });
+    expect(tokens).toEqual([BASE_SEPOLIA_PAYOUT.usdc.toLowerCase()]);
+  });
+
+  it('refuses an L2 deps object where only Arc applies: the xReserve state and both deposit legs, building no client', async () => {
+    const built: string[] = [];
+    const l2 = {
+      endpoints: ['https://base-sepolia-rpc.publicnode.com'],
+      payoutChain: BASE_SEPOLIA_PAYOUT,
+      publicClient: (endpoint: string) => {
+        built.push(endpoint);
+        return stubClient(() => null);
+      }
+    };
+    await expect(readXReserveDomainState(l2)).rejects.toThrow(
+      'xReserve domain state runs on Arc only, not on Base Sepolia'
+    );
+    await expect(
+      submitDepositToMiden(
+        {
+          privateKey: `0x${'11'.repeat(32)}`,
+          units: DEPOSIT_UNITS,
+          recipientHex: '0xf2f42cda8d010f417d1cad5dc4d52b',
+          approve: 'exact'
+        },
+        l2
+      )
+    ).rejects.toThrow('the xReserve deposit runs on Arc only, not on Base Sepolia');
+    await expect(
+      confirmDepositToMiden(
+        {
+          endpoint: 'https://base-sepolia-rpc.publicnode.com',
+          depositHash: hexOf(arcVectors.deposit.transactionHash),
+          approved: false
+        },
+        l2
+      )
+    ).rejects.toThrow('the xReserve deposit receipt runs on Arc only, not on Base Sepolia');
+    expect(built).toEqual([]);
+  });
+});
+
+describe('waitForGatewayPayout on an L2', () => {
+  const CONSUME_MS = 1_791_638_693_000;
+  const BASE = l2PayoutOn(84532);
+  const ENDPOINT = 'https://base-sepolia-rpc.publicnode.com';
+  const args = {
+    recipient: addressOf(BASE.recipient),
+    burnNoteId: hexOf(BASE.burnNoteId),
+    burnUnits: BigInt(BASE.burnUnits),
+    fromBlock: 66483700n,
+    consumeTsMs: CONSUME_MS,
+    deadlineMs: CONSUME_MS + PAYOUT_TIMEOUT_MS,
+    depositor: hexOf(l2Vectors.depositor)
+  };
+  const paid = movedTo(BASE.log, 66483812n);
+  const baseReads = (world: Rpc, endpoint = ENDPOINT) => ({
+    endpoints: [endpoint],
+    publicClient: () => stubClient(world),
+    clock: fakeClock(CONSUME_MS + 7_000),
+    payoutChain: BASE_SEPOLIA_PAYOUT
+  });
+
+  it("proves the probe's Base Sepolia payout: Base's USDC in the token topic, Arc's domain 26 as the source", async () => {
+    const payout = await waitForGatewayPayout(args, baseReads(payoutChain({ balances: [988_901n], logs: [paid] })));
+    expect(payout).toMatchObject({
+      endpoint: ENDPOINT,
+      value: 988_901n,
+      balance: 988_901n,
+      logBlock: 66483812n,
+      transactionHash: BASE.transaction.hash,
+      sourceDomain: 26,
+      sourceDepositor: l2Vectors.depositor,
+      fee: 11_099n,
+      latencyMs: 7_000
+    });
+  });
+
+  it.each(l2Vectors.payouts.map(payout => [payout.chainId, payout]))(
+    'correlates the probe payout on chain %s, Circle keeping 11099',
+    async (chainId, payout) => {
+      const chain = [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT].find(candidate => candidate.chainId === chainId);
+      if (!chain) throw new Error(`no payout chain ${chainId}`);
+      const correlated = await waitForGatewayPayout(
+        {
+          ...args,
+          recipient: addressOf(payout.recipient),
+          burnNoteId: hexOf(payout.burnNoteId)
+        },
+        {
+          endpoints: [chain.rpcUrls[0] ?? ''],
+          publicClient: () =>
+            stubClient(payoutChain({ balances: [BigInt(payout.value)], logs: [movedTo(payout.log, 66483812n)] })),
+          clock: fakeClock(CONSUME_MS),
+          payoutChain: chain
+        }
+      );
+      expect({ value: correlated.value, fee: correlated.fee }).toEqual({ value: 988_901n, fee: 11_099n });
+    }
+  );
+
+  // The token topic is the paid chain's USDC: under Arc's, an L2 payout is invisible.
+  it("finds no log for an L2 payout under Arc's token topic, so the gate must filter on the L2's USDC", async () => {
+    const failure = waitForGatewayPayout(args, {
+      endpoints: [ENDPOINT],
+      publicClient: () => stubClient(payoutChain({ balances: [988_901n], logs: [paid] })),
+      clock: fakeClock(CONSUME_MS)
+    });
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow('found 0 AttestationUsed logs');
+    await expect(failure).rejects.toThrow(LATE_PAYOUT_NOTE);
+  });
+
+  it("fails uncorrelated on a payout naming the burn's domain 6 as its source, ending with the L2 note", async () => {
+    const asBurnDomain = { ...paid, data: `0x${(6).toString(16).padStart(64, '0')}${paid.data.slice(66)}` };
+    const failure = waitForGatewayPayout(args, baseReads(payoutChain({ balances: [988_901n], logs: [asBurnDomain] })));
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow('sourceDomain 6, expected 26');
+    await expect(failure).rejects.toThrow(L2_LATE_PAYOUT_NOTE);
+    await expect(failure).rejects.not.toThrow(LATE_PAYOUT_NOTE);
+  });
+
+  it("scans Base Sepolia's own RPC in 200-block windows from the block after the snapshot", async () => {
+    const payout = await waitForGatewayPayout(
+      { ...args, fromBlock: 66483400n },
+      baseReads(payoutChain({ balances: [988_901n], logs: [paid] }), 'https://sepolia.base.org')
+    );
+    expect(payout.ranges.map(range => `${range.fromBlock}-${range.toBlock}`)).toEqual([
+      '66483401-66483600',
+      '66483601-66483800',
+      '66483801-66483822'
+    ]);
+  });
+
+  it('names the L2 when the gate has no endpoint', async () => {
+    await expect(waitForGatewayPayout(args, { endpoints: [], payoutChain: BASE_SEPOLIA_PAYOUT })).rejects.toThrow(
+      'waitForGatewayPayout: no Base Sepolia endpoints'
+    );
+  });
+});
+
+/**
+ * No Sepolia payout was ever captured (Circle paid none there before 2026-10-14), so this is the Base Sepolia capture
+ * under Sepolia's USDC token topic with its source domain and value set: the gate reads only those, the depositor and
+ * the gatewayMint calldata.
+ */
+const asSepoliaPayout = (log: CapturedLog, set: { sourceDomain: number; value: bigint }): CapturedLog => ({
+  ...log,
+  topics: log.topics.map((topic, index) => (index === 1 ? pad(ETHEREUM_SEPOLIA_PAYOUT.usdc).toLowerCase() : topic)),
+  data:
+    `0x${set.sourceDomain.toString(16).padStart(64, '0')}${log.data.slice(66, 194)}` +
+    set.value.toString(16).padStart(64, '0')
+});
+
+describe('waitForGatewayPayout on Ethereum Sepolia', () => {
+  const CONSUME_MS = 1_791_638_693_000;
+  const BASE = l2PayoutOn(84532);
+  const args = {
+    recipient: addressOf(BASE.recipient),
+    burnNoteId: hexOf(BASE.burnNoteId),
+    burnUnits: 2_000_000n,
+    fromBlock: 66483700n,
+    consumeTsMs: CONSUME_MS,
+    deadlineMs: CONSUME_MS + PAYOUT_TIMEOUT_MS,
+    depositor: hexOf(l2Vectors.depositor)
+  };
+  const sepoliaReads = (sourceDomain: number, value = 988_901n) => ({
+    endpoints: ['https://ethereum-sepolia-rpc.publicnode.com'],
+    publicClient: () =>
+      stubClient(
+        payoutChain({
+          balances: [value],
+          logs: [movedTo(asSepoliaPayout(BASE.log, { sourceDomain, value }), 66483812n)]
+        })
+      ),
+    clock: fakeClock(CONSUME_MS),
+    payoutChain: ETHEREUM_SEPOLIA_PAYOUT
+  });
+
+  // Run 40215001840: Circle kept 2.5635 of a 5 USDCx burn, above the wallet's 1.5 USDC allowance.
+  it("accepts a correlated payout whatever Circle's fee", async () => {
+    await expect(
+      waitForGatewayPayout({ ...args, burnUnits: 5_000_000n }, sepoliaReads(26, 2_436_500n))
+    ).resolves.toMatchObject({ value: 2_436_500n, fee: 2_563_500n, transactionHash: BASE.transaction.hash });
+  });
+
+  it('refuses a zero-value payout', async () => {
+    // The balance rose by the probe's payout, but the log mints nothing.
+    const zero = {
+      ...sepoliaReads(26),
+      publicClient: () =>
+        stubClient(
+          payoutChain({
+            balances: [988_901n],
+            logs: [movedTo(asSepoliaPayout(BASE.log, { sourceDomain: 26, value: 0n }), 66483812n)]
+          })
+        )
+    };
+    const failure = waitForGatewayPayout(args, zero);
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow("log value 0 is not between 1 and the burn's 2000000");
+  });
+
+  it('refuses a payout above the burn', async () => {
+    const failure = waitForGatewayPayout(args, sepoliaReads(26, 2_000_001n));
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow("log value 2000001 is not between 1 and the burn's 2000000");
+  });
+
+  it("proves a payout naming Arc's 26 as its source under Sepolia's USDC, Circle keeping the rest of 2 USDCx", async () => {
+    await expect(waitForGatewayPayout(args, sepoliaReads(26))).resolves.toMatchObject({
+      value: 988_901n,
+      sourceDomain: 26,
+      fee: 1_011_099n,
+      transactionHash: BASE.transaction.hash
+    });
+  });
+
+  it("fails uncorrelated on a payout naming the burn's domain 0 as its source, ending with the Sepolia note", async () => {
+    const failure = waitForGatewayPayout(args, sepoliaReads(0));
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow('sourceDomain 0, expected 26');
+    await expect(failure).rejects.toThrow(SEPOLIA_LATE_PAYOUT_NOTE);
+    await expect(failure).rejects.not.toThrow(L2_LATE_PAYOUT_NOTE);
+  });
+});
+
 /** A captured log moved to `block` and paid to `recipient`, so it lands in the scan of a key this test holds. */
 const paidTo = (log: CapturedLog, recipient: Address, block: bigint): CapturedLog => ({
   ...movedTo(log, block),
@@ -782,12 +1185,13 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
   const ENV = { E2E_ARC_PRIVATE_KEY: ARC_KEY, E2E_ARC_KEY_ROLE: 'harness' };
   const HELD = BigInt(EARLIER.value);
   const BUDGET = { keySnapshot: 30_000, payout: PAYOUT_TIMEOUT_MS + 120_000 };
+  const feeSummary = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'usdcx-fees-')), 'usdcx-payout-fees.md');
   // The chain's first head is 66483822, the snapshot block: the key's earlier payout in it is already inside HELD.
   const history = [paidTo(EARLIER.log, KEY, 66483822n)];
   const paid = paidTo(ONE_USDCX.log, KEY, 66483823n);
   const burn = {
     burnNoteId: hexOf(ONE_USDCX.burnNoteId),
-    oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345 }
+    oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345, amount: 1_000_000n }
   };
   const depositor = hexOf(arcVectors.remoteDomainDepositor);
 
@@ -813,7 +1217,15 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
       clock: fakeClock(CONSUME_MS + 12_000)
     };
 
-    const leg = await harnessPayoutLeg(step, { env: { ...ENV }, arc, budget: BUDGET, evidence, secrets });
+    const fees = feeSummary();
+    const leg = await harnessPayoutLeg(step, {
+      env: { ...ENV },
+      arc,
+      budget: BUDGET,
+      evidence,
+      secrets,
+      feeSummary: fees
+    });
     expect({ key: leg.key.address, snapshot: leg.snapshot }).toEqual({
       key: KEY,
       snapshot: { endpoint: ARC_DRPC_URL, blockNumber: 66483822n, balance: HELD }
@@ -840,6 +1252,175 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
       fees: [{ name: 'circle payout fee', amount: 16_400n, kind: 'exact' }],
       latenciesMs: { consumeToPayout: 12_000 }
     });
+    // An Arc run's evidence keeps exactly the keys it had before the L2 suite.
+    expect(evidence.ids).not.toHaveProperty('payoutChainId');
+    expect(fs.readFileSync(fees, 'utf8')).toContain(
+      `| usdcx-burn standard | Arc | 1 | 0.9836 | 0.0164 | ${ONE_USDCX.transaction.hash} |\n`
+    );
+  });
+
+  it('reads and proves an L2 payout on the L2 alone, reading Arc for nothing about the key', async () => {
+    const { step, taken } = recordingSteps();
+    const evidence = newRunEvidence('usdcx-burn-l2 base-sepolia');
+    const secrets: string[] = [];
+    const base = l2PayoutOn(84532);
+    const arcReads: string[] = [];
+    const arc = {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () =>
+        stubClient(method => {
+          arcReads.push(method);
+          throw new Error('the L2 leg read Arc');
+        })
+    };
+    const tokens: string[] = [];
+    const l2 = payoutChain({ balances: [HELD, HELD + 988_901n], logs: [paidTo(base.log, KEY, 66483823n)], tokens });
+    const payoutReads = {
+      endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+      publicClient: () => stubClient(l2),
+      clock: fakeClock(CONSUME_MS + 7_000),
+      payoutChain: BASE_SEPOLIA_PAYOUT
+    };
+
+    const leg = await harnessPayoutLeg(step, {
+      env: { ...ENV },
+      arc,
+      payoutReads,
+      budget: BUDGET,
+      evidence,
+      secrets,
+      feeSummary: feeSummary()
+    });
+    expect(leg.snapshot).toEqual({
+      endpoint: 'https://base-sepolia-rpc.publicnode.com',
+      blockNumber: 66483822n,
+      balance: HELD
+    });
+    const payout = await leg.waitForPayout(
+      {
+        burnNoteId: hexOf(base.burnNoteId),
+        oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345, amount: 1_000_000n }
+      },
+      hexOf(l2Vectors.depositor)
+    );
+
+    expect(payout).toMatchObject({
+      value: 988_901n,
+      fee: 11_099n,
+      sourceDomain: 26,
+      transactionHash: base.transaction.hash,
+      latencyMs: 7_000
+    });
+    expect(arcReads).toEqual([]);
+    // The key snapshot and the payout cycle each read the key's balance of the L2's own USDC.
+    expect(tokens).toEqual([BASE_SEPOLIA_PAYOUT.usdc.toLowerCase(), BASE_SEPOLIA_PAYOUT.usdc.toLowerCase()]);
+    expect(taken).toEqual([
+      ['key_snapshot', BUDGET.keySnapshot],
+      ['payout', BUDGET.payout]
+    ]);
+    expect(evidence).toMatchObject({
+      ids: {
+        arcKey: KEY,
+        arcKeyRole: 'harness',
+        arcBalanceBefore: String(HELD),
+        arcSnapshotBlock: '66483822',
+        payoutChainId: '84532'
+      },
+      hashes: { payout: base.transaction.hash },
+      fees: [{ name: 'circle payout fee', amount: 11_099n, kind: 'exact' }]
+    });
+  });
+
+  // Run 40215001840's shape: Circle kept 2.5635 of a 5 USDCx Sepolia burn, above the wallet's 1.5 USDC allowance.
+  it("accepts a correlated payout whatever Circle's fee, and records that fee from the burn the node consumed", async () => {
+    const base = l2PayoutOn(84532);
+    const fees = feeSummary();
+    const legPaying = async (value: bigint, evidence: RunEvidence) => {
+      const sepolia = payoutChain({
+        balances: [HELD, HELD + value],
+        logs: [paidTo(asSepoliaPayout(base.log, { sourceDomain: 26, value }), KEY, 66483823n)]
+      });
+      const leg = await harnessPayoutLeg(recordingSteps().step, {
+        env: { ...ENV },
+        arc: {
+          endpoints: [ARC_DRPC_URL],
+          publicClient: () =>
+            stubClient(() => {
+              throw new Error('xReserve unread');
+            })
+        },
+        payoutReads: {
+          endpoints: [ETHEREUM_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+          publicClient: () => stubClient(sepolia),
+          clock: fakeClock(CONSUME_MS + 7_000),
+          payoutChain: ETHEREUM_SEPOLIA_PAYOUT
+        },
+        budget: BUDGET,
+        evidence,
+        secrets: [],
+        feeSummary: fees
+      });
+      return leg.waitForPayout(
+        {
+          burnNoteId: hexOf(base.burnNoteId),
+          oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345, amount: 5_000_000n }
+        },
+        hexOf(l2Vectors.depositor)
+      );
+    };
+
+    const evidence = newRunEvidence('usdcx-burn-l2 sepolia');
+    await expect(legPaying(2_436_500n, evidence)).resolves.toMatchObject({ value: 2_436_500n, fee: 2_563_500n });
+    expect(evidence).toMatchObject({
+      ids: { payoutChainId: '11155111' },
+      fees: [{ name: 'circle payout fee', amount: 2_563_500n, kind: 'exact' }]
+    });
+    expect(fs.readFileSync(fees, 'utf8')).toContain(
+      `| usdcx-burn-l2 sepolia | Ethereum Sepolia | 5 | 2.4365 | 2.5635 | ${base.transaction.hash} |\n`
+    );
+  });
+
+  it("fails an L2 payout step naming the key's read on that L2 and xReserve's flags read on Arc", async () => {
+    const { step } = recordingSteps();
+    const evidence = newRunEvidence('usdcx-burn-l2 base-sepolia');
+    const flags: Record<string, Hex> = {
+      isRemoteDomainRegistered: encodeBool(true),
+      paused: encodeBool(false),
+      domainDepositsPaused: encodeBool(false),
+      domainWithdrawalsPaused: encodeBool(true),
+      getRemoteToken: `0x${'00'.repeat(32)}`,
+      getRemoteDomainDepositor: encodeAbiParameters(
+        [{ type: 'address' }],
+        ['0xb21c91a0f4d4c03f4b6a0fc5214f06e431ff2b2d']
+      ),
+      gatewayMinter: encodeAbiParameters([{ type: 'address' }], [GATEWAY_MINTER])
+    };
+    const arc = {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient((_method, params) => flags[callOf(params).functionName])
+    };
+    const payoutReads = {
+      endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+      publicClient: () => stubClient(payoutChain({ balances: [HELD], logs: [] })),
+      clock: fakeClock(CONSUME_MS),
+      payoutChain: BASE_SEPOLIA_PAYOUT
+    };
+
+    const leg = await harnessPayoutLeg(step, {
+      env: { ...ENV },
+      arc,
+      payoutReads,
+      budget: BUDGET,
+      evidence,
+      secrets: []
+    });
+    const failure = leg.waitForPayout(burn, depositor);
+
+    await expect(failure).rejects.toThrow(
+      `harness key ${KEY} (${HARNESS_ARC_KEY_FILE}) held ${HELD} at Base Sepolia block 66483822 (read on ` +
+        'base-sepolia-rpc.publicnode.com); '
+    );
+    await expect(failure).rejects.toThrow('xReserve paused false, deposits paused false, withdrawals paused true');
   });
 
   it("fails the payout step at the consume's deadline, naming the key's pre-burn read by host", async () => {
@@ -903,19 +1484,25 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
   const KEY = addressOf(payoutAt(4).recipient);
   const HELD = BigInt(payoutAt(1).value);
   // The harnessPayoutLeg test's payout: the key's pre-burn read at 66483822, the log at 66483823.
-  const payout = { value: 983_600n, balance: HELD + 983_600n, logBlock: 66483823n };
+  const payout = {
+    value: 983_600n,
+    balance: HELD + 983_600n,
+    logBlock: 66483823n,
+    transactionHash: hexOf(payoutAt(4).transaction.hash)
+  };
+  const minted = { transactionHash: payout.transactionHash, blockNumber: '66483823', value: '983600' };
   const before = { balance: String(HELD), blockNumber: '66483822' };
   const where = async () => 'route #/ (visible)';
 
-  function burnRow(id: string, confirmed?: { balance: string; blockNumber: string }): BridgedSendRow {
+  function burnRow(id: string, paid?: { transactionHash: string; blockNumber: string; value: string }): BridgedSendRow {
     const usdcxBurn = { noteId: hexOf(payoutAt(4).burnNoteId), destinationDomain: 26, phase: 'confirmed' };
     return {
       id,
       status: TxStatus.Completed,
       extraInputs: {
         provider: 'usdcx',
-        usdcxBurn: confirmed
-          ? { ...usdcxBurn, destinationBalanceBefore: before, destinationBalanceConfirmed: confirmed }
+        usdcxBurn: paid
+          ? { ...usdcxBurn, destinationBalanceBefore: before, payout: paid }
           : { ...usdcxBurn, destinationBalanceBefore: before }
       }
     };
@@ -927,19 +1514,17 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
     return async () => reads[Math.min(next++, reads.length - 1)] ?? [];
   }
 
-  it("waits for this burn row's own confirmation at the payout's balance and records it", async () => {
+  it('passes once the wallet recorded the same mint and value', async () => {
     const clock = fakeClock(1_000);
     const evidence = newRunEvidence('usdcx-live-ios');
-    const paid = { balance: String(payout.balance), blockNumber: '66483824' };
 
     const confirmedAt = await waitForWalletPayoutConfirmation({
-      // Another burn's confirmation is never this one's.
+      // Another burn's payout is never this one's.
       readRows: rowReads([
-        [burnRow('other', paid), burnRow('burn')],
-        [burnRow('other', paid), burnRow('burn', paid)]
+        [burnRow('other', minted), burnRow('burn')],
+        [burnRow('other', minted), burnRow('burn', minted)]
       ]),
       rowId: 'burn',
-      arcFromBlock: 66483822n,
       payout,
       key: { address: KEY },
       arc: { endpoints: [ARC_DRPC_URL], clock },
@@ -949,21 +1534,20 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
 
     expect(confirmedAt).toBe(4_000);
     expect(clock.slept).toEqual([3_000]);
-    expect(evidence.ids.walletConfirmedBalance).toBe(String(payout.balance));
+    expect(evidence.ids.walletPayoutValue).toBe('983600');
   });
 
-  it("fails a confirmation at another balance or before the payout's log, naming the key's pre-burn balance", async () => {
-    // Each case fails exactly one of the three checks, so none of them is proven only through another.
-    for (const { confirmed, arcFromBlock } of [
-      { confirmed: { balance: String(payout.balance + 1n), blockNumber: '66483824' }, arcFromBlock: 66483822n },
-      { confirmed: { balance: String(payout.balance), blockNumber: '66483822' }, arcFromBlock: 66483821n },
-      { confirmed: { balance: String(payout.balance), blockNumber: '66483823' }, arcFromBlock: 66483823n }
+  it('fails naming both values when the wallet recorded another value', async () => {
+    // Each case differs from the harness's mint in one field, so none of them is proven only through another.
+    for (const recorded of [
+      { ...minted, value: '983599' },
+      { ...minted, transactionHash: hexOf(payoutAt(1).transaction.hash) },
+      { ...minted, blockNumber: '66483824' }
     ]) {
       const evidence = newRunEvidence('usdcx');
       const failure = waitForWalletPayoutConfirmation({
-        readRows: rowReads([[burnRow('burn', confirmed)]]),
+        readRows: rowReads([[burnRow('burn', recorded)]]),
         rowId: 'burn',
-        arcFromBlock,
         payout,
         key: { address: KEY },
         arc: { endpoints: [ARC_DRPC_URL], clock: fakeClock() },
@@ -972,10 +1556,10 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
       });
 
       await expect(failure).rejects.toThrow(
-        `confirmation at Arc block ${confirmed.blockNumber}, snapshot ${arcFromBlock}, payout log 66483823, ${HELD} ` +
-          'on the key before the burn'
+        `the wallet recorded mint ${recorded.transactionHash} in Arc block ${recorded.blockNumber} of ` +
+          `${recorded.value}; Circle paid this burn with mint ${payout.transactionHash} in block 66483823 of 983600`
       );
-      expect(evidence.ids.walletConfirmedBalance).toBeUndefined();
+      expect(evidence.ids.walletPayoutValue).toBeUndefined();
     }
   });
 
@@ -993,7 +1577,6 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
     const failure = waitForWalletPayoutConfirmation({
       readRows: rowReads([[burnRow('burn')]]),
       rowId: 'burn',
-      arcFromBlock: 66483822n,
       payout,
       key: { address: KEY },
       arc,
@@ -1011,30 +1594,142 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
     await expect(failure).rejects.not.toThrow('token-in-path');
     expect(clock.slept).toEqual(Array(WALLET_CONFIRM_TIMEOUT_MS / 3_000).fill(3_000));
   });
+
+  it("names the L2's wallet RPC by host, never its project id, when the wallet never confirms", async () => {
+    const reads = {
+      endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+      payoutChain: BASE_SEPOLIA_PAYOUT,
+      // The wallet's WalletConnect backend lags the harness's endpoint, which already reads the payout.
+      publicClient: (endpoint: string) =>
+        stubClient(
+          payoutChain({ balances: [endpoint === BASE_SEPOLIA_PAYOUT.walletRpcUrl ? HELD : payout.balance], logs: [] })
+        ),
+      clock: fakeClock()
+    };
+
+    const failure = waitForWalletPayoutConfirmation({
+      readRows: rowReads([[burnRow('burn')]]),
+      rowId: 'burn',
+      payout,
+      key: { address: KEY },
+      arc: reads,
+      where,
+      evidence: newRunEvidence('usdcx-burn-l2 base-sepolia')
+    });
+
+    await expect(failure).rejects.toThrow(
+      `key balance now ${payout.balance}, rpc.walletconnect.org reads ${HELD}; route #/ (visible)`
+    );
+    await expect(failure).rejects.not.toThrow('projectId=');
+  });
+
+  // errorText keeps only the first line of each message part, and viem carries the request URL in metaMessages, so
+  // a viem read failure prints no project id: the redaction is defense in depth, for an error whose first line has it.
+  it('redacts the project id when the read through the L2 wallet RPC itself fails', async () => {
+    const reads = {
+      endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+      payoutChain: BASE_SEPOLIA_PAYOUT,
+      publicClient: (endpoint: string) =>
+        endpoint === BASE_SEPOLIA_PAYOUT.walletRpcUrl
+          ? stubClient(() => {
+              // errorText keeps each message's first line alone, so the URL rides on it, as a fetch error's text can.
+              throw new Error(
+                'HTTP request failed. URL: https://rpc.walletconnect.org/v1?chainId=eip155:84532&projectId=operator-project'
+              );
+            })
+          : stubClient(payoutChain({ balances: [payout.balance], logs: [] })),
+      clock: fakeClock()
+    };
+
+    const failure = waitForWalletPayoutConfirmation({
+      readRows: rowReads([[burnRow('burn')]]),
+      rowId: 'burn',
+      payout,
+      key: { address: KEY },
+      arc: reads,
+      where,
+      evidence: newRunEvidence('usdcx-burn-l2 base-sepolia')
+    });
+
+    await expect(failure).rejects.toThrow(
+      `key balance now ${payout.balance}, rpc.walletconnect.org failed: Base Sepolia USDC balance of ${KEY}`
+    );
+    await expect(failure).rejects.toThrow('projectId=<redacted>');
+    await expect(failure).rejects.not.toThrow('operator-project');
+  });
+
+  it("names the L2's block when the wallet recorded another mint there", async () => {
+    const failure = waitForWalletPayoutConfirmation({
+      readRows: rowReads([[burnRow('burn', { ...minted, value: '983599' })]]),
+      rowId: 'burn',
+      payout,
+      key: { address: KEY },
+      arc: { endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''], payoutChain: BASE_SEPOLIA_PAYOUT, clock: fakeClock() },
+      where,
+      evidence: newRunEvidence('usdcx-burn-l2 base-sepolia')
+    });
+
+    await expect(failure).rejects.toThrow(
+      `the wallet recorded mint ${payout.transactionHash} in Base Sepolia block 66483823 of 983599`
+    );
+  });
+});
+
+describe('burnTarget (usdcx-legs.ts)', () => {
+  const KEY = addressOf('0x6aF7413CbC1FC53454539Da54aAefFE1114FDC66');
+
+  it("carries the destination's own domain on the burn and its row, never the payout's source domain", () => {
+    expect([ARC_PAYOUT, BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT].map(chain => burnTarget(chain, KEY))).toEqual([
+      { destination: KEY.toLowerCase(), network: 5042002, domain: 26 },
+      { destination: KEY.toLowerCase(), network: 84532, domain: 6 },
+      { destination: KEY.toLowerCase(), network: 421614, domain: 3 }
+    ]);
+    expect(
+      [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT].map(
+        chain => burnTarget(chain, KEY).domain === chain.attestationSourceDomain
+      )
+    ).toEqual([false, false]);
+  });
 });
 
 /** HTTP 429 as viem's http transport throws it. */
 const http429 = () => new HttpRequestError({ status: 429, url: ARC_DRPC_URL, details: 'Too Many Requests' });
 /** A request that outlived the transport timeout, as viem's http transport throws it. */
 const timedOut = () => new TimeoutError({ body: {}, url: ARC_DRPC_URL });
+/** A node's JSON-RPC error answer, as viem's http transport throws it. */
+const nodeAnswer = (code: number, message: string) =>
+  new RpcRequestError({ body: {}, error: { code, message }, url: ARC_DRPC_URL });
+/** The block of every receipt depositChain answers, so an approve's. */
+const APPROVE_BLOCK = hexToBigInt(hexOf(DEPOSIT_RECEIPT.blockNumber));
+/** depositChain's head by default: past the approve's block, so the deposit's simulation and estimate run at it. */
+const HEAD = APPROVE_BLOCK + 4n;
 
 /**
  * The write side of Arc: a read-only endpoint first, which answers reads but refuses raw transactions, then drpc, which
- * takes them. `faults` lists what drpc answers, in order, before it answers a method normally (an eth_call by its
- * function as `eth_call <function>`); `sent` holds every raw transaction drpc was handed, faulted or not, `calls` every
- * request as `<endpoint> <method>`, and `onCall` sees each one as it arrives.
+ * takes them. `faults` lists what drpc answers, in order, before it answers a method normally (an eth_call or
+ * eth_estimateGas by its function as `<method> <function>`); `sent` holds every raw transaction drpc was handed,
+ * faulted or not, `calls` every request as `<endpoint> <method>`, `pins` each head read as `eth_blockNumber` and each
+ * simulation and estimate of an approve or a deposit as `<method> <function> <block>` (`none` when it names no block),
+ * and `onCall` sees each request as it arrives. The head is `heads` in turn, the last one repeating; `revert` answers a
+ * deposit's eth_call, only past `revertPast` (or at latest) when that is set.
  */
 function depositChain(opts: {
   allowance: bigint;
   revert?: Hex;
+  revertPast?: bigint;
   alreadyKnown?: boolean;
   faults?: Record<string, Error[]>;
+  heads?: bigint[];
   onCall?: (call: string) => void;
 }) {
   const sent: Hex[] = [];
   const nonces: number[] = [];
   const calls: string[] = [];
+  const pins: string[] = [];
   const faults = new Map(Object.entries(opts.faults ?? {}).map(([method, errors]) => [method, [...errors]]));
+  const heads = [...(opts.heads ?? [HEAD])];
+  const reverts = (block: unknown) =>
+    opts.revertPast === undefined || !isHex(block) || hexToBigInt(block) > opts.revertPast;
   const answer =
     (at: 'read-only' | 'drpc'): Rpc =>
     (method, params) => {
@@ -1048,10 +1743,17 @@ function depositChain(opts: {
         sent.push(raw);
         nonces.push(parseTransaction(raw).nonce ?? -1);
       }
-      const faultKey = method === 'eth_call' ? `eth_call ${callOf(params).functionName}` : method;
+      const call = method === 'eth_call' || method === 'eth_estimateGas' ? callOf(params) : undefined;
+      if (call && (call.functionName === 'approve' || call.functionName === 'depositToRemote')) {
+        pins.push(`${method} ${call.functionName} ${call.block === undefined ? 'none' : String(call.block)}`);
+      }
+      if (method === 'eth_blockNumber') pins.push(method);
+      const faultKey = call ? `${method} ${call.functionName}` : method;
       const fault = probe ? undefined : (faults.get(faultKey) ?? faults.get(method))?.shift();
       if (fault) throw fault;
       switch (method) {
+        case 'eth_blockNumber':
+          return toHex((heads.length > 1 ? heads.shift() : heads[0]) ?? HEAD);
         case 'eth_chainId':
           return toHex(ARC_CHAIN_ID);
         case 'eth_getTransactionCount':
@@ -1072,7 +1774,7 @@ function depositChain(opts: {
           const call = callOf(params);
           if (call.functionName === 'allowance') return encodeUint(opts.allowance);
           if (call.functionName === 'approve') return encodeBool(true);
-          if (opts.revert) throw rpcError(3, 'execution reverted', opts.revert);
+          if (opts.revert && reverts(call.block)) throw rpcError(3, 'execution reverted', opts.revert);
           return '0x';
         }
         case 'eth_sendRawTransaction': {
@@ -1093,6 +1795,7 @@ function depositChain(opts: {
     sent,
     nonces,
     calls,
+    pins,
     clock,
     deps: {
       endpoints: ['https://read-only.example', ARC_DRPC_URL],
@@ -1145,6 +1848,122 @@ describe('submitDepositToMiden', () => {
     expect(submission.approved).toBe(false);
     expect(submission.approveHash).toBeUndefined();
     expect(chain.nonces).toEqual([5]);
+    expect(chain.pins).toEqual(['eth_call depositToRemote latest', 'eth_estimateGas depositToRemote none']);
+  });
+
+  // Only a pinned call can meet a node that lacks its block; unpinned, the answer is the node's own failure.
+  it("fails an unpinned deposit simulation answered 'block not found' at once, as a revert", async () => {
+    const chain = depositChain({
+      allowance: DEPOSIT_UNITS,
+      faults: { 'eth_call depositToRemote': [nodeAnswer(-32001, 'block not found')] }
+    });
+    await expect(
+      submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' }, chain.deps)
+    ).rejects.toThrow('xReserve depositToRemote would revert on rpc.drpc.testnet.arc.io: ');
+    expect(chain.pins).toEqual(['eth_call depositToRemote latest']);
+    expect([chain.sent, chain.clock.slept]).toEqual([[], []]);
+  });
+
+  // One endpoint URL is a pool of nodes: one behind the approve reads a short allowance at its own latest, and the
+  // approve's block alone misses state changed since. The head is read once, so the estimate runs where the
+  // simulation did.
+  it("simulates and estimates the deposit at the head past the approve's block, the approve at latest", async () => {
+    const chain = depositChain({ allowance: 0n, heads: [HEAD, HEAD + 3n] });
+    await submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' }, chain.deps);
+    expect(chain.pins).toEqual([
+      'eth_call approve latest',
+      'eth_estimateGas approve none',
+      'eth_blockNumber',
+      `eth_call depositToRemote ${toHex(HEAD)}`,
+      `eth_estimateGas depositToRemote ${toHex(HEAD)}`
+    ]);
+    expect(chain.calls.filter(call => call.endsWith('eth_blockNumber'))).toEqual(['drpc eth_blockNumber']);
+  });
+
+  // The receipt came from a node ahead of the one that answered the head read.
+  it("simulates and estimates the deposit at the approve's block when the head read is behind it", async () => {
+    const chain = depositChain({ allowance: 0n, heads: [APPROVE_BLOCK - 2n] });
+    await submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' }, chain.deps);
+    expect(chain.pins).toEqual([
+      'eth_call approve latest',
+      'eth_estimateGas approve none',
+      'eth_blockNumber',
+      `eth_call depositToRemote ${toHex(APPROVE_BLOCK)}`,
+      `eth_estimateGas depositToRemote ${toHex(APPROVE_BLOCK)}`
+    ]);
+  });
+
+  // What Arc's endpoints answered on 2026-10-16 for a block past their head.
+  it.each([
+    ['drpc', 26, 'Unknown block'],
+    ['QuickNode and arc.io', -32001, `block not found: ${toHex(HEAD)}`]
+  ])(
+    "asks the deposit's simulation and estimate again while a node on %s lacks the block",
+    async (_on, code, message) => {
+      const chain = depositChain({
+        allowance: 0n,
+        faults: {
+          'eth_call depositToRemote': [nodeAnswer(code, message)],
+          'eth_estimateGas depositToRemote': [nodeAnswer(code, message)]
+        }
+      });
+      const submission = await submitDepositToMiden(
+        { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' },
+        chain.deps
+      );
+      expect(submission.depositHash).toBe(keccak256(chain.sent[1] ?? '0x'));
+      expect(chain.pins.filter(pin => pin.includes('depositToRemote'))).toEqual([
+        ...Array(2).fill(`eth_call depositToRemote ${toHex(HEAD)}`),
+        ...Array(2).fill(`eth_estimateGas depositToRemote ${toHex(HEAD)}`)
+      ]);
+      expect(chain.clock.slept).toEqual([2_000, 2_000]);
+    }
+  );
+
+  it.each([
+    ['simulation', 'eth_call depositToRemote', 'xReserve depositToRemote could not be simulated'],
+    ['gas estimate', 'eth_estimateGas depositToRemote', 'Arc gas estimate']
+  ])('fails a deposit %s whose node stays behind its pinned block, naming the block', async (_what, call, head) => {
+    const behind = () => nodeAnswer(26, 'Unknown block');
+    const chain = depositChain({ allowance: 0n, faults: { [call]: [behind(), behind(), behind(), behind()] } });
+    await expect(
+      submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' }, chain.deps)
+    ).rejects.toThrow(`${head} at block ${HEAD} on rpc.drpc.testnet.arc.io, still behind it after 3 retries: `);
+    expect(chain.sent).toHaveLength(1);
+    expect(chain.clock.slept).toEqual([2_000, 4_000, 8_000]);
+  });
+
+  it('reports an allowance revert at the pinned block as a revert, at once', async () => {
+    const short = nodeAnswer(3, 'execution reverted: ERC20: transfer amount exceeds allowance');
+    const chain = depositChain({ allowance: 0n, faults: { 'eth_call depositToRemote': [short] } });
+    const failure = submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' },
+      chain.deps
+    );
+    await expect(failure).rejects.toThrow(
+      `xReserve depositToRemote would revert at block ${HEAD} on rpc.drpc.testnet.arc.io: `
+    );
+    await expect(failure).rejects.toThrow('transfer amount exceeds allowance');
+    expect(chain.pins.filter(pin => pin.startsWith('eth_call depositToRemote'))).toHaveLength(1);
+    expect([chain.sent.length, chain.clock.slept]).toEqual([1, []]);
+  });
+
+  // The node runs the deposit at its head, so a refusal that began after the approve's block must fail here, unsent.
+  it("reports a refusal that came after the approve's block as a revert at the head, sending no deposit", async () => {
+    const paused = encodeErrorResult({ abi: XRESERVE_HARNESS_ABI, errorName: 'DomainDepositsPaused', args: [10007] });
+    const chain = depositChain({ allowance: 0n, revert: paused, revertPast: APPROVE_BLOCK });
+    const failure = submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' },
+      chain.deps
+    );
+    await expect(failure).rejects.toThrow(
+      `xReserve depositToRemote would revert at block ${HEAD} on rpc.drpc.testnet.arc.io: `
+    );
+    await expect(failure).rejects.toThrow('DomainDepositsPaused(10007)');
+    expect(chain.pins.filter(pin => pin.includes('depositToRemote'))).toEqual([
+      `eth_call depositToRemote ${toHex(HEAD)}`
+    ]);
+    expect([chain.sent.length, chain.clock.slept]).toEqual([1, []]);
   });
 
   it('decodes a deposit revert before sending it', async () => {
@@ -1364,6 +2183,66 @@ describe('submitDepositToMiden', () => {
     );
     expect(chain.sent).toHaveLength(1);
     expect(chain.clock.slept).toEqual([2_000]);
+  });
+});
+
+describe('waitForReceipt chain budgets', () => {
+  const hash = hexOf(arcVectors.deposit.transactionHash);
+  const ethereum = { ...ARC_PAYOUT, chainId: 1, chain: mainnet, label: 'Ethereum' };
+
+  it('accepts an Ethereum mainnet receipt mined after the two-minute L2 deadline', async () => {
+    const clock = fakeClock();
+    const client = stubClient(() => (clock.now() >= 300_000 ? DEPOSIT_RECEIPT : null));
+    await expect(
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
+    ).resolves.toMatchObject({ status: 'success', blockNumber: 66290091n });
+    expect(clock.now()).toBe(300_000);
+  });
+
+  it('bounds an Ethereum mainnet receipt that never arrives', async () => {
+    const clock = fakeClock();
+    const client = stubClient(() => null);
+    await expect(
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
+    ).rejects.toThrow('has no receipt after 600000 ms');
+    expect(clock.now()).toBe(600_000);
+  });
+
+  it.each([ARC_PAYOUT, BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT])(
+    'keeps the two-minute receipt deadline on $label',
+    async payoutChain => {
+      const clock = fakeClock();
+      const client = stubClient(() => (clock.now() >= 150_000 ? DEPOSIT_RECEIPT : null));
+      await expect(
+        waitForReceipt(
+          [ARC_DRPC_URL],
+          { endpoints: [ARC_DRPC_URL], payoutChain, publicClient: () => client, clock },
+          hash
+        )
+      ).rejects.toThrow('has no receipt after 120000 ms');
+      expect(clock.now()).toBe(120_000);
+    }
+  );
+
+  it('rejects a reverted Ethereum mainnet receipt without waiting', async () => {
+    const clock = fakeClock();
+    const client = stubClient(() => ({ ...DEPOSIT_RECEIPT, status: '0x0' }));
+    await expect(
+      waitForReceipt(
+        [ARC_DRPC_URL],
+        { endpoints: [ARC_DRPC_URL], payoutChain: ethereum, publicClient: () => client, clock },
+        hash
+      )
+    ).rejects.toThrow('Ethereum transaction ' + hash + ' reverted in block 66290091');
+    expect(clock.slept).toEqual([]);
   });
 });
 

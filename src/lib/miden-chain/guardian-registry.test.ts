@@ -27,15 +27,29 @@ describe('the bundled list', () => {
       'open-zeppelin',
       'gateway',
       'lambda-class',
-      'kodax'
+      'kodax',
+      'para'
     ]);
     expect(getNetworkGuardianEndpoints('devnet')).toEqual(['https://guardian-devnet.openzeppelin.com']);
     expect(getNetworkGuardianEndpoints('localnet')).toEqual(['http://localhost:3000']);
   });
 
+  it('is the one LambdaClass operator on mainnet, at its own location', () => {
+    expect(getNetworkGuardians('mainnet')).toEqual([
+      {
+        id: 'lambda-class',
+        name: 'LambdaClass',
+        operatedBy: 'LambdaClass',
+        location: 'US-EAST',
+        endpoint: 'https://guardian.cedar.internal.lambdaclass.com'
+      }
+    ]);
+  });
+
   it('is empty for a network no operator runs on', () => {
-    expect(getNetworkGuardians('mainnet')).toEqual([]);
     expect(getNetworkGuardians('no-such-network')).toEqual([]);
+    setDocumentGuardians('mainnet', []);
+    expect(getNetworkGuardians('mainnet')).toEqual([]);
   });
 
   it('is the same array on every read', () => {
@@ -51,7 +65,7 @@ describe('a document list', () => {
     expect(getNetworkGuardianEndpoints('devnet')).toEqual(['https://guardian-devnet.openzeppelin.com']);
   });
 
-  it('gives a network with no bundled operator its operators', () => {
+  it('gives mainnet the operators its document lists in place of its bundled one', () => {
     setDocumentGuardians('mainnet', [NEW]);
 
     expect(getNetworkGuardianEndpoints('mainnet')).toEqual(['https://new.example']);
@@ -65,7 +79,8 @@ describe('a document list', () => {
       'open-zeppelin',
       'gateway',
       'lambda-class',
-      'kodax'
+      'kodax',
+      'para'
     ]);
   });
 

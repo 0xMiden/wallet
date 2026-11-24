@@ -2,6 +2,7 @@ import { getConnection, getWalletClient, switchChain } from '@wagmi/core';
 import { type Chain, type WalletClient, createWalletClient, custom, http } from 'viem';
 import { sepolia } from 'viem/chains';
 
+import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import { wagmiConfig } from 'lib/walletconnect/appkit';
 import { EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { buildNativeReownProvider, isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
@@ -21,11 +22,16 @@ function withE2eRpc(chain: Chain): Chain {
   return rpcUrl ? { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [rpcUrl] } } } : chain;
 }
 
-function epochChain(chainId: number = sepolia.id): Chain {
+export function epochChain(chainId: number = sepolia.id): Chain {
   if (chainId === MIDEN_DESTINATION_CHAIN_ID) return { ...sepolia, id: chainId };
   const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === chainId);
-  if (!chain) throw new Error('The Epoch EVM chain is not supported');
+  if (!chain) throw walletRaised(new Error('The Epoch EVM chain is not supported'));
   return chain;
+}
+
+/** The chain `chainId` with the RPC that the Epoch reads use: the E2E node under MIDEN_E2E_TEST, else the wallet's. */
+export function epochRpcChain(chainId: number): Chain {
+  return withE2eRpc(epochChain(chainId));
 }
 
 export interface EvmConnection {

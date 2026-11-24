@@ -3,13 +3,23 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import { NativeSessionChainNotApprovedError } from 'lib/walletconnect/native';
+import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
 
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
 
+let mockFeeCopy = 'worker-fee-copy';
+jest.mock('lib/i18n', () => ({
+  ...jest.requireActual('lib/i18n'),
+  getMessage: (key: string) => (key === 'insufficientFeeAsset' ? mockFeeCopy : key)
+}));
 // t(key) echoes `t:<key>` so we can assert which label branch rendered.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => `t:${key}` })
+  useTranslation: () => ({
+    t: (key: string, options?: { amount?: string }) =>
+      key === 'insufficientFeeAsset' ? mockFeeCopy : options?.amount ? `t:${key}|${options.amount}` : `t:${key}`
+  })
 }));
 
 // Only ITransactionStatus (the enum) is used at runtime.
@@ -29,6 +39,8 @@ jest.mock('lib/epoch', () => ({
 }));
 
 const mockInitiateConsumeFromId = jest.fn(async (..._a: unknown[]) => 'reclaim-tx-1');
+// What the Reclaim button passes after the note id: delegate, manualRetry, no dApp origin, and what queued the row.
+const RECLAIMS = [false, true, undefined, 'bridge_reclaim'] as const;
 const mockRequestSWProcessing = jest.fn();
 const mockUpdateBridgeClaimStatus = jest.fn(async (..._a: unknown[]) => undefined);
 const mockPinAgglayerDeposit = jest.fn(async (..._a: unknown[]) => undefined);
@@ -67,8 +79,9 @@ jest.mock('lib/agglayer', () => {
   };
 });
 
+let mockSelectedAccount = 'acct-1';
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => ({ publicKey: 'acct-1' })
+  useAccount: () => ({ publicKey: mockSelectedAccount })
 }));
 
 let mockEvm = {
@@ -120,12 +133,21 @@ jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: ({ href }: { href?: string }) => <a href={href}>explorer</a>
 }));
 
+// The registry's chains, plus one the wallet knows no explorer for.
+jest.mock('lib/walletconnect/config', () => {
+  const chains = jest.requireActual<typeof import('lib/walletconnect/testing/chains')>(
+    'lib/walletconnect/testing/chains'
+  );
+  return chains.walletConnectConfigMock([chains.NO_EXPLORER_CHAIN]);
+});
+
 const FAILED = 3;
 const UNCONFIRMED = 4;
 
 function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
   return {
     txId: 'tx-1',
+    address: 'acct-1',
     bridgeProvider: 'epoch',
     bridgeDestinationAddress: '0xdead',
     status: FAILED,
@@ -145,8 +167,14 @@ function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
  * only place the default is written, so a restored-row case has to opt in
  * explicitly rather than inherit a fixture's silence.
  */
-const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean }) =>
-  render(<BridgeClaimSection entry={props.entry} restoredFromBackup={props.restoredFromBackup ?? false} />);
+const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean; sentAmount?: bigint }) =>
+  render(
+    <BridgeClaimSection
+      entry={props.entry}
+      restoredFromBackup={props.restoredFromBackup ?? false}
+      sentAmount={props.sentAmount}
+    />
+  );
 
 const agglayer = (o: Partial<IHistoryEntry> = {}) =>
   entry({
@@ -163,6 +191,8 @@ const READY = { id: 'deposit-1', tx_hash: '0xexit', deposit_cnt: 5, ready_for_cl
 
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
+    mockFeeCopy = 'worker-fee-copy';
+    mockSelectedAccount = 'acct-1';
     jest.clearAllMocks();
     // clearAllMocks keeps a queued *Once, so a block read a test never reaches would leak into the next.
     mockGetCurrentMidenBlock.mockReset().mockImplementation(async () => 0);
@@ -195,6 +225,26 @@ describe('BridgeClaimSection', () => {
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
     });
 
+    it('blocks Reclaim when the receipt belongs to another account, including after a selection change', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValue(1200);
+      mockSelectedAccount = 'acct-2';
+      const row = entry();
+      const view = renderSection({ entry: row });
+      const reclaim = await screen.findByRole('button', { name: 't:reclaimFunds' });
+      expect(reclaim).toBeDisabled();
+      fireEvent.click(reclaim);
+      expect(mockInitiateConsumeFromId).not.toHaveBeenCalled();
+
+      mockSelectedAccount = 'acct-1';
+      view.rerender(<BridgeClaimSection entry={row} restoredFromBackup={false} />);
+      expect(reclaim).toBeEnabled();
+      mockSelectedAccount = 'acct-2';
+      view.rerender(<BridgeClaimSection entry={row} restoredFromBackup={false} />);
+      expect(reclaim).toBeDisabled();
+      fireEvent.click(reclaim);
+      expect(mockInitiateConsumeFromId).not.toHaveBeenCalled();
+    });
+
     it('shows a Reclaim button once the height passes and consumes the note on click', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
       renderSection({ entry: entry() });
@@ -203,7 +253,7 @@ describe('BridgeClaimSection', () => {
       // 4th arg = manualRetry. The button only exists behind an explicit tap, so
       // auto-consume's exponential backoff must not swallow it and answer with a
       // previously-failed reclaim's row id.
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       expect(mockRequestSWProcessing).not.toHaveBeenCalled(); // isExtension() mocked false
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/reclaim-tx-1');
     });
@@ -223,6 +273,30 @@ describe('BridgeClaimSection', () => {
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
     });
 
+    it('fee refusal uses localized fee copy and leaves the current view open', async () => {
+      const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/initiate')>(
+        'lib/miden/transaction/initiate'
+      );
+      const refusal = new ClaimFeeRefusedError();
+      mockFeeCopy = 'localized-fee-copy';
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200);
+      mockInitiateConsumeFromId.mockRejectedValueOnce(refusal);
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        renderSection({ entry: entry() });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+
+        expect(await screen.findByText('localized-fee-copy')).toBeInTheDocument();
+        expect(screen.queryByText(refusal.message)).not.toBeInTheDocument();
+        expect(mockNavigate).not.toHaveBeenCalled();
+        expect(mockRequestSWProcessing).not.toHaveBeenCalled();
+        expect(screen.getByText('t:reclaimFunds')).not.toBeDisabled();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it('offers Reclaim for an unconfirmed failed row from its stamped height and note id (#1250)', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
       renderSection({
@@ -236,7 +310,7 @@ describe('BridgeClaimSection', () => {
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
-        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', ...RECLAIMS)
       );
     });
 
@@ -295,7 +369,7 @@ describe('BridgeClaimSection', () => {
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
-        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', ...RECLAIMS)
       );
     });
 
@@ -319,7 +393,7 @@ describe('BridgeClaimSection', () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
       renderSection({ entry: entry({ bridgeReclaimNoteId: 'note-stamped' }) });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
     });
 
     describe('a completed bridge-out', () => {
@@ -332,7 +406,7 @@ describe('BridgeClaimSection', () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed() });
         fireEvent.click(await screen.findByText('t:reclaimFunds'));
-        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       });
 
       it('shows no countdown for a completed bridge-out whose intent is not recorded yet (#1250)', async () => {
@@ -354,7 +428,7 @@ describe('BridgeClaimSection', () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
         fireEvent.click(await screen.findByText('t:reclaimFunds'));
-        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', ...RECLAIMS));
       });
 
       it('shows the countdown for a completed bridge-out whose fill failed (#1250)', async () => {
@@ -409,18 +483,36 @@ describe('BridgeClaimSection', () => {
     expect(screen.getByRole('link', { name: 'explorer' })).toHaveAttribute('href', `${explorer}/address/0xdead`);
   });
 
-  it('links the destination transaction to the destination explorer', () => {
+  it.each([
+    [5042002, 'https://explorer.testnet.arc.io'],
+    [5042, 'https://explorer.arc.io']
+  ])('links the destination transaction on %s to the destination explorer', (network, explorer) => {
     const hash = `0x${'a'.repeat(64)}`;
     render(
       <BridgeClaimSection
-        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: 5042002 })}
+        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: network })}
         restoredFromBackup={false}
         destinationTxHash={hash}
       />
     );
     expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
-      `https://explorer.testnet.arc.io/tx/${hash}`
+      `${explorer}/tx/${hash}`
     );
+  });
+
+  it('shows the recipient and the receiving transaction unlinked on a chain with no explorer', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: NO_EXPLORER_CHAIN.id })}
+        restoredFromBackup={false}
+        destinationTxHash={`0x${'a'.repeat(64)}`}
+      />
+    );
+
+    expect(screen.getByText('t:destinationNetworkNo Explorer')).toBeInTheDocument();
+    expect(screen.getByText('t:to')).toHaveTextContent('explorer');
+    expect(screen.getByText('t:receivingTx')).toHaveTextContent('explorer');
+    expect(screen.queryAllByRole('link', { name: 'explorer' })).toEqual([]);
   });
 
   describe('USDCx faucet consumption', () => {
@@ -457,6 +549,123 @@ describe('BridgeClaimSection', () => {
       });
       expect(screen.getByText('t:confirmed')).toBeInTheDocument();
       expect(screen.getByText('t:usdcxBurnTitlet:usdcxBurnConfirmed')).toBeInTheDocument();
+    });
+
+    describe('payout proof', () => {
+      const payout = { transactionHash: `0x${'b'.repeat(64)}`, blockNumber: '120', value: '2436500' } as const;
+      const burnRow = (burn: Partial<NonNullable<IHistoryEntry['usdcxBurn']>>, extra: Partial<IHistoryEntry> = {}) =>
+        entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          bridgeDestinationNetwork: 5042002,
+          status: 2,
+          usdcxBurn: {
+            noteId: 'burn-note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+            ...burn
+          },
+          ...extra
+        });
+
+      it('shows Received and Circle fee from the recorded payout', () => {
+        renderSection({ entry: burnRow({ payout }), sentAmount: 5_000_000n });
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.43')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxCircleFeet:usdcxPayoutAmount|2.57')).toBeInTheDocument();
+      });
+
+      it('shows neither row for a legacy balance-confirmed row', () => {
+        renderSection({
+          entry: burnRow({ destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } }),
+          sentAmount: 5_000_000n
+        });
+        expect(screen.queryByText(/usdcxPayoutReceived/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
+        expect(screen.getByText('t:confirmed')).toBeInTheDocument();
+      });
+
+      it('shows no fee row when the paid amount is not below the sent amount', () => {
+        renderSection({ entry: burnRow({ payout }), sentAmount: 2_436_500n });
+        expect(screen.getByText('t:usdcxPayoutReceivedt:usdcxPayoutAmount|2.43')).toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
+      });
+
+      it('links the recorded payout transaction', () => {
+        render(
+          <BridgeClaimSection
+            entry={burnRow({ payout })}
+            restoredFromBackup={false}
+            sentAmount={5_000_000n}
+            destinationTxHash={payout.transactionHash}
+          />
+        );
+        expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
+          `https://explorer.testnet.arc.io/tx/${payout.transactionHash}`
+        );
+        expect(screen.getByText('t:receivingTx')).toBeInTheDocument();
+      });
+
+      it('shows the delayed notice on a delayed row', () => {
+        const settled = Date.now() - 3 * 3_600_000;
+        renderSection({ entry: burnRow({ confirmedAt: settled }, { bridgeSettledAt: settled }) });
+        expect(screen.getByText('t:usdcxPayoutDelayed')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxPayoutDelayedNotice')).toBeInTheDocument();
+        expect(screen.getByText('t:usdcxWithdrawalNotice')).toBeInTheDocument();
+      });
+
+      it('shows no delayed notice on a restored row or one without a saved snapshot', () => {
+        const old = Date.now() - 30 * 3_600_000;
+        const { unmount } = render(
+          <BridgeClaimSection entry={burnRow({ confirmedAt: old }, { bridgeSettledAt: old })} restoredFromBackup />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        renderSection({
+          entry: burnRow({ confirmedAt: old, destinationBalanceBefore: undefined }, { bridgeSettledAt: old })
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
+
+      it('shows no delayed notice on a failed or unconfirmed row', () => {
+        const old = Date.now() - 30 * 3_600_000;
+        const { unmount } = render(
+          <BridgeClaimSection
+            entry={burnRow({ confirmedAt: old }, { bridgeSettledAt: old, status: FAILED })}
+            restoredFromBackup={false}
+          />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        renderSection({
+          entry: burnRow({ confirmedAt: old }, { bridgeSettledAt: old, isUnconfirmed: true, status: UNCONFIRMED })
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
+
+      it('shows Received and Circle fee only while the burn reads confirmed', () => {
+        renderSection({ entry: burnRow({ phase: 'consuming', payout }), sentAmount: 5_000_000n });
+        expect(screen.queryByText(/usdcxPayoutReceived/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/usdcxCircleFee/)).not.toBeInTheDocument();
+      });
+
+      it('shows no delayed notice before 2 hours or on a paid row', () => {
+        const recent = Date.now() - 60_000;
+        const { unmount } = render(
+          <BridgeClaimSection
+            entry={burnRow({ confirmedAt: recent }, { bridgeSettledAt: recent })}
+            restoredFromBackup={false}
+          />
+        );
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+        unmount();
+        const old = Date.now() - 30 * 3_600_000;
+        renderSection({
+          entry: burnRow({ confirmedAt: old, payout }, { bridgeSettledAt: old }),
+          sentAmount: 5_000_000n
+        });
+        expect(screen.queryByText('t:usdcxPayoutDelayedNotice')).not.toBeInTheDocument();
+      });
     });
 
     it('keeps a sender-completed row pending until the faucet consumes its note', () => {
@@ -631,6 +840,17 @@ describe('BridgeClaimSection', () => {
       fireEvent.click(await screen.findByText('t:claimAsset'));
       expect(await screen.findByText('claim boom')).toBeInTheDocument();
       expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'failed');
+    });
+
+    it('shows the localized reconnect message when the session error is wrapped as a cause', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindExitDeposit.mockResolvedValueOnce(READY).mockResolvedValueOnce(READY);
+      mockClaimAgglayer.mockRejectedValueOnce(
+        new Error('claim wrapper', { cause: new NativeSessionChainNotApprovedError(11155111, 'Sepolia') })
+      );
+      renderSection({ entry: agglayer() });
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      expect(await screen.findByText('t:evmChainNotApproved')).toBeInTheDocument();
     });
 
     it('offers Claim again once its own claim has failed', async () => {
@@ -955,5 +1175,230 @@ describe('BridgeClaimSection', () => {
       });
       expect(screen.getByText('t:receivingTx')).toBeInTheDocument();
     });
+  });
+});
+
+const mockReportUserVisibleError = jest.fn();
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
+}));
+
+const expectErrorAfterDwell = async (id: string, surface: string) => {
+  await act(async () => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  await act(async () => {
+    jest.advanceTimersByTime(1);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+};
+
+describe('user-visible bridge action errors', () => {
+  const settle = () =>
+    act(async () => {
+      for (let tick = 0; tick < 30; tick++) {
+        await Promise.resolve();
+      }
+    });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+    mockGetCurrentMidenBlock.mockReset().mockResolvedValue(1200);
+    mockFindExitDeposit.mockReset().mockResolvedValue(READY);
+    mockClaimAgglayer.mockReset().mockResolvedValue({ wait: async () => undefined, hash: 'synthetic-claim' });
+    mockInitiateConsumeFromId.mockReset().mockResolvedValue('synthetic-reclaim');
+    mockTrackerPolls.length = 0;
+    mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+    mockFeeCopy = 'Visible claim fee refusal';
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports a live claim raw producer as raw_bridge_claim_failed', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('private claim 42 at https://synthetic.invalid'));
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private claim 42 at https://synthetic.invalid');
+    await expectErrorAfterDwell('raw_bridge_claim_failed', 'inline');
+  });
+
+  it('reports the actual translated session refusal as evmChainNotApproved', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(
+      new Error('private wrapper', { cause: new NativeSessionChainNotApprovedError(11155111, 'Synthetic') })
+    );
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('t:evmChainNotApproved');
+    await expectErrorAfterDwell('evmChainNotApproved', 'inline');
+  });
+
+  it('reports a reclaim error the node-ready state shows before the cached height reaches it', async () => {
+    mockGetCurrentMidenBlock.mockReset().mockResolvedValue(500);
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('private reclaim amount 7'));
+    render(
+      <BridgeClaimSection
+        entry={entry({ status: 2, bridgeEpochStatus: undefined, bridgeIntentNonce: undefined })}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'readyToClaim', messageKey: 'epochReturnReady' }}
+      />
+    );
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private reclaim amount 7');
+    await expectErrorAfterDwell('raw_bridge_reclaim_failed', 'inline');
+  });
+
+  it('reports a live reclaim raw producer as raw_bridge_reclaim_failed', async () => {
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('private reclaim amount 42'));
+    renderSection({ entry: entry() });
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('private reclaim amount 42');
+    await expectErrorAfterDwell('raw_bridge_reclaim_failed', 'inline');
+  });
+
+  it('reports the actual reclaim fee refusal as insufficientFeeAsset', async () => {
+    const { ClaimFeeRefusedError } = jest.requireActual<typeof import('lib/miden/transaction/claim-fee')>(
+      'lib/miden/transaction/claim-fee'
+    );
+    mockInitiateConsumeFromId.mockRejectedValueOnce(new ClaimFeeRefusedError());
+    renderSection({ entry: entry() });
+    await settle();
+    fireEvent.click(screen.getByText('t:reclaimFunds'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible claim fee refusal');
+    await expectErrorAfterDwell('insufficientFeeAsset', 'inline');
+  });
+
+  it.each(['retry', 'unmount'])('cancels a live claim error on %s before dwell', async control => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('short claim failure'));
+    const view = renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByRole('alert')).toHaveTextContent('short claim failure');
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    if (control === 'retry') {
+      fireEvent.click(screen.getByText('t:claimAsset'));
+      await settle();
+    } else view.unmount();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps the destination-wallet mismatch caution silent', async () => {
+    mockEvm.address = '0xother';
+    renderSection({ entry: agglayer() });
+    await settle();
+    expect(screen.getByText('t:connectDestinationWalletToClaim')).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps a raced but successfully recovered claim silent', async () => {
+    mockClaimAgglayer.mockRejectedValueOnce(new Error('private already claimed'));
+    mockFindExitDeposit
+      .mockResolvedValueOnce(READY)
+      .mockResolvedValueOnce({ ...READY, claim_tx_hash: 'synthetic-recovered' });
+    renderSection({ entry: agglayer() });
+    await settle();
+    fireEvent.click(screen.getByText('t:claimAsset'));
+    await settle();
+    expect(screen.getByText('t:claimAssetSubmitted')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+
+  it('keeps a persisted failed bridge status and reclaim-height helper silent', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValue(500);
+    renderSection({ entry: entry() });
+    await settle();
+    expect(screen.getByText(/t:bridgeFailed/)).toBeInTheDocument();
+    expect(screen.getByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockReportUserVisibleError.mock.calls).toEqual([]);
+  });
+});
+
+describe('Epoch return details', () => {
+  it('shows a neutral status and guidance for an unspent note', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'awaitingReturn', messageKey: 'epochReturnWaiting' }}
+      />
+    );
+    expect(screen.getByText('t:epochAwaitingReturn')).toBeInTheDocument();
+    expect(screen.getByText('t:epochReturnWaiting')).toBeInTheDocument();
+    expect(screen.queryByText('t:bridgeFailed')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 't:reclaimFunds' })).not.toBeInTheDocument();
+  });
+
+  it('offers a verified ready note without a second chain-head read', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'readyToClaim', messageKey: 'epochReturnReady' }}
+      />
+    );
+    expect(screen.getByRole('button', { name: 't:reclaimFunds' })).toBeEnabled();
+  });
+
+  it('falls back to the reclaim height while the node has not answered', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+    render(<BridgeClaimSection entry={entry()} restoredFromBackup={false} epochReturn={{}} />);
+    expect(await screen.findByRole('button', { name: 't:reclaimFunds' })).toBeEnabled();
+  });
+
+  it('keeps the countdown while the node has not answered and the height is ahead', async () => {
+    mockGetCurrentMidenBlock.mockResolvedValueOnce(500);
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ messageKey: 'epochReturnUnavailable' }}
+      />
+    );
+    expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+    expect(screen.queryByText('t:epochReturnUnavailable')).not.toBeInTheDocument();
+  });
+
+  it('does not offer a claim after funds were returned', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry()}
+        restoredFromBackup={false}
+        epochReturn={{ status: 'fundsReturned', messageKey: 'epochReturnDone' }}
+      />
+    );
+    expect(screen.getByText('t:epochReturnDone')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 't:reclaimFunds' })).not.toBeInTheDocument();
   });
 });
