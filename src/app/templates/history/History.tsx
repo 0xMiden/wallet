@@ -881,6 +881,14 @@ export const patchLoadedActivityStatus = (
     if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
       fields.oneClickTracking = entry.oneClickTracking;
     }
+    if (
+      entry.bridgeDestinationChain &&
+      fields.bridgeDestinationChain &&
+      entry.bridgeDestinationChain.id === fields.bridgeDestinationChain.id &&
+      entry.bridgeDestinationChain.name === fields.bridgeDestinationChain.name
+    ) {
+      fields.bridgeDestinationChain = entry.bridgeDestinationChain;
+    }
     if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
       return entry;
     }

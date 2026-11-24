@@ -4873,6 +4873,26 @@ describe('patchLoadedActivityStatus', () => {
       new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: delivered } }]])
     );
     expect(updated.entries[0]?.oneClickTracking).toBe(delivered);
+
+    const refreshed = patchLoadedActivityStatus(
+      updated,
+      'scope',
+      ids,
+      new Map([
+        [
+          row.id,
+          {
+            ...row,
+            extraInputs: {
+              ...row.extraInputs,
+              destinationChain: { id: 'sol', name: 'Solana' },
+              oneClick: { ...delivered }
+            }
+          }
+        ]
+      ])
+    );
+    expect(refreshed).toBe(updated);
   });
 
   it('preserves oneClickTracking on a legacy send row without provider', () => {
