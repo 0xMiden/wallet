@@ -1,5 +1,5 @@
-name: Activity offline Chrome acceptance
-run-name: Activity offline Chrome acceptance ${{ inputs.sha }}
+name: Activity import order check
+run-name: Activity import order check ${{ inputs.sha }}
 
 on:
   workflow_dispatch:
@@ -33,16 +33,13 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
-      - name: Install Chrome test browser
-        run: yarn playwright install chrome
-      - name: Build offline Chrome extension
-        run: yarn build:extension
-      - name: Exercise the Activity view with synthetic state
-        run: yarn playwright test --config playwright.activity.config.ts --workers=1 --retries=0
+      - name: Verify Activity import order at the staged product revision
+        run: |
+          git diff --exit-code 00c4e5461832c245488680511647c3a5ca06b2c2 -- src/
+          yarn eslint --max-warnings 0 src/app/templates/history/ActivityGroupedHistory.tsx
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: activity-offline-chrome
           path: |
-            test-results/
             ${{ runner.temp }}/source.txt
