@@ -9325,8 +9325,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "USDCx로 네트워크 수수료를 포함하여 원하는 금액의 GC를 구매하세요.",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "1 USDCx에 GC 1,000개를 구매하고, 네트워크 수수료를 추가하십시오.",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GC 매수",
@@ -9371,8 +9371,8 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "구매할 GC 수량을 입력하십시오. 이 구매는 온체인에 게시된 공개 GC 판매 공note를 채웁니다.",
-    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "message": "이 매수는 온체인에 게시된 공개 GC 판매 note를 채웁니다.",
+    "englishSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "결제",
