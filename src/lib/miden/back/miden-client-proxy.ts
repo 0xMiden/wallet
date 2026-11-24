@@ -19,7 +19,7 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
-import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { ProofFreshnessUnknownError, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
@@ -532,6 +532,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     // tag itself.
     if (resp.errorName === 'StaleProofError') {
       reject(new StaleProofError());
+      return;
+    }
+    if (resp.errorName === 'ProofFreshnessUnknownError') {
+      reject(new ProofFreshnessUnknownError(resp.error));
       return;
     }
     if (resp.errorName === 'CalendarRecallReviewRequiredError') {

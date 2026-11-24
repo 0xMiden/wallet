@@ -1489,6 +1489,35 @@ describe('History', () => {
     expect(entryKeys().sort()).toEqual(['completed-S', 'pending-PP'].sort());
   });
 
+  it('matches legacy completed Earn deposit rows by localized earnDepositRowTitle rather than raw lending message', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            ...makeCompleted(),
+            {
+              id: 'ED-LEGACY',
+              status: STATUS.Completed,
+              displayMessage: 'Deposited to lending',
+              displayIcon: 'SEND',
+              type: 'earn-deposit',
+              completedAt: 1500
+            }
+          ]
+        : []
+    );
+    const { rerender } = await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+    await act(async () => {
+      rerender(<History address="0xme" searchQuery="earnDepositRowTitle" />);
+    });
+    expect(entryKeys()).toEqual(['completed-ED-LEGACY']);
+
+    await act(async () => {
+      rerender(<History address="0xme" searchQuery="lending" />);
+    });
+    expect(entryKeys()).toEqual([]);
+  });
+
   it('filters by transfer / swap / earn / others / all, by the tx type of each row', async () => {
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
       offset === undefined

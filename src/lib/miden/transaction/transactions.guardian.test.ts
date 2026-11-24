@@ -73,6 +73,7 @@ import {
   GUARDIAN_UNREACHABLE_ERROR,
   isUnconfirmedFailure,
   LOCAL_PROVER_FAILED_ERROR,
+  PROOF_FRESHNESS_UNKNOWN_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
@@ -4122,11 +4123,11 @@ describe('generateTransaction - Guardian routing', () => {
     // Completion must route to completeEarnDepositTransaction, NOT the generic custom-tx
     // completion - otherwise the row finishes without the collateral note id that
     // createEarnP2IDENote reads back for the Epoch handoff (stranding the deposit).
-    // 'Deposited to lending' is set only by completeEarnDepositTransaction, so it pins
+    // 'Deposited to Earn' is set only by completeEarnDepositTransaction, so it pins
     // the routing: deleting the completion case fails this assertion.
     const completed = txStore.find(row => row.id === txId);
     expect(completed?.status).toBe(ITransactionStatus.Completed);
-    expect(completed?.displayMessage).toBe('Deposited to lending');
+    expect(completed?.displayMessage).toBe('Deposited to Earn');
   });
 
   it('Guardian Epoch bridged-send with no request of its own never reads a sync height', async () => {
@@ -4800,7 +4801,7 @@ describe('generateTransaction - Guardian routing', () => {
     const row = txStore.find(r => r.id === txId);
     expect(row?.status).toBe(ITransactionStatus.Failed);
     // Never a Completed-branch success message.
-    expect(row?.displayMessage).not.toBe('Deposited to lending');
+    expect(row?.displayMessage).not.toBe('Deposited to Earn');
     expect(row?.displayMessage).not.toBe('Sent');
   });
 
@@ -7174,17 +7175,66 @@ describe('generateTransaction - Guardian routing', () => {
       expect(entries.filter(entry => entry.source === 'stage' || entry.refBlock !== undefined)).toEqual([]);
     });
 
-    it('sends the proof as before when the tip cannot be read', async () => {
-      const txId = 'send-guardian-tip-unreadable';
-      const { tx, client } = arrangeSend(txId, true);
+    it.each([
+      ['delegated', true],
+      ['local', false]
+    ])(
+      '%s: ends Failed with nothing sent, its candidate abandoned and Retry open when the tip cannot be read',
+      async (label, delegateTransaction) => {
+        const txId = `send-guardian-tip-unreadable-${label}`;
+        const { tx, abandonCandidate, client } = arrangeSend(txId, delegateTransaction);
+        mockReadChainTip.mockImplementation(async () => {
+          throw new Error('node down');
+        });
+
+        await run(tx);
+
+        expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
+        expect(client.transactions.submitProven).not.toHaveBeenCalled();
+        expect(abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+
+        const stored = txStore.find(row => row.id === txId)!;
+        expect(stored).toMatchObject({
+          status: ITransactionStatus.Failed,
+          stage: 'proving',
+          error: PROOF_FRESHNESS_UNKNOWN_ERROR
+        });
+        expect(stored.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+        expect(stored.mayHaveSubmitted).toBeUndefined();
+        expect(stored.submitEvidence ?? []).toEqual([]);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+        expect(getConnectivityState().prover.active).toBe(false);
+
+        await withNavigatorLocks(() => requeueFailedTransaction(txId));
+        expect(stored.status).toBe(ITransactionStatus.Queued);
+      }
+    );
+
+    it('local: fails closed without requeueing as node_unreachable when the tip read fails with TypeError("Failed to fetch")', async () => {
+      const txId = 'send-guardian-tip-unreadable-inline-fetch';
+      const { tx, abandonCandidate, client } = arrangeSend(txId, false);
       mockReadChainTip.mockImplementation(async () => {
-        throw new Error('node down');
+        throw new TypeError('Failed to fetch');
       });
 
       await run(tx);
 
       expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1);
-      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(abandonCandidate).toHaveBeenCalledTimes(1);
+      expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+
+      const stored = txStore.find(row => row.id === txId)!;
+      expect(stored).toMatchObject({
+        status: ITransactionStatus.Failed,
+        stage: 'proving',
+        error: PROOF_FRESHNESS_UNKNOWN_ERROR
+      });
+      expect(stored.rawError).toContain('TypeError: Failed to fetch');
+      expect(stored.lastDeferral).toBeUndefined();
+      expect(stored.nextEligibleAt).toBeUndefined();
+      expect(stored.mayHaveSubmitted).toBeUndefined();
     });
   });
 
@@ -16611,7 +16661,7 @@ describe('generateTransaction - Guardian routing', () => {
 
       expect(row).toMatchObject({
         ...landedFields(replaceable.nativeFaucet),
-        displayMessage: 'Deposited to lending',
+        displayMessage: 'Deposited to Earn',
         outputNoteIds: ['note-collateral']
       });
       expect(replaceable.lateReads).toEqual([]);
