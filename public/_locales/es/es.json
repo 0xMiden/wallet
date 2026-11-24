@@ -1484,6 +1484,7 @@
   "earnWithdrawDetailsTitle": "Detalles de la retirada",
   "depositIntentLabel": "Solicitud de depósito",
   "redeemIntentLabel": "Solicitud de retirada",
+  "earnDepositRowTitle": "Depositado en Earn",
   "earnWithdrawRowTitle": "Retirada de Earn",
   "earnWithdrawRowVia": "Vía Epoch → Miden",
   "earnWithdrawStatusRedeeming": "Retirando",

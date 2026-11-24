@@ -103,7 +103,7 @@ function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): 
   const addresses = group.kind === 'address' ? [group.id, shortAddr(group.id)] : [];
   const shown = [activityGroupTitle(group, t), group.name, ...addresses];
   if (shown.some(value => value?.toLowerCase().includes(query))) return true;
-  return group.entries.some(entry => historyEntryMatchesSearch(entry, query));
+  return group.entries.some(entry => historyEntryMatchesSearch(entry, query, t));
 }
 
 /**

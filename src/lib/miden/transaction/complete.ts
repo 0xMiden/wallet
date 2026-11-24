@@ -1070,7 +1070,7 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFields,
-    displayMessage: 'Deposited to lending',
+    displayMessage: 'Deposited to Earn',
     transactionId,
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
