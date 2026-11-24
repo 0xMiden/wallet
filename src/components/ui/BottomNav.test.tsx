@@ -577,11 +577,18 @@ describe('BottomNav — four destinations', () => {
     const activity = getTab('Activity');
     const highlight = bubbleOf(container);
     expect(screen.getByText('Activity')).not.toHaveClass('opacity-0');
-    expect(screen.getByRole('navigation')).toHaveClass('p-1');
+    const nav = screen.getByRole('navigation');
+    const opaqueFallback = ['contrast-more:bg-app-bg', '[@media(prefers-reduced-transparency:reduce)]:bg-app-bg'];
+    expect(nav).toHaveClass('p-1', ...opaqueFallback);
+    expect(nav).not.toHaveClass('p-0.5');
+    expect(nav).not.toHaveClass('mt-1');
+    expect(iconOf(activity)).toHaveClass('-translate-y-1.5');
 
     rerender(<BottomNav items={fourItems} activeId="activity" onChange={onChange} presentation="condensed" />);
 
-    expect(screen.getByRole('navigation')).toHaveClass('p-0.5');
+    expect(nav).toHaveClass('p-0.5', 'mt-1', ...opaqueFallback);
+    for (const className of ['p-1', 'mb-1', 'my-1']) expect(nav).not.toHaveClass(className);
+    expect(iconOf(activity)).not.toHaveClass('-translate-y-1.5');
     expect(screen.getByText('Activity')).toHaveClass('opacity-0');
     expect(getTab('Activity')).toBe(activity);
     expect(activity).toHaveClass('h-12', 'w-16');
@@ -589,6 +596,15 @@ describe('BottomNav — four destinations', () => {
     expect(bubbleOf(container)).toBe(highlight);
     fireEvent.click(getTab('Settings'));
     expect(onChange).toHaveBeenCalledWith('settings');
+
+    rerender(<BottomNav items={fourItems} activeId="activity" onChange={onChange} />);
+    expect(nav).toHaveClass('p-1');
+    for (const className of ['p-0.5', 'mt-1', 'mb-1', 'my-1', ...opaqueFallback]) {
+      expect(nav).not.toHaveClass(className);
+    }
+    expect(iconOf(getTab('Activity'))).not.toHaveClass('-translate-y-1.5');
+    expect(iconOf(getTab('Activity'))).not.toHaveClass('motion-safe:transition-transform');
+    expect(screen.queryByText('Activity')).toBeNull();
   });
 });
 
