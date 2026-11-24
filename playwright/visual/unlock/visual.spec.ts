@@ -75,6 +75,7 @@ test('the loading spinner keeps Unlock in place', async ({ page }, info) => {
   const before = await submit.boundingBox();
   await submit.click();
   await expect(submit).toHaveAttribute('aria-busy', 'true');
+  await expect(submit.locator('svg.animate-spin')).toBeVisible();
   await expect(submit).toBeDisabled();
   expect(await submit.boundingBox()).toEqual(before);
 });
