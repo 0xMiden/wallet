@@ -1,8 +1,6 @@
 name: Guardian Lifecycle E2E (Chrome)
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       guardian_image_tag:
@@ -20,7 +18,7 @@ permissions:
   contents: read
   pull-requests: read
 jobs:
-  # The suite runs on every push to main and on dispatch. A pull request runs it only
+  # The suite runs on dispatch (Release E2E's nightly on main). A pull request runs it only
   # when its body carries a `Client PR:` / `Guardian PR:` / `Protocol PR:` / `Web SDK PR:`
   # marker; otherwise the heavy job is skipped and the gate reports green.
   # Name and work read the same base value (#1071): the selector and its pull
@@ -70,8 +68,8 @@ jobs:
   # The specs are live guardian-*.spec.ts files (tests/ plus tests/resilience/),
   # picked up via playwright.guardian.config.ts's recursive
   # `**/guardian-*.spec.ts` testMatch. Pull requests set GUARDIAN_E2E_SUITE=pr
-  # so stress specs and guardian-fault.smoke stay off the merge path; main and
-  # workflow_dispatch run the full suite. The policy unit tests live in Jest
+  # so stress specs and guardian-fault.smoke stay off the merge path; workflow_dispatch
+  # runs the full suite. The policy unit tests live in Jest
   # (playwright/e2e/harness/guardian-fault.test.ts), not this job.
   # guardian-lifecycle-e2e-gate is the stable required-check name.
   # #615: guardian-recovery.spec.ts:65 flaked ~10% of executions (~11 failures /
@@ -115,7 +113,7 @@ jobs:
       # fixed :3001 publish in docker-compose.local.yml.
       GUARDIAN_URL: http://localhost:3000
       # pr = happy-path only (see playwright.guardian.config.ts). Full suite on
-      # main and workflow_dispatch, including the known-flaky stress specs.
+      # workflow_dispatch, including the known-flaky stress specs.
       GUARDIAN_E2E_SUITE: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
