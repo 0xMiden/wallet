@@ -118,7 +118,7 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/eligibility-topology-prepared
       - name: Download exact prior result artifact
-        if: inputs.operation == 'cleanup'
+        if: inputs.operation == 'cleanup' && steps.recovery.outputs.result_artifact_id != ''
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           github-token: ${{ github.token }}
@@ -141,7 +141,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           TOPOLOGY_RECOVERY_FILE: ${{ runner.temp }}/eligibility-topology-recovery/recovery.json
-          TOPOLOGY_PRIOR_RESULT_FILE: ${{ runner.temp }}/eligibility-topology-prior-result/result.json
+          TOPOLOGY_PRIOR_RESULT_FILE: ${{ steps.recovery.outputs.result_artifact_id != '' && format('{0}/eligibility-topology-prior-result/result.json', runner.temp) || '' }}
           CLEANUP_RUN_ID: ${{ inputs.cleanup_run_id }}
           CLEANUP_ATTEMPT: ${{ inputs.cleanup_attempt }}
         run: node scripts/feature-eligibility-staging-topology.mjs cleanup-recovered

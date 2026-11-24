@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { prepareTopologyRecovery } from './feature-eligibility-staging-topology-recovery.mjs';
+import * as recoveryRunner from './feature-eligibility-staging-topology-recovery.mjs';
 
 const sourceSha = 'a'.repeat(40);
 const context = {
@@ -372,4 +379,159 @@ test('recovery refuses a result artifact owned by a different source', async () 
 
   await assert.rejects(prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value), /Recovery provenance blocked/);
   assert.equal(calls.length, 5);
+});
+
+test('recovery permits interrupted initial run without result artifact and blocks continuations missing result', async () => {
+  const preparedOnly = [
+    {
+      id: 1234,
+      name: 'eligibility-topology-prepared-77-1',
+      expired: false,
+      size_in_bytes: 1024,
+      workflow_run: {
+        id: 77,
+        repository_id: 1,
+        head_repository_id: 1,
+        head_branch: 'main',
+        head_sha: sourceSha
+      }
+    }
+  ];
+  const { value } = lineageEffects({ artifacts: preparedOnly });
+  const receipt = await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value);
+  assert.deepEqual(receipt, {
+    schema: 1,
+    repository: '0xMiden/wallet',
+    workflowPath: '.github/workflows/feature-eligibility-topology.yml',
+    runId: '77',
+    runAttempt: '1',
+    sourceSha,
+    artifactId: '1234',
+    resultArtifactId: null
+  });
+
+  const continuationPreparedOnly = [
+    {
+      id: 1234,
+      name: 'eligibility-topology-prepared-88-1',
+      expired: false,
+      size_in_bytes: 1024,
+      workflow_run: {
+        id: 88,
+        repository_id: 1,
+        head_repository_id: 1,
+        head_branch: 'main',
+        head_sha: sourceSha
+      }
+    }
+  ];
+  const continuation = lineageEffects({
+    selected: githubRecord({ id: 88, run_attempt: 1, name: 'cleanup_run_id=77 cleanup_attempt=1' }),
+    artifacts: continuationPreparedOnly,
+    contextOverrides: { runId: '99' }
+  });
+  await assert.rejects(
+    prepareTopologyRecovery({ runId: '88', runAttempt: '1' }, continuation.value),
+    /Recovery provenance blocked/
+  );
+});
+
+test('topology workflow gates prior result download and env binding on non-empty result_artifact_id', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/feature-eligibility-topology.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /if:\s*inputs\.operation == 'cleanup' && steps\.recovery\.outputs\.result_artifact_id != ''/);
+  assert.match(
+    workflow,
+    /TOPOLOGY_PRIOR_RESULT_FILE:\s*\$\{\{\s*steps\.recovery\.outputs\.result_artifact_id != '' && format\('\{0\}\/eligibility-topology-prior-result\/result\.json', runner\.temp\) \|\| ''\s*\}\}/
+  );
+  assert.equal(
+    recoveryRunner.formatRecoveryOutputs({
+      artifactId: '1234',
+      resultArtifactId: null,
+      sourceSha,
+      runId: '77',
+      runAttempt: '1'
+    }),
+    `artifact_id=1234\nresult_artifact_id=\nsource_sha=${sourceSha}\nrun_id=77\nrun_attempt=1\n`
+  );
+  assert.equal(
+    recoveryRunner.formatRecoveryOutputs({
+      artifactId: '1234',
+      resultArtifactId: '5678',
+      sourceSha,
+      runId: '77',
+      runAttempt: '1'
+    }),
+    `artifact_id=1234\nresult_artifact_id=5678\nsource_sha=${sourceSha}\nrun_id=77\nrun_attempt=1\n`
+  );
+});
+
+test('recovery CLI prepare writes formatted GITHUB_OUTPUT and receipt with empty result_artifact_id when result artifact is absent', async () => {
+  const preparedOnly = [
+    {
+      id: 1234,
+      name: 'eligibility-topology-prepared-77-1',
+      expired: false,
+      size_in_bytes: 1024,
+      workflow_run: {
+        id: 77,
+        repository_id: 1,
+        head_repository_id: 1,
+        head_branch: 'main',
+        head_sha: sourceSha
+      }
+    }
+  ];
+  const { value } = lineageEffects({ artifacts: preparedOnly });
+  const runnerTemp = await mkdtemp(path.join(tmpdir(), 'topology-recovery-cli-'));
+  const outputPath = path.join(runnerTemp, 'github-output.txt');
+  await writeFile(outputPath, '', { mode: 0o600 });
+  const server = createServer(async (req, res) => {
+    try {
+      const prefix = '/repos/0xMiden/wallet';
+      if (!req.url?.startsWith(prefix)) throw new Error(`unexpected URL: ${req.url}`);
+      const payload = await value.github(req.url.slice(prefix.length));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(payload));
+    } catch {
+      res.writeHead(404);
+      res.end('{}');
+    }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology-recovery.mjs', import.meta.url));
+    const exitCode = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [scriptPath, 'prepare'], {
+        env: {
+          ...process.env,
+          GH_TOKEN: 't'.repeat(24),
+          GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+          GITHUB_REPOSITORY: context.repository,
+          GITHUB_REF: context.ref,
+          GITHUB_EVENT_NAME: context.eventName,
+          GITHUB_RUN_ID: context.runId,
+          GITHUB_RUN_ATTEMPT: context.runAttempt,
+          GITHUB_SHA: context.sourceSha,
+          CLEANUP_RUN_ID: '77',
+          CLEANUP_ATTEMPT: '1',
+          RUNNER_TEMP: runnerTemp,
+          GITHUB_OUTPUT: outputPath
+        },
+        stdio: 'ignore'
+      });
+      child.once('error', reject);
+      child.once('exit', resolve);
+    });
+
+    assert.equal(exitCode, 0);
+    const outputs = await readFile(outputPath, 'utf8');
+    assert.equal(
+      outputs,
+      `artifact_id=1234\nresult_artifact_id=\nsource_sha=${sourceSha}\nrun_id=77\nrun_attempt=1\n`
+    );
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    await rm(runnerTemp, { recursive: true, force: true });
+  }
 });

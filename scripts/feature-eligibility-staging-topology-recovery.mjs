@@ -132,10 +132,7 @@ export async function prepareTopologyRecovery(input, effects) {
   requireValue(parentFound);
   const artifacts = await listArtifacts(input.runId);
   requireValue(new Set(artifacts.map(value => value.id)).size === artifacts.length);
-  const artifactFor = name => {
-    const matches = artifacts.filter(value => value.name === name);
-    requireValue(matches.length === 1);
-    const artifact = matches[0];
+  const validateArtifact = artifact => {
     const provenance = artifact.workflow_run;
     requireValue(
       Number.isSafeInteger(artifact.id) &&
@@ -152,8 +149,20 @@ export async function prepareTopologyRecovery(input, effects) {
     );
     return String(artifact.id);
   };
+  const artifactFor = (name, { optional = false } = {}) => {
+    const matches = artifacts.filter(value => value.name === name);
+    if (optional && matches.length === 0) return null;
+    requireValue(matches.length === 1);
+    return validateArtifact(matches[0]);
+  };
+  const isCleanupRun =
+    typeof prior.name === 'string' &&
+    prior.name.startsWith('cleanup_run_id=') &&
+    prior.name !== 'cleanup_run_id= cleanup_attempt=';
   const artifactId = artifactFor(`eligibility-topology-prepared-${input.runId}-${input.runAttempt}`);
-  const resultArtifactId = artifactFor(`eligibility-topology-result-${input.runId}-${input.runAttempt}`);
+  const resultArtifactId = artifactFor(`eligibility-topology-result-${input.runId}-${input.runAttempt}`, {
+    optional: !isCleanupRun
+  });
   return Object.freeze({
     schema: 1,
     repository: REPOSITORY,
@@ -164,6 +173,10 @@ export async function prepareTopologyRecovery(input, effects) {
     artifactId,
     resultArtifactId
   });
+}
+
+export function formatRecoveryOutputs(receipt) {
+  return `artifact_id=${receipt.artifactId}\nresult_artifact_id=${receipt.resultArtifactId ?? ''}\nsource_sha=${receipt.sourceSha}\nrun_id=${receipt.runId}\nrun_attempt=${receipt.runAttempt}\n`;
 }
 
 async function github(pathname, token, apiUrl = 'https://api.github.com') {
@@ -198,11 +211,7 @@ async function main() {
   const directory = path.join(root, 'eligibility-topology-recovery');
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await writeFile(path.join(directory, 'recovery.json'), `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
-  await writeFile(
-    env.GITHUB_OUTPUT,
-    `artifact_id=${receipt.artifactId}\nresult_artifact_id=${receipt.resultArtifactId}\nsource_sha=${receipt.sourceSha}\nrun_id=${receipt.runId}\nrun_attempt=${receipt.runAttempt}\n`,
-    { flag: 'a', mode: 0o600 }
-  );
+  await writeFile(env.GITHUB_OUTPUT, formatRecoveryOutputs(receipt), { flag: 'a', mode: 0o600 });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

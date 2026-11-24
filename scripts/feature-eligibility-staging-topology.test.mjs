@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
@@ -500,6 +502,460 @@ test('cleanup writes a sanitized ownership diagnostic without deleting or contac
     assert.equal(result.reason, 'ownership_mismatch');
     assert.deepEqual(result.ownershipDiagnostic, { gate: 'script_tail_consumers', form: 'unexpected_type' });
     assert.equal(deletions, 0);
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test('recovery identity supports interrupted initial runs with null resultArtifactId and rejects mixed inputs', () => {
+  const recovery = {
+    schema: 1,
+    repository: context.repository,
+    workflowPath: context.workflowPath,
+    runId: '456',
+    runAttempt: '1',
+    sourceSha: context.sourceSha,
+    artifactId: '1234',
+    resultArtifactId: null
+  };
+  assert.deepEqual(
+    topologyRecoveryIdentity({ recovery, selectedRunId: '456', selectedRunAttempt: '1' }),
+    {
+      repository: context.repository,
+      workflowPath: context.workflowPath,
+      runId: '456',
+      runAttempt: '1',
+      sourceSha: context.sourceSha
+    }
+  );
+  assert.throws(
+    () =>
+      topologyRecoveryIdentity({
+        recovery,
+        previous: { schema: 1, identity: { ...topologyIdentity(context), runId: '456' } },
+        selectedRunId: '456',
+        selectedRunAttempt: '1'
+      }),
+    /recovery_identity_mismatch/
+  );
+  assert.throws(
+    () =>
+      topologyRecoveryIdentity({
+        recovery: { ...recovery, resultArtifactId: '5678' },
+        selectedRunId: '456',
+        selectedRunAttempt: '1'
+      }),
+    /recovery_identity_mismatch/
+  );
+});
+
+test('cleanup budget supports explicit prepared fallback within preflight cap and preserves strict failure without it', () => {
+  assert.deepEqual(
+    topologyCleanupBudget({ preflightStartedAt: 1_000, allowPreparedFallback: true, now: () => 300_000 }),
+    {
+      cleanupStartedAt: 300_000,
+      initialCalls: { preflight: 250, cleanup: 0 }
+    }
+  );
+  assert.deepEqual(
+    topologyCleanupBudget({ preflightStartedAt: 500_000, allowPreparedFallback: true, now: () => 300_000 }),
+    {
+      cleanupStartedAt: 500_000,
+      initialCalls: { preflight: 250, cleanup: 0 }
+    }
+  );
+});
+
+test('execution persists deploymentAttempted and live preflight reads to result.json before deploy completes', async t => {
+  const prepared = await preparedTestRun();
+  try {
+    const { manifest } = prepared;
+    const basePath = `/workers/scripts/${manifest.scriptName}`;
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    let snapshotDuringDeploy = null;
+    let snapshotDuringOwnership = null;
+    t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 200 }));
+    await topologyRunner.execute(prepared.env, {
+      createReadApi: () => async requestPath => {
+        if (requestPath === `${basePath}/settings`) {
+          if (snapshotDuringDeploy !== null && snapshotDuringOwnership === null) {
+            snapshotDuringOwnership = JSON.parse(await readFile(resultFile, 'utf8'));
+          }
+          return snapshotDuringDeploy === null
+            ? { status: 404, body: { success: false, errors: [{ code: 10007 }] } }
+            : { success: true, errors: [], result: { bindings: [] } };
+        }
+        if (requestPath === '/account') return { success: true, errors: [], result: { id: accountId } };
+        if (requestPath === `${basePath}/script-settings`)
+          return { success: true, errors: [], result: { logpush: false, observability: null, tail_consumers: [] } };
+        return null;
+      },
+      runCommand: async () => {
+        try {
+          snapshotDuringDeploy = JSON.parse(await readFile(resultFile, 'utf8'));
+        } catch {
+          snapshotDuringDeploy = { missing: true };
+        }
+        return { code: 0 };
+      }
+    });
+
+    assert.equal(snapshotDuringDeploy.missing, undefined);
+    assert.equal(snapshotDuringDeploy.deploymentAttempted, true);
+    assert.equal(snapshotDuringDeploy.providerReads.preflight, 2);
+    assert.equal(snapshotDuringOwnership.deploymentAttempted, true);
+    assert.ok(snapshotDuringOwnership.providerReads.preflight > 2);
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test('cleanup and recovery cleanup flush live read counts and deadline to result.json before completion', async () => {
+  const prepared = await preparedTestRun();
+  try {
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    const preflightReads = {
+      preflight: 20,
+      cleanup: 0,
+      total: 20,
+      elapsedMs: 5_000,
+      preflightStartedAt: prepared.startedAt,
+      preflightDeadlineAt: prepared.startedAt + 120_000,
+      cleanupStartedAt: null,
+      cleanupDeadlineAt: null,
+      preflightElapsedMs: 5_000,
+      cleanupElapsedMs: null
+    };
+    await mkdir(path.dirname(resultFile), { recursive: true, mode: 0o700 });
+    await writeFile(
+      resultFile,
+      `${JSON.stringify({
+        schema: 1,
+        identity: prepared.identity,
+        phase: 'execution',
+        deploymentAttempted: true,
+        providerReads: preflightReads
+      })}\n`,
+      { mode: 0o600 }
+    );
+    const fixture = syntheticReadApi({
+      manifest: prepared.manifest,
+      scriptSettings: { logpush: false, observability: null, tail_consumers: null }
+    });
+    let reads = 0;
+    let midCleanupSnapshot = null;
+    await topologyRunner.cleanup(prepared.env, false, {
+      createReadApi: () => async requestPath => {
+        reads++;
+        if (reads === 2) {
+          midCleanupSnapshot = JSON.parse(await readFile(resultFile, 'utf8'));
+        }
+        return fixture.api(requestPath);
+      },
+      createScriptDeleter: () => async () => false
+    });
+
+    assert.equal(midCleanupSnapshot.phase, 'cleanup');
+    assert.equal(midCleanupSnapshot.cleanup, 'pending');
+    assert.equal(midCleanupSnapshot.providerReads.cleanup, 2);
+    assert.equal(typeof midCleanupSnapshot.providerReads.cleanupStartedAt, 'number');
+    assert.equal(
+      midCleanupSnapshot.providerReads.cleanupDeadlineAt,
+      midCleanupSnapshot.providerReads.cleanupStartedAt + 120_000
+    );
+
+    const recoveryRunnerTemp = await mkdtemp(path.join(tmpdir(), 'topology-recovery-mid-'));
+    try {
+      const recoveryDir = path.join(recoveryRunnerTemp, 'eligibility-topology-recovery');
+      const prepDir = path.join(recoveryRunnerTemp, 'eligibility-topology-prepared');
+      const priorPath = path.join(recoveryRunnerTemp, 'prior-result.json');
+      const recoveryResultFile = path.join(recoveryRunnerTemp, 'eligibility-topology-result', 'result.json');
+      await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
+      await mkdir(prepDir, { recursive: true, mode: 0o700 });
+      await writeFile(
+        path.join(recoveryDir, 'recovery.json'),
+        `${JSON.stringify({
+          schema: 1,
+          repository: context.repository,
+          workflowPath: context.workflowPath,
+          runId: context.runId,
+          runAttempt: context.runAttempt,
+          sourceSha: context.sourceSha,
+          artifactId: '1234',
+          resultArtifactId: '5678'
+        })}\n`,
+        { mode: 0o600 }
+      );
+      await writeFile(
+        path.join(prepDir, 'prepared.json'),
+        await readFile(path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'prepared.json'), 'utf8'),
+        { mode: 0o600 }
+      );
+      await writeFile(
+        path.join(prepDir, 'staging-topology-worker.mjs'),
+        await readFile(path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'staging-topology-worker.mjs'))
+      );
+      await writeFile(priorPath, `${JSON.stringify(midCleanupSnapshot)}\n`, { mode: 0o600 });
+
+      let recoveredReads = 0;
+      let midRecoveredSnapshot = null;
+      await topologyRunner.cleanup(
+        {
+          ...prepared.env,
+          RUNNER_TEMP: recoveryRunnerTemp,
+          TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+          CLEANUP_RUN_ID: context.runId,
+          CLEANUP_ATTEMPT: context.runAttempt
+        },
+        true,
+        {
+          createReadApi: () => async requestPath => {
+            recoveredReads++;
+            if (recoveredReads === 2) {
+              midRecoveredSnapshot = JSON.parse(await readFile(recoveryResultFile, 'utf8'));
+            }
+            return fixture.api(requestPath);
+          },
+          createScriptDeleter: () => async () => false
+        }
+      );
+
+      assert.equal(midRecoveredSnapshot.phase, 'recovery_cleanup');
+      assert.equal(midRecoveredSnapshot.deploymentAttempted, true);
+      assert.equal(midRecoveredSnapshot.providerReads.cleanup, 4);
+      assert.equal(
+        midRecoveredSnapshot.providerReads.cleanupStartedAt,
+        midCleanupSnapshot.providerReads.cleanupStartedAt
+      );
+      assert.equal(
+        midRecoveredSnapshot.providerReads.cleanupDeadlineAt,
+        midCleanupSnapshot.providerReads.cleanupDeadlineAt
+      );
+    } finally {
+      await rm(recoveryRunnerTemp, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test('recovery cleans up a deployed worker from verified prepared artifact when prior result artifact is absent', async () => {
+  const prepared = await preparedTestRun();
+  try {
+    const { manifest } = prepared;
+    const basePath = `/workers/scripts/${manifest.scriptName}`;
+    const namespaces = manifest.config.durable_objects.bindings.map((binding, index) => ({
+      id: String(index + 1).padStart(32, '0'),
+      class: binding.class_name,
+      script: manifest.scriptName,
+      use_sqlite: true
+    }));
+    const bindings = topologyBindings(manifest).map(binding =>
+      binding.type === 'durable_object_namespace'
+        ? { ...binding, namespace_id: namespaces.find(row => row.class === binding.class_name).id }
+        : binding
+    );
+    const page = (result, perPage) => ({
+      success: true,
+      errors: [],
+      result,
+      result_info: { page: 1, per_page: perPage, count: result.length, total_pages: 1, total_count: result.length }
+    });
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    await mkdir(path.dirname(resultFile), { recursive: true, mode: 0o700 });
+    await writeFile(
+      resultFile,
+      `${JSON.stringify({
+        schema: 1,
+        identity: prepared.identity,
+        providerReads: {
+          preflight: 10,
+          cleanup: 99,
+          total: 109,
+          elapsedMs: 1_000,
+          preflightStartedAt: prepared.startedAt,
+          preflightDeadlineAt: prepared.startedAt + 120_000,
+          cleanupStartedAt: prepared.startedAt,
+          cleanupDeadlineAt: prepared.startedAt + 120_000,
+          preflightElapsedMs: 1_000,
+          cleanupElapsedMs: 0
+        }
+      })}\n`,
+      { mode: 0o600 }
+    );
+    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
+    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
+    await writeFile(
+      path.join(recoveryDir, 'recovery.json'),
+      `${JSON.stringify({
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: context.runId,
+        runAttempt: context.runAttempt,
+        sourceSha: context.sourceSha,
+        artifactId: '1234',
+        resultArtifactId: null
+      })}\n`,
+      { mode: 0o600 }
+    );
+    let deleted = false;
+    const exitCode = await topologyRunner.cleanup(
+      {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+        TOPOLOGY_PRIOR_RESULT_FILE: '',
+        CLEANUP_RUN_ID: context.runId,
+        CLEANUP_ATTEMPT: context.runAttempt
+      },
+      true,
+      {
+        createReadApi: () => async requestPath => {
+          if (requestPath === '/account') return { success: true, errors: [], result: { id: accountId } };
+          if (requestPath === `${basePath}/settings`) {
+            return deleted
+              ? { status: 404, body: { success: false, errors: [{ code: 10007 }] } }
+              : { success: true, errors: [], result: { bindings } };
+          }
+          if (requestPath === `${basePath}/script-settings`)
+            return {
+              success: true,
+              errors: [],
+              result: { logpush: false, observability: manifest.config.observability, tail_consumers: [] }
+            };
+          if (requestPath === `${basePath}/content/v2`) return { sha256: manifest.bundleSha256 };
+          if (requestPath === '/workers/scripts?page=1&per_page=100')
+            return page([{ id: manifest.scriptName }], 100);
+          if (requestPath === '/workers/durable_objects/namespaces?page=1&per_page=1000')
+            return page(namespaces, 1000);
+          assert.fail(`unexpected synthetic API path: ${requestPath}`);
+        },
+        createScriptDeleter: () => async scriptName => {
+          assert.equal(scriptName, manifest.scriptName);
+          deleted = true;
+          return true;
+        }
+      }
+    );
+    const result = JSON.parse(await readFile(resultFile, 'utf8'));
+
+    assert.equal(exitCode, 0);
+    assert.equal(deleted, true);
+    assert.equal(result.phase, 'recovery_cleanup');
+    assert.equal(result.cleanup, 'removed');
+    assert.equal(result.providerReads.preflight, 250);
+    assert.ok(result.providerReads.cleanup > 0 && result.providerReads.cleanup < 99);
+    assert.equal(result.providerReads.total, 250 + result.providerReads.cleanup);
+
+    await assert.rejects(
+      topologyRunner.cleanup(
+        {
+          ...prepared.env,
+          TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: path.join(prepared.runnerTemp, 'unexpected.json'),
+          CLEANUP_RUN_ID: context.runId,
+          CLEANUP_ATTEMPT: context.runAttempt
+        },
+        true
+      ),
+      /invalid_recovery_receipt/
+    );
+
+    const priorPath = path.join(prepared.runnerTemp, 'prior-for-mismatch.json');
+    await writeFile(priorPath, `${JSON.stringify({ schema: 1, identity: prepared.identity })}\n`, { mode: 0o600 });
+    await writeFile(
+      path.join(recoveryDir, 'recovery.json'),
+      `${JSON.stringify({
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: context.runId,
+        runAttempt: context.runAttempt,
+        sourceSha: 'c'.repeat(40),
+        artifactId: '1234',
+        resultArtifactId: '5678'
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await assert.rejects(
+      topologyRunner.cleanup(
+        {
+          ...prepared.env,
+          TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+          CLEANUP_RUN_ID: context.runId,
+          CLEANUP_ATTEMPT: context.runAttempt
+        },
+        true
+      ),
+      /invalid_recovery_receipt/
+    );
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test('cli failure handler preserves existing valid result.json instead of clobbering lineage', async () => {
+  const prepared = await preparedTestRun();
+  try {
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    const existing = {
+      schema: 1,
+      identity: prepared.identity,
+      phase: 'execution',
+      deploymentAttempted: true,
+      providerReads: {
+        preflight: 12,
+        cleanup: 0,
+        total: 12,
+        elapsedMs: 1_000,
+        preflightStartedAt: prepared.startedAt,
+        preflightDeadlineAt: prepared.startedAt + 120_000,
+        cleanupStartedAt: null,
+        cleanupDeadlineAt: null,
+        preflightElapsedMs: 1_000,
+        cleanupElapsedMs: null
+      }
+    };
+    await mkdir(path.dirname(resultFile), { recursive: true, mode: 0o700 });
+    await writeFile(resultFile, `${JSON.stringify(existing)}\n`, { mode: 0o600 });
+
+    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
+    const run = spawnSync(process.execPath, [scriptPath, 'cleanup'], {
+      env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
+      encoding: 'utf8'
+    });
+
+    assert.equal(run.status, 1);
+    const after = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.deepEqual(after, existing);
+
+    const recoveryRunnerTemp = await mkdtemp(path.join(tmpdir(), 'topology-cli-recovered-'));
+    try {
+      const priorPath = path.join(recoveryRunnerTemp, 'prior.json');
+      const recoveredResultFile = path.join(recoveryRunnerTemp, 'eligibility-topology-result', 'result.json');
+      await writeFile(priorPath, `${JSON.stringify(existing)}\n`, { mode: 0o600 });
+      const recoveredRun = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+        env: {
+          ...prepared.env,
+          RUNNER_TEMP: recoveryRunnerTemp,
+          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+          CLOUDFLARE_API_TOKEN: 'bad'
+        },
+        encoding: 'utf8'
+      });
+      assert.equal(recoveredRun.status, 1);
+      const recoveredAfter = JSON.parse(await readFile(recoveredResultFile, 'utf8'));
+      assert.deepEqual(recoveredAfter, {
+        ...existing,
+        phase: 'recovery_cleanup',
+        cleanup: 'blocked',
+        reason: 'cleanup_failed'
+      });
+    } finally {
+      await rm(recoveryRunnerTemp, { recursive: true, force: true });
+    }
   } finally {
     await rm(prepared.runnerTemp, { recursive: true, force: true });
   }
