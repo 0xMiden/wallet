@@ -164,7 +164,7 @@ const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(
         }
 
         const max = target.scrollHeight - target.clientHeight;
-        if (max <= 0) return;
+        if (max <= 0 && scroll.current?.target !== target) return;
         const top = Math.max(0, Math.min(max, target.scrollTop));
         if (scroll.current?.target !== target) {
           scroll.current = { target, edge: top, condensed: false };
