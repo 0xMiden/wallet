@@ -3203,6 +3203,10 @@ public class BreadPresentationControllerTest {
     @Test @Config(shadows = PaintWebView.class)
     public void fullscreenCollapseKeepsTheWindowFullUntilTheAcknowledgementAndShowsBars() throws Exception {
         open(true, true, "default");
+        android.graphics.drawable.Drawable originalWindow = new android.graphics.drawable.ColorDrawable(android.graphics.Color.RED);
+        android.graphics.drawable.Drawable originalContainer = new android.graphics.drawable.ColorDrawable(android.graphics.Color.CYAN);
+        dialog.getWindow().setBackgroundDrawable(originalWindow);
+        dialog.findViewById(R.id.coordinator_layout).setBackground(originalContainer);
         boolean fit = fits(); int behavior = bars().getSystemBarsBehavior();
         fullscreen();
         assertTrue(controller.state.ready());
@@ -3216,9 +3220,9 @@ public class BreadPresentationControllerTest {
         assertEquals(-1, dialog.getWindow().getAttributes().height);
         int requested = ReflectionHelpers.callInstanceMethod(dialog.getWindow().getInsetsController(), "getRequestedVisibleTypes");
         assertEquals(3, requested & 3);
-        android.graphics.drawable.Drawable background = dialog.getWindow().getDecorView().getBackground();
-        assertTrue(background instanceof android.graphics.drawable.ColorDrawable);
-        assertEquals(android.graphics.Color.TRANSPARENT, ((android.graphics.drawable.ColorDrawable) background).getColor());
+        assertTransparentWindowBackground(dialog.getWindow());
+        assertBlackContainerBackground(root);
+        assertNotSame(originalContainer, root.getBackground());
         BreadMorphControllerTest.settle();
         assertTrue(dialog.isShowing());
         assertEquals(-1, dialog.getWindow().getAttributes().width);
@@ -3228,6 +3232,8 @@ public class BreadPresentationControllerTest {
         controller.visibility(false, null, nextSequence());
         assertFalse(dialog.isShowing());
         assertRestored(fit, behavior);
+        assertRestoredWindowBackground(dialog.getWindow(), originalWindow, android.graphics.Color.RED);
+        assertRestoredContainerBackground(root, originalContainer, android.graphics.Color.CYAN);
         assertEquals(1, root.getScaleX(), 0);
         assertEquals(1, capsule.getAlpha(), 0);
         assertEquals(255, capsule.getImageAlpha());
@@ -3794,21 +3800,39 @@ public class BreadPresentationControllerTest {
         assertEquals(android.graphics.Color.BLACK, ((android.graphics.drawable.ColorDrawable) background).getColor());
     }
 
+    private static void assertRestoredColorDrawable(
+        String label,
+        android.graphics.drawable.Drawable background,
+        android.graphics.drawable.Drawable original,
+        int color
+    ) {
+        assertSame(original, background);
+        assertTrue(label + " should be ColorDrawable", background instanceof android.graphics.drawable.ColorDrawable);
+        assertEquals(color, ((android.graphics.drawable.ColorDrawable) background).getColor());
+    }
+
     private static void assertRestoredContainerBackground(
         View view,
         android.graphics.drawable.Drawable original,
         int color
     ) {
-        android.graphics.drawable.Drawable background = view.getBackground();
-        assertSame(original, background);
-        assertTrue("container background should be ColorDrawable", background instanceof android.graphics.drawable.ColorDrawable);
-        assertEquals(color, ((android.graphics.drawable.ColorDrawable) background).getColor());
+        assertRestoredColorDrawable("container background", view.getBackground(), original, color);
+    }
+
+    private static void assertRestoredWindowBackground(
+        Window window,
+        android.graphics.drawable.Drawable original,
+        int color
+    ) {
+        assertRestoredColorDrawable("window background", window.getDecorView().getBackground(), original, color);
     }
 
     @Test @Config(shadows = PaintWebView.class)
     public void fullscreenWindowRemainsTransparentWhileContainerHoldsBlackBackdrop() throws Exception {
         open(true, true, "default");
+        android.graphics.drawable.Drawable originalWindow = new android.graphics.drawable.ColorDrawable(android.graphics.Color.RED);
         android.graphics.drawable.Drawable original = new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLUE);
+        dialog.getWindow().setBackgroundDrawable(originalWindow);
         dialog.findViewById(R.id.coordinator_layout).setBackground(original);
         fullscreen();
         assertTrue(controller.state.ready());
@@ -3819,13 +3843,16 @@ public class BreadPresentationControllerTest {
         assertNotSame(original, root.getBackground());
         controller.state.configure("browser", false, false);
         acknowledgePolicy();
+        assertRestoredWindowBackground(dialog.getWindow(), originalWindow, android.graphics.Color.RED);
         assertRestoredContainerBackground(root, original, android.graphics.Color.BLUE);
     }
 
     @Test @Config(shadows = PaintWebView.class)
     public void repeatedFullscreenMinimizeAndRestoreKeepsWindowTransparent() throws Exception {
         open(true, true, "default");
+        android.graphics.drawable.Drawable originalWindow = new android.graphics.drawable.ColorDrawable(android.graphics.Color.RED);
         android.graphics.drawable.Drawable original = new android.graphics.drawable.ColorDrawable(android.graphics.Color.GREEN);
+        dialog.getWindow().setBackgroundDrawable(originalWindow);
         dialog.findViewById(R.id.coordinator_layout).setBackground(original);
         fullscreen();
         assertTrue(controller.state.ready());
@@ -3844,6 +3871,7 @@ public class BreadPresentationControllerTest {
         assertBlackContainerBackground(root);
 
         controller.visibility(false, null, nextSequence());
+        assertRestoredWindowBackground(page, originalWindow, android.graphics.Color.RED);
         assertRestoredContainerBackground(root, original, android.graphics.Color.GREEN);
 
         assertTrue(controller.morph("expanded", target, 0, 0, "e1", (int) controller.state.policyRevision(), nextSequence()));
@@ -3863,6 +3891,7 @@ public class BreadPresentationControllerTest {
         assertTransparentWindowBackground(page);
 
         controller.visibility(false, null, nextSequence());
+        assertRestoredWindowBackground(page, originalWindow, android.graphics.Color.RED);
         assertRestoredContainerBackground(root, original, android.graphics.Color.GREEN);
     }
 }
