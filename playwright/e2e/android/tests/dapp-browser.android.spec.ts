@@ -33,11 +33,13 @@ test.describe('dApp Browser (Android)', () => {
     await server?.stop();
   });
 
-  test('open, minimize, maximize, switch and close dApps', async ({ walletA, steps }) => {
+  test.beforeEach(async ({ walletA, steps }) => {
     await steps.step('create_wallet', async () => {
       await walletA.createNewWallet();
     });
+  });
 
+  test('open, minimize, maximize, switch and close dApps', async ({ walletA, steps }) => {
     const driver = new DappBrowserDriver({
       target: walletA,
       server,
@@ -46,6 +48,9 @@ test.describe('dApp Browser (Android)', () => {
     });
 
     await runDappBrowserJourney({ driver, server, steps });
+  });
+
+  test('wallet navbar follows native scroll gestures', async ({ walletA, steps }) => {
     await runNavbarPresentationScenario({ target: walletA, device: { serial: walletA.serial }, steps });
   });
 });

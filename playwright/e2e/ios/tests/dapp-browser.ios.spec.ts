@@ -34,7 +34,7 @@ test.describe('dApp Browser (iOS)', () => {
     await server?.stop();
   });
 
-  test('open, minimize, maximize, switch and close dApps', async ({ walletA, steps }, testInfo) => {
+  test.beforeEach(async ({ walletA, steps }) => {
     // A wallet has to exist before the browser tab is reachable — the peek tray
     // is gated on the unlocked wallet shell.
     await steps.step('create_wallet', async () => {
@@ -48,7 +48,9 @@ test.describe('dApp Browser (iOS)', () => {
         );
       }
     });
+  });
 
+  test('open, minimize, maximize, switch and close dApps', async ({ walletA, steps }, testInfo) => {
     await resetEligibilityFixtureOrigin();
     await walletA.lockWallet();
     await expect.poll(async () => (await getEligibilityFixtureOrigin()).observed, { timeout: 10_000 }).toBe(true);
@@ -68,6 +70,9 @@ test.describe('dApp Browser (iOS)', () => {
     });
 
     await runDappBrowserJourney({ driver, server, steps });
+  });
+
+  test('wallet navbar follows native scroll gestures', async ({ walletA, steps }) => {
     await runNavbarPresentationScenario({ target: walletA, device: { udid: walletA.udid }, steps });
   });
 });
