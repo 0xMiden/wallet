@@ -4,8 +4,8 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 
 import { ClaimsLoadingBar, RestoreDeclinedTransfers } from './ActivityClaimsStatus';
 import { ActivityGroupList } from './ActivityGroupList';
-import { ActivityGroupsBoundary } from './ActivityGroupsBoundary';
 import { activityCounterpartyNames } from './activityGroups';
+import { ActivityGroupsBoundary } from './ActivityGroupsBoundary';
 import History from './History';
 import { useActivityClaimList } from './useActivityClaimList';
 
